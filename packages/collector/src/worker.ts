@@ -3,11 +3,13 @@ import { transaction } from "@soldbench/db";
 import { collectPrimaryImage, type PrivateMediaStore } from "@soldbench/media";
 import {
   digest,
+  type FixturePage,
   type FixtureResponse,
   type FixtureTransport,
   parseFixturePage,
   uncertainCandidateKey,
 } from "./fixture.ts";
+import { CollectorIntegrityError } from "./integrity.ts";
 import type { CollectorStore, Lease } from "./store.ts";
 
 /** A fixture-only worker; neither its page nor image transport can access networks. */
@@ -172,15 +174,26 @@ export class OfflineCollectorWorker {
           return { jobId: job.id, status: "completed" };
         }
         const { response, id } = await this.response(lease, `page:${job.cursor}`, "page", options.signal);
-        if (response.contentType.split(";")[0]?.trim().toLowerCase() !== "application/json")
-          throw new Error("page_content_type_invalid");
-        const page = parseFixturePage(response.bytes, {
-          sourceId,
-          queryHash: job.query_hash,
-          cursor: job.cursor,
-          asOf: job.as_of.toISOString(),
-        });
-        await this.store.commitPage(lease, page, response.bytes, id);
+        let page: FixturePage;
+        try {
+          if (response.contentType.split(";")[0]?.trim().toLowerCase() !== "application/json")
+            throw new CollectorIntegrityError("page_content_type_invalid");
+          try {
+            page = parseFixturePage(response.bytes, {
+              sourceId,
+              queryHash: job.query_hash,
+              cursor: job.cursor,
+              asOf: job.as_of.toISOString(),
+            });
+          } catch {
+            throw new CollectorIntegrityError("page_structure_invalid");
+          }
+          await this.store.commitPage(lease, page, response.bytes, id);
+        } catch (error) {
+          if (error instanceof CollectorIntegrityError)
+            await this.store.quarantinePage(lease, id, response.bytes, error.reason, error.affectedEventId);
+          throw error;
+        }
         await this.images(lease, options.signal);
         processed++;
         if (options.maxPages !== undefined && processed >= options.maxPages && page.nextCursor !== null) {

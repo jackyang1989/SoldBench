@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { type Candidate, candidateFromJson, canonicalJson, instant } from "@soldbench/core";
 
-export const COLLECTOR_VERSION = "offline-pg-1.1.0";
-export const PARSER_VERSION = "synthetic-page-1.0.0";
+export const COLLECTOR_VERSION = "offline-pg-1.2.0";
+export const PARSER_VERSION = "synthetic-page-1.1.0";
 export type FixtureListing = {
   listingId: string;
   title: string;
@@ -58,11 +58,32 @@ export class FixtureTransport {
 function text(value: unknown, max = 500): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= max;
 }
+function storedInstant(value: string): number {
+  if (value.startsWith("0000-")) throw new Error("fixture_timestamp_out_of_range");
+  return instant(value);
+}
 export function parseFixturePage(
   bytes: Uint8Array,
   binding: { sourceId: string; queryHash: string; cursor: string; asOf: string },
 ): FixturePage {
+  if (bytes.byteLength > 1024 * 1024) throw new Error("fixture_page_too_large");
   const page = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as FixturePage;
+  // PostgreSQL jsonb rejects NUL and unpaired surrogates, including in extra
+  // fields. Bound depth as well so malformed trees cannot exhaust the stack.
+  const pending: Array<{ value: unknown; depth: number }> = [{ value: page, depth: 0 }];
+  while (pending.length) {
+    const entry = pending.pop();
+    if (!entry) break;
+    if (entry.depth > 64) throw new Error("fixture_page_text_invalid");
+    if (typeof entry.value === "string") {
+      if (entry.value.includes("\u0000") || Buffer.from(entry.value).toString("utf8") !== entry.value)
+        throw new Error("fixture_page_text_invalid");
+    } else if (entry.value !== null && typeof entry.value === "object") {
+      for (const [key, value] of Object.entries(entry.value)) {
+        pending.push({ value: key, depth: entry.depth + 1 }, { value, depth: entry.depth + 1 });
+      }
+    }
+  }
   if (
     page?.schema !== "soldbench.synthetic-page.v1" ||
     page.synthetic !== true ||
@@ -77,11 +98,31 @@ export function parseFixturePage(
     (page.empty && page.nextCursor !== null)
   )
     throw new Error("fixture_page_binding_or_shape_invalid");
-  if (instant(page.asOf) > instant(binding.asOf)) throw new Error("fixture_page_future_watermark");
+  if (storedInstant(page.asOf) > storedInstant(binding.asOf))
+    throw new Error("fixture_page_future_watermark");
   page.records = page.records.map((row) => {
     if (!row || !text(row.listingId, 160) || !text(row.title)) throw new Error("fixture_listing_invalid");
     const candidate = candidateFromJson(row.candidate);
     if (candidate.sourceId !== page.sourceId) throw new Error("fixture_candidate_source_mismatch");
+    if (candidate.eventKey !== null && Buffer.byteLength(candidate.eventKey, "utf8") > 512)
+      throw new Error("fixture_event_key_too_large");
+    // Match persistence semantics at the parser boundary. Unknown values stay
+    // unknown; inconsistent assertions are a bad page, not a database outage.
+    if (
+      (candidate.priceStatus === "verified_actual" && candidate.itemCents === null) ||
+      (candidate.shippingStatus === "unknown" &&
+        (candidate.shippingCents !== null || (candidate.usdConversion?.shippingCents ?? null) !== null)) ||
+      (candidate.shippingStatus === "observed" && candidate.shippingCents === null) ||
+      (candidate.shippingStatus === "verified_free_shipping" &&
+        (candidate.shippingCents !== 0 ||
+          (candidate.usdConversion !== undefined && candidate.usdConversion.shippingCents !== 0)))
+    )
+      throw new Error("fixture_candidate_semantics_invalid");
+    if (candidate.time.precision === "instant") storedInstant(candidate.time.value);
+    if (candidate.time.precision === "day") {
+      // A missing/unknown zone is retained for exclusion by the shared engine.
+      storedInstant(`${candidate.time.value}T00:00:00Z`);
+    }
     if (
       row.primaryImage !== undefined &&
       (row.primaryImage?.role !== "primary" || !text(row.primaryImage.url, 2000))

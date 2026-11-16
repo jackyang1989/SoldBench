@@ -1,0 +1,75 @@
+{
+  "schema": "soldbench.offline-collector-quarantine-evidence.v1",
+  "date": "2026-11-16",
+  "parentCommit": "553b5de",
+  "mode": "offline_fixture",
+  "collectorNetworkEnabled": false,
+  "actualSourceVerified": false,
+  "stageVerdict": "NOT_ISSUED",
+  "versions": {
+    "collector": "offline-pg-1.2.0",
+    "parser": "synthetic-page-1.1.0",
+    "migration": "0007_collector_quarantine.sql"
+  },
+  "environment": {
+    "node": "22.23.3",
+    "database": "isolated PG16.15 Unix-socket temporary databases, 55 tables; empty and 0006 upgrade",
+    "data": "synthetic pages/frames + golden fixture + local generated image",
+    "clock": "explicit frozen UTC dates with boundary/lease/expiry injection; database default"
+  },
+  "checks": [
+    {
+      "command": "npm run check",
+      "exitCode": 0,
+      "tests": 68,
+      "collectorPipelineTests": 33,
+      "collectorRuntimeTests": 9,
+      "log": "engineering-check.log"
+    },
+    {
+      "command": "python3 step0/tools/validate_offline.py",
+      "exitCode": 0,
+      "log": "step0-check.log",
+      "generatedReport": "/Users/jianouyang/Project/SoldBench/step0/artifacts/20261116T143517357608Z/validation.json"
+    },
+    {
+      "command": "python3 docs/check_docs.py",
+      "exitCode": 0
+    },
+    {
+      "command": "git diff --check",
+      "exitCode": 0
+    }
+  ],
+  "independentReview": {
+    "reviewer": "collector_review",
+    "mode": "read-only static; independent PG run unavailable due sandbox shared-memory restriction",
+    "resolved": [
+      "same-page conflicting new events must not reference rolled-back IDs",
+      "semantic/date/JSON/index persistence limits validated before SQL",
+      "non-USD verified free shipping stays zero without inventing item FX",
+      "frozen collector/parser version guard"
+    ],
+    "final": "No additional HIGH/MEDIUM; no G1 signoff"
+  },
+  "remaining": [
+    "No authorized eBay parser or 45 source field verification",
+    "No 14-day authorized or 7-day production-type stability campaign",
+    "No owner HTTP/account/media or snapshot delivery service integration",
+    "No deployed supervisor or host egress/resource isolation verification",
+    "No automatic quarantine resolution; manual reviewed recovery remains required"
+  ],
+  "sha256": {
+    "packages/collector/src/access-guard.ts": "ccbc0ab94bacdfd651f9c373b4b587603a2c41e4152be306290fb6747858ece9",
+    "packages/collector/src/artifact.ts": "eef8d23887c6f1ae7d8f7a68fe3ed4ccdb8bee0e2202febc4587b44320197da4",
+    "packages/collector/src/fixture.ts": "b877d7fd0edbf36ca6a5c33046cb271635789552122bf0527758ea2ba6d0e0ed",
+    "packages/collector/src/index.ts": "2498e55ed9c9d055041706786bafc11f221a292644a4af8d0ca540467f6db2c2",
+    "packages/collector/src/integrity.ts": "4cc69514617105b12cbff51b482b874633b4734c83bed84ad751bdb9164dd42f",
+    "packages/collector/src/provision-fixture.ts": "66563fb70d85f1d4258d4bde660923d3ef0f943c630d22f70c354120aaae251b",
+    "packages/collector/src/store.ts": "0722a5992c28e14cef93493aa6c2f829eff8c27f96476bd795aadad25985e5b3",
+    "packages/collector/src/worker.ts": "f628f3be1ad64aa3d7368d49bc4a1b263143794e901444c57528c0b03473ab58",
+    "packages/db/migrations/0007_collector_quarantine.sql": "d4a8b280cd99e528fe8b48f05387c374e08ec08b32dd420293263a4997c79797",
+    "tests/collector-pipeline.test.mjs": "1f0fe41c0b50d77d754ff5ca8f5136bc16201941444e6d0c1541a3da3cbc0191",
+    "tests/database.test.mjs": "8518210f62402743162bce16f317d7284601780709fd979bbcc02b159814a15c"
+  }
+}

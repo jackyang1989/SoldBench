@@ -5,11 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import {
+  COLLECTOR_VERSION,
   CollectorStore,
   digest,
   FixtureTransport,
   fixtureResponse,
   OfflineCollectorWorker,
+  PARSER_VERSION,
   parseFixturePage,
   provisionFixtureSource,
 } from "@soldbench/collector";
@@ -794,4 +796,287 @@ test("an invalid maintenance/read clock cannot extend image visibility or delete
   await assert.rejects(runner.readImageInternal(image.id), /invalid_utc_instant/);
   await assert.rejects(runner.runMaintenance(x.sourceId), /invalid_utc_instant/);
   assert.ok((await x.media.get(image.object_key)).length > 0);
+});
+
+test("malformed successful pages quarantine bounded metadata and atomically stop every queued source job", async () => {
+  for (const malformed of ["json", "html", "shape", "binding", "candidate", "encoding"]) {
+    const x = await setup(),
+      queued = await x.store.enqueue({ ...x.input, runKey: "queued", queryHash: digest("other-query") });
+    let bytes = Buffer.from('{"secret":"do-not-store-raw-token"'),
+      contentType = "application/json";
+    if (malformed === "html") {
+      bytes = Buffer.from("<html>unrecognized source error do-not-store-raw-token</html>");
+      contentType = "text/html";
+    }
+    if (["shape", "binding", "candidate"].includes(malformed)) {
+      const body = page(x, [listing(x, 1)]);
+      if (malformed === "shape") delete body.records;
+      if (malformed === "binding") body.queryHash = digest("wrong-query");
+      if (malformed === "candidate") body.records[0].candidate.itemCents = -1;
+      bytes = Buffer.from(JSON.stringify(body));
+    }
+    if (malformed === "encoding") bytes = Buffer.from([0xff, 0xfe, 0xfd]);
+    const transport = frames([["page:start", [{ status: 200, contentType, bytes }]]]);
+    assert.equal((await worker(x, transport).runOne(x.sourceId)).status, "failed");
+    assert.equal((await x.store.view(queued)).status, "failed");
+    assert.equal(transport.calls.length, 1);
+    const incident = (await db.query("SELECT * FROM collector_quarantines WHERE source_id=$1", [x.sourceId]))
+      .rows[0];
+    assert.equal(incident.raw_hash, digest(bytes));
+    assert.equal(Number(incident.byte_length), bytes.length);
+    assert.equal(
+      incident.reason,
+      malformed === "html" ? "page_content_type_invalid" : "page_structure_invalid",
+    );
+    assert.equal(incident.affected_event_id, null);
+    assert.equal(JSON.stringify(incident).includes("do-not-store-raw-token"), false);
+    assert.equal((await db.query("SELECT * FROM collector_pages WHERE job_id=$1", [x.jobId])).rowCount, 0);
+    assert.equal(
+      (await db.query("SELECT * FROM collector_watermarks WHERE source_id=$1", [x.sourceId])).rowCount,
+      0,
+    );
+    const notification = (
+      await db.query("SELECT payload FROM outbox WHERE event_key=$1", [
+        `collector-quarantine:${incident.dispatch_id}`,
+      ])
+    ).rows[0].payload;
+    assert.equal(notification.incidentId, incident.id);
+    assert.equal(JSON.stringify(notification).includes("do-not-store-raw-token"), false);
+    await assert.rejects(x.store.claim(x.sourceId), /source_circuit_open/);
+  }
+});
+
+test("a structure drift preserves valid previous evidence while a later event conflict blocks affected cached inputs", async () => {
+  const x = await setup();
+  await worker(x, frames([["page:start", [fixtureResponse(page(x, [listing(x, 0)]))]]])).runOne(x.sourceId);
+  const prior = (await db.query("SELECT * FROM collector_watermarks WHERE source_id=$1", [x.sourceId]))
+    .rows[0];
+  const second = await x.store.enqueue({ ...x.input, runKey: "conflict" });
+  const changed = listing(x, 0, { candidate: candidate(x.sourceId, 0, { itemCents: 9000 }) });
+  await worker(x, frames([["page:start", [fixtureResponse(page(x, [changed]))]]])).runOne(x.sourceId);
+  const incident = (await db.query("SELECT * FROM collector_quarantines WHERE job_id=$1", [second])).rows[0];
+  assert.equal(incident.reason, "event_identity_conflict");
+  assert.ok(incident.affected_event_id);
+  await assert.rejects(x.store.candidates(x.jobId), /collector_evidence_quarantined/);
+  assert.equal(
+    (await db.query("SELECT item_price_cents FROM sale_events WHERE id=$1", [incident.affected_event_id]))
+      .rows[0].item_price_cents,
+    "1000",
+  );
+  const after = (await db.query("SELECT * FROM collector_watermarks WHERE source_id=$1", [x.sourceId]))
+    .rows[0];
+  assert.deepEqual(after, prior);
+  const y = await setup();
+  await worker(y, frames([["page:start", [fixtureResponse(page(y, [listing(y, 0)]))]]])).runOne(y.sourceId);
+  await y.store.enqueue({ ...y.input, runKey: "drift" });
+  await worker(
+    y,
+    frames([
+      ["page:start", [{ status: 200, contentType: "application/json", bytes: Buffer.from("invalid json") }]],
+    ]),
+  ).runOne(y.sourceId);
+  assert.equal((await y.store.candidates(y.jobId)).length, 1);
+});
+
+test("quarantine rejects cross-job, mismatched bytes, unconsumed dispatches and old leases", async () => {
+  const x = await setup(),
+    lease = await x.store.claim(x.sourceId),
+    raw = Buffer.from("invalid json");
+  const dispatch = await x.store.reserve(lease, "page", 1024);
+  await assert.rejects(
+    x.store.quarantinePage(lease, dispatch, raw, "page_structure_invalid"),
+    /quarantine_dispatch_mismatch/,
+  );
+  await x.store.settle(lease, dispatch, raw.length, digest(raw));
+  await assert.rejects(
+    x.store.quarantinePage(lease, dispatch, Buffer.from("changed"), "page_structure_invalid"),
+    /quarantine_dispatch_mismatch/,
+  );
+  const y = await setup();
+  const otherLease = await y.store.claim(y.sourceId);
+  await assert.rejects(
+    y.store.quarantinePage(otherLease, dispatch, raw, "page_structure_invalid"),
+    /quarantine_dispatch_mismatch/,
+  );
+  clock = "2026-11-16T12:01:01Z";
+  await assert.rejects(
+    x.store.quarantinePage(lease, dispatch, raw, "page_structure_invalid"),
+    /collector_lease_lost/,
+  );
+  assert.equal(
+    (
+      await db.query("SELECT * FROM collector_quarantines WHERE source_id=ANY($1::uuid[])", [
+        [x.sourceId, y.sourceId],
+      ])
+    ).rowCount,
+    0,
+  );
+});
+
+test("quarantine outbox failure rolls back incident, circuit and other job mutations", async () => {
+  const x = await setup(),
+    queued = await x.store.enqueue({ ...x.input, runKey: "other", queryHash: digest("other") });
+  const lease = await x.store.claim(x.sourceId, 60, x.jobId),
+    raw = Buffer.from("invalid json"),
+    dispatch = await x.store.reserve(lease, "page", 1024);
+  await x.store.settle(lease, dispatch, raw.length, digest(raw));
+  await db.query(
+    "CREATE FUNCTION collector_quarantine_fault() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.kind='collector.evidence_quarantined' THEN RAISE EXCEPTION 'injected_quarantine_failure'; END IF; RETURN NEW; END $$",
+  );
+  await db.query(
+    "CREATE TRIGGER collector_quarantine_fault BEFORE INSERT ON outbox FOR EACH ROW EXECUTE FUNCTION collector_quarantine_fault()",
+  );
+  try {
+    await assert.rejects(
+      x.store.quarantinePage(lease, dispatch, raw, "page_structure_invalid"),
+      /injected_quarantine_failure/,
+    );
+    assert.equal(
+      (await db.query("SELECT * FROM collector_quarantines WHERE job_id=$1", [x.jobId])).rowCount,
+      0,
+    );
+    assert.equal(
+      (await db.query("SELECT * FROM collector_circuits WHERE source_id=$1", [x.sourceId])).rowCount,
+      0,
+    );
+    assert.equal((await x.store.view(queued)).status, "queued");
+    assert.equal((await x.store.view(x.jobId)).status, "running");
+  } finally {
+    await db.query("DROP TRIGGER collector_quarantine_fault ON outbox");
+    await db.query("DROP FUNCTION collector_quarantine_fault()");
+  }
+  await x.store.quarantinePage(lease, dispatch, raw, "page_structure_invalid");
+  assert.equal((await x.store.view(queued)).status, "failed");
+});
+
+test("conflicting events first seen within one page quarantine without referencing rolled back event IDs", async () => {
+  for (const uncertain of [false, true]) {
+    const x = await setup(),
+      changes = uncertain
+        ? { eventKey: null, identityVerified: false, observationKey: digest("same-uncertain-evidence") }
+        : {},
+      first = listing(x, 0, { candidate: candidate(x.sourceId, 0, changes) }),
+      second = listing(x, 0, { candidate: candidate(x.sourceId, 0, { ...changes, itemCents: 9000 }) });
+    const result = await worker(
+      x,
+      frames([["page:start", [fixtureResponse(page(x, [first, second]))]]]),
+    ).runOne(x.sourceId);
+    assert.equal(result.status, "failed");
+    const incident = (await db.query("SELECT * FROM collector_quarantines WHERE job_id=$1", [x.jobId]))
+      .rows[0];
+    assert.equal(incident.reason, "page_event_conflict");
+    assert.equal(incident.affected_event_id, null);
+    assert.equal((await db.query("SELECT * FROM sale_events WHERE source_id=$1", [x.sourceId])).rowCount, 0);
+    assert.equal((await db.query("SELECT * FROM collector_pages WHERE job_id=$1", [x.jobId])).rowCount, 0);
+    assert.equal(
+      (await db.query("SELECT * FROM collector_circuits WHERE source_id=$1 AND status='open'", [x.sourceId]))
+        .rowCount,
+      1,
+    );
+  }
+});
+
+test("inconsistent persistence semantics and invalid dates are classified before SQL as quarantined bad pages", async () => {
+  const cases = [
+    { shippingStatus: "unknown", shippingCents: 1 },
+    { shippingStatus: "observed", shippingCents: null },
+    { shippingStatus: "verified_free_shipping", shippingCents: 10 },
+    {
+      shippingStatus: "unknown",
+      shippingCents: null,
+      currency: "EUR",
+      usdConversion: { itemCents: 1000, shippingCents: 1, evidenceRef: "synthetic" },
+    },
+    {
+      shippingStatus: "verified_free_shipping",
+      shippingCents: 0,
+      currency: "EUR",
+      usdConversion: { itemCents: 1000, shippingCents: 2, evidenceRef: "synthetic" },
+    },
+    { priceStatus: "verified_actual", itemCents: null },
+    { time: { precision: "instant", value: "invalid-time" } },
+    { time: { precision: "instant", value: "0000-01-01T00:00:00Z" } },
+    { eventKey: "long-event-key".repeat(500) },
+    { time: { precision: "day", value: "2026-02-30", timeZone: null } },
+  ];
+  for (const changes of cases) {
+    const x = await setup();
+    const body = page(x, [listing(x, 0, { candidate: candidate(x.sourceId, 0, changes) })]);
+    await worker(x, frames([["page:start", [fixtureResponse(body)]]])).runOne(x.sourceId);
+    assert.equal(
+      (await db.query("SELECT reason FROM collector_quarantines WHERE job_id=$1", [x.jobId])).rows[0].reason,
+      "page_structure_invalid",
+    );
+    assert.equal((await x.store.view(x.jobId)).error_code, "page_structure_invalid");
+    await assert.rejects(x.store.claim(x.sourceId), /source_circuit_open/);
+  }
+  for (const text of ["embedded\u0000nul", "unpaired\ud800surrogate"]) {
+    const x = await setup(),
+      body = page(x, [listing(x, 0)]);
+    body.extra = { [text]: text };
+    await worker(x, frames([["page:start", [fixtureResponse(body)]]])).runOne(x.sourceId);
+    assert.equal(
+      (await db.query("SELECT reason FROM collector_quarantines WHERE job_id=$1", [x.jobId])).rows[0].reason,
+      "page_structure_invalid",
+    );
+  }
+});
+
+test("non-USD verified free shipping is deterministic zero while missing item FX remains unknown and excluded", async () => {
+  const x = await setup();
+  const body = page(x, [listing(x, 0, { candidate: candidate(x.sourceId, 0, { currency: "EUR" }) })]);
+  const result = await worker(x, frames([["page:start", [fixtureResponse(body)]]])).runOne(x.sourceId);
+  assert.equal(result.status, "completed");
+  const stored = (
+    await db.query(
+      "SELECT item_price_cents,item_price_usd_cents,observed_shipping_cents,shipping_usd_cents,fx_rate_source FROM sale_events WHERE source_id=$1",
+      [x.sourceId],
+    )
+  ).rows[0];
+  assert.deepEqual(stored, {
+    item_price_cents: "1000",
+    item_price_usd_cents: null,
+    observed_shipping_cents: "0",
+    shipping_usd_cents: "0",
+    fx_rate_source: null,
+  });
+  const inputs = await x.store.candidates(x.jobId);
+  assert.equal(inputs[0].usdConversion, undefined);
+  const calculated = evaluate(inputs, {
+    sourceId: x.sourceId,
+    asOf: x.input.asOf,
+    days: 90,
+    basis: "item_plus_observed_shipping",
+    limit: 200,
+  });
+  assert.equal(calculated.stats.n_price_verified, 0);
+  assert.deepEqual(calculated.diagnostics.price_exclusions, [
+    { eventKey: "event-0", reason: "missing_fx_evidence" },
+  ]);
+  assert.equal(
+    (await db.query("SELECT * FROM collector_quarantines WHERE source_id=$1", [x.sourceId])).rowCount,
+    0,
+  );
+});
+
+test("worker upgrades cannot silently mix collector or parser versions into a frozen run", async () => {
+  for (const column of ["collector_version", "parser_version"]) {
+    const x = await setup(),
+      job = await x.store.view(x.jobId);
+    await db.query(`UPDATE collector_runs SET ${column}='older-test-build' WHERE id=$1`, [
+      job.collector_run_id,
+    ]);
+    await assert.rejects(x.store.claim(x.sourceId), /collector_version_mismatch/);
+    assert.equal((await x.store.view(x.jobId)).status, "queued");
+    await db.query(`UPDATE collector_runs SET ${column}=$2 WHERE id=$1`, [
+      job.collector_run_id,
+      column === "collector_version" ? COLLECTOR_VERSION : PARSER_VERSION,
+    ]);
+    const lease = await x.store.claim(x.sourceId);
+    await db.query(`UPDATE collector_runs SET ${column}='older-test-build' WHERE id=$1`, [
+      job.collector_run_id,
+    ]);
+    await assert.rejects(x.store.reserve(lease, "page", 1024), /collector_version_mismatch/);
+    assert.equal((await x.store.view(x.jobId)).request_count, 0);
+  }
 });

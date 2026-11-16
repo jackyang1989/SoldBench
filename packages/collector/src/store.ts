@@ -11,6 +11,7 @@ import {
   parseFixturePage,
   uncertainCandidateKey,
 } from "./fixture.ts";
+import { CollectorIntegrityError, type QuarantineReason, quarantineReasons } from "./integrity.ts";
 
 export type Job = {
   id: string;
@@ -118,8 +119,13 @@ export class CollectorStore {
     if (!config?.enabled || config.access_method !== "offline_fixture")
       throw new Error("collector_config_disabled");
     const run = (
-      await c.query("SELECT permission_snapshot_hash FROM collector_runs WHERE id=$1", [job.collector_run_id])
+      await c.query(
+        "SELECT permission_snapshot_hash,collector_version,parser_version FROM collector_runs WHERE id=$1",
+        [job.collector_run_id],
+      )
     ).rows[0];
+    if (run.collector_version !== COLLECTOR_VERSION || run.parser_version !== PARSER_VERSION)
+      throw new Error("collector_version_mismatch");
     if (
       run.permission_snapshot_hash !==
       digest(`offline:${source.permission_epoch}:${config.updated_at.toISOString()}`)
@@ -225,6 +231,13 @@ export class CollectorStore {
           [sourceId, config.id, now, onlyJobId ?? null],
         );
         for (const job of jobs.rows) {
+          const run = (
+            await c.query("SELECT collector_version,parser_version FROM collector_runs WHERE id=$1", [
+              job.collector_run_id,
+            ])
+          ).rows[0];
+          if (run?.collector_version !== COLLECTOR_VERSION || run.parser_version !== PARSER_VERSION)
+            throw new Error("collector_version_mismatch");
           await this.abandon(c, job);
           const crashAttempt = job.status === "running" ? 1 : 0;
           if (job.expires_at <= now || job.attempts + crashAttempt >= 3) {
@@ -574,6 +587,71 @@ export class CollectorStore {
   async stop(sourceId: string, reason: string) {
     await transaction(this.db, (c) => this.stopLocked(c, sourceId, reason, false));
   }
+  async quarantinePage(
+    lease: Lease,
+    dispatchId: string,
+    raw: Uint8Array,
+    reason: QuarantineReason,
+    affectedEventId?: string,
+  ) {
+    if (
+      !quarantineReasons.includes(reason) ||
+      raw.byteLength > 1024 * 1024 ||
+      (reason === "event_identity_conflict") !== (affectedEventId !== undefined)
+    )
+      throw new Error("invalid_quarantine_evidence");
+    return transaction(this.db, async (c) => {
+      const { job, now } = await this.locked(c, lease);
+      const dispatch = (
+        await c.query(
+          "SELECT * FROM collector_dispatches WHERE id=$1 AND job_id=$2 AND source_id=$3 AND lease_owner=$4 AND kind='page' AND state='settled' FOR UPDATE",
+          [dispatchId, job.id, job.source_id, lease.token],
+        )
+      ).rows[0];
+      if (
+        !dispatch ||
+        dispatch.response_hash !== digest(raw) ||
+        Number(dispatch.actual_bytes) !== raw.byteLength ||
+        dispatch.committed_observation_id !== null
+      )
+        throw new Error("quarantine_dispatch_mismatch");
+      const incident =
+        (
+          await c.query(
+            "INSERT INTO collector_quarantines(source_id,job_id,collector_run_id,dispatch_id,parser_version,cursor,reason,raw_hash,byte_length,affected_event_id,captured_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id",
+            [
+              job.source_id,
+              job.id,
+              job.collector_run_id,
+              dispatchId,
+              PARSER_VERSION,
+              job.cursor,
+              reason,
+              digest(raw),
+              raw.byteLength,
+              affectedEventId ?? null,
+              now,
+            ],
+          )
+        ).rows[0] ?? missingRow();
+      await this.stopLocked(c, job.source_id, reason, false);
+      await c.query(
+        "INSERT INTO outbox(event_key,kind,payload,available_at) VALUES($1,'collector.evidence_quarantined',$2,$3)",
+        [
+          `collector-quarantine:${dispatchId}`,
+          JSON.stringify({
+            sourceId: job.source_id,
+            jobId: job.id,
+            incidentId: incident.id,
+            reason,
+            affectedEventId: affectedEventId ?? null,
+          }),
+          now,
+        ],
+      );
+      return incident.id as string;
+    });
+  }
   async revokeSource(sourceId: string, reason: string) {
     await transaction(this.db, (c) => this.stopLocked(c, sourceId, reason, true));
   }
@@ -644,7 +722,7 @@ export class CollectorStore {
         page.nextCursor === page.cursor ||
         (page.nextCursor !== null && visited.includes(page.nextCursor))
       )
-        throw new Error("pagination_loop");
+        throw new CollectorIntegrityError("pagination_loop");
       const dispatch = (
         await c.query(
           "SELECT * FROM collector_dispatches WHERE id=$1 AND job_id=$2 AND lease_owner=$3 AND kind='page' AND state='settled' FOR UPDATE",
@@ -685,7 +763,8 @@ export class CollectorStore {
         dispatchId,
         observationId,
       ]);
-      const images: EvidenceItem[] = [];
+      const images: EvidenceItem[] = [],
+        newEventIds = new Set<string>();
       for (const [index, row] of page.records.entries()) {
         const candidate = structuredClone(row.candidate);
         if (!candidate.eventKey) candidate.observationKey = uncertainCandidateKey(row);
@@ -716,7 +795,10 @@ export class CollectorStore {
             old.id,
           ]);
           if (old.listing_id !== listing.id || hashes.rows.some((x) => x.facts_hash !== facts))
-            throw new Error("event_identity_conflict");
+            throw new CollectorIntegrityError(
+              newEventIds.has(old.id) ? "page_event_conflict" : "event_identity_conflict",
+              newEventIds.has(old.id) ? undefined : old.id,
+            );
           eventId = old.id;
         } else {
           const hasTime = candidate.time.precision === "instant";
@@ -742,15 +824,18 @@ export class CollectorStore {
               candidate.currency === "USD"
                 ? candidate.itemCents
                 : (candidate.usdConversion?.itemCents ?? null),
-              candidate.currency === "USD"
-                ? candidate.shippingCents
-                : (candidate.usdConversion?.shippingCents ?? null),
+              candidate.shippingStatus === "verified_free_shipping"
+                ? 0
+                : candidate.currency === "USD"
+                  ? candidate.shippingCents
+                  : (candidate.usdConversion?.shippingCents ?? null),
               candidate.usdConversion?.evidenceRef ?? null,
               `synthetic:${rawHash}:${index}`,
               now,
             ],
           );
           eventId = result.rows[0]?.id ?? missingRow();
+          newEventIds.add(eventId);
         }
         await c.query(
           "INSERT INTO sale_event_evidence(sale_event_id,listing_id,source_id,observation_id,facts_hash,candidate,external_listing_id) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING",
@@ -912,9 +997,10 @@ export class CollectorStore {
       )
         throw new Error("source_rights_unavailable");
       const rows = await c.query(
-        "SELECT DISTINCT ON(e.sale_event_id) e.candidate FROM sale_event_evidence e JOIN collector_pages p ON p.observation_id=e.observation_id AND p.source_id=e.source_id JOIN collector_jobs j ON j.id=p.job_id CROSS JOIN LATERAL jsonb_array_elements_text(j.visited_cursors) WITH ORDINALITY AS seq(cursor,position) WHERE p.job_id=$1 AND seq.cursor=p.cursor ORDER BY e.sale_event_id,seq.position DESC",
+        "SELECT DISTINCT ON(e.sale_event_id) e.candidate,EXISTS(SELECT 1 FROM collector_quarantines q WHERE q.affected_event_id=e.sale_event_id) AS quarantined FROM sale_event_evidence e JOIN collector_pages p ON p.observation_id=e.observation_id AND p.source_id=e.source_id JOIN collector_jobs j ON j.id=p.job_id CROSS JOIN LATERAL jsonb_array_elements_text(j.visited_cursors) WITH ORDINALITY AS seq(cursor,position) WHERE p.job_id=$1 AND seq.cursor=p.cursor ORDER BY e.sale_event_id,seq.position DESC",
         [jobId],
       );
+      if (rows.rows.some((r) => r.quarantined)) throw new Error("collector_evidence_quarantined");
       return rows.rows.map((r) => candidateFromJson(r.candidate));
     });
   }
