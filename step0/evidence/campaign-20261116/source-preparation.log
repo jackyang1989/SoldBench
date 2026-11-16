@@ -1,0 +1,57 @@
+{
+  "schema": "soldbench.preparation-report.v1",
+  "mode": "offline_fixture",
+  "collectorEnabled": false,
+  "status": "REQUIRES_EXTERNAL_REVIEW",
+  "stageVerdict": "NOT_ISSUED",
+  "gaps": [
+    {
+      "source": "ebay_us_candidate",
+      "missingRightsOrTerms": [
+        "automatic_access",
+        "store_raw",
+        "store_derived",
+        "publish_stats",
+        "redistribute_comp",
+        "share",
+        "api_redistribution",
+        "approved_entrypoint",
+        "evidence_ref",
+        "effective_at",
+        "expires_at",
+        "rate_cap",
+        "concurrency_cap",
+        "retention_days",
+        "source_approval"
+      ],
+      "unverifiedFields": [
+        "listing_id",
+        "sale_event_id",
+        "event_identity_evidence",
+        "sold_status",
+        "sold_at",
+        "source_time_zone",
+        "sold_date_precision",
+        "sale_price_status",
+        "item_price",
+        "currency",
+        "observed_shipping",
+        "shipping_destination",
+        "sale_format",
+        "condition",
+        "category",
+        "strong_attributes",
+        "next_cursor",
+        "sort_order",
+        "source_as_of",
+        "retention_until"
+      ],
+      "fieldChecklistPresent": true
+    }
+  ],
+  "sha256": {
+    "source-clearance.csv": "a025259a5f806735691814416fcaf04233cef0d147516a67c5ee2caac003c29b",
+    "source-capabilities.csv": "0aacaddaabc4f6f29f377fd7469d71e19ccd4497547c0a684785c527cc595aa6"
+  },
+  "approvalEvidenceValidated": false
+}

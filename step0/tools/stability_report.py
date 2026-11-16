@@ -67,8 +67,6 @@ def summarize(tasks, records):
         if started.date().isoformat() != planned[task_id]['date'] or finished < started:
             raise ValueError('Invalid task day or duration')
         attempts = count(row['attempts'], 'attempts')
-        if attempts < 1:
-            raise ValueError('Started tasks require at least one request attempt')
         for field in ('first_semantic_success', 'semantic_success', 'billable'):
             if type(row[field]) is not bool:
                 raise ValueError('Success and billable fields require booleans')
@@ -76,8 +74,12 @@ def summarize(tasks, records):
             raise ValueError('Failed task cannot be billable')
         if row['first_semantic_success'] and not row['semantic_success']:
             raise ValueError('First-pass success requires final success')
+        if attempts == 0 and row['semantic_success']:
+            raise ValueError('A source-validation task cannot succeed without a request')
         for field in ('pages', 'bytes', 'cpu_ms'):
             count(row[field], field)
+        if row['pages'] > attempts:
+            raise ValueError('Committed pages cannot exceed request attempts')
         if row['cost_cents'] is not None:
             decimal(row['cost_cents'], 'cost_cents')
         results[task_id] = row

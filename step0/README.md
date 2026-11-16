@@ -50,3 +50,5 @@
 人工候选标注就绪后按 [质量规程](quality-plan.md) 生成Precision/Recall、Wilson区间及逐查询价格偏差。当前`labels/quality-input-empty.json`输出空报告，真实金标仍待制作。源码依赖和复核步骤见 [独立性审查准备](independence-audit.md)。
 
 采集到统计的贯通演练执行`node --import ./step0/collector-poc/src/offline-network.ts step0/collector-poc/src/study.ts`。完整候选和保守水位来自实际提交的合成run，按当前模拟权限决定可读性，输出快照、统计及断源场景，运行说明见PoC README。
+
+批量故障回放执行`python3 step0/tools/replay_campaign.py`，12条查询、14个逻辑日、两组336任务，记录429/503/页预算及整源403后停止派发和旧快照时效。原始计划、JSONL与分析报告写入artifacts，具体口径见连续验证准备。

@@ -1,0 +1,30 @@
+{
+  "schema": "soldbench.unit-economics-report.v1",
+  "scenario": "unmeasured",
+  "evidence_kind": "unmeasured",
+  "evidence_ref": null,
+  "missing": [
+    "customers",
+    "billable_queries",
+    "gross_price_cents",
+    "payment_transactions",
+    "payment_rate",
+    "payment_fixed_cents",
+    "refund_rate",
+    "tax_leakage_rate",
+    "dispute_cost_cents",
+    "costs.infra_cash_cents",
+    "costs.access_license_cash_cents",
+    "costs.network_cash_cents",
+    "costs.compute_cash_cents",
+    "costs.storage_cash_cents",
+    "costs.other_cash_cents",
+    "costs.maintenance_labor_cents",
+    "costs.support_labor_cents"
+  ],
+  "priceApproved": false,
+  "stabilityVerified": false,
+  "stageVerdict": "NOT_ISSUED",
+  "status": "INCOMPLETE",
+  "metrics": null
+}

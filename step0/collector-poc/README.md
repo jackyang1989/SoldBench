@@ -76,3 +76,5 @@ snapshot.ts构建完整候选快照。读取时核对快照hash、查询/来源/
 新快照用同目录临时文件、fsync和原子链接发布，已存在路径拒绝覆盖。发布前失败清理临时文件，发布后遇目录fsync故障须先读已有快照核验，再选择新路径恢复。旧state与证据均保留。
 
 贯通演练从实际计算的58条合格样本驱动0/24/48/72h与撤销读取，Collector报告仍只描述采集，study-report单独标statisticsComputed=true。模拟读取允许不代表来源准入，全部输出保留sourceApproval=NOT_CLEARED、onlineVerified=false和actualChargePerformed=false。读取无新派发，后续run覆盖时间不能使旧快照变新鲜。真实账户、账本和Web/API验收按后续阶段执行。
+
+批量回放由`python3 step0/tools/replay_campaign.py`准备12条分层查询和168个逻辑任务，campaign.ts在禁网进程中分别执行瞬时故障和整源停止。每条查询独立保存观察和页证据，公共控制文件保留停止标志，停止后其他查询派发为0，重开控制文件后仍拒绝派发。计划/原始结果/报告口径见step0/online-validation-plan.md。

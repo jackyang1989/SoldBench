@@ -55,13 +55,22 @@ class StabilityTests(unittest.TestCase):
     def test_rejects_duplicate_unplanned_invalid_times_budget_and_boolean(self):
         tasks = self.tasks()
         row = self.row(tasks[0])
-        for changes in [{'task_id': 'unknown'}, {'attempts': 0}, {'semantic_success': 1},
+        for changes in [{'task_id': 'unknown'}, {'attempts': 0}, {'attempts': 1}, {'semantic_success': 1},
                         {'semantic_success': False}, {'started_at': '2026-12-02T00:00:00Z'},
                         {'finished_at': '2026-11-30T00:00:00Z'}, {'bytes': -1}, {'cost_cents': -1}]:
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 summarize(tasks, [{**row, **changes}])
         with self.assertRaises(ValueError):
             summarize(tasks, [row, row])
+
+    def test_pre_dispatch_stop_is_a_started_failure_with_zero_requests(self):
+        tasks = self.tasks()
+        row = self.row(tasks[0])
+        row.update(attempts=0, first_semantic_success=False, semantic_success=False, billable=False, pages=0, bytes=0)
+        result = summarize(tasks, [row])['summary']
+        self.assertEqual(result['started'], 1)
+        self.assertEqual(result['attempts'], 0)
+        self.assertEqual(result['final_semantic_success'], 0)
 
     def test_online_reference_and_mode_separation(self):
         tasks = self.tasks()

@@ -27,6 +27,7 @@ def main():
                         '--state', str(output / 'cli-state.json'), '--report', str(output / 'cli-replay.json')]),
         ('integrated-study', ['node', '--import', str(POC / 'src/offline-network.ts'), str(POC / 'src/study.ts'),
                               '--output-dir', str(output / 'integrated-study')]),
+        ('fault-campaign', [sys.executable, 'step0/tools/replay_campaign.py', '--output-dir', str(output / 'fault-campaign')]),
         ('corpus', [sys.executable, 'step0/tools/check_corpus.py']),
         ('preparation-tests', [sys.executable, '-m', 'unittest', 'discover', '-s', 'step0/tests', '-v']),
         ('source-preparation', [sys.executable, 'step0/tools/readiness.py']),
