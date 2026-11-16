@@ -165,6 +165,14 @@ rejected('unknown API scope','CreateKey',{'name':'test','scopes':['admin:all']})
 bad=copy.deepcopy(base);bad['meta'].update(stale=True,credits_charged=1);rejected('stale charge','SoldResult',bad)
 bad=copy.deepcopy(fixtures['sold-200-low-sample']);bad['data']['stats']['median_cents']=5800;rejected('small-sample centre','SoldResult',bad)
 
+validator('SoldQuery').validate({'q':'test','min_price_cents':0,'max_price_cents':1000,'sale_format':'auction'})
+rejected('fractional price bound','SoldQuery',{'q':'test','min_price_cents':1.1})
+rejected('unknown sale format','SoldQuery',{'q':'test','sale_format':'unknown'})
+bad=copy.deepcopy(fixtures['search-supplemental']);bad['by_format']['auction']['median_cents']=1
+rejected('small format median','SearchSupplementalStats',bad)
+bad=copy.deepcopy(fixtures['search-supplemental']);bad['sample_count']=7;bad['mean_cents']=1
+rejected('small ordinary mean','SearchSupplementalStats',bad)
+
 schema_sql=(DOCS/'contracts/schema.sql').read_text()
 require('CREATE TABLE credit_recoveries' in schema_sql and 'CREATE TABLE query_result_sources' in schema_sql,'Missing recovery/rights relations')
 require('PARTITION BY' not in schema_sql,'Unexpected production partitioning')

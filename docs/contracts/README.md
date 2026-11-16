@@ -2,7 +2,7 @@
 
 版本1.3，2026-11-16。这里是开发前的设计契约；正式产品迁移仍在G0后由TASK-012建立。原始SQL、OpenAPI、示例、文档必须同步变更。
 
-- [OpenAPI 3.1](../openapi.yaml)：完整成功/错误DTO、49操作、认证/CSRF/幂等/收费/角色扩展；供应商webhook原文按各自协议验证，不伪造自家格式代替。
+- [OpenAPI 3.1](../openapi.yaml)：离线实施契约v1.4；追加primary image状态和owner/current-rights受限媒体读取API；供应商webhook原文按各自协议验证，不伪造自家格式代替。
 - [SQL基线](schema.sql)：PG16空库结构，含身份/来源/观测/事件/查询/作业/钱包/支付/删除/审计。
 - [关系用例](verify.sql)：只在空的专用数据库或schema运行；全部合成数据，最终ROLLBACK。
 - [完整fixture清单](fixtures/manifest.json)：10份合成响应，包含50条展示、58条完整重算输入、低样本/空结果/stale/202/未领取/过期/禁止。
@@ -49,4 +49,8 @@ OpenAPI设计版本1.2.0新增非webhook接口的可选Accept-Language，并说�
 
 ## Stripe与PayPal设计更新
 
-当前OpenAPI1.3.0含Stripe主支付、PayPal补充、Checkout可选provider与两个独立签名端点，原备用端点默认禁用；49操作、78schema。执行见 [支付规格](../Stripe与PayPal接入规格.md)。当前仅设计与静态校验，没有运行渠道API、实际验签或真实交易。SQL provider文本列未变，AT-037/038/040及账户批准仍未完成。
+当前OpenAPI1.4.0含支付目标契约与两个主用签名端点，并追加`Comp.primary_image`及私有媒体读取。SQL基线从0001开始，0002建立主图和成交事件的组合关联；0003只扩展密文URL列，已有数据需运行加密回填工具，0004确认无明文后收紧状态并删除明文列。已应用迁移不可回改。当前仅设计/离线实现，没有真实来源图像抓取、渠道API、实际验签或真实交易。AT-037/038/040/056及source/payment准入仍未完成。
+
+搜索页专项增量见[字段与统计契约](../搜索页采集字段与统计契约.md)：当前冻结OpenAPI还未加入价格范围/format参数与supplemental_stats等，TASK-028必须扩展schema/fixtures和相关DTO/调用实现后才能验收AT-074/075；现有契约检查通过不代表新增字段已支持。
+
+2026-11-16搜索核心实施：OpenAPI1.5.0扩至84 schema/50operation，新增SearchSupplementalStats、价格范围/format和已交付结果排序；11个完整合成fixtures/15个负例。新增search-supplemental.json由实际core对16条合成记录生成。旧样例仍保留原黄金字段和原版本，不把新版schema可选字段变成旧结果虚构值；HTTP/来源持久化未交付。

@@ -2,6 +2,7 @@
 """Check documentation links, task DAG/windows, ID coverage and original fixture."""
 from pathlib import Path
 import hashlib
+import csv
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,7 +51,7 @@ features = defined_ids(r'^\| (F-\d{2}) \|', text('功能与页面规格.md'))
 decisions = defined_ids(r'^\| (DEC-\d{2}) \|', text('决策登记.md'))
 apis = defined_ids(r'^\| (API-\d{2}) \|', text('接口与数据契约.md'))
 require(mapped_stories == {f'S-{i:02}' for i in range(1, 28)}, 'Original S story omitted or invented in task mappings')
-require(len(tasks) == 43 and total == 156, 'Unexpected task count or estimate')
+require(len(tasks) == 56 and total == 319, 'Unexpected task count or estimate')
 require(len(features) == 16, 'Missing original F feature')
 require(all(t['ats'] and set(t['ats']) <= ats for t in tasks.values()), 'Missing/undefined task tests')
 require(set().union(*(set(t['ats']) for t in tasks.values())) == ats, 'Unscheduled acceptance case')
@@ -82,6 +83,17 @@ require((ROOT/'v14_gameboy_58_verified.json').exists(), 'Original fixture missin
 require(hashlib.sha256((DOCS/'baselines/SoldBench-v1.4-original.md').read_bytes()).hexdigest() ==
         '3fc154649f5f34031367f59f1e16f8b248d5eab89e2b6b1817d8db2892f1a7da',
         'Archived original specification changed')
+roadmap = text('竞品能力实施规格与路线图.md')
+capability_rows = [line for line in roadmap.splitlines() if line.startswith('| CP-')]
+require({re.match(r'\| (CP-\d{2})', line)[1] for line in capability_rows} == {f'CP-{i:02}' for i in range(1, 25)}, 'Expected all 24 competitive capability groups')
+for line in capability_rows:
+    refs = set(re.findall(r'TASK-\d{3}', line))
+    tests = set(re.findall(r'AT-\d{3}', line))
+    require(refs and refs <= tasks.keys() and tests and tests <= ats, f'Unscheduled competitive gap: {line}')
+with (ROOT / 'step0/source-capabilities.csv').open(newline='') as handle:
+    capability_fields = {row['field'] for row in csv.DictReader(handle)}
+require({'title', 'listing_url', 'primary_image_candidate', 'primary_image_role', 'primary_image_evidence_binding', 'seller_source_identity', 'seller_public_handle', 'condition_id', 'condition_mapping_context', 'shipping_context', 'source_reported_match_count', 'source_reported_match_count_context', 'source_record_unit', 'query_capture_context'} <= capability_fields, 'Search capture checklist missing required fields')
+print('PASS: 24 competitive capability groups have scheduled TASK and AT references.')
 print(f'PASS: {len(files)} Markdown files, {links} local links, {len(tasks)} tasks, E1–E{total}, '
       f'{len(features)} features, {len(pages)} pages, {len(ats)} acceptance cases, '
       f'{len(apis)} API groups, {len(decisions)} decisions; original S-01…S-27 mapped.')

@@ -1,0 +1,173 @@
+{
+  "mean_cents": 1050,
+  "sample_count": 16,
+  "shipping_summary": {
+    "groups": [
+      {
+        "context_ref": "synthetic-us-destination",
+        "known_count": 16,
+        "mean_shipping_cents": 0,
+        "free_count": 16,
+        "free_share": 1
+      }
+    ],
+    "unknown_or_withheld_count": 0,
+    "mixed_contexts": false
+  },
+  "seller_summary": {
+    "distinct_count": 2,
+    "identified_count": 16,
+    "unknown_or_withheld_count": 0
+  },
+  "recent_30d": {
+    "sample_count": 8,
+    "median_cents": 1100,
+    "start": "2026-10-17T12:00:00.000Z",
+    "end": "2026-11-16T12:00:00.000Z",
+    "observation_coverage": "complete"
+  },
+  "previous_30d": {
+    "sample_count": 8,
+    "median_cents": 1000,
+    "start": "2026-09-17T12:00:00.000Z",
+    "end": "2026-10-17T12:00:00.000Z",
+    "observation_coverage": "complete"
+  },
+  "change_ratio": {
+    "numerator_cents": 100,
+    "denominator_cents": 1000
+  },
+  "by_format": {
+    "fixed_price": {
+      "sample_count": 8,
+      "median_cents": 1100
+    },
+    "auction": {
+      "sample_count": 0,
+      "median_cents": null
+    },
+    "best_offer": {
+      "sample_count": 8,
+      "median_cents": 1000
+    }
+  },
+  "time_series": {
+    "granularity": "week",
+    "timezone": "UTC",
+    "buckets": [
+      {
+        "sample_count": 0,
+        "median_cents": null,
+        "start": "2026-08-18T12:00:00.000Z",
+        "end": "2026-08-24T00:00:00.000Z",
+        "observation_coverage": "complete",
+        "partial": true
+      },
+      {
+        "sample_count": 0,
+        "median_cents": null,
+        "start": "2026-08-24T00:00:00.000Z",
+        "end": "2026-08-31T00:00:00.000Z",
+        "observation_coverage": "complete",
+        "partial": false
+      },
+      {
+        "sample_count": 0,
+        "median_cents": null,
+        "start": "2026-08-31T00:00:00.000Z",
+        "end": "2026-09-07T00:00:00.000Z",
+        "observation_coverage": "complete",
+        "partial": false
+      },
+      {
+        "sample_count": 0,
+        "median_cents": null,
+        "start": "2026-09-07T00:00:00.000Z",
+        "end": "2026-09-14T00:00:00.000Z",
+        "observation_coverage": "complete",
+        "partial": false
+      },
+      {
+        "sample_count": 0,
+        "median_cents": null,
+        "start": "2026-09-14T00:00:00.000Z",
+        "end": "2026-09-21T00:00:00.000Z",
+        "observation_coverage": "complete",
+        "partial": false
+      },
+      {
+        "sample_count": 0,
+        "median_cents": null,
+        "start": "2026-09-21T00:00:00.000Z",
+        "end": "2026-09-28T00:00:00.000Z",
+        "observation_coverage": "complete",
+        "partial": false
+      },
+      {
+        "sample_count": 8,
+        "median_cents": 1000,
+        "start": "2026-09-28T00:00:00.000Z",
+        "end": "2026-10-05T00:00:00.000Z",
+        "observation_coverage": "complete",
+        "partial": false
+      },
+      {
+        "sample_count": 0,
+        "median_cents": null,
+        "start": "2026-10-05T00:00:00.000Z",
+        "end": "2026-10-12T00:00:00.000Z",
+        "observation_coverage": "complete",
+        "partial": false
+      },
+      {
+        "sample_count": 0,
+        "median_cents": null,
+        "start": "2026-10-12T00:00:00.000Z",
+        "end": "2026-10-19T00:00:00.000Z",
+        "observation_coverage": "complete",
+        "partial": false
+      },
+      {
+        "sample_count": 0,
+        "median_cents": null,
+        "start": "2026-10-19T00:00:00.000Z",
+        "end": "2026-10-26T00:00:00.000Z",
+        "observation_coverage": "complete",
+        "partial": false
+      },
+      {
+        "sample_count": 0,
+        "median_cents": null,
+        "start": "2026-10-26T00:00:00.000Z",
+        "end": "2026-11-02T00:00:00.000Z",
+        "observation_coverage": "complete",
+        "partial": false
+      },
+      {
+        "sample_count": 0,
+        "median_cents": null,
+        "start": "2026-11-02T00:00:00.000Z",
+        "end": "2026-11-09T00:00:00.000Z",
+        "observation_coverage": "complete",
+        "partial": false
+      },
+      {
+        "sample_count": 8,
+        "median_cents": 1100,
+        "start": "2026-11-09T00:00:00.000Z",
+        "end": "2026-11-16T00:00:00.000Z",
+        "observation_coverage": "complete",
+        "partial": false
+      },
+      {
+        "sample_count": 0,
+        "median_cents": null,
+        "start": "2026-11-16T00:00:00.000Z",
+        "end": "2026-11-16T12:00:00.000Z",
+        "observation_coverage": "complete",
+        "partial": true
+      }
+    ],
+    "unassigned_count": 0
+  }
+}

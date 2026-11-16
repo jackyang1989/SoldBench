@@ -100,6 +100,7 @@ CREATE TABLE sale_events (
  fx_rate_source text, evidence_kind text, evidence_ref text, first_seen_at timestamptz NOT NULL,
  FOREIGN KEY(listing_id,source_id) REFERENCES sold_listings(id,source_id),
  FOREIGN KEY(observation_id,source_id) REFERENCES source_observations(id,source_id),
+ UNIQUE(id,listing_id,source_id,observation_id),
  CHECK(sale_price_status<>'verified_actual' OR (item_price_cents IS NOT NULL AND evidence_kind IS NOT NULL AND evidence_ref IS NOT NULL)),
  CHECK((observed_shipping_status='unknown' AND observed_shipping_cents IS NULL AND shipping_usd_cents IS NULL) OR
        (observed_shipping_status='observed' AND observed_shipping_cents IS NOT NULL) OR

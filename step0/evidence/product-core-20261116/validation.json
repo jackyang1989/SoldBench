@@ -1,0 +1,115 @@
+{
+  "schema": "soldbench.offline-product-evidence.v1",
+  "date": "2026-11-16",
+  "parentCommit": "e20bea4",
+  "scope": "Offline engineering foundation and shared Search calculations, not stage signoff",
+  "mode": "offline_fixture",
+  "collectorEnabled": false,
+  "paymentsMode": "offline",
+  "actualSourceVerified": false,
+  "stageVerdict": "NOT_ISSUED",
+  "independentReview": "PENDING for the latest changes",
+  "environment": {
+    "node": "22.23.3",
+    "python": "3.9.6",
+    "postgres": "16.15 disposable empty and upgrade test DBs",
+    "productAccount": "none; generated synthetic records"
+  },
+  "versions": {
+    "normalizer": "1.1.0",
+    "engine": "1.1.0",
+    "openapi": "1.5.0"
+  },
+  "checks": [
+    {
+      "command": "npm run check",
+      "exitCode": 0,
+      "nodeTests": 25,
+      "output": "tool execution transcript; PG cluster log retained in temporary test directory"
+    },
+    {
+      "command": "python3 step0/tools/validate_offline.py",
+      "exitCode": 0,
+      "report": "step0/artifacts/20261116T121315412304Z/validation.json"
+    },
+    {
+      "command": "/tmp/soldbench-contract-check/bin/python docs/contracts/check_contracts.py --formal",
+      "exitCode": 0,
+      "schemas": 84,
+      "operations": 50,
+      "fixtures": 11,
+      "rejectedInvalidShapes": 15
+    },
+    {
+      "command": "python3 docs/check_docs.py",
+      "exitCode": 0
+    },
+    {
+      "command": "git diff --check",
+      "exitCode": 0
+    }
+  ],
+  "limitations": [
+    "No live source, source permissions, image owner route or durable collector reservation coordinator",
+    "No full Search/Research UI, account/billing or MCP service",
+    "CI workflow and stage independent acceptance remain incomplete"
+  ],
+  "sha256": {
+    "apps/api/package.json": "6ef3e840c98a02feaa59c5f59bdc7e08bf5524f6a4bdad7378164b50e3005794",
+    "apps/api/src/index.ts": "023109690d137f4ea67b551883d22dc915037a270e46d09d18ce44cade496633",
+    "apps/api/src/server.ts": "5e79234a508b654e48d401807bf1e96abb8753c0557f3e11e3144ffba6515a92",
+    "apps/api/tsconfig.json": "b570f4bff4864dde0cb6317cdc617002e9ac747404064b7e4ae9e9790b31dc05",
+    "apps/web/package.json": "9d305b0bc6cc155add57eedc54416d9123183e6a9ad229157a38f8cb793f99f5",
+    "apps/web/src/index.tsx": "e64548e28cc8f71b570abbc710f69a9d440aa95d2165b75cfdbb2b271f53231c",
+    "apps/web/tsconfig.json": "fea10e4f01bc06752d81fd570cc0c30fe23d690c1fbef85af677c270d0239c4a",
+    "docs/contracts/check_contracts.py": "f8326bef2d80edc75c9aa509242eabe205574330e85438befac8194ba9ca2e97",
+    "docs/contracts/fixtures/search-supplemental.json": "341adaf01c69d8313efc653897f5d40363982f6f67dbecd3f55d4e1bdff63869",
+    "docs/openapi.yaml": "1c2f31e90e639c1df43f58fe1e4c452e9e07b8e1fa71ba01bc272882de2b1901",
+    "package-lock.json": "0967321292f6ebf6b1ce244f305adc1ce382f97b53d24d775283e3a5b330e70f",
+    "package.json": "80c3c2232dca49b94b4184232b46eba9732353f0fb3ceeb4f4ff3d1040c76156",
+    "packages/collector/package.json": "c9a5746d36e7d50d445ca549213395cafe09bda69abf646ec8ea0f61f38f9caf",
+    "packages/collector/src/access-guard.ts": "ccbc0ab94bacdfd651f9c373b4b587603a2c41e4152be306290fb6747858ece9",
+    "packages/collector/src/index.ts": "7946f987dc7beae6414c39c37a0c7190e2d2ee0b690b04d479f885cb2d8be51e",
+    "packages/collector/tsconfig.json": "2bf7943e1608bbb31af9d7dc2418fbb3e07ebdc2cb2540a7e7eb03af5179defe",
+    "packages/core/package.json": "40dbcdbe1120894be7b1c3b74a3f6d54db9beee6b352e6a69bfe15daec283358",
+    "packages/core/src/availability.ts": "af7a1ec2c96ba3dcbf32d93bf45e30db78cbd3982354c29003afbf7c684edadf",
+    "packages/core/src/index.ts": "d9e61b8bcbb750b4139b00da985f6a27c7d778955fcce43139d71afcbbc9cd74",
+    "packages/core/src/pricing.ts": "b80d8b81e1064f477f680a4f72c82547603ea56cc1575a3788bdb01b27aaf533",
+    "packages/core/src/query.ts": "c819f09f6bf3ccc70e46a349aeeebc9857c786e26454b32e98bb612c95e39771",
+    "packages/core/src/search-analysis.ts": "486fab01e16230ae635df3722a78efd819ddd4e4f3424405e484065405082d30",
+    "packages/core/src/statistics.ts": "c07b7c0d1cfae217a4a4075d5c68f794b9f483fb4fad231728e3b38be74b4574",
+    "packages/core/src/time.ts": "d493897119c0c51a59ec5d265fb2dfa008305c69e3b4639f7d732c0c70398c10",
+    "packages/core/tsconfig.json": "1e2140f17a920bf84576a3470c03058b5ccc2104ee4da6f2971e9dea0c9ebeff",
+    "packages/db/migrations/0001_baseline.sql": "eb90a6c0025182a2944a3e3e75d5cd5461b7d826017cf4fb9330fcc0fb7a81c1",
+    "packages/db/migrations/0002_primary_images.sql": "a81285d3390948bb496010dfec51982f411936bebee1429410a2aeb7de48cb2c",
+    "packages/db/migrations/0003_image_source_url_ciphertext.sql": "848fa59e9d5cbb9b799bd49216fa2d5af0821d1384139e0e23f2a8c47837818d",
+    "packages/db/migrations/0004_image_rights_hardening.sql": "7e4f1704904a0fae552008b050625fd22ca6905e677095796f7eda6f304c02cc",
+    "packages/db/package.json": "0373d6071fd2e42811040d22c1f04e5ea3706bd3b1b0ac96cc93545e4fc1492c",
+    "packages/db/src/index.ts": "4d56a23357be4ec9d4ecd638dd11cef45af03c48ed05783390a10c940fe586ae",
+    "packages/db/tsconfig.json": "1e2140f17a920bf84576a3470c03058b5ccc2104ee4da6f2971e9dea0c9ebeff",
+    "packages/media/package.json": "b1f3b135f9fd639130361c640684817436119a258e021ee26f847f0f2ca1ed43",
+    "packages/media/src/index.ts": "aa51436daf7523e452bdcb5256522a3070c7cbfaf886b8737de3a4c7e64e98cd",
+    "packages/media/src/primary.ts": "0b0adaaa5b1293ebe700318d3bb1c040d5848c1201516c0b50279fad22c85f76",
+    "packages/media/src/url-encryption.ts": "0ebaa833147e182bff4b4b365bbde63cceef6409be2f9b6f07d7914d5a2e5d12",
+    "packages/media/tsconfig.json": "1e2140f17a920bf84576a3470c03058b5ccc2104ee4da6f2971e9dea0c9ebeff",
+    "packages/shared/package.json": "4b77c736be2f9a87972e9b1dd9913ac393ab17fd69e3f4ae1afd111d8268428d",
+    "packages/shared/src/config.ts": "0abd1d7040f0ab60d7e2fcddb7bd28a91dcba83face71cde8388300d578c6ed5",
+    "packages/shared/src/errors.ts": "94fa6adcd38a31d3e0a27ef1194b425a410f1cb4e7785b7706d4c3383fe77ac5",
+    "packages/shared/src/i18n.ts": "4612eaa2c70a6c512aed787772d0ae11db0b7f3dbcbda4396829a99a9b960e2f",
+    "packages/shared/src/index.ts": "67a97cf8c4bd87cf0ab75dc6d6c4dc3c9d3dc201b4385dbf309cecc6f1d8f15d",
+    "packages/shared/tsconfig.json": "685012186022ef9811fb1872c990e1dc62905bbcc20eb23e6d1103a51fcea4d8",
+    "scripts/dev.mjs": "f19ab53eef29f785f34922051643c3bd6641f83eb782ab185857c1a7bf1df094",
+    "scripts/encrypt-image-source-urls.mjs": "dda6595f9b68b92145ee597b75817f26eeae698a779b8e9f5f7c28109bff4f9c",
+    "scripts/local-db.mjs": "8c4b08cd03823df3a7d5d38b773819c83f7166bde4285f9b807b52e8a51ce16e",
+    "scripts/migrate.mjs": "d233f7581ec1882aee692eac083702434ab407da35965f3e63cac74f93dec098",
+    "scripts/test-network.mjs": "027ca0ab7915cf6e2b3623d170c5f13b43b1609ca0cfd8153901febc98d9fb3b",
+    "scripts/test.mjs": "a500edba05861a762c14970dac50f97e62c81d93e07a80505cc491cfec4c4159",
+    "tests/api.test.mjs": "84741406159427e906ff1c9f74de887f4348153ee355029897fe59116f210ffa",
+    "tests/collector.test.mjs": "e7e87235c5788bebebcf744f26ec24c7bea65060531c4693979483e1c07e0988",
+    "tests/core.test.mjs": "45c6278a516379cbe9255e1f51c1d318373d664deb80c8f6084ca9d6d3b5187b",
+    "tests/database.test.mjs": "96cfc607cef0ac508b6a296b56e3909eb4556c190bae3929e4157ab53afe029f",
+    "tests/media.test.mjs": "43eed242c659aa6fe0c19723282ca2dbb958590b38ac5638fee50b208ca4c65d",
+    "tests/network.test.mjs": "7ba821222db99624db03ed536dc7722daa816d72d135aed752d73882864f5590",
+    "tests/search-analysis.test.mjs": "42a117ae9cd0158608b282f0ff6fcc879b36528dd787d474d5a865d184cfbc94"
+  }
+}

@@ -48,5 +48,10 @@
     "file": "result-unclaimed.json",
     "schema": "Error",
     "status": 409
+  },
+  {
+    "file": "search-supplemental.json",
+    "schema": "SearchSupplementalStats",
+    "status": 200
   }
 ]

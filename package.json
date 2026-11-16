@@ -1,0 +1,37 @@
+{
+  "name": "soldbench",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=22.18 <23"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false",
+    "lint": "biome check apps packages scripts tests",
+    "lint:fix": "biome check --write apps packages scripts tests",
+    "test": "npm run build && node scripts/test.mjs",
+    "test:step0": "python3 step0/tools/validate_offline.py",
+    "contracts": "python3 docs/contracts/check_contracts.py",
+    "check": "npm run lint && npm run typecheck && npm test && npm run contracts",
+    "dev": "npm run build && node --env-file-if-exists=.env scripts/dev.mjs",
+    "db:start": "node scripts/local-db.mjs start",
+    "db:stop": "node scripts/local-db.mjs stop",
+    "db:migrate": "npm run build && node scripts/migrate.mjs",
+    "db:encrypt-image-urls": "npm run build && node --env-file-if-exists=.env scripts/encrypt-image-source-urls.mjs"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "@types/node": "22.20.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/pg": "8.23.1",
+    "@biomejs/biome": "2.6.8",
+    "esbuild": "0.28.2"
+  }
+}

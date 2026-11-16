@@ -11,3 +11,6 @@ dist/
 *.tsbuildinfo
 step0/collector-poc/artifacts/
 step0/artifacts/
+
+.local/
+artifacts/
