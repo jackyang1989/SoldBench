@@ -4,7 +4,7 @@ import { dirname } from 'node:path';
 import { candidateFromJson, canonicalJson, type Candidate } from './pricing.ts';
 
 export const VERSION = 'offline-poc-1.0.0';
-export const PARSER_VERSION = 'offline-page-parser-1.1.0';
+export const PARSER_VERSION = 'offline-page-parser-1.1.1';
 export const sha = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 export class Stop extends Error {
@@ -212,7 +212,7 @@ function validRecord(value: unknown, schema?: Page['schema'], sourceId?: string)
 function eventFingerprint(record: ListingRecord): string {
   if (!record.candidate) return sha(record);
   // Query comparability belongs to its observation, and cannot conflict the global event.
-  const { comparable: _comparable, ...facts } = record.candidate;
+  const { comparable: _comparable, observationKey: _observationKey, ...facts } = record.candidate;
   return createHash('sha256').update(canonicalJson({ ...record, candidate: facts })).digest('hex');
 }
 function validDate(value: unknown): value is string {

@@ -52,7 +52,9 @@ function candidatesFromEvidence(observations: ReturnType<typeof completedRunEvid
   return observations.map(observation => {
     if (!observation.record.candidate) throw new Error('missing_candidate_payload');
     const candidate = candidateFromJson(observation.record.candidate);
-    return { ...candidate, identityVerified: candidate.identityVerified && observation.eventStatus === 'candidate' };
+    const identityVerified = candidate.identityVerified && observation.eventStatus === 'candidate';
+    return { ...candidate, identityVerified,
+      ...(!identityVerified ? { observationKey: sha([observation.sourceId, observation.record.listingId, observation.fingerprint]) } : {}) };
   });
 }
 

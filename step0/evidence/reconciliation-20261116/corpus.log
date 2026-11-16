@@ -1,0 +1,9 @@
+{
+  "result": "PASS",
+  "scope": "draft_structure_only",
+  "queries": 120,
+  "sha256": "973a0b6a77fed508650fe54bd9dc1d4e7108d87766380e8fe0e78a92efef8a93",
+  "humanLabels": 0,
+  "founderSigned": false,
+  "onlineVerified": false
+}

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { inWindow, type SaleTime } from './time.ts';
 
-export const ENGINE_VERSION = 'offline-exploration-1.1.0';
+export const ENGINE_VERSION = 'offline-exploration-1.1.1';
 type Money = number | null;
 export function cents(value: number): bigint {
   if (!Number.isSafeInteger(value) || value < 0) throw new Error('invalid_integer_cents');
@@ -30,6 +30,7 @@ export function distribution(values: readonly number[]) {
 
 export type Candidate = {
   sourceId: string; eventKey: string | null; identityVerified: boolean;
+  observationKey?: string;
   comparable: boolean; priceStatus: 'verified_actual' | 'displayed_only' | 'unknown';
   format: 'fixed_price' | 'best_offer' | 'auction'; currency: string;
   itemCents: Money; shippingCents: Money;
@@ -60,6 +61,7 @@ export function candidateFromJson(value: unknown): Candidate {
       typeof record.currency !== 'string' || !/^[A-Z]{3}$/.test(record.currency) ||
       !validMoney(record.itemCents) || !validMoney(record.shippingCents) ||
       !['observed', 'verified_free_shipping', 'unknown'].includes(record.shippingStatus)) throw new Error('invalid_candidate');
+  if (record.observationKey !== undefined && !/^[a-f0-9]{64}$/.test(record.observationKey)) throw new Error('invalid_candidate');
   if (record.usdConversion !== undefined && (!record.usdConversion ||
       !validMoney(record.usdConversion.itemCents) || record.usdConversion.itemCents === null ||
       !validMoney(record.usdConversion.shippingCents) || typeof record.usdConversion.evidenceRef !== 'string')) {
@@ -100,10 +102,16 @@ export function evaluate(records: readonly Candidate[], query: Query) {
   // Validate fixed clock/window even when there are no candidates.
   inWindow({ precision: 'unknown' }, query.asOf, query.days);
   const keyed = new Map<string, Candidate>(), conflicts = new Set<string>();
+  const uncertain = new Set<string>();
   let unidentified = 0;
-  for (const record of records) {
+  for (const [index, record] of records.entries()) {
     if (record.sourceId !== query.sourceId) throw new Error('mixed_source_scope');
-    if (!record.eventKey || !record.identityVerified) { unidentified++; continue; }
+    if (!record.eventKey || !record.identityVerified) {
+      unidentified++;
+      const key = record.eventKey ? 'source-record:' + record.eventKey : record.observationKey ?? 'unkeyed-observation:' + index;
+      uncertain.add(key);
+      continue;
+    }
     const previous = keyed.get(record.eventKey);
     if (previous && canonicalJson(previous) !== canonicalJson(record)) conflicts.add(record.eventKey);
     else keyed.set(record.eventKey, record);
@@ -118,7 +126,7 @@ export function evaluate(records: readonly Candidate[], query: Query) {
     engine_version: ENGINE_VERSION,
     candidate_set_hash: createHash('sha256').update(JSON.stringify(records.map(canonicalJson).sort())).digest('hex'),
     stats: {
-      n_observed: observed.length, n_comparable: comparable.length, n_price_verified: n,
+      n_observed: keyed.size + uncertain.size, n_comparable: comparable.length, n_price_verified: n,
       n_excluded_unverified_price: comparable.length - n,
       sold_last_30d_observed: verified.filter(x => inWindow(x.record.time, query.asOf, 30)).length,
       ...distribution(verified.map(x => x.price)),
@@ -132,6 +140,13 @@ export function evaluate(records: readonly Candidate[], query: Query) {
       duplicate_observations: records.length - unidentified - keyed.size,
       outside_window_events: keyed.size - conflicts.size - observed.length,
       hard_mismatch_events: observed.length - comparable.length,
+      uncertain_candidates: uncertain.size,
+      duplicate_uncertain_observations: unidentified - uncertain.size,
+      excluded_before_comparable: {
+        uncertain_identity: uncertain.size, event_identity_conflict: conflicts.size,
+        outside_window: keyed.size - conflicts.size - observed.length,
+        hard_attribute_mismatch: observed.length - comparable.length,
+      },
       price_exclusions: qualifications.filter(x => x.decision.reason !== null)
         .map(x => ({ eventKey: x.record.eventKey, reason: x.decision.reason! })) },
     comps: verified.slice(0, query.limit).map(x => ({ eventKey: x.record.eventKey, priceCents: x.price })),

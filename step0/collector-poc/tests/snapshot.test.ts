@@ -195,9 +195,20 @@ test('unknown identity and missing shipping remain excluded with explanatory dia
     record('unknown', { eventKey: null, identityVerified: false })];
   const c = setup(t, syntheticStudy(rows, query)); await c.collect();
   const result = c.read(c.build()).result!;
+  assert.equal(result.stats.n_observed, 3);
+  assert.equal(result.stats.n_comparable, 2);
   assert.equal(result.stats.n_price_verified, 1);
   assert.equal(result.diagnostics.unidentified_observations, 1);
   assert.deepEqual(result.diagnostics.price_exclusions, [{ eventKey: 'shipping', reason: 'missing_shipping_evidence' }]);
+});
+
+test('unknown-identity repeated page evidence counts one candidate and zero verified events', async t => {
+  const unknown = record('unknown', { eventKey: null, identityVerified: false });
+  const c = setup(t, syntheticStudy([unknown, unknown], query, { pageSize: 1 }));
+  await c.collect();
+  const result = c.read(c.build()).result!;
+  assert.equal(result.stats.n_observed, 1); assert.equal(result.stats.n_comparable, 0);
+  assert.equal(result.stats.n_price_verified, 0); assert.equal(result.diagnostics.duplicate_uncertain_observations, 1);
 });
 
 test('schema v2 rejects candidate fields that do not belong to the enclosing event/source', async t => {

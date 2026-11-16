@@ -1,0 +1,315 @@
+{
+  "schema": "soldbench.offline-study-report.v1",
+  "mode": "offline_fixture",
+  "sourceApproval": "NOT_CLEARED",
+  "onlineVerified": false,
+  "snapshotHash": "c03405c4e8bbe3cc7ed34696b5ed0ef242eb3c42fb944bf3d4e991143d50ab72",
+  "collected": {
+    "mode": "offline_fixture",
+    "onlineVerified": false,
+    "sourceApproval": "NOT_CLEARED",
+    "version": "offline-poc-1.0.0",
+    "parserVersion": "offline-page-parser-1.1.1",
+    "runId": "golden-study",
+    "outcome": "completed",
+    "stopReason": null,
+    "completedPages": 3,
+    "attempts": 3,
+    "fixtureBodyBytes": 68117,
+    "storedCandidateEvents": 121,
+    "observations": 121,
+    "quarantined": 0,
+    "dataAsOf": "2026-11-14T06:00:00Z",
+    "statisticsComputed": false
+  },
+  "replay": {
+    "mode": "offline_fixture",
+    "onlineVerified": false,
+    "sourceApproval": "NOT_CLEARED",
+    "version": "offline-poc-1.0.0",
+    "parserVersion": "offline-page-parser-1.1.1",
+    "runId": "golden-study",
+    "outcome": "completed",
+    "stopReason": null,
+    "completedPages": 3,
+    "attempts": 3,
+    "fixtureBodyBytes": 68117,
+    "storedCandidateEvents": 121,
+    "observations": 121,
+    "quarantined": 0,
+    "dataAsOf": "2026-11-14T06:00:00Z",
+    "statisticsComputed": false
+  },
+  "scenarios": [
+    {
+      "hours": 0,
+      "allowStale": false,
+      "decision": {
+        "freshness": "fresh",
+        "readable": true,
+        "potentialCredits": 1,
+        "reason": "eligible_standard_query",
+        "onlineVerified": false,
+        "actualChargePerformed": false
+      },
+      "stats": {
+        "n_observed": 121,
+        "n_comparable": 64,
+        "n_price_verified": 58,
+        "n_excluded_unverified_price": 6,
+        "sold_last_30d_observed": 35,
+        "median_cents": 5800,
+        "p25_cents": 4200,
+        "p75_cents": 7600,
+        "trimmed_mean_cents": 5930,
+        "observed_min_cents": 2900,
+        "observed_max_cents": 10800,
+        "buy_it_now_verified_count": 54,
+        "best_offer_verified_count": 4,
+        "best_offer_displayed_only_count": 6
+      },
+      "quality": {
+        "data_insufficient": false,
+        "quality_status": "sufficient_sample",
+        "verified_share": 0.90625,
+        "coverage_status": "unknown",
+        "coverage_ratio": null,
+        "score": null
+      }
+    },
+    {
+      "hours": 0,
+      "allowStale": true,
+      "decision": {
+        "freshness": "fresh",
+        "readable": true,
+        "potentialCredits": 1,
+        "reason": "eligible_standard_query",
+        "onlineVerified": false,
+        "actualChargePerformed": false
+      },
+      "stats": {
+        "n_observed": 121,
+        "n_comparable": 64,
+        "n_price_verified": 58,
+        "n_excluded_unverified_price": 6,
+        "sold_last_30d_observed": 35,
+        "median_cents": 5800,
+        "p25_cents": 4200,
+        "p75_cents": 7600,
+        "trimmed_mean_cents": 5930,
+        "observed_min_cents": 2900,
+        "observed_max_cents": 10800,
+        "buy_it_now_verified_count": 54,
+        "best_offer_verified_count": 4,
+        "best_offer_displayed_only_count": 6
+      },
+      "quality": {
+        "data_insufficient": false,
+        "quality_status": "sufficient_sample",
+        "verified_share": 0.90625,
+        "coverage_status": "unknown",
+        "coverage_ratio": null,
+        "score": null
+      }
+    },
+    {
+      "hours": 24,
+      "allowStale": false,
+      "decision": {
+        "freshness": "fresh",
+        "readable": true,
+        "potentialCredits": 1,
+        "reason": "eligible_standard_query",
+        "onlineVerified": false,
+        "actualChargePerformed": false
+      },
+      "stats": {
+        "n_observed": 121,
+        "n_comparable": 64,
+        "n_price_verified": 58,
+        "n_excluded_unverified_price": 6,
+        "sold_last_30d_observed": 35,
+        "median_cents": 5800,
+        "p25_cents": 4200,
+        "p75_cents": 7600,
+        "trimmed_mean_cents": 5930,
+        "observed_min_cents": 2900,
+        "observed_max_cents": 10800,
+        "buy_it_now_verified_count": 54,
+        "best_offer_verified_count": 4,
+        "best_offer_displayed_only_count": 6
+      },
+      "quality": {
+        "data_insufficient": false,
+        "quality_status": "sufficient_sample",
+        "verified_share": 0.90625,
+        "coverage_status": "unknown",
+        "coverage_ratio": null,
+        "score": null
+      }
+    },
+    {
+      "hours": 24,
+      "allowStale": true,
+      "decision": {
+        "freshness": "fresh",
+        "readable": true,
+        "potentialCredits": 1,
+        "reason": "eligible_standard_query",
+        "onlineVerified": false,
+        "actualChargePerformed": false
+      },
+      "stats": {
+        "n_observed": 121,
+        "n_comparable": 64,
+        "n_price_verified": 58,
+        "n_excluded_unverified_price": 6,
+        "sold_last_30d_observed": 35,
+        "median_cents": 5800,
+        "p25_cents": 4200,
+        "p75_cents": 7600,
+        "trimmed_mean_cents": 5930,
+        "observed_min_cents": 2900,
+        "observed_max_cents": 10800,
+        "buy_it_now_verified_count": 54,
+        "best_offer_verified_count": 4,
+        "best_offer_displayed_only_count": 6
+      },
+      "quality": {
+        "data_insufficient": false,
+        "quality_status": "sufficient_sample",
+        "verified_share": 0.90625,
+        "coverage_status": "unknown",
+        "coverage_ratio": null,
+        "score": null
+      }
+    },
+    {
+      "hours": 48,
+      "allowStale": false,
+      "decision": {
+        "freshness": "stale_acceptable",
+        "readable": false,
+        "potentialCredits": 0,
+        "reason": "stale_consent_required",
+        "onlineVerified": false,
+        "actualChargePerformed": false
+      },
+      "stats": null,
+      "quality": null
+    },
+    {
+      "hours": 48,
+      "allowStale": true,
+      "decision": {
+        "freshness": "stale_acceptable",
+        "readable": true,
+        "potentialCredits": 0,
+        "reason": "explicit_stale_consent",
+        "onlineVerified": false,
+        "actualChargePerformed": false
+      },
+      "stats": {
+        "n_observed": 121,
+        "n_comparable": 64,
+        "n_price_verified": 58,
+        "n_excluded_unverified_price": 6,
+        "sold_last_30d_observed": 35,
+        "median_cents": 5800,
+        "p25_cents": 4200,
+        "p75_cents": 7600,
+        "trimmed_mean_cents": 5930,
+        "observed_min_cents": 2900,
+        "observed_max_cents": 10800,
+        "buy_it_now_verified_count": 54,
+        "best_offer_verified_count": 4,
+        "best_offer_displayed_only_count": 6
+      },
+      "quality": {
+        "data_insufficient": false,
+        "quality_status": "sufficient_sample",
+        "verified_share": 0.90625,
+        "coverage_status": "unknown",
+        "coverage_ratio": null,
+        "score": null
+      }
+    },
+    {
+      "hours": 72,
+      "allowStale": false,
+      "decision": {
+        "freshness": "stale_acceptable",
+        "readable": false,
+        "potentialCredits": 0,
+        "reason": "stale_consent_required",
+        "onlineVerified": false,
+        "actualChargePerformed": false
+      },
+      "stats": null,
+      "quality": null
+    },
+    {
+      "hours": 72,
+      "allowStale": true,
+      "decision": {
+        "freshness": "stale_acceptable",
+        "readable": true,
+        "potentialCredits": 0,
+        "reason": "explicit_stale_consent",
+        "onlineVerified": false,
+        "actualChargePerformed": false
+      },
+      "stats": {
+        "n_observed": 121,
+        "n_comparable": 64,
+        "n_price_verified": 58,
+        "n_excluded_unverified_price": 6,
+        "sold_last_30d_observed": 35,
+        "median_cents": 5800,
+        "p25_cents": 4200,
+        "p75_cents": 7600,
+        "trimmed_mean_cents": 5930,
+        "observed_min_cents": 2900,
+        "observed_max_cents": 10800,
+        "buy_it_now_verified_count": 54,
+        "best_offer_verified_count": 4,
+        "best_offer_displayed_only_count": 6
+      },
+      "quality": {
+        "data_insufficient": false,
+        "quality_status": "sufficient_sample",
+        "verified_share": 0.90625,
+        "coverage_status": "unknown",
+        "coverage_ratio": null,
+        "score": null
+      }
+    },
+    {
+      "rights": "not_cleared",
+      "decision": {
+        "freshness": "forbidden",
+        "readable": false,
+        "potentialCredits": 0,
+        "reason": "not_cleared",
+        "onlineVerified": false,
+        "actualChargePerformed": false
+      },
+      "stats": null,
+      "quality": null
+    },
+    {
+      "rights": "revoked",
+      "decision": {
+        "freshness": "forbidden",
+        "readable": false,
+        "potentialCredits": 0,
+        "reason": "revoked",
+        "onlineVerified": false,
+        "actualChargePerformed": false
+      },
+      "stats": null,
+      "quality": null
+    }
+  ]
+}

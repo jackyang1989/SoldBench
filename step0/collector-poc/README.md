@@ -63,7 +63,7 @@ TASK-003/004/005/006按整包交非实现者复核。120条查询为待签收草
 
 ## 采集、快照与统计贯通
 
-parser为offline-page-parser-1.1.0，engine为offline-exploration-1.1.0。原page.v1兼容身份回放，新增明确标synthetic的page.v2，每条记录携带结构化Candidate。Candidate包含合成的可比性与价格资格输入，实际eBay字段提取和taxonomy匹配仍待获准真实样本。
+parser为offline-page-parser-1.1.1，engine为offline-exploration-1.1.1。原page.v1兼容身份回放，新增明确标synthetic的page.v2，每条记录携带结构化Candidate。Candidate包含合成的可比性与价格资格输入，实际eBay字段提取和taxonomy匹配仍待获准真实样本。
 
 ```sh
 node --import ./step0/collector-poc/src/offline-network.ts step0/collector-poc/src/study.ts
@@ -74,6 +74,8 @@ node --import ./step0/collector-poc/src/offline-network.ts step0/collector-poc/s
 snapshot.ts构建完整候选快照。读取时核对快照hash、查询/来源/版本、当前观察清单与事件状态，再复用pricing.ts出数，并在返回前再次读取模拟权限。用户视图limit只裁切明细。未知运费、价格核验不足、身份不明和强属性排除分项保留诊断。全局事件指纹不包含query-specific comparable，原始判断保留在各run观察中。
 
 新快照用同目录临时文件、fsync和原子链接发布，已存在路径拒绝覆盖。发布前失败清理临时文件，发布后遇目录fsync故障须先读已有快照核验，再选择新路径恢复。旧state与证据均保留。
+
+观察数量对账包含去重的未知身份、冲突及时间不合格候选，排除后再形成可比集合。unknown事件在快照中用来源/刊登/原始观察指纹识别重复候选，保持在可比之前排除，不能当已核验成交。`excluded_before_comparable`与可比数之和等于n_observed，价格排除另与可比数对账。没有来源候选指纹的未知输入保留逐条诊断，不能凭同价合并。观察去重键与query-specific comparable均不参与全局事实冲突判断。
 
 贯通演练从实际计算的58条合格样本驱动0/24/48/72h与撤销读取，Collector报告仍只描述采集，study-report单独标statisticsComputed=true。模拟读取允许不代表来源准入，全部输出保留sourceApproval=NOT_CLEARED、onlineVerified=false和actualChargePerformed=false。读取无新派发，后续run覆盖时间不能使旧快照变新鲜。真实账户、账本和Web/API验收按后续阶段执行。
 

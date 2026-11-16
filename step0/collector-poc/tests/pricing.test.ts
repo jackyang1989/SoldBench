@@ -72,6 +72,20 @@ test('event identity, repeat observations, conflicts and source scope fail conse
   assert.throws(() => evaluate([], { ...query, days: 45 }), /invalid_query/);
 });
 
+test('uncertain, conflicting and out-of-window candidates remain in observed-count accounting', () => {
+  const uncertain = row({ eventKey: null, identityVerified: false, observationKey: 'a'.repeat(64) });
+  const result = evaluate([row(), row({ itemCents: 101 }), uncertain, uncertain,
+    row({ eventKey: 'outside', time: { precision: 'unknown' } }), row({ eventKey: 'mismatch', comparable: false })], query);
+  assert.equal(result.stats.n_observed, 4);
+  assert.equal(result.stats.n_comparable, 0);
+  assert.equal(result.stats.n_price_verified, 0);
+  assert.deepEqual(result.diagnostics.excluded_before_comparable,
+    { uncertain_identity: 1, event_identity_conflict: 1, outside_window: 1, hard_attribute_mismatch: 1 });
+  assert.equal(result.diagnostics.duplicate_uncertain_observations, 1);
+  const excluded = Object.values(result.diagnostics.excluded_before_comparable).reduce((sum, n) => sum + n, 0);
+  assert.equal(result.stats.n_observed, excluded + result.stats.n_comparable);
+});
+
 test('exact window is lower-exclusive upper-inclusive, and malformed dates are excluded', () => {
   const start = new Date(instant(asOf) - 90 * 86_400_000).toISOString();
   const t = (value: string) => inWindow({ precision: 'instant', value }, asOf, 90);
