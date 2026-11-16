@@ -43,7 +43,7 @@ SoldBench 是一个面向**个人卖家、收藏品交易商、二手商家、�
 
 - 第一工程整包 TASK-011/012/013/019/020 正在开发/检查；看 [台账 §28–30](开发排期与任务台账.md)。状态不能因为文件或OpenAPI存在而标为完成。
 - 已有 TypeScript workspaces、Hono/React SSR开发骨架、PG16迁移runner、共享查询/统计核心、双语消息骨架、媒体安全原型、来源许可**预检**和离线PoC。启动命令：`npm run db:start`、`npm run db:migrate`、`npm run dev`；服务固定绑定loopback、`offline_fixture`、payments offline、Collector关闭。
-- `/v1/sold`当前只校验查询并拒绝未认证请求；没有已完成注册/登录/API key/订阅/收费、没有返回生产数据的Search API，也没有已实现Dashboard、API Playground、MCP或图片读取路由。
+- `/v1/sold`当前仍只校验查询并拒绝未认证请求，尚未连接owner查询/结算服务。账户安全及API Key已按§40提供离线PG/REST实现：注册验证、登录找回、会话、CSRF、TOTP恢复码、密钥创建/旋转/撤销；本地邮件加密排队，不是真实送达。尚无订阅收费、生产供数Search API、完整Dashboard/Playground/MCP或owner图片读取路由。
 - 图片逻辑能在合成响应里校验候选、识别/规范化安全图像字节，已有fixture-only私有本地对象写读/清理；没有来源主图字段许可、真实采集或owner页面/API分发。主图必须同时绑定`listing_id + observation_id + sale_event_id`；领域类型会筛除任一身份不同的候选，PostgreSQL组合外键也拒绝错配。升级有明文URL的旧库时按工程实施规格先做0003扩展、运行URL加密回填/验证、最后0004删明文，不能跳过顺序。
 - `docs/openapi.yaml`是设计契约，不表示其中50个operation已实现。现阶段与CompSniper生产功能端到端对等为0项；离线核心通过只能证明合成/本地规则。
 - CompSniper官方文档核查已逐页完成，完整能力和缺口写在竞品核查§8.6。竞品描述/准确率/供应覆盖/稳定性是供应商自述，未独立实测。
@@ -81,5 +81,7 @@ SoldBench 是一个面向**个人卖家、收藏品交易商、二手商家、�
 最新§38进一步提供离线HTML输入：collector offline-pg-1.3.0/parser offline-page-1.2.0，0008新增run profile hash和listing_record_evidence复合关联。用`npm run collector:html-demo`复现两页/8事件/8张生成主图/8合格价样本；`--prepare-only`再用独立worker恢复。profile仅允许synthetic，由本项目编写的DOM样本定义；不是真实eBay adapter。生产选择器需获准样本及逐字段证据后另外适配，不把存在HTML parser当作供数已稳定。未知Best Offer/身份/运费/结束日期仍按原资格排除，seller默认不提取，原文hash不改为规范JSON hash。
 
 §39补受控启动器`collector:run`及实际本机API/Collector双进程验证，覆盖Collector卡住/强杀后API health/ready/401仍响应、过期lease接管和未知请求预算保守结算。不是完整账户/历史查询故障演练；未验证生产cgroup/RSS/CPU/宿主出口，也不保证启动器被SIGKILL后的子进程清理。子进程不继承Node preload/支付与会话环境；真实权限/网络分支仍关闭。
+
+§40转入完整产品链：新增`packages/auth`和0009、OpenAPI1.6/90schema/58operation、[ADR-14](adr/ADR-14.md)与[账户契约](账户与访问实施契约.md)。真实接口实现范围是auth/session/MFA/key，不可把剩余设计接口当可用。生产秘钥/KDF资源/外部安全、真实邮件、网页表单与G3未验；API本机开发首次随机生成`.local/auth-secrets.json`，生产拒绝此配置。包结束继续billing/query，不等待新的“继续”。
 
 以台账§35的最新提交/证据为准。快照的canonical候选选最新已提交观察，而非直接把所有观察传入core制造元数据冲突。网络熔断与权利撤销不同：前者允许仍有效的已有缓存，后者立即拒读再清理。不要把helper创建的active offline_fixture源当成平台许可——对应clearance仍draft，只能使用标记synthetic的内存响应。

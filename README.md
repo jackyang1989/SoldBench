@@ -6,7 +6,7 @@
 
 ## 当前状态（2026-11-16）
 
-用户已明确授权先做完整离线产品工程；按 [ADR-13](docs/adr/ADR-13.md) 在真实来源许可前只使用synthetic/fixtures，禁止网络采集、真实支付和生产部署。第一工程整包TASK-011/012/013/019/020正在开发及审查：当前有monorepo、PG16迁移、查询/统计核心、SSR/API开发壳、双语消息、图片处理原型、许可预检与PG持久化离线采集管线，但**没有真实eBay供数、没有完整账户/收费/Search API/Dashboard/MCP，也没有CompSniper生产端到端功能对等**。OpenAPI含50个操作是设计契约，不代表50个operation已有服务实现。详细交接见 [Agent接手指南](docs/Agent接手指南.md)、当前唯一任务状态见 [排期台账](docs/开发排期与任务台账.md)。原始输入为 [v1.4规格](<SoldBench 开发规格书 v1.4.md>) 和 [合成夹具](v14_gameboy_58_verified.json)。
+用户已明确授权先做完整离线产品工程；按 [ADR-13](docs/adr/ADR-13.md) 在真实来源许可前只使用synthetic/fixtures，禁止网络采集、真实支付和生产部署。第一工程整包TASK-011/012/013/019/020正在开发及审查：当前有monorepo、PG16迁移、查询/统计核心、SSR/API开发壳、双语消息、图片处理原型、许可预检与PG持久化离线采集管线，但**没有真实eBay供数、没有完整网页账户/收费/Search API/Dashboard/MCP，也没有CompSniper生产端到端功能对等**。OpenAPI1.6含58个操作，其中账户/会话/MFA/密钥已有离线服务，其余以实际任务记录为准，不能按契约数量算已实现。详细交接见 [Agent接手指南](docs/Agent接手指南.md)、当前唯一任务状态见 [排期台账](docs/开发排期与任务台账.md)。原始输入为 [v1.4规格](<SoldBench 开发规格书 v1.4.md>) 和 [合成夹具](v14_gameboy_58_verified.json)。
 
 ## 阅读入口
 
@@ -118,3 +118,5 @@ npm run collector:run -- --fixture=/absolute/path/to/collector-fixture-JOB_ID.js
 HTML演示也支持`npm run collector:html-demo -- --prepare-only`，输出的artifactPath可交给同一个collector:worker分多周期续跑。样本与profile位于`tests/fixtures/html/`，全部由本项目编写；不是eBay网页捕获或已核验生产选择器。解析器不执行脚本、不访问HTML中的图片/iframe地址，主图只从本地响应包读取。真实eBay的45项字段仍全部未核验。
 
 `collector:run`仅传必要本地DB/目录和OS环境，不把支付、会话密钥或Node preload传给worker；等待子进程退出后才报告结束。V8 heap不是RSS/CPU隔离，启动器被SIGKILL时仍依赖部署监督器清理子进程；宿主出口和生产资源限制尚未验收。
+
+账户与访问服务已提供注册验证、登录/找回、会话撤销、CSRF、TOTP/恢复码及Key创建/旋转/撤销。开发服务首次生成私有随机auth secret文件，邮件仅进入加密本地outbox。接口与重试依据[账户契约](docs/账户与访问实施契约.md)和[ADR-14](docs/adr/ADR-14.md)，真实邮件/生产身份验收及完整网页尚待实施。

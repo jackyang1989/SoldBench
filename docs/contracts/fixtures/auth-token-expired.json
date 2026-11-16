@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "token_invalid",
+    "message": "This synthetic link is expired.",
+    "request_id": "synthetic-auth-expired",
+    "details": {}
+  }
+}

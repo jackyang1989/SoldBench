@@ -1,0 +1,11 @@
+{
+  "data": {
+    "enabled": true,
+    "required": false,
+    "recovery_codes_remaining": 9
+  },
+  "meta": {
+    "request_id": "synthetic-auth-fixture",
+    "credits_charged": 0
+  }
+}

@@ -174,6 +174,9 @@ bad=copy.deepcopy(fixtures['search-supplemental']);bad['sample_count']=7;bad['me
 rejected('small ordinary mean','SearchSupplementalStats',bad)
 
 schema_sql=(DOCS/'contracts/schema.sql').read_text()
+rejected('two MFA proofs','MfaProof',{'totp_code':'123456','recovery_code':'0'*32})
+rejected('empty MFA proof','MfaProof',{})
+rejected('wrong recovery code shape','MfaProof',{'recovery_code':'short'})
 require('CREATE TABLE credit_recoveries' in schema_sql and 'CREATE TABLE query_result_sources' in schema_sql,'Missing recovery/rights relations')
 require('PARTITION BY' not in schema_sql,'Unexpected production partitioning')
 print(f'PASS: {len(SCHEMAS)} component schemas, {len(operations)} unique operations, '

@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
+import type { AuthService } from "@soldbench/auth";
 import { normalizeQuery } from "@soldbench/core";
 import type { Database } from "@soldbench/db";
 import { AppError, type Config } from "@soldbench/shared";
 import { renderHome } from "@soldbench/web";
 import { Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { mountAuth } from "./auth.ts";
 
-export function createApp(config: Config, db: Database) {
+export function createApp(config: Config, db: Database, services: { auth?: AuthService } = {}) {
   const app = new Hono<{ Variables: { requestId: string } }>();
   app.use("*", async (c, next) => {
     c.set("requestId", randomUUID());
@@ -22,18 +24,20 @@ export function createApp(config: Config, db: Database) {
   });
   app.onError((error, c) => {
     const known = error instanceof AppError;
+    if (known && error.status === 429) c.header("Retry-After", String(error.details?.retry_after ?? 900));
     return c.json(
       {
         error: {
           code: known ? error.code : "service_unavailable",
           message: known ? error.message : "The service could not complete this request.",
           request_id: c.get("requestId"),
-          ...(known && error.details ? { details: error.details } : {}),
+          details: known ? (error.details ?? {}) : {},
         },
       },
       (known ? error.status : 503) as ContentfulStatusCode,
     );
   });
+  mountAuth(app, config, services.auth);
   app.get("/health", (c) => c.json({ status: "ok", data_mode: config.dataMode, collector_enabled: false }));
   app.get("/ready", async (c) => {
     await db.query("SELECT 1");
@@ -47,7 +51,14 @@ export function createApp(config: Config, db: Database) {
   });
   app.notFound((c) =>
     c.json(
-      { error: { code: "not_found", message: "Resource not found", request_id: c.get("requestId") } },
+      {
+        error: {
+          code: "not_found",
+          message: "Resource not found",
+          request_id: c.get("requestId"),
+          details: {},
+        },
+      },
       404,
     ),
   );

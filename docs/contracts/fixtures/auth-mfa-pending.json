@@ -1,0 +1,13 @@
+{
+  "data": {
+    "user_id": "00000000-0000-0000-0000-000000000101",
+    "email_verified": true,
+    "expires_at": "2026-11-24T12:00:00Z",
+    "csrf_token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "mfa_required": true
+  },
+  "meta": {
+    "request_id": "synthetic-auth-fixture",
+    "credits_charged": 0
+  }
+}

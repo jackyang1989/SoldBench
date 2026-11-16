@@ -53,5 +53,25 @@
     "file": "search-supplemental.json",
     "schema": "SearchSupplementalStats",
     "status": 200
+  },
+  {
+    "file": "auth-mfa-pending.json",
+    "schema": "AuthResponse",
+    "status": 200
+  },
+  {
+    "file": "auth-mfa-confirmed.json",
+    "schema": "MfaConfirmedResponse",
+    "status": 200
+  },
+  {
+    "file": "auth-mfa-status.json",
+    "schema": "MfaStatusResponse",
+    "status": 200
+  },
+  {
+    "file": "auth-token-expired.json",
+    "schema": "Error",
+    "status": 410
   }
 ]

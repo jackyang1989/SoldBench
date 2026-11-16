@@ -1,0 +1,90 @@
+{
+  "schema": "soldbench.offline-auth-evidence.v1",
+  "date": "2026-11-17",
+  "parentCommit": "0e11067",
+  "mode": "offline_fixture",
+  "stageVerdict": "NOT_ISSUED",
+  "actualEmailSent": false,
+  "realPaymentPerformed": false,
+  "sourceNetworkEnabled": false,
+  "versions": {
+    "auth": "1.0.0",
+    "openapi": "1.6.0",
+    "migration": "0009_auth_access.sql",
+    "totp": "otplib 13.6.0",
+    "password": "Node22 scrypt N=131072 r=8 p=1"
+  },
+  "environment": {
+    "node": "22.23.3",
+    "database": "isolated temporary PG16 Unix-socket; 59 tables; empty and 0008 upgrade",
+    "actors": "synthetic example.test accounts only",
+    "clock": "explicit 2026-11-17 UTC plus injected session/token/MFA expiry; DB UTC by default",
+    "http": "real loopback HTTP + in-process Hono requests, no deployed app"
+  },
+  "checks": [
+    {
+      "command": "npm run check",
+      "exitCode": 0,
+      "nodeTests": 96,
+      "authTests": 10,
+      "log": "engineering-check.log"
+    },
+    {
+      "command": "python3 docs/contracts/check_contracts.py",
+      "exitCode": 0,
+      "schemas": 90,
+      "operations": 58,
+      "fixtures": 15,
+      "invalidShapes": 18,
+      "log": "contracts.log"
+    },
+    {
+      "command": "python3 step0/tools/validate_offline.py",
+      "exitCode": 0,
+      "log": "step0-check.log",
+      "generatedReport": "step0/artifacts/20261116T232149815177Z/validation.json"
+    },
+    {
+      "command": "npm audit --omit=dev --json --cache=/tmp/soldbench-npm-cache",
+      "exitCode": 0,
+      "vulnerabilities": 0,
+      "log": "npm-audit.json"
+    }
+  ],
+  "independentReview": {
+    "reviewer": "collector_review",
+    "skill": "security-review",
+    "resolved": [
+      "owner MFA budget across distributed client IDs",
+      "password change/reset revokes outstanding reset tokens",
+      "current admin-role MFA applies to existing sessions"
+    ],
+    "independentChecks": [
+      "AES-GCM AAD isolation",
+      "token HMAC purpose separation",
+      "correct/wrong scrypt password and bounded KDF concurrency",
+      "production dependency audit verified"
+    ],
+    "final": "No additional HIGH/MEDIUM, no G3 signoff"
+  },
+  "remaining": [
+    "No real email provider/delivery",
+    "No deployed key management/KDF capacity/external penetration acceptance",
+    "No complete web account UI yet",
+    "No query, wallet, paid search or subscription lifecycle yet; next package implements shared billing/query",
+    "No G0/G3/release approval"
+  ],
+  "sha256": {
+    "apps/api/src/auth.ts": "86db0b127e603fe9cb7caeb079be12f23823710e867cbede3f1cbb56c544870f",
+    "apps/api/src/index.ts": "d7e2c0c17eed7ea376dc82d3ad1a5ec35d2cd4827adfb5c767b753a15062206c",
+    "apps/api/src/server.ts": "593aa978a10157ad7f532fba7ce6a8f5e6fd5f66dd8ca45d738c8dda6ac3b6e4",
+    "docs/openapi.yaml": "38f0af123dd15602dd78f33f8de4a35c1043407b00f3180eebe5ee505b9fee4f",
+    "package-lock.json": "3c2471abf8bf654d2b8df4992d135d0a6c857f1b1df9e54d937f0c4593092204",
+    "packages/auth/src/crypto.ts": "0fe1f9f8e351aa488d7bf917c0f8edcda68ecd459d916858cefd45ece47d93b6",
+    "packages/auth/src/index.ts": "acb1b4a9e1bfa287d96f271e787080cb251f4c078357ef11401c9389f6881791",
+    "packages/auth/src/local.ts": "12f9d3a882ed8191b5fc383964fc2d8f50ea65bee29fcf0e11f1fcac78057d68",
+    "packages/auth/src/service.ts": "a9b8ba95c9f01b4fb946e0b66df2aa745b23fadc451ed33ce79bc721d808c63b",
+    "packages/db/migrations/0009_auth_access.sql": "53de5be667447ad1091fe0a224a1965874ec28b121dd31c36a399936c4e6d2b9",
+    "tests/auth-access.test.mjs": "3bc06256c622666ee016a5676625d2ed0e237a15aa12f43b954246960418eda2"
+  }
+}

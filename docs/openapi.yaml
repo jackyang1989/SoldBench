@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.5.0
+  version: 1.6.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -2307,7 +2307,6 @@ paths:
         schema:
           type: string
           maxLength: 256
-      - *id003
       responses:
         '202':
           description: 成功；所有样例均为合成数据。
@@ -2986,7 +2985,6 @@ paths:
         schema:
           type: string
           maxLength: 256
-      - *id003
       responses:
         '202':
           description: 成功；所有样例均为合成数据。
@@ -3219,7 +3217,6 @@ paths:
         schema:
           type: string
           maxLength: 256
-      - *id003
       - *id008
       responses:
         '204':
@@ -3555,7 +3552,6 @@ paths:
         schema:
           type: string
           maxLength: 256
-      - *id003
       - *id008
       responses:
         '202':
@@ -6004,6 +6000,298 @@ paths:
       x-roles:
       - owner
       x-scopes: []
+  /auth/me:
+    get:
+      operationId: currentSession
+      summary: currentSession
+      security:
+      - Session: []
+      parameters:
+      - &auth_new_002
+        name: Accept-Language
+        in: header
+        required: false
+        schema:
+          type: string
+          maxLength: 256
+      responses:
+        '200':
+          description: Offline implementation; no real source or delivery approval.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400': &auth_new_001
+          description: Current-state authentication or validation failure.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401': *auth_new_001
+        '403': *auth_new_001
+        '404': *auth_new_001
+        '409': *auth_new_001
+        '410': *auth_new_001
+        '429': *auth_new_001
+        '503': *auth_new_001
+      x-task: TASK-023
+      x-credit-policy: '0'
+      x-roles:
+      - owner
+      x-scopes: []
+  /auth/mfa/verify:
+    post:
+      operationId: verifyMfa
+      summary: verifyMfa
+      security:
+      - Session: []
+      parameters:
+      - *auth_new_002
+      - &auth_new_003
+        name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 16
+          maxLength: 256
+      responses:
+        '200':
+          description: Offline implementation; no real source or delivery approval.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400': *auth_new_001
+        '401': *auth_new_001
+        '403': *auth_new_001
+        '404': *auth_new_001
+        '409': *auth_new_001
+        '410': *auth_new_001
+        '429': *auth_new_001
+        '503': *auth_new_001
+      x-task: TASK-023
+      x-credit-policy: '0'
+      x-roles:
+      - owner
+      x-scopes: []
+      x-origin-check: true
+      x-session-csrf-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MfaProof'
+  /account/mfa:
+    get:
+      operationId: mfaStatus
+      summary: mfaStatus
+      security:
+      - Session: []
+      parameters:
+      - *auth_new_002
+      responses:
+        '200':
+          description: Offline implementation; no real source or delivery approval.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MfaStatusResponse'
+        '400': *auth_new_001
+        '401': *auth_new_001
+        '403': *auth_new_001
+        '404': *auth_new_001
+        '409': *auth_new_001
+        '410': *auth_new_001
+        '429': *auth_new_001
+        '503': *auth_new_001
+      x-task: TASK-023
+      x-credit-policy: '0'
+      x-roles:
+      - owner
+      x-scopes: []
+    delete:
+      operationId: disableMfa
+      summary: disableMfa
+      security:
+      - Session: []
+      parameters:
+      - *auth_new_002
+      - *auth_new_003
+      responses:
+        '204':
+          description: Completed.
+        '400': *auth_new_001
+        '401': *auth_new_001
+        '403': *auth_new_001
+        '404': *auth_new_001
+        '409': *auth_new_001
+        '410': *auth_new_001
+        '429': *auth_new_001
+        '503': *auth_new_001
+      x-task: TASK-023
+      x-credit-policy: '0'
+      x-roles:
+      - owner
+      x-scopes: []
+      x-origin-check: true
+      x-session-csrf-required: true
+  /account/mfa/setup:
+    post:
+      operationId: setupMfa
+      summary: setupMfa
+      security:
+      - Session: []
+      parameters:
+      - *auth_new_002
+      - *auth_new_003
+      responses:
+        '200':
+          description: Offline implementation; no real source or delivery approval.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MfaSetupResponse'
+        '400': *auth_new_001
+        '401': *auth_new_001
+        '403': *auth_new_001
+        '404': *auth_new_001
+        '409': *auth_new_001
+        '410': *auth_new_001
+        '429': *auth_new_001
+        '503': *auth_new_001
+      x-task: TASK-023
+      x-credit-policy: '0'
+      x-roles:
+      - owner
+      x-scopes: []
+      x-origin-check: true
+      x-session-csrf-required: true
+  /account/mfa/confirm:
+    post:
+      operationId: confirmMfa
+      summary: confirmMfa
+      security:
+      - Session: []
+      parameters:
+      - *auth_new_002
+      - *auth_new_003
+      responses:
+        '200':
+          description: Offline implementation; no real source or delivery approval.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MfaConfirmedResponse'
+        '400': *auth_new_001
+        '401': *auth_new_001
+        '403': *auth_new_001
+        '404': *auth_new_001
+        '409': *auth_new_001
+        '410': *auth_new_001
+        '429': *auth_new_001
+        '503': *auth_new_001
+      x-task: TASK-023
+      x-credit-policy: '0'
+      x-roles:
+      - owner
+      x-scopes: []
+      x-origin-check: true
+      x-session-csrf-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MfaConfirm'
+  /account/mfa/recovery-codes:
+    post:
+      operationId: regenerateRecoveryCodes
+      summary: regenerateRecoveryCodes
+      security:
+      - Session: []
+      parameters:
+      - *auth_new_002
+      - *auth_new_003
+      responses:
+        '200':
+          description: Offline implementation; no real source or delivery approval.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecoveryCodesResponse'
+        '400': *auth_new_001
+        '401': *auth_new_001
+        '403': *auth_new_001
+        '404': *auth_new_001
+        '409': *auth_new_001
+        '410': *auth_new_001
+        '429': *auth_new_001
+        '503': *auth_new_001
+      x-task: TASK-023
+      x-credit-policy: '0'
+      x-roles:
+      - owner
+      x-scopes: []
+      x-origin-check: true
+      x-session-csrf-required: true
+  /v1/keys/{id}/rotate:
+    post:
+      operationId: rotateKey
+      summary: rotateKey
+      security:
+      - Session: []
+      parameters:
+      - *auth_new_002
+      - *auth_new_003
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 16
+          maxLength: 128
+      responses:
+        '400': *auth_new_001
+        '401': *auth_new_001
+        '403': *auth_new_001
+        '404': *auth_new_001
+        '409': *auth_new_001
+        '410': *auth_new_001
+        '429': *auth_new_001
+        '503': *auth_new_001
+        '201':
+          description: Offline implementation; no real source or delivery approval.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeyCreated'
+        '200':
+          description: Offline implementation; no real source or delivery approval.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeyCreatedReplay'
+      x-task: TASK-024
+      x-credit-policy: '0'
+      x-roles:
+      - owner
+      x-scopes: []
+      x-origin-check: true
+      x-session-csrf-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateKey'
 components:
   securitySchemes:
     ApiKey:
@@ -8398,6 +8686,9 @@ components:
               - mfa_required
               - cache_miss
               - credit_recovery_required
+              - token_invalid
+              - mfa_invalid
+              - email_verification_required
             message:
               type: string
               minLength: 1
@@ -8675,6 +8966,121 @@ components:
           required:
           - items
           - next_cursor
+          additionalProperties: false
+        meta:
+          $ref: '#/components/schemas/BasicMeta'
+      required:
+      - data
+      - meta
+      additionalProperties: false
+    MfaProof:
+      type: object
+      properties:
+        totp_code: &auth_schema_001
+          type: string
+          pattern: ^[0-9]{6}$
+        recovery_code: &auth_schema_002
+          type: string
+          pattern: ^[a-f0-9]{32}$
+      required: []
+      additionalProperties: false
+      oneOf:
+      - required:
+        - totp_code
+      - required:
+        - recovery_code
+    MfaConfirm:
+      type: object
+      properties:
+        totp_code: *auth_schema_001
+      required:
+      - totp_code
+      additionalProperties: false
+    MfaStatusResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            required:
+              type: boolean
+            recovery_codes_remaining:
+              type: integer
+              minimum: 0
+              maximum: 10
+          required:
+          - enabled
+          - required
+          - recovery_codes_remaining
+          additionalProperties: false
+        meta:
+          $ref: '#/components/schemas/BasicMeta'
+      required:
+      - data
+      - meta
+      additionalProperties: false
+    MfaSetupResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            secret:
+              type: string
+              minLength: 16
+            uri:
+              type: string
+              format: uri
+            expires_at:
+              type: string
+              format: date-time
+          required:
+          - secret
+          - uri
+          - expires_at
+          additionalProperties: false
+        meta:
+          $ref: '#/components/schemas/BasicMeta'
+      required:
+      - data
+      - meta
+      additionalProperties: false
+    MfaConfirmedResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            recovery_codes: &auth_schema_003
+              type: array
+              minItems: 10
+              maxItems: 10
+              uniqueItems: true
+              items: *auth_schema_002
+            csrf_token:
+              type: string
+              minLength: 32
+          required:
+          - recovery_codes
+          - csrf_token
+          additionalProperties: false
+        meta:
+          $ref: '#/components/schemas/BasicMeta'
+      required:
+      - data
+      - meta
+      additionalProperties: false
+    RecoveryCodesResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            recovery_codes: *auth_schema_003
+          required:
+          - recovery_codes
           additionalProperties: false
         meta:
           $ref: '#/components/schemas/BasicMeta'
