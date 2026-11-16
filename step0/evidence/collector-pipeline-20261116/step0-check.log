@@ -1,0 +1,20 @@
+typecheck: PASS
+poc-tests: PASS
+cli-first: PASS
+cli-replay: PASS
+integrated-study: PASS
+fault-campaign: PASS
+corpus: PASS
+preparation-tests: PASS
+source-preparation: PASS
+quality-empty: PASS
+dependency-inventory: PASS
+economics-unmeasured: PASS
+economics-scenarios: PASS
+stability-no-records: PASS
+golden: PASS
+documentation: PASS
+contracts: PASS
+cli-replay-invariants: PASS
+integrated-study-invariants: PASS
+/Users/jianouyang/Project/SoldBench/step0/artifacts/20261116T131030304256Z/validation.json

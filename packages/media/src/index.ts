@@ -116,6 +116,8 @@ export async function collectPrimaryImage(
     .resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true })
     .webp({ quality: 82 })
     .toBuffer({ resolveWithObject: true });
+  if (normalized.data.byteLength === 0 || normalized.data.byteLength > maxBytes)
+    throw new AppError("invalid_parameter", 400, "Normalized image exceeds the storage byte limit");
   signal.throwIfAborted();
   const latest = checkRights(
     dependencies.currentRights(),
@@ -309,3 +311,4 @@ export function guardedHttpsImageTransport(approvedHosts: readonly string[]): Im
     });
   };
 }
+export { PrivateMediaStore } from "./private-store.ts";

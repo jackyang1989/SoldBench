@@ -54,3 +54,5 @@ OpenAPI设计版本1.2.0新增非webhook接口的可选Accept-Language，并说�
 搜索页专项增量见[字段与统计契约](../搜索页采集字段与统计契约.md)：当前冻结OpenAPI还未加入价格范围/format参数与supplemental_stats等，TASK-028必须扩展schema/fixtures和相关DTO/调用实现后才能验收AT-074/075；现有契约检查通过不代表新增字段已支持。
 
 2026-11-16搜索核心实施：OpenAPI1.5.0扩至84 schema/50operation，新增SearchSupplementalStats、价格范围/format和已交付结果排序；11个完整合成fixtures/15个负例。新增search-supplemental.json由实际core对16条合成记录生成。旧样例仍保留原黄金字段和原版本，不把新版schema可选字段变成旧结果虚构值；HTTP/来源持久化未交付。
+
+采集整包追加0005：复用原collector_jobs/circuits，新增5个持久化表，54表空库/旧版升级测试；sale_event_evidence回填后图片组合外键改引用多观察证据，图片唯一键含event。共享SQL基线不是最新全部DDL，运行库完整结构以顺序应用的0001–0005迁移为准；旧版SQL不回改。

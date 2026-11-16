@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 
@@ -75,4 +76,34 @@ export async function migrate(db: Database, through?: string): Promise<string[]>
       client.release();
     }
   }
+}
+
+/** Parse exactly as the PG client will, before any connect/DNS call. Used only
+ * by offline local tooling; product database() retains its deployment contract. */
+export function assertLocalDatabaseUrl(url: string, allowedSocketDirectories: readonly string[] = []): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error("invalid_local_database_url");
+  }
+  if (!["postgres:", "postgresql:"].includes(parsed.protocol)) throw new Error("invalid_local_database_url");
+  for (const key of parsed.searchParams.keys()) {
+    if (!["host", "port"].includes(key) || parsed.searchParams.getAll(key).length !== 1)
+      throw new Error("database_connection_override_not_allowed");
+  }
+  let client: pg.Client;
+  try {
+    client = new pg.Client({ connectionString: url });
+  } catch {
+    throw new Error("invalid_local_database_url");
+  }
+  const host = client.host;
+  const localTcp = ["localhost", "127.0.0.1", "::1"].includes(host);
+  const localSocket =
+    isAbsolute(host) &&
+    allowedSocketDirectories.some((directory) => isAbsolute(directory) && resolve(directory) === host);
+  if (!localTcp && !localSocket) throw new Error("database_target_must_be_local");
+  if (!Number.isSafeInteger(client.port) || client.port < 1 || client.port > 65535)
+    throw new Error("invalid_local_database_port");
 }

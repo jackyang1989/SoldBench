@@ -1,0 +1,426 @@
+
+> soldbench@0.1.0 check
+> npm run lint && npm run typecheck && npm test && npm run contracts
+
+
+> soldbench@0.1.0 lint
+> biome check apps packages scripts tests
+
+Checked 56 files in 15ms. No fixes applied.
+
+> soldbench@0.1.0 typecheck
+> tsc -b --pretty false
+
+
+> soldbench@0.1.0 test
+> npm run build && node scripts/test.mjs
+
+
+> soldbench@0.1.0 build
+> tsc -b
+
+TAP version 13
+# Subtest: health and readiness disclose fixture mode without claiming collector availability
+ok 1 - health and readiness disclose fixture mode without claiming collector availability
+  ---
+  duration_ms: 8.722208
+  type: 'test'
+  ...
+# Subtest: SSR home stays bilingual, synthetic-data disclosed and protected by response headers
+ok 2 - SSR home stays bilingual, synthetic-data disclosed and protected by response headers
+  ---
+  duration_ms: 13.359584
+  type: 'test'
+  ...
+# Subtest: sold search validates inputs but does not return fake data or bypass authentication
+ok 3 - sold search validates inputs but does not return fake data or bypass authentication
+  ---
+  duration_ms: 0.664166
+  type: 'test'
+  ...
+1..3
+# tests 3
+# suites 0
+# pass 3
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 89.482167
+TAP version 13
+# Subtest: PG collector replays golden pages, persists provenance, de-duplicates and stores/reads real image bytes
+ok 1 - PG collector replays golden pages, persists provenance, de-duplicates and stores/reads real image bytes
+  ---
+  duration_ms: 175.364875
+  type: 'test'
+  ...
+# Subtest: enqueue, lease and budgets remain atomic under concurrent dispatch attempts
+ok 2 - enqueue, lease and budgets remain atomic under concurrent dispatch attempts
+  ---
+  duration_ms: 69.261916
+  type: 'test'
+  ...
+# Subtest: expired worker reservations are conservatively consumed, lease takeover rejects stale publication
+ok 3 - expired worker reservations are conservatively consumed, lease takeover rejects stale publication
+  ---
+  duration_ms: 7.471208
+  type: 'test'
+  ...
+# Subtest: 429 observes retry-after and a subsequent worker resumes the same job without advancing prematurely
+ok 4 - 429 observes retry-after and a subsequent worker resumes the same job without advancing prematurely
+  ---
+  duration_ms: 9.8345
+  type: 'test'
+  ...
+# Subtest: 401/403/login challenges persistently stop all source dispatches including oversized responses
+ok 5 - 401/403/login challenges persistently stop all source dispatches including oversized responses
+  ---
+  duration_ms: 14.215417
+  type: 'test'
+  ...
+# Subtest: failed second page preserves committed evidence and resumes checkpoint without duplicating sales
+ok 6 - failed second page preserves committed evidence and resumes checkpoint without duplicating sales
+  ---
+  duration_ms: 53.377791
+  type: 'test'
+  ...
+# Subtest: event conflict and pagination loops roll back the failing page and never publish a complete watermark
+ok 7 - event conflict and pagination loops roll back the failing page and never publish a complete watermark
+  ---
+  duration_ms: 16.360792
+  type: 'test'
+  ...
+# Subtest: cancelled, revoked and configuration-changed workers cannot reserve or publish
+ok 8 - cancelled, revoked and configuration-changed workers cannot reserve or publish
+  ---
+  duration_ms: 5.884875
+  type: 'test'
+  ...
+# Subtest: private media objects reject traversal, symlinks and corruption; synthetic parser rejects false empty pages
+ok 9 - private media objects reject traversal, symlinks and corruption; synthetic parser rejects false empty pages
+  ---
+  duration_ms: 12.900667
+  type: 'test'
+  ...
+# Subtest: uncertain observations can be replayed across runs without inventing verified sales
+ok 10 - uncertain observations can be replayed across runs without inventing verified sales
+  ---
+  duration_ms: 14.10225
+  type: 'test'
+  ...
+# Subtest: normal empty evidence succeeds, but a mutated page cannot commit against its raw-response digest
+ok 11 - normal empty evidence succeeds, but a mutated page cannot commit against its raw-response digest
+  ---
+  duration_ms: 8.7445
+  type: 'test'
+  ...
+# Subtest: the executable collector demo runs against the isolated database with no network
+ok 12 - the executable collector demo runs against the isolated database with no network
+  ---
+  duration_ms: 169.161167
+  type: 'test'
+  ...
+# Subtest: later observations can add their own primary image evidence without creating another sale
+ok 13 - later observations can add their own primary image evidence without creating another sale
+  ---
+  duration_ms: 25.874291
+  type: 'test'
+  ...
+# Subtest: collection outage preserves still-permitted cached evidence; revocation denies it and replays cleanup
+ok 14 - collection outage preserves still-permitted cached evidence; revocation denies it and replays cleanup
+  ---
+  duration_ms: 22.328166
+  type: 'test'
+  ...
+# Subtest: rate windows are shared across jobs
+ok 15 - rate windows are shared across jobs
+  ---
+  duration_ms: 4.192792
+  type: 'test'
+  ...
+# Subtest: reservations settle against their original UTC day; new-day budgets are not fabricated
+ok 16 - reservations settle against their original UTC day; new-day budgets are not fabricated
+  ---
+  duration_ms: 3.08975
+  type: 'test'
+  ...
+# Subtest: healthy rate-limited pagination can renew leases without exhausting the failure retry budget
+ok 17 - healthy rate-limited pagination can renew leases without exhausting the failure retry budget
+  ---
+  duration_ms: 28.178791
+  type: 'test'
+  ...
+# Subtest: same-listing independent events in the same page keep their own primary images
+ok 18 - same-listing independent events in the same page keep their own primary images
+  ---
+  duration_ms: 23.444542
+  type: 'test'
+  ...
+# Subtest: revocation failure rolls back stop, epoch, budgets and cleanup event as one transaction
+ok 19 - revocation failure rolls back stop, epoch, budgets and cleanup event as one transaction
+  ---
+  duration_ms: 4.837708
+  type: 'test'
+  ...
+# Subtest: revocation cleanup also deletes a privately written object that never obtained a DB link
+ok 20 - revocation cleanup also deletes a privately written object that never obtained a DB link
+  ---
+  duration_ms: 7.859125
+  type: 'test'
+  ...
+# Subtest: snapshot assembly selects latest per-event metadata without inventing price conflicts
+ok 21 - snapshot assembly selects latest per-event metadata without inventing price conflicts
+  ---
+  duration_ms: 15.652458
+  type: 'test'
+  ...
+# Subtest: source revocation waits for private publication, then cleanup removes the newly written file
+ok 22 - source revocation waits for private publication, then cleanup removes the newly written file
+  ---
+  duration_ms: 46.097333
+  type: 'test'
+  ...
+# Subtest: an identical unknown candidate on two different pages is one uncertain candidate with valid primary evidence
+ok 23 - an identical unknown candidate on two different pages is one uncertain candidate with valid primary evidence
+  ---
+  duration_ms: 25.607208
+  type: 'test'
+  ...
+# Subtest: retention maintenance preserves a shared valid object, expires old references and collects aged orphans
+ok 24 - retention maintenance preserves a shared valid object, expires old references and collects aged orphans
+  ---
+  duration_ms: 34.072792
+  type: 'test'
+  ...
+# Subtest: an invalid maintenance/read clock cannot extend image visibility or delete valid objects
+ok 25 - an invalid maintenance/read clock cannot extend image visibility or delete valid objects
+  ---
+  duration_ms: 14.828833
+  type: 'test'
+  ...
+1..25
+# tests 25
+# suites 0
+# pass 25
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 944.373458
+TAP version 13
+# Subtest: clearance preflight emits a versioned snapshot but never releases network access
+ok 1 - clearance preflight emits a versioned snapshot but never releases network access
+  ---
+  duration_ms: 0.650833
+  type: 'test'
+  ...
+# Subtest: missing, suspended, expired or mismatched clearance fails closed
+ok 2 - missing, suspended, expired or mismatched clearance fails closed
+  ---
+  duration_ms: 0.170625
+  type: 'test'
+  ...
+# Subtest: method, field, purpose, jurisdiction, entrypoint, source stop and budgets are enforced
+ok 3 - method, field, purpose, jurisdiction, entrypoint, source stop and budgets are enforced
+  ---
+  duration_ms: 0.152167
+  type: 'test'
+  ...
+# Subtest: offline fixtures require explicit synthetic mode and never authorize network
+ok 4 - offline fixtures require explicit synthetic mode and never authorize network
+  ---
+  duration_ms: 0.071833
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 66.275958
+TAP version 13
+# Subtest: normalized query identity preserves model punctuation, ignores header locale and rejects ambiguous inputs
+ok 1 - normalized query identity preserves model punctuation, ignores header locale and rejects ambiguous inputs
+  ---
+  duration_ms: 5.892583
+  type: 'test'
+  ...
+# Subtest: shared core reproduces all golden fields and includes time, basis and versions in snapshot identity
+ok 2 - shared core reproduces all golden fields and includes time, basis and versions in snapshot identity
+  ---
+  duration_ms: 6.257709
+  type: 'test'
+  ...
+# Subtest: bilingual messages and parameters remain consistent and locale does not change currency
+ok 3 - bilingual messages and parameters remain consistent and locale does not change currency
+  ---
+  duration_ms: 5.279208
+  type: 'test'
+  ...
+1..3
+# tests 3
+# suites 0
+# pass 3
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 55.200875
+TAP version 13
+# Subtest: PG16 empty migration, old-version upgrade, restart idempotency and original relational constraints
+ok 1 - PG16 empty migration, old-version upgrade, restart idempotency and original relational constraints
+  ---
+  duration_ms: 104.220792
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 179.929709
+TAP version 13
+# Subtest: offline tools validate the PG-effective target, not the URL display host
+ok 1 - offline tools validate the PG-effective target, not the URL display host
+  ---
+  duration_ms: 1.697125
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 41.458583
+TAP version 13
+# Subtest: primary image belongs to the target listing and excludes gallery/ad/other listing images
+ok 1 - primary image belongs to the target listing and excludes gallery/ad/other listing images
+  ---
+  duration_ms: 0.417542
+  type: 'test'
+  ...
+# Subtest: source URL ciphertext is authenticated, versioned and bound to its database row
+ok 2 - source URL ciphertext is authenticated, versioned and bound to its database row
+  ---
+  duration_ms: 0.459333
+  type: 'test'
+  ...
+# Subtest: network image transport address policy rejects private, reserved and documentation ranges
+ok 3 - network image transport address policy rejects private, reserved and documentation ranges
+  ---
+  duration_ms: 2.444583
+  type: 'test'
+  ...
+# Subtest: real image bytes decode, metadata is removed and a private WebP derivative is returned
+ok 4 - real image bytes decode, metadata is removed and a private WebP derivative is returned
+  ---
+  duration_ms: 7.139333
+  type: 'test'
+  ...
+# Subtest: denied copy, revoked/expired permissions and malformed/oversized images fail closed
+ok 5 - denied copy, revoked/expired permissions and malformed/oversized images fail closed
+  ---
+  duration_ms: 3.558166
+  type: 'test'
+  ...
+# Subtest: upstream refusal and recognizable challenge trip the persistent source circuit hook
+ok 6 - upstream refusal and recognizable challenge trip the persistent source circuit hook
+  ---
+  duration_ms: 0.549875
+  type: 'test'
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 6
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 70.856333
+TAP version 13
+# Subtest: test process denies external HTTP, raw sockets and DNS with positive controls
+ok 1 - test process denies external HTTP, raw sockets and DNS with positive controls
+  ---
+  duration_ms: 0.723916
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 30.773791
+TAP version 13
+# Subtest: price ranges validate exactly, participate in semantic identity, and include both endpoints
+ok 1 - price ranges validate exactly, participate in semantic identity, and include both endpoints
+  ---
+  duration_ms: 7.671041
+  type: 'test'
+  ...
+# Subtest: supplemental statistics obey 0/7/8/29/30/58 thresholds and ordinary mean is distinct from trim
+ok 2 - supplemental statistics obey 0/7/8/29/30/58 thresholds and ordinary mean is distinct from trim
+  ---
+  duration_ms: 3.288708
+  type: 'test'
+  ...
+# Subtest: shipping and seller summaries expose missing data and never merge destinations
+ok 3 - shipping and seller summaries expose missing data and never merge destinations
+  ---
+  duration_ms: 0.429916
+  type: 'test'
+  ...
+# Subtest: format groups exclude displayed offers and independently suppress low sample medians
+ok 4 - format groups exclude displayed offers and independently suppress low sample medians
+  ---
+  duration_ms: 0.198
+  type: 'test'
+  ...
+# Subtest: recent comparisons require both complete periods, sufficient samples and a nonzero baseline
+ok 5 - recent comparisons require both complete periods, sufficient samples and a nonzero baseline
+  ---
+  duration_ms: 1.614917
+  type: 'test'
+  ...
+# Subtest: time buckets distinguish no records from coverage gaps and do not drop eligible UTC day records
+ok 6 - time buckets distinguish no records from coverage gaps and do not drop eligible UTC day records
+  ---
+  duration_ms: 9.514333
+  type: 'test'
+  ...
+# Subtest: presentation reorders the complete snapshot before limit without changing statistics or identity
+ok 7 - presentation reorders the complete snapshot before limit without changing statistics or identity
+  ---
+  duration_ms: 1.037542
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 7
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 61.56325
+Isolated test evidence retained at /var/folders/zf/l30tz2bd5xbgb8dh_4lhry780000gn/T/soldbench-product-test-aXTxkG
+
+> soldbench@0.1.0 contracts
+> python3 docs/contracts/check_contracts.py
+
+PASS: Stripe/PayPal checkout choices, four inactive/unknown choices rejected, independent webhook schemes.
+PASS: 84 component schemas, 50 unique operations, 11 complete synthetic fixtures, 15 invalid shapes rejected.
+PASS: 50 displayed / 58 complete calculation inputs / original 121-record stats reconcile.
+Scope: JSON Schema + OpenAPI structure consistency; no HTTP implementation, live source, payment, or GO certification.

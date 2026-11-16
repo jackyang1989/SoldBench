@@ -23,7 +23,9 @@
     "db:start": "node scripts/local-db.mjs start",
     "db:stop": "node scripts/local-db.mjs stop",
     "db:migrate": "npm run build && node scripts/migrate.mjs",
-    "db:encrypt-image-urls": "npm run build && node --env-file-if-exists=.env scripts/encrypt-image-source-urls.mjs"
+    "db:encrypt-image-urls": "npm run build && node --env-file-if-exists=.env scripts/encrypt-image-source-urls.mjs",
+    "collector:demo": "npm run build && node --env-file-if-exists=.env scripts/collector-demo.mjs",
+    "collector:maintain": "npm run build && node --env-file-if-exists=.env scripts/collector-maintenance.mjs"
   },
   "devDependencies": {
     "typescript": "7.0.2",

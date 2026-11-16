@@ -6,7 +6,7 @@
 
 ## 当前状态（2026-11-16）
 
-用户已明确授权先做完整离线产品工程；按 [ADR-13](docs/adr/ADR-13.md) 在真实来源许可前只使用synthetic/fixtures，禁止网络采集、真实支付和生产部署。第一工程整包TASK-011/012/013/019/020正在开发及审查：当前有monorepo、PG16迁移、查询/统计核心、SSR/API开发壳、双语消息、图片处理原型与许可预检，但**没有真实eBay供数、没有完整账户/收费/Search API/Dashboard/MCP，也没有CompSniper生产端到端功能对等**。OpenAPI含50个操作是设计契约，不代表50个operation已有服务实现。详细交接见 [Agent接手指南](docs/Agent接手指南.md)、当前唯一任务状态见 [排期台账](docs/开发排期与任务台账.md)。原始输入为 [v1.4规格](<SoldBench 开发规格书 v1.4.md>) 和 [合成夹具](v14_gameboy_58_verified.json)。
+用户已明确授权先做完整离线产品工程；按 [ADR-13](docs/adr/ADR-13.md) 在真实来源许可前只使用synthetic/fixtures，禁止网络采集、真实支付和生产部署。第一工程整包TASK-011/012/013/019/020正在开发及审查：当前有monorepo、PG16迁移、查询/统计核心、SSR/API开发壳、双语消息、图片处理原型、许可预检与PG持久化离线采集管线，但**没有真实eBay供数、没有完整账户/收费/Search API/Dashboard/MCP，也没有CompSniper生产端到端功能对等**。OpenAPI含50个操作是设计契约，不代表50个operation已有服务实现。详细交接见 [Agent接手指南](docs/Agent接手指南.md)、当前唯一任务状态见 [排期台账](docs/开发排期与任务台账.md)。原始输入为 [v1.4规格](<SoldBench 开发规格书 v1.4.md>) 和 [合成夹具](v14_gameboy_58_verified.json)。
 
 ## 阅读入口
 
@@ -85,3 +85,15 @@ npm run dev
 排期按一条实施线估算，有效工作日与连续观察日、外部等待分开；原稿第 14 章的 18 周为早期概算，新台账是拆分后的执行估算，不是上线承诺。
 
 搜索页字段/过滤/分母/趋势/格式分组的最新实施依据是[搜索页专项](docs/搜索页采集字段与统计契约.md)，需连同AT-074/075读取；旧OpenAPI尚不含全部增量，不得按已实现接手。
+
+## 采集系统优先开发与离线演示
+
+按用户要求，当前主线为[自研采集与证据管线](docs/采集管线实施契约.md)。已提供PG持久化入队/租约/预算/检查点、fixture-only worker、观察与成交去重、私有主图文件及撤销清理；真实eBay adapter、逐字段可得性及线上稳定性仍未验收。
+
+```sh
+npm run db:start
+npm run collector:demo
+npm run collector:maintain
+```
+
+此命令在本机开发PG16或明确指定的专用本机数据库运行，使用原合成黄金fixture与本机生成图片；有数据库写入但没有外部来源请求，输出写入忽略提交的`.local/`。不是生产采集启动命令。先确保没有指向真实业务库的DATABASE_URL，配置与迁移要求见管线契约；没有凭证、准入或G0变化。

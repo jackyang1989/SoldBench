@@ -10,6 +10,9 @@
     }
   },
   "dependencies": {
-    "@soldbench/shared": "*"
+    "@soldbench/shared": "*",
+    "@soldbench/db": "*",
+    "@soldbench/core": "*",
+    "@soldbench/media": "*"
   }
 }
