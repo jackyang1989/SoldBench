@@ -6,7 +6,7 @@
 
 1. 维护规格和决策，登记已知与缺失证据。
 2. 用有权持有的离线fixture实现自研PoC、parser、质量/日期/价格/预算和断源模拟。代码仅放step0；默认禁外网。
-3. 准备120条固定查询语料及人工独立标注规程；已有GameBoy只是黄金统计样例，不是120查询集。
+3. 维护已准备的120条草稿查询及人工独立标注规程，完成获准候选标注和创始人冻结签收。
 4. 准备访谈提纲与单位经济表；联系人员、实际花费、正式发信按用户具体授权执行。
 
 当前新增可运行：`node --test step0/collector-poc/tests/*.test.ts` 与 `node step0/collector-poc/src/cli.ts`（Node22.18+，合成回放，零网络路径）。
@@ -42,3 +42,5 @@
 ## GO前的最小交接
 
 先完成TASK-003离线PoC与TASK-004语料；填写TASK-001中实际有/缺的准入信息，保留可并行文档准备。TASK-005在现有复核工具上补边界夹具。当前不能跳到S-01脚手架、支付、正式页面。
+
+整包运行入口为`python3 step0/tools/validate_offline.py`，开发依赖安装见PoC README。120条草稿见 [查询语料](corpus.csv)，标注与签收见 [质量规程](quality-plan.md)，断源模拟见 [演练说明](outage-drill.md)。

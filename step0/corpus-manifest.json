@@ -1,0 +1,9 @@
+{
+  "schema": "soldbench.corpus.v1",
+  "sha256": "973a0b6a77fed508650fe54bd9dc1d4e7108d87766380e8fe0e78a92efef8a93",
+  "queries": 120,
+  "status": "DRAFT_UNLABELED",
+  "founderSignedAt": null,
+  "volumeMeasured": false,
+  "labelRows": 0
+}

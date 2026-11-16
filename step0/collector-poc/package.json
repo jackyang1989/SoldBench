@@ -2,9 +2,17 @@
   "name": "soldbench-offline-collector-poc",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22.18" },
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
+    "typecheck": "tsc --noEmit",
     "test": "node --test tests/*.test.ts",
+    "verify": "python3 ../tools/validate_offline.py",
     "demo": "node src/cli.ts"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "7.0.2"
   }
 }

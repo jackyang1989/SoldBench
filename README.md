@@ -6,7 +6,7 @@
 
 ## 当前状态（2026-11-16）
 
-这是**开发前规格与验证工作区**，尚无产品代码、数据库、运行服务、Git 仓库及生产凭证证据。原始输入为 [v1.4 规格](<SoldBench 开发规格书 v1.4.md>) 和 [合成夹具](v14_gameboy_58_verified.json)。本轮补文档、完整OpenAPI、SQL设计基线、离线夹具复核与契约校验工具，没有完成线上采集验证或商业 GO。
+这是**第0步离线开发与准入准备工作区**。已建立私有Git仓库、自研离线Collector、统计与断源探索代码、完整OpenAPI/SQL设计及校验工具。真实来源准入、线上稳定性、支付审批及商业GO待完成。原始输入为 [v1.4 规格](<SoldBench 开发规格书 v1.4.md>) 和 [合成夹具](v14_gameboy_58_verified.json)。
 
 ## 阅读入口
 
@@ -43,6 +43,15 @@
 node --test step0/collector-poc/tests/*.test.ts
 node step0/collector-poc/src/cli.ts
 ```
+
+整包检查包含源码严格类型检查、离线测试、120条草稿语料结构、黄金夹具、文档及契约。先在PoC目录按lockfile安装开发依赖，依赖安装需要网络。安装后检查过程使用本地依赖，Node测试预载禁网守卫。
+
+```sh
+npm --prefix step0/collector-poc ci --ignore-scripts
+python3 step0/tools/validate_offline.py
+```
+
+执行日志、退出码和源码hash写入忽略提交的`step0/artifacts/`。版本化复核证据随工作包放在`step0/collector-poc/evidence/`。语料草稿及标注要求见 [质量规程](step0/quality-plan.md)。
 
 用户于2026-11-16确认soldbench.com已注册；DNS/TLS、邮件域验证和上线仍需实际配置与验证。
 

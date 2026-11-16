@@ -61,6 +61,8 @@ for label, name in [('page','功能与页面规格.md'), ('test','验收矩阵.m
             require(refs and refs <= tasks.keys(), f'Unscheduled {label}: {line}')
 
 files = [ROOT / 'README.md', ROOT / 'AGENTS.md', ROOT / 'agent.md', ROOT / 'SoldBench 开发规格书 v1.4.md', *DOCS.rglob('*.md'), * (ROOT / 'step0').rglob('*.md')]
+# Installed dependencies and generated run output are outside authored project docs.
+files = [file for file in files if not {'node_modules', 'artifacts', '.git'}.intersection(file.relative_to(ROOT).parts)]
 known = {'TASK': set(tasks), 'AT': ats, 'PAGE': pages, 'DEC': decisions, 'API': apis}
 patterns = {'TASK': r'(?<![A-Za-z0-9])TASK-\d{3}(?!\d)', 'AT': r'(?<![A-Za-z0-9])AT-\d{3}(?!\d)', 'PAGE': r'(?<![A-Za-z0-9])PAGE-[WCA]\d{2}(?!\d)', 'DEC': r'(?<![A-Za-z0-9])DEC-\d{2}(?!\d)', 'API': r'(?<![A-Za-z0-9])API-\d{2}(?!\d)'}
 links = 0

@@ -1,6 +1,6 @@
 # SoldBench 离线 Collector PoC
 
-TASK-003 / 2026-11-16。自有TypeScript代码，Node22.18+内置类型擦除执行，无外部包、HTTP客户端、浏览器或第三方采集依赖。当前仅实现合成fixture回放，所有报告为`offline_fixture`、`onlineVerified=false`、`sourceApproval=NOT_CLEARED`。不是生产Collector，不支持切开关后联网。
+TASK-003/005/006 / 2026-11-16。自有TypeScript代码，Node22.18+内置类型擦除执行。运行源码使用Node内置模块，开发依赖锁定TypeScript和Node类型。所有报告为`offline_fixture`、`onlineVerified=false`、`sourceApproval=NOT_CLEARED`。
 
 ## 运行
 
@@ -11,7 +11,14 @@ node --test step0/collector-poc/tests/*.test.ts
 node step0/collector-poc/src/cli.ts
 ```
 
-测试为Node内置runner；没有安装依赖步骤或外部包lockfile。Node22本机验证版本见证据。原生执行会擦除类型，**不是TypeScript静态类型检查**；正式工程的tsc/lint/build和CI仍在G0后TASK-011建立。本轮不宣称这些检查已完成。
+安装与整包检查在仓库根目录执行。
+
+```sh
+npm --prefix step0/collector-poc ci --ignore-scripts
+python3 step0/tools/validate_offline.py
+```
+
+开发依赖安装后可离线运行。`npm --prefix step0/collector-poc run typecheck`严格检查`src/`，测试文件由Node运行验证。统一检查入口预载`offline-network.ts`，阻止Node测试进程访问HTTP/TCP/TLS/DNS/UDP。后续正式工程的lint/build/CI仍由TASK-011建立。
 
 默认demo写入本目录`artifacts/demo-state.json`和`artifacts/demo-report.json`，不修改原始黄金fixture。连续运行复用同一run/checkpoint，不增加重复事件。独立输出可以指定：
 
@@ -30,7 +37,9 @@ node step0/collector-poc/src/cli.ts --state /tmp/soldbench-own-demo-state.json -
 - 来源事件键去重；同listing有独立合成事件键可形成两条候选。未知身份只留观测和隔离；冲突事件保留原证据并标conflicted，不静默覆盖。没有通过标题/价格猜测逐笔成交。
 - 原子文件替换、fsync与排他lock；预留预算先持久化，重启不能重置预算。崩溃或响应丢失后重放不增加同事件。
 
-fixture是自定义`Page`接口JSON，**未使用或验证真实eBay DOM、字段、网络权限或actual成交价**。记录只含listing/event身份和合成标题，不参与金额归一、匹配或价格统计；原始121/64/58黄金统计仍用既有独立工具核对。后续必须拿有权使用的真实样本实现生产shape/解析器并独立验证，不能把synthetic_event_key当来源提供的真实事件证明。
+fixture是自定义`Page`接口JSON，记录仅含listing/event身份和合成标题。真实eBay DOM、字段及实际成交价需取得获准样本验证。新增`pricing.ts`独立探索整数分、有理数Type7和截尾均值，以完整候选快照计算，再按limit裁切明细。未知身份、冲突事件、未核验价格、运费/换汇证据缺失均保守处理。强属性匹配由输入的可比判断提供，实际taxonomy及R规则仍需后续实现。
+
+原始121/64/58黄金文件由显式合成适配器转换，全部统计和质量字段逐项复核，另通过既有Python Fraction算法交叉检查0/1/7/8/29/30/58、半分及大整数。黄金文件中的UTC时间仅用于原算例。`time.ts`另验证来源日精度和IANA时区，含DST与整个日区间落窗规则。`availability.ts`和断源集成测试验证持久化覆盖水位读取及恢复事件去重。
 
 ## 报告口径
 
@@ -46,6 +55,6 @@ fixture是自定义`Page`接口JSON，**未使用或验证真实eBay DOM、字�
 
 测试中封锁fetch、HTTP/HTTPS和TCP/TLS入口，并用正控证明守卫生效；正常PoC路径访问这些入口为0。这是该测试范围的证据，不代替宿主级流量审计、第三方依赖审计或线上许可验证。
 
-## 下一步
+## 交接
 
-TASK-003代码及证据交非实现者复核；当前不自行签收已完成。TASK-004补120查询语料/金标规程。随后TASK-005补金额/日期/身份/统计边界，TASK-006做0/24/48/72h断源语义模拟。真实来源清楚且获准后才进行TASK-007连续14天网络验证；G0之前仍不写正式账户/支付/前端。
+TASK-003/004/005/006按整包交非实现者复核。120条查询为待签收草稿，人工金标待取得获准候选数据后制作。下一可执行范围为TASK-001/008的离线来源资料、成本及访谈工具准备。TASK-007等待真实准入后连续14天验证，阶段状态以台账为准。

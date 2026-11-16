@@ -115,7 +115,7 @@ export class Store {
     try {
       this.state = existsSync(filename) ? JSON.parse(readFileSync(filename, 'utf8')) : empty();
       if (this.state.schema !== VERSION || this.state.dataMode !== 'offline_fixture' ||
-          !['runs','events','observations','quarantined','circuits','watermarks'].every(key =>
+          !(['runs','events','observations','quarantined','circuits','watermarks'] as const).every(key =>
             this.state[key] && typeof this.state[key] === 'object' && !Array.isArray(this.state[key]))) {
         throw new Stop('store_schema_mismatch');
       }
@@ -242,7 +242,7 @@ export async function collect(plan: Plan, transport: Transport, store: Store,
       if (response.status === 429 || response.status >= 500) {
         if ((store.state.runs[plan.runId].attempts[cursor] ?? 0) >= plan.maxAttempts) throw new Stop('retry_exhausted');
         const delay = response.status === 429 ? response.retryAfterSeconds : 2 ** (run.attempts[cursor] ?? 0);
-        if (!Number.isSafeInteger(delay) || delay < 0 || delay > 3600) throw new Stop('invalid_retry_after');
+        if (typeof delay !== 'number' || !Number.isSafeInteger(delay) || delay < 0 || delay > 3600) throw new Stop('invalid_retry_after');
         if (clock.now() + delay * 1000 >= run.deadlineAt) throw new Stop('deadline_exceeded');
         await clock.wait(delay * 1000); continue;
       }

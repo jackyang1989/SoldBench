@@ -1,0 +1,4 @@
+# Preserve original archive and verbatim tool evidence byte-for-byte.
+docs/baselines/** -whitespace
+docs/evidence/**/*.log -whitespace
+step0/**/evidence/**/*.log -whitespace
