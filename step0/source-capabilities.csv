@@ -1,0 +1,21 @@
+source_candidate,field,availability,evidence_ref,parser_version,missing_semantics
+ebay_us_candidate,listing_id,unverified,,,unknown; verify using permitted source sample
+ebay_us_candidate,sale_event_id,unverified,,,unknown; verify using permitted source sample
+ebay_us_candidate,event_identity_evidence,unverified,,,unknown; verify using permitted source sample
+ebay_us_candidate,sold_status,unverified,,,unknown; verify using permitted source sample
+ebay_us_candidate,sold_at,unverified,,,unknown; verify using permitted source sample
+ebay_us_candidate,source_time_zone,unverified,,,unknown; verify using permitted source sample
+ebay_us_candidate,sold_date_precision,unverified,,,unknown; verify using permitted source sample
+ebay_us_candidate,sale_price_status,unverified,,,unknown; verify using permitted source sample
+ebay_us_candidate,item_price,unverified,,,unknown; verify using permitted source sample
+ebay_us_candidate,currency,unverified,,,unknown; verify using permitted source sample
+ebay_us_candidate,observed_shipping,unverified,,,unknown; verify using permitted source sample
+ebay_us_candidate,shipping_destination,unverified,,,unknown; verify using permitted source sample
+ebay_us_candidate,sale_format,unverified,,,unknown; verify using permitted source sample
+ebay_us_candidate,condition,unverified,,,unknown; verify using permitted source sample
+ebay_us_candidate,category,unverified,,,unknown; verify using permitted source sample
+ebay_us_candidate,strong_attributes,unverified,,,unknown; verify using permitted source sample
+ebay_us_candidate,next_cursor,unverified,,,unknown; verify using permitted source sample
+ebay_us_candidate,sort_order,unverified,,,unknown; verify using permitted source sample
+ebay_us_candidate,source_as_of,unverified,,,unknown; verify using permitted source sample
+ebay_us_candidate,retention_until,unverified,,,unknown; verify using permitted source sample

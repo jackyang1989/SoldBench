@@ -1,0 +1,26 @@
+{
+  "schema": "soldbench.unit-economics.v1",
+  "scenario": "unmeasured",
+  "evidence_kind": "unmeasured",
+  "evidence_ref": null,
+  "customers": null,
+  "billable_queries": null,
+  "gross_price_cents": null,
+  "payment_transactions": null,
+  "payment_rate": null,
+  "payment_fixed_cents": null,
+  "refund_rate": null,
+  "tax_leakage_rate": null,
+  "dispute_cost_cents": null,
+  "target_margin": "0.50",
+  "costs": {
+    "infra_cash_cents": null,
+    "access_license_cash_cents": null,
+    "network_cash_cents": null,
+    "compute_cash_cents": null,
+    "storage_cash_cents": null,
+    "other_cash_cents": null,
+    "maintenance_labor_cents": null,
+    "support_labor_cents": null
+  }
+}

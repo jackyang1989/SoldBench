@@ -1,0 +1,80 @@
+[
+  {
+    "schema": "soldbench.unit-economics.v1",
+    "scenario": "optimistic",
+    "evidence_kind": "assumed",
+    "evidence_ref": null,
+    "customers": 100,
+    "billable_queries": 100000,
+    "gross_price_cents": "2900",
+    "payment_transactions": 100,
+    "payment_rate": "0.05",
+    "payment_fixed_cents": "50",
+    "refund_rate": "0.02",
+    "tax_leakage_rate": "0.00",
+    "dispute_cost_cents": "0",
+    "target_margin": "0.50",
+    "costs": {
+      "infra_cash_cents": "10000",
+      "access_license_cash_cents": "20000",
+      "network_cash_cents": "10000",
+      "compute_cash_cents": "5000",
+      "storage_cash_cents": "3000",
+      "other_cash_cents": "2000",
+      "maintenance_labor_cents": "60000",
+      "support_labor_cents": "10000"
+    }
+  },
+  {
+    "schema": "soldbench.unit-economics.v1",
+    "scenario": "base",
+    "evidence_kind": "assumed",
+    "evidence_ref": null,
+    "customers": 100,
+    "billable_queries": 250000,
+    "gross_price_cents": "2900",
+    "payment_transactions": 100,
+    "payment_rate": "0.05",
+    "payment_fixed_cents": "50",
+    "refund_rate": "0.02",
+    "tax_leakage_rate": "0.00",
+    "dispute_cost_cents": "0",
+    "target_margin": "0.50",
+    "costs": {
+      "infra_cash_cents": "10000",
+      "access_license_cash_cents": "20000",
+      "network_cash_cents": "40000",
+      "compute_cash_cents": "15000",
+      "storage_cash_cents": "3000",
+      "other_cash_cents": "2000",
+      "maintenance_labor_cents": "60000",
+      "support_labor_cents": "10000"
+    }
+  },
+  {
+    "schema": "soldbench.unit-economics.v1",
+    "scenario": "stress",
+    "evidence_kind": "assumed",
+    "evidence_ref": null,
+    "customers": 100,
+    "billable_queries": 1000000,
+    "gross_price_cents": "2900",
+    "payment_transactions": 100,
+    "payment_rate": "0.05",
+    "payment_fixed_cents": "50",
+    "refund_rate": "0.02",
+    "tax_leakage_rate": "0.00",
+    "dispute_cost_cents": "0",
+    "target_margin": "0.50",
+    "costs": {
+      "infra_cash_cents": "10000",
+      "access_license_cash_cents": "20000",
+      "network_cash_cents": "180000",
+      "compute_cash_cents": "40000",
+      "storage_cash_cents": "3000",
+      "other_cash_cents": "2000",
+      "maintenance_labor_cents": "60000",
+      "support_labor_cents": "10000"
+    }
+  }
+]

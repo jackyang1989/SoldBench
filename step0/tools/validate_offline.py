@@ -22,6 +22,11 @@ def main():
         ('typecheck', [str(POC / 'node_modules/.bin/tsc'), '--project', str(POC / 'tsconfig.json'), '--noEmit']),
         ('poc-tests', ['node', '--import', str(POC / 'src/offline-network.ts'), '--test', *tests]),
         ('corpus', [sys.executable, 'step0/tools/check_corpus.py']),
+        ('preparation-tests', [sys.executable, '-m', 'unittest', 'discover', '-s', 'step0/tests', '-v']),
+        ('source-preparation', [sys.executable, 'step0/tools/readiness.py']),
+        ('economics-unmeasured', [sys.executable, 'step0/tools/unit_economics.py', 'step0/unit-economics/unmeasured.json']),
+        ('economics-scenarios', [sys.executable, 'step0/tools/unit_economics.py', 'step0/unit-economics/scenarios.json']),
+        ('stability-no-records', [sys.executable, 'step0/tools/stability_report.py', '--start', '2026-12-01']),
         ('golden', [sys.executable, 'step0/tools/verify_fixture.py']),
         ('documentation', [sys.executable, 'docs/check_docs.py']),
         ('contracts', [sys.executable, 'docs/contracts/check_contracts.py']),
@@ -40,7 +45,9 @@ def main():
     hashes = {}
     paths = [ROOT / 'v14_gameboy_58_verified.json', ROOT / 'step0/corpus.csv', ROOT / 'step0/corpus-manifest.json',
              POC / 'package-lock.json', POC / 'tsconfig.json', *sorted((POC / 'src').glob('*.ts')),
-             *sorted((POC / 'tests').glob('*.ts')), *sorted((ROOT / 'step0/tools').glob('*.py'))]
+             *sorted((POC / 'tests').glob('*.ts')), *sorted((ROOT / 'step0/tools').glob('*.py')),
+             *sorted((ROOT / 'step0/tests').glob('*.py')), *sorted((ROOT / 'step0/unit-economics').glob('*.json')),
+             ROOT / 'step0/source-clearance.csv', ROOT / 'step0/source-capabilities.csv']
     for path in paths:
         hashes[str(path.relative_to(ROOT))] = hashlib.sha256(path.read_bytes()).hexdigest()
     report = {'schema': 'soldbench.offline-validation.v1', 'createdAt': stamp, 'platform': platform.platform(),

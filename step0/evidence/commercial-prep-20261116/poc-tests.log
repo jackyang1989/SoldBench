@@ -1,0 +1,286 @@
+TAP version 13
+# Subtest: 0/24/48/72h outage and millisecond boundaries with explicit stale consent
+ok 1 - 0/24/48/72h outage and millisecond boundaries with explicit stale consent
+  ---
+  duration_ms: 3.494583
+  type: 'test'
+  ...
+# Subtest: revocation overrides cached permission, cold cache and low sample never charge
+ok 2 - revocation overrides cached permission, cold cache and low sample never charge
+  ---
+  duration_ms: 0.250625
+  type: 'test'
+  ...
+# Subtest: network blocker positive control rejects fetch, HTTP and raw sockets
+ok 3 - network blocker positive control rejects fetch, HTTP and raw sockets
+  ---
+  duration_ms: 0.654541
+  type: 'test'
+  ...
+# Subtest: two pages dedupe events, preserve ambiguous observations, use conservative watermark
+ok 4 - two pages dedupe events, preserve ambiguous observations, use conservative watermark
+  ---
+  duration_ms: 102.107334
+  type: 'test'
+  ...
+# Subtest: completed run survives reopen and does not fetch or duplicate events
+ok 5 - completed run survives reopen and does not fetch or duplicate events
+  ---
+  duration_ms: 99.086084
+  type: 'test'
+  ...
+# Subtest: independent repeated observation run adds evidence but no new sales
+ok 6 - independent repeated observation run adds evidence but no new sales
+  ---
+  duration_ms: 110.913833
+  type: 'test'
+  ...
+# Subtest: event-key conflict is quarantined instead of silently overwriting
+ok 7 - event-key conflict is quarantined instead of silently overwriting
+  ---
+  duration_ms: 57.349416
+  type: 'test'
+  ...
+# Subtest: no switch unlocks network mode {"mode":"approved_network"}
+ok 8 - no switch unlocks network mode {"mode":"approved_network"}
+  ---
+  duration_ms: 12.765917
+  type: 'test'
+  ...
+# Subtest: no switch unlocks network mode {"collectorEnabled":true}
+ok 9 - no switch unlocks network mode {"collectorEnabled":true}
+  ---
+  duration_ms: 12.801708
+  type: 'test'
+  ...
+# Subtest: offline replay revocation is checked before every dispatch
+ok 10 - offline replay revocation is checked before every dispatch
+  ---
+  duration_ms: 39.936792
+  type: 'test'
+  ...
+# Subtest: revocation after response prevents page publication
+ok 11 - revocation after response prevents page publication
+  ---
+  duration_ms: 33.299958
+  type: 'test'
+  ...
+# Subtest: access refusal 401/error opens persistent circuit with no retry
+ok 12 - access refusal 401/error opens persistent circuit with no retry
+  ---
+  duration_ms: 42.426958
+  type: 'test'
+  ...
+# Subtest: access refusal 403/error opens persistent circuit with no retry
+ok 13 - access refusal 403/error opens persistent circuit with no retry
+  ---
+  duration_ms: 41.550583
+  type: 'test'
+  ...
+# Subtest: access refusal 200/login_wall opens persistent circuit with no retry
+ok 14 - access refusal 200/login_wall opens persistent circuit with no retry
+  ---
+  duration_ms: 40.831334
+  type: 'test'
+  ...
+# Subtest: access refusal 200/challenge opens persistent circuit with no retry
+ok 15 - access refusal 200/challenge opens persistent circuit with no retry
+  ---
+  duration_ms: 42.140166
+  type: 'test'
+  ...
+# Subtest: access refusal 503/challenge opens persistent circuit with no retry
+ok 16 - access refusal 503/challenge opens persistent circuit with no retry
+  ---
+  duration_ms: 36.755875
+  type: 'test'
+  ...
+# Subtest: 200 error document is not an empty successful search
+ok 17 - 200 error document is not an empty successful search
+  ---
+  duration_ms: 27.014792
+  type: 'test'
+  ...
+# Subtest: verified synthetic empty page is distinguished from an invalid error page
+ok 18 - verified synthetic empty page is distinguished from an invalid error page
+  ---
+  duration_ms: 35.947917
+  type: 'test'
+  ...
+# Subtest: invalid page binding/date fails closed: sourceId
+ok 19 - invalid page binding/date fails closed: sourceId
+  ---
+  duration_ms: 27.521542
+  type: 'test'
+  ...
+# Subtest: invalid page binding/date fails closed: queryHash
+ok 20 - invalid page binding/date fails closed: queryHash
+  ---
+  duration_ms: 26.054458
+  type: 'test'
+  ...
+# Subtest: invalid page binding/date fails closed: cursor
+ok 21 - invalid page binding/date fails closed: cursor
+  ---
+  duration_ms: 26.985375
+  type: 'test'
+  ...
+# Subtest: invalid page binding/date fails closed: coverageAsOf
+ok 22 - invalid page binding/date fails closed: coverageAsOf
+  ---
+  duration_ms: 30.506042
+  type: 'test'
+  ...
+# Subtest: one invalid record prevents the entire page from committing
+ok 23 - one invalid record prevents the entire page from committing
+  ---
+  duration_ms: 26.52125
+  type: 'test'
+  ...
+# Subtest: cursor cycle terminates and never advances complete coverage
+ok 24 - cursor cycle terminates and never advances complete coverage
+  ---
+  duration_ms: 36.804916
+  type: 'test'
+  ...
+# Subtest: finite budget page_budget_exceeded
+ok 25 - finite budget page_budget_exceeded
+  ---
+  duration_ms: 34.059542
+  type: 'test'
+  ...
+# Subtest: finite budget request_budget_exceeded
+ok 26 - finite budget request_budget_exceeded
+  ---
+  duration_ms: 36.92925
+  type: 'test'
+  ...
+# Subtest: finite budget byte_budget_exceeded
+ok 27 - finite budget byte_budget_exceeded
+  ---
+  duration_ms: 19.117209
+  type: 'test'
+  ...
+# Subtest: finite budget invalid_plan
+ok 28 - finite budget invalid_plan
+  ---
+  duration_ms: 8.935791
+  type: 'test'
+  ...
+# Subtest: 429 honors Retry-After using logical time, then succeeds within budget
+ok 29 - 429 honors Retry-After using logical time, then succeeds within budget
+  ---
+  duration_ms: 65.423666
+  type: 'test'
+  ...
+# Subtest: rate limiting does not exceed deadline or silently ignore Retry-After
+ok 30 - rate limiting does not exceed deadline or silently ignore Retry-After
+  ---
+  duration_ms: 29.022333
+  type: 'test'
+  ...
+# Subtest: repeated 5xx has bounded attempts and no false watermark
+ok 31 - repeated 5xx has bounded attempts and no false watermark
+  ---
+  duration_ms: 51.1155
+  type: 'test'
+  ...
+# Subtest: late fetch cannot commit after deadline
+ok 32 - late fetch cannot commit after deadline
+  ---
+  duration_ms: 29.02875
+  type: 'test'
+  ...
+# Subtest: atomic page failure preserves old durable checkpoint, reopen/replay recovers exactly once
+ok 33 - atomic page failure preserves old durable checkpoint, reopen/replay recovers exactly once
+  ---
+  duration_ms: 78.041459
+  type: 'test'
+  ...
+# Subtest: budget reservations survive restart instead of resetting on transport failure
+ok 34 - budget reservations survive restart instead of resetting on transport failure
+  ---
+  duration_ms: 58.422875
+  type: 'test'
+  ...
+# Subtest: changed query cannot reuse an existing run checkpoint
+ok 35 - changed query cannot reuse an existing run checkpoint
+  ---
+  duration_ms: 73.13725
+  type: 'test'
+  ...
+# Subtest: failure of a later run retains the last fully committed watermark
+ok 36 - failure of a later run retains the last fully committed watermark
+  ---
+  duration_ms: 102.652167
+  type: 'test'
+  ...
+# Subtest: second writer is rejected, and reopening non-PoC state is rejected
+ok 37 - second writer is rejected, and reopening non-PoC state is rejected
+  ---
+  duration_ms: 2.521041
+  type: 'test'
+  ...
+# Subtest: untrusted plan identities are rejected before dispatch or map indexing
+ok 38 - untrusted plan identities are rejected before dispatch or map indexing
+  ---
+  duration_ms: 40.695792
+  type: 'test'
+  ...
+# Subtest: same version with malformed store shape is rejected on open
+ok 39 - same version with malformed store shape is rejected on open
+  ---
+  duration_ms: 2.353459
+  type: 'test'
+  ...
+# Subtest: persisted collector coverage drives outage reads and recovery does not duplicate events
+ok 40 - persisted collector coverage drives outage reads and recovery does not duplicate events
+  ---
+  duration_ms: 200.632208
+  type: 'test'
+  ...
+# Subtest: all 121 golden records reproduce all 14 statistics and all 6 quality fields
+ok 41 - all 121 golden records reproduce all 14 statistics and all 6 quality fields
+  ---
+  duration_ms: 12.248875
+  type: 'test'
+  ...
+# Subtest: 0/1/7/8/29/30/58 samples and large safe cents cross-check Python Fraction oracle
+ok 42 - 0/1/7/8/29/30/58 samples and large safe cents cross-check Python Fraction oracle
+  ---
+  duration_ms: 31.394708
+  type: 'test'
+  ...
+# Subtest: price eligibility preserves unknowns, shipping basis and FX evidence
+ok 43 - price eligibility preserves unknowns, shipping basis and FX evidence
+  ---
+  duration_ms: 0.335
+  type: 'test'
+  ...
+# Subtest: event identity, repeat observations, conflicts and source scope fail conservatively
+ok 44 - event identity, repeat observations, conflicts and source scope fail conservatively
+  ---
+  duration_ms: 0.252209
+  type: 'test'
+  ...
+# Subtest: exact window is lower-exclusive upper-inclusive, and malformed dates are excluded
+ok 45 - exact window is lower-exclusive upper-inclusive, and malformed dates are excluded
+  ---
+  duration_ms: 0.13
+  type: 'test'
+  ...
+# Subtest: local dates respect IANA DST, whole-day containment and unknown precision
+ok 46 - local dates respect IANA DST, whole-day containment and unknown precision
+  ---
+  duration_ms: 4.218833
+  type: 'test'
+  ...
+1..46
+# tests 46
+# suites 0
+# pass 46
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1649.557875
