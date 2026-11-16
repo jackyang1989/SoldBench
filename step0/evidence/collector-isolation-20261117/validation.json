@@ -1,0 +1,70 @@
+{
+  "schema": "soldbench.offline-process-isolation-evidence.v1",
+  "date": "2026-11-17",
+  "parentCommit": "444dadd",
+  "mode": "offline_fixture",
+  "externalSourceRequests": 0,
+  "sourceVerified": false,
+  "stageVerdict": "NOT_ISSUED",
+  "environment": {
+    "node": "22.23.3",
+    "database": "temporary PG16.15 isolated Unix-socket DB; no customer DB",
+    "http": "actual loopback server in a separate process using production createApp",
+    "data": "synthetic JSON/HTML fixtures and generated images",
+    "clock": "fixed 2026-11-16 UTC for lease takeover; DB clock for normal launcher demo; monotonic watchdog times"
+  },
+  "checks": [
+    {
+      "command": "npm run check",
+      "exitCode": 0,
+      "nodeTests": 86,
+      "processIsolationTests": 5,
+      "log": "engineering-check.log"
+    },
+    {
+      "command": "python3 step0/tools/validate_offline.py",
+      "exitCode": 0,
+      "log": "step0-check.log",
+      "generatedReport": "step0/artifacts/20261116T160825576369Z/validation.json"
+    },
+    {
+      "command": "python3 docs/check_docs.py",
+      "exitCode": 0
+    },
+    {
+      "command": "git diff --check",
+      "exitCode": 0
+    }
+  ],
+  "recovery": {
+    "committedPagesBeforeKill": 1,
+    "unknownReservedBytes": 1048576,
+    "recoveredPages": 3,
+    "recoveredEvents": 3,
+    "budgetedRequests": 4,
+    "bytesUnconfirmed": 1048576,
+    "apiEndpointsChecked": [
+      "/health 200",
+      "/ready 200",
+      "/v1/sold 401 unauthenticated"
+    ]
+  },
+  "independentReview": {
+    "reviewer": "collector_review",
+    "mode": "static read-only, independently checked environment filtering/error redaction/child exit; no independent PG signoff",
+    "final": "No blocking HIGH/MEDIUM; no G1 signoff"
+  },
+  "limits": [
+    "V8 heap is not RSS/CPU/cgroup isolation",
+    "Parent SIGKILL or host crash requires an external supervisor to reap detached child",
+    "Launcher worker does not inherit test network preload; no host egress claim",
+    "Only health/readiness/unauthenticated query availability tested; account/paid result E2E is not implemented",
+    "No authorized eBay source or real stability campaign"
+  ],
+  "sha256": {
+    "scripts/collector-launcher.mjs": "14ab0e7aa246302a3f7c5335274737affa80a0289e2596da70b02ce5acacb332",
+    "tests/collector-isolation.test.mjs": "303e0915ef3a8ca3e87578cb76edb6cf4e2be35da02b6c9b037c2e3cafbbec85",
+    "tests/fixtures/process/api-server.mjs": "8744e0de9b50d23098c6eccb51473e279dde6feb8a3ca66cb8d80bef1ec3d102",
+    "package.json": "0092422ca6c7f54e5f022348dccbcb31c6eb1e6b99dafbfa3569eba76e884fc9"
+  }
+}

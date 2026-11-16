@@ -80,4 +80,6 @@ SoldBench 是一个面向**个人卖家、收藏品交易商、二手商家、�
 
 最新§38进一步提供离线HTML输入：collector offline-pg-1.3.0/parser offline-page-1.2.0，0008新增run profile hash和listing_record_evidence复合关联。用`npm run collector:html-demo`复现两页/8事件/8张生成主图/8合格价样本；`--prepare-only`再用独立worker恢复。profile仅允许synthetic，由本项目编写的DOM样本定义；不是真实eBay adapter。生产选择器需获准样本及逐字段证据后另外适配，不把存在HTML parser当作供数已稳定。未知Best Offer/身份/运费/结束日期仍按原资格排除，seller默认不提取，原文hash不改为规范JSON hash。
 
+§39补受控启动器`collector:run`及实际本机API/Collector双进程验证，覆盖Collector卡住/强杀后API health/ready/401仍响应、过期lease接管和未知请求预算保守结算。不是完整账户/历史查询故障演练；未验证生产cgroup/RSS/CPU/宿主出口，也不保证启动器被SIGKILL后的子进程清理。子进程不继承Node preload/支付与会话环境；真实权限/网络分支仍关闭。
+
 以台账§35的最新提交/证据为准。快照的canonical候选选最新已提交观察，而非直接把所有观察传入core制造元数据冲突。网络熔断与权利撤销不同：前者允许仍有效的已有缓存，后者立即拒读再清理。不要把helper创建的active offline_fixture源当成平台许可——对应clearance仍draft，只能使用标记synthetic的内存响应。

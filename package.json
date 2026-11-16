@@ -27,7 +27,8 @@
     "collector:demo": "npm run build && node --env-file-if-exists=.env scripts/collector-demo.mjs",
     "collector:maintain": "npm run build && node --env-file-if-exists=.env scripts/collector-maintenance.mjs",
     "collector:worker": "npm run build && node --env-file-if-exists=.env scripts/collector-worker.mjs",
-    "collector:html-demo": "npm run build && node --env-file-if-exists=.env scripts/collector-html-demo.mjs"
+    "collector:html-demo": "npm run build && node --env-file-if-exists=.env scripts/collector-html-demo.mjs",
+    "collector:run": "npm run build && node --env-file-if-exists=.env scripts/collector-launcher.mjs"
   },
   "devDependencies": {
     "typescript": "7.0.2",
