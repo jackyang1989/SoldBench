@@ -94,6 +94,15 @@ npm run dev
 npm run db:start
 npm run collector:demo
 npm run collector:maintain
+
+# 只准备任务与合成响应包；从输出复制 artifactPath
+npm run collector:demo -- --prepare-only
+npm run collector:worker -- --fixture=/absolute/path/to/collector-fixture-JOB_ID.json --max-pages=1
+# 下个周期用同一响应包续跑；未到重试时间时会报告 not_claimed
+npm run collector:worker -- --fixture=/absolute/path/to/collector-fixture-JOB_ID.json
+npm run collector:worker -- --fixture=/absolute/path/to/collector-fixture-JOB_ID.json --status=true
 ```
 
 此命令在本机开发PG16或明确指定的专用本机数据库运行，使用原合成黄金fixture与本机生成图片；有数据库写入但没有外部来源请求，输出写入忽略提交的`.local/`。不是生产采集启动命令。先确保没有指向真实业务库的DATABASE_URL，配置与迁移要求见管线契约；没有凭证、准入或G0变化。
+
+独立worker的响应包与run固定绑定，不得换包续跑；状态含实际job终态、游标、预算和lastSuccessAt。退出0不代表完整采集完成，可能是retry/not_claimed。每个进程写带PID的私有周期状态文件（路径见heartbeatPath），不能把重复启动实例的退出当作持租约实例停机；运行事实以PG租约/检查点为准。没有生产daemon、在线采集或真实稳定性结论。

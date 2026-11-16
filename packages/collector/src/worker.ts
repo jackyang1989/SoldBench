@@ -18,14 +18,24 @@ export class OfflineCollectorWorker {
     readonly media: PrivateMediaStore,
     readonly limits = { pageBytes: 1024 * 1024, imageBytes: 5 * 1024 * 1024 },
   ) {}
-  private async response(lease: Lease, key: string, kind: "page" | "image") {
+  private async response(lease: Lease, key: string, kind: "page" | "image", signal?: AbortSignal) {
+    if (signal?.aborted) throw new Error("worker_shutdown");
     await this.store.renew(lease);
     const max = kind === "page" ? this.limits.pageBytes : this.limits.imageBytes;
-    const id = await this.store.reserve(lease, kind, max);
+    const id = await this.store.reserve(lease, kind, max, key);
     await this.store.check(lease);
+    if (signal?.aborted) {
+      await this.store.cancelUndispatchedFixture(lease, id);
+      throw new Error("worker_shutdown");
+    }
+    const responseIndex = await this.store.fixtureResponseIndex(lease, id);
+    if (signal?.aborted) {
+      await this.store.cancelUndispatchedFixture(lease, id);
+      throw new Error("worker_shutdown");
+    }
     let response: FixtureResponse;
     try {
-      response = await this.transport.read(key);
+      response = await this.transport.read(key, responseIndex);
     } catch (error) {
       await this.store.settle(lease, id, 0);
       throw error;
@@ -54,7 +64,7 @@ export class OfflineCollectorWorker {
     if (response.status !== 200) throw new Error("upstream_unavailable");
     return { response, id };
   }
-  private async images(lease: Lease) {
+  private async images(lease: Lease, signal?: AbortSignal) {
     const tasks = await this.store.db.query(
       "SELECT i.id AS image_id,i.listing_id,i.sale_event_id,i.observation_id,e.external_listing_id,e.candidate AS evidence_candidate,p.raw_hash,p.payload FROM listing_images i JOIN collector_pages p ON p.observation_id=i.observation_id AND p.source_id=i.source_id JOIN sale_event_evidence e ON e.sale_event_id=i.sale_event_id AND e.listing_id=i.listing_id AND e.source_id=i.source_id AND e.observation_id=i.observation_id WHERE p.job_id=$1 AND i.state='pending'",
       [lease.jobId],
@@ -81,7 +91,7 @@ export class OfflineCollectorWorker {
         continue;
       }
       try {
-        const response = await this.response(lease, `image:${row.primaryImage.url}`, "image");
+        const response = await this.response(lease, `image:${row.primaryImage.url}`, "image", signal);
         const latest = await this.store.check(lease);
         const rights = {
           sourceId: lease.sourceId,
@@ -124,29 +134,44 @@ export class OfflineCollectorWorker {
         // Source/lease/budget refusal must never become a harmless missing-photo result.
         await this.store.check(lease);
         const message = error instanceof Error ? error.message : "image_failed";
-        if (/budget|rate_limited|job_deferred|permission|lease|source_|network_|config/.test(message))
+        if (
+          /budget|rate_limited|job_deferred|worker_shutdown|permission|lease|source_|network_|config/.test(
+            message,
+          )
+        )
           throw error;
         await this.store.failImage(lease, task.image_id, "image_decode_failed");
       }
     }
   }
-  async runOne(sourceId: string): Promise<{ jobId: string; status: string } | null> {
+  async runOne(
+    sourceId: string,
+    options: { jobId?: string; maxPages?: number; signal?: AbortSignal } = {},
+  ): Promise<{ jobId: string; status: string } | null> {
+    if (
+      options.maxPages !== undefined &&
+      (!Number.isSafeInteger(options.maxPages) || options.maxPages < 1 || options.maxPages > 1000)
+    )
+      throw new Error("invalid_worker_page_limit");
+    if (options.signal?.aborted) return null;
     await this.runMaintenance(sourceId);
-    const lease = await this.store.claim(sourceId);
+    const lease = await this.store.claim(sourceId, 60, options.jobId);
     if (!lease) return null;
+    let processed = 0;
     try {
       for (;;) {
+        if (options.signal?.aborted) throw new Error("worker_shutdown");
         const job = await this.store.view(lease.jobId);
         const terminal = await this.store.db.query(
           "SELECT 1 FROM collector_pages WHERE job_id=$1 AND next_cursor IS NULL",
           [job.id],
         );
         if (terminal.rowCount) {
-          await this.images(lease);
+          await this.images(lease, options.signal);
           await this.store.finish(lease);
           return { jobId: job.id, status: "completed" };
         }
-        const { response, id } = await this.response(lease, `page:${job.cursor}`, "page");
+        const { response, id } = await this.response(lease, `page:${job.cursor}`, "page", options.signal);
         if (response.contentType.split(";")[0]?.trim().toLowerCase() !== "application/json")
           throw new Error("page_content_type_invalid");
         const page = parseFixturePage(response.bytes, {
@@ -156,7 +181,12 @@ export class OfflineCollectorWorker {
           asOf: job.as_of.toISOString(),
         });
         await this.store.commitPage(lease, page, response.bytes, id);
-        await this.images(lease);
+        await this.images(lease, options.signal);
+        processed++;
+        if (options.maxPages !== undefined && processed >= options.maxPages && page.nextCursor !== null) {
+          await this.store.defer(lease, "worker_yield", 1, false);
+          return { jobId: job.id, status: "retry" };
+        }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "collector_failed";
@@ -165,8 +195,10 @@ export class OfflineCollectorWorker {
           await this.store.defer(
             lease,
             message,
-            60,
-            !/fixture_response_missing|upstream_unavailable|collector_rate_limited/.test(message),
+            message === "worker_shutdown" ? 1 : 60,
+            !/fixture_response_missing|upstream_unavailable|collector_rate_limited|worker_shutdown/.test(
+              message,
+            ),
           );
         } catch {
           await this.store.failBlocked(lease, message);

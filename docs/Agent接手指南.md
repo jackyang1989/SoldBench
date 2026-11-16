@@ -44,10 +44,10 @@ SoldBench 是一个面向**个人卖家、收藏品交易商、二手商家、�
 - 第一工程整包 TASK-011/012/013/019/020 正在开发/检查；看 [台账 §28–30](开发排期与任务台账.md)。状态不能因为文件或OpenAPI存在而标为完成。
 - 已有 TypeScript workspaces、Hono/React SSR开发骨架、PG16迁移runner、共享查询/统计核心、双语消息骨架、媒体安全原型、来源许可**预检**和离线PoC。启动命令：`npm run db:start`、`npm run db:migrate`、`npm run dev`；服务固定绑定loopback、`offline_fixture`、payments offline、Collector关闭。
 - `/v1/sold`当前只校验查询并拒绝未认证请求；没有已完成注册/登录/API key/订阅/收费、没有返回生产数据的Search API，也没有已实现Dashboard、API Playground、MCP或图片读取路由。
-- 图片逻辑能在合成响应里校验候选、识别/规范化安全图像字节；没有来源主图字段许可、真实采集、对象写/读服务或页面/API分发。主图必须同时绑定`listing_id + observation_id + sale_event_id`；领域类型会筛除任一身份不同的候选，PostgreSQL组合外键也拒绝错配。升级有明文URL的旧库时按工程实施规格先做0003扩展、运行URL加密回填/验证、最后0004删明文，不能跳过顺序。
+- 图片逻辑能在合成响应里校验候选、识别/规范化安全图像字节，已有fixture-only私有本地对象写读/清理；没有来源主图字段许可、真实采集或owner页面/API分发。主图必须同时绑定`listing_id + observation_id + sale_event_id`；领域类型会筛除任一身份不同的候选，PostgreSQL组合外键也拒绝错配。升级有明文URL的旧库时按工程实施规格先做0003扩展、运行URL加密回填/验证、最后0004删明文，不能跳过顺序。
 - `docs/openapi.yaml`是设计契约，不表示其中50个operation已实现。现阶段与CompSniper生产功能端到端对等为0项；离线核心通过只能证明合成/本地规则。
 - CompSniper官方文档核查已逐页完成，完整能力和缺口写在竞品核查§8.6。竞品描述/准确率/供应覆盖/稳定性是供应商自述，未独立实测。
-- 静态审查确认真实采集仍被阻断：许可纯函数预检不是权限证明，也不做持久化原子预算预留或并发协调；没有事务性 reservation/dispatch coordinator 前不能启用Collector。图片逻辑绑定listing/observation/sale event，密文回填有可执行工具和分阶段迁移，OpenAPI与数据库图片状态对齐，IPv6在完整特别用途规则实现前全部拒绝。查阅台账§30–31与独立审查记录确认代码/测试状态。
+- 静态审查确认真实采集仍被阻断：许可纯函数预检不是权限证明；后续采集整包已提供fixture-only事务性预算/并发协调，仍不解锁真实HTTP/browser来源。图片逻辑绑定listing/observation/sale event，密文回填有可执行工具和分阶段迁移，OpenAPI与数据库图片状态对齐，IPv6在完整特别用途规则实现前全部拒绝。查阅台账§30–36与独立审查记录确认代码/测试状态。
 
 **绝对不要**把模拟作为真实成交、上线稳定、合法许可、可以收款/发信或图像再分发授权。无权数据对Web、REST、MCP、分享、CDN、SEO和导出一律不可通过缓存绕过。
 

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { type Candidate, candidateFromJson, canonicalJson, instant } from "@soldbench/core";
 
-export const COLLECTOR_VERSION = "offline-pg-1.0.0";
+export const COLLECTOR_VERSION = "offline-pg-1.1.0";
 export const PARSER_VERSION = "synthetic-page-1.0.0";
 export type FixtureListing = {
   listingId: string;
@@ -39,11 +39,18 @@ export class FixtureTransport {
   constructor(responses: ReadonlyMap<string, readonly FixtureResponse[]>) {
     this.#responses = new Map([...responses].map(([key, values]) => [key, structuredClone([...values])]));
   }
-  async read(key: string): Promise<FixtureResponse> {
+  async read(key: string, index?: number): Promise<FixtureResponse> {
     this.calls.push(key);
     const values = this.#responses.get(key);
     if (!values?.length) throw new Error("fixture_response_missing");
-    const value = values.length > 1 ? values.shift() : values[0];
+    if (index !== undefined && (!Number.isSafeInteger(index) || index < 0))
+      throw new Error("invalid_fixture_response_index");
+    const value =
+      index === undefined
+        ? values.length > 1
+          ? values.shift()
+          : values[0]
+        : values[Math.min(index, values.length - 1)];
     if (!value) throw new Error("fixture_response_missing");
     return structuredClone(value);
   }

@@ -202,7 +202,7 @@ export class CollectorStore {
       return result.rows[0]?.id ?? missingRow();
     });
   }
-  async claim(sourceId: string, leaseSeconds = 60): Promise<Lease | null> {
+  async claim(sourceId: string, leaseSeconds = 60, onlyJobId?: string): Promise<Lease | null> {
     if (!Number.isSafeInteger(leaseSeconds) || leaseSeconds < 1 || leaseSeconds > 300)
       throw new Error("invalid_lease_duration");
     return transaction(this.db, async (c) => {
@@ -221,8 +221,8 @@ export class CollectorStore {
         ).rows[0].n;
         if (running >= config.concurrency_cap) continue;
         const jobs = await c.query<Job>(
-          "SELECT * FROM collector_jobs WHERE source_id=$1 AND config_id=$2 AND (status IN ('queued','retry') OR (status='running' AND lease_until<=$3)) AND available_at<=$3 ORDER BY created_at,id FOR UPDATE",
-          [sourceId, config.id, now],
+          "SELECT * FROM collector_jobs WHERE source_id=$1 AND config_id=$2 AND (status IN ('queued','retry') OR (status='running' AND lease_until<=$3)) AND available_at<=$3 AND ($4::uuid IS NULL OR id=$4) ORDER BY created_at,id FOR UPDATE",
+          [sourceId, config.id, now, onlyJobId ?? null],
         );
         for (const job of jobs.rows) {
           await this.abandon(c, job);
@@ -277,6 +277,41 @@ export class CollectorStore {
       ]);
     }
   }
+  async bindFixtureArtifact(input: {
+    jobId: string;
+    sourceId: string;
+    queryHash: string;
+    asOf: string;
+    hash: string;
+    pageHashes: ReadonlyMap<string, ReadonlySet<string>>;
+  }) {
+    if (!/^[a-f0-9]{64}$/.test(input.hash)) throw new Error("invalid_fixture_artifact_hash");
+    await transaction(this.db, async (c) => {
+      await this.source(c, input.sourceId);
+      const job = (
+        await c.query<Job>("SELECT * FROM collector_jobs WHERE id=$1 AND source_id=$2 FOR UPDATE", [
+          input.jobId,
+          input.sourceId,
+        ])
+      ).rows[0];
+      if (!job || job.query_hash !== input.queryHash || job.as_of.getTime() !== instant(input.asOf))
+        throw new Error("fixture_artifact_job_mismatch");
+      const run = (
+        await c.query("SELECT fixture_artifact_hash FROM collector_runs WHERE id=$1 FOR UPDATE", [
+          job.collector_run_id,
+        ])
+      ).rows[0];
+      if (run.fixture_artifact_hash && run.fixture_artifact_hash !== input.hash)
+        throw new Error("fixture_artifact_changed");
+      const pages = await c.query("SELECT cursor,raw_hash FROM collector_pages WHERE job_id=$1", [job.id]);
+      if (pages.rows.some((page) => !input.pageHashes.get(page.cursor)?.has(page.raw_hash)))
+        throw new Error("fixture_artifact_committed_page_mismatch");
+      await c.query("UPDATE collector_runs SET fixture_artifact_hash=$2 WHERE id=$1", [
+        job.collector_run_id,
+        input.hash,
+      ]);
+    });
+  }
   async renew(lease: Lease, seconds = 60) {
     if (!Number.isSafeInteger(seconds) || seconds < 1 || seconds > 300)
       throw new Error("invalid_lease_duration");
@@ -288,9 +323,16 @@ export class CollectorStore {
       ]);
     });
   }
-  async reserve(lease: Lease, kind: "page" | "image", maxBytes: number): Promise<string> {
+  async reserve(
+    lease: Lease,
+    kind: "page" | "image",
+    maxBytes: number,
+    fixtureKey?: string,
+  ): Promise<string> {
     if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 5 * 1024 * 1024)
       throw new Error("invalid_dispatch_budget");
+    if (fixtureKey !== undefined && (!fixtureKey.startsWith(`${kind}:`) || fixtureKey.length > 2200))
+      throw new Error("invalid_fixture_request_key");
     return transaction(this.db, async (c) => {
       const { job, config, now } = await this.locked(c, lease);
       if (
@@ -322,10 +364,12 @@ export class CollectorStore {
         );
         if (!result.rowCount) throw new Error("collector_daily_budget_exhausted");
       }
+      const keyHash = fixtureKey === undefined ? null : digest(fixtureKey);
+      const responseIndex = 0;
       const id = randomUUID();
       await c.query(
-        "INSERT INTO collector_dispatches(id,job_id,source_id,lease_owner,kind,budget_day,max_bytes,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
-        [id, job.id, job.source_id, lease.token, kind, day, maxBytes, now],
+        "INSERT INTO collector_dispatches(id,job_id,source_id,lease_owner,kind,budget_day,max_bytes,created_at,fixture_key_hash,fixture_response_index) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+        [id, job.id, job.source_id, lease.token, kind, day, maxBytes, now, keyHash, responseIndex],
       );
       await c.query(
         "UPDATE collector_jobs SET bytes_reserved=bytes_reserved+$2,request_count=request_count+1 WHERE id=$1",
@@ -335,6 +379,70 @@ export class CollectorStore {
         job.collector_run_id,
       ]);
       return id;
+    });
+  }
+  async fixtureResponseIndex(lease: Lease, dispatchId: string): Promise<number> {
+    return transaction(this.db, async (c) => {
+      const { job, now } = await this.locked(c, lease);
+      const row = (
+        await c.query(
+          "SELECT * FROM collector_dispatches WHERE id=$1 AND job_id=$2 AND lease_owner=$3 AND state='reserved' FOR UPDATE",
+          [dispatchId, lease.jobId, lease.token],
+        )
+      ).rows[0];
+      if (!row?.fixture_key_hash) throw new Error("dispatch_not_reserved");
+      if (row.dispatched_at) return row.fixture_response_index;
+      const index = (
+        await c.query(
+          "SELECT count(*)::int AS n FROM collector_dispatches WHERE job_id=$1 AND fixture_key_hash=$2 AND dispatched_at IS NOT NULL",
+          [job.id, row.fixture_key_hash],
+        )
+      ).rows[0].n;
+      await c.query(
+        "UPDATE collector_dispatches SET dispatched_at=$2,fixture_response_index=$3 WHERE id=$1",
+        [dispatchId, now, index],
+      );
+      return index;
+    });
+  }
+  /** Caller knows the in-memory transport has not been invoked. Unlike unknown
+   * crash reservations, graceful pre-dispatch shutdown consumes no bytes/pages. */
+  async cancelUndispatchedFixture(lease: Lease, dispatchId: string) {
+    await transaction(this.db, async (c) => {
+      const { job } = await this.locked(c, lease);
+      const row = (
+        await c.query(
+          "SELECT * FROM collector_dispatches WHERE id=$1 AND job_id=$2 AND lease_owner=$3 FOR UPDATE",
+          [dispatchId, job.id, lease.token],
+        )
+      ).rows[0];
+      if (!row) throw new Error("dispatch_not_reserved");
+      if (row.state === "settled" && row.actual_bytes === "0" && row.dispatched_at === null) return;
+      if (row.state !== "reserved") throw new Error("dispatch_already_consumed");
+      await c.query(
+        "UPDATE source_daily_budget SET reserved=reserved-$3 WHERE source_id=$1 AND day=$2 AND budget_kind='bytes'",
+        [job.source_id, row.budget_day, row.max_bytes],
+      );
+      if (row.kind === "page")
+        await c.query(
+          "UPDATE source_daily_budget SET reserved=reserved-1 WHERE source_id=$1 AND day=$2 AND budget_kind='pages'",
+          [job.source_id, row.budget_day],
+        );
+      await c.query(
+        "UPDATE collector_jobs SET bytes_reserved=bytes_reserved-$2,request_count=request_count-1 WHERE id=$1",
+        [job.id, row.max_bytes],
+      );
+      await c.query("UPDATE collector_runs SET request_count=request_count-1 WHERE id=$1", [
+        job.collector_run_id,
+      ]);
+      await c.query(
+        "UPDATE collector_rate_windows SET used=used-1 WHERE source_id=$1 AND minute=date_trunc('minute',$2::timestamptz)",
+        [job.source_id, row.created_at],
+      );
+      await c.query(
+        "UPDATE collector_dispatches SET state='settled',actual_bytes=0,response_hash=NULL,dispatched_at=NULL WHERE id=$1",
+        [dispatchId],
+      );
     });
   }
   async settle(lease: Lease, dispatchId: string, bytes: number, responseHash?: string): Promise<void> {
@@ -402,7 +510,12 @@ export class CollectorStore {
       const { job, now } = await this.locked(c, lease);
       await this.abandon(c, job);
       const nextAttempt =
-        job.attempts + (["upstream_rate_limited", "collector_rate_limited"].includes(reason) ? 0 : 1);
+        job.attempts +
+        (["upstream_rate_limited", "collector_rate_limited", "worker_yield", "worker_shutdown"].includes(
+          reason,
+        )
+          ? 0
+          : 1);
       if (terminal || nextAttempt >= 3)
         await c.query(
           "UPDATE collector_runs SET outcome='failed',stop_reason=$2,completed_at=$3 WHERE id=$1",

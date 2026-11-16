@@ -2,9 +2,11 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   CollectorStore,
+  createFixtureArtifact,
   digest,
   FixtureTransport,
   fixtureResponse,
+  loadFixtureArtifact,
   OfflineCollectorWorker,
   provisionFixtureSource,
 } from "@soldbench/collector";
@@ -15,6 +17,8 @@ import { loadConfig } from "@soldbench/shared";
 import sharp from "sharp";
 import { localDatabaseUrl } from "./local-db.mjs";
 
+if (process.argv.slice(2).some((arg) => arg !== "--prepare-only") || process.argv.slice(2).length > 1)
+  throw new Error("invalid_collector_demo_argument");
 loadConfig(process.env);
 const url = process.env.DATABASE_URL ?? localDatabaseUrl();
 assertLocalDatabaseUrl(url, [
@@ -81,47 +85,81 @@ try {
     ]);
   }
   frames.set(`image:${imageUrl}`, [{ status: 200, contentType: "image/png", bytes: png }]);
-  const transport = new FixtureTransport(frames),
-    runner = new OfflineCollectorWorker(store, transport, media);
-  const completed = await runner.runOne(source.sourceId);
-  if (completed?.status !== "completed")
-    throw new Error(`fixture_collection_failed:${(await store.view(jobId)).error_code}`);
-  const result = evaluate(await store.candidates(jobId), {
-    sourceId: source.sourceId,
-    asOf: fixture.as_of,
-    days: 90,
-    basis: "item_plus_observed_shipping",
-    limit: 50,
-  });
-  if (JSON.stringify(result.stats) !== JSON.stringify(fixture.expected_stats)) {
-    for (const key of Object.keys(fixture.expected_stats))
-      if (result.stats[key] !== fixture.expected_stats[key]) throw new Error(`golden_stat_mismatch:${key}`);
-  }
-  const image = (
-    await db.query("SELECT id,object_key FROM listing_images WHERE source_id=$1 AND state='available'", [
-      source.sourceId,
-    ])
-  ).rows[0];
-  if (!image) throw new Error("synthetic_primary_image_missing");
-  const bytes = await runner.readImageInternal(image.id);
-  const report = {
-    mode: "offline_fixture",
-    sourceApproval: "NOT_CLEARED",
-    networkRequests: 0,
-    jobId,
-    status: completed.status,
-    pageCount: (await store.view(jobId)).page_count,
-    fixtureResponses: transport.calls.length,
-    imageFormat: (await sharp(bytes).metadata()).format,
-    imageBytes: bytes.length,
-    stats: result.stats,
-    stageVerdict: "NOT_ISSUED",
-  };
+  const artifact = createFixtureArtifact(
+    { sourceId: source.sourceId, jobId, queryHash: hash, asOf: fixture.as_of },
+    frames,
+  );
   mkdirSync(demoDir, { recursive: true, mode: 0o700 });
-  writeFileSync(resolve(demoDir, "collector-demo-report.json"), `${JSON.stringify(report, null, 2)}\n`, {
-    mode: 0o600,
+  const artifactPath = resolve(demoDir, `collector-fixture-${jobId}.json`);
+  writeFileSync(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`, { mode: 0o600 });
+  const loaded = loadFixtureArtifact(Buffer.from(JSON.stringify(artifact)));
+  await store.bindFixtureArtifact({
+    jobId,
+    sourceId: source.sourceId,
+    queryHash: hash,
+    asOf: fixture.as_of,
+    hash: loaded.hash,
+    pageHashes: loaded.pageHashes,
   });
-  console.log(JSON.stringify(report, null, 2));
+  if (process.argv.includes("--prepare-only")) {
+    const report = {
+      mode: "offline_fixture",
+      sourceApproval: "NOT_CLEARED",
+      networkRequests: 0,
+      jobId,
+      artifactPath,
+      status: "queued",
+      pageCount: 0,
+      stageVerdict: "NOT_ISSUED",
+    };
+    writeFileSync(resolve(demoDir, "collector-demo-report.json"), `${JSON.stringify(report, null, 2)}\n`, {
+      mode: 0o600,
+    });
+    console.log(JSON.stringify(report));
+  } else {
+    const transport = new FixtureTransport(frames),
+      runner = new OfflineCollectorWorker(store, transport, media);
+    const completed = await runner.runOne(source.sourceId);
+    if (completed?.status !== "completed")
+      throw new Error(`fixture_collection_failed:${(await store.view(jobId)).error_code}`);
+    const result = evaluate(await store.candidates(jobId), {
+      sourceId: source.sourceId,
+      asOf: fixture.as_of,
+      days: 90,
+      basis: "item_plus_observed_shipping",
+      limit: 50,
+    });
+    if (JSON.stringify(result.stats) !== JSON.stringify(fixture.expected_stats)) {
+      for (const key of Object.keys(fixture.expected_stats))
+        if (result.stats[key] !== fixture.expected_stats[key]) throw new Error(`golden_stat_mismatch:${key}`);
+    }
+    const image = (
+      await db.query("SELECT id,object_key FROM listing_images WHERE source_id=$1 AND state='available'", [
+        source.sourceId,
+      ])
+    ).rows[0];
+    if (!image) throw new Error("synthetic_primary_image_missing");
+    const bytes = await runner.readImageInternal(image.id);
+    const report = {
+      mode: "offline_fixture",
+      sourceApproval: "NOT_CLEARED",
+      networkRequests: 0,
+      jobId,
+      artifactPath,
+      status: completed.status,
+      pageCount: (await store.view(jobId)).page_count,
+      fixtureResponses: transport.calls.length,
+      imageFormat: (await sharp(bytes).metadata()).format,
+      imageBytes: bytes.length,
+      stats: result.stats,
+      stageVerdict: "NOT_ISSUED",
+    };
+    mkdirSync(demoDir, { recursive: true, mode: 0o700 });
+    writeFileSync(resolve(demoDir, "collector-demo-report.json"), `${JSON.stringify(report, null, 2)}\n`, {
+      mode: 0o600,
+    });
+    console.log(JSON.stringify(report, null, 2));
+  }
 } finally {
   await db.end();
 }

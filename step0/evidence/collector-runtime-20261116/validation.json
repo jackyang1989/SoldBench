@@ -1,0 +1,64 @@
+{
+  "schema": "soldbench.offline-collector-runtime-evidence.v1",
+  "date": "2026-11-16",
+  "parentCommit": "bc6a33a",
+  "mode": "offline_fixture",
+  "collectorNetworkEnabled": false,
+  "actualSourceVerified": false,
+  "stageVerdict": "NOT_ISSUED",
+  "versions": {
+    "collector": "offline-pg-1.1.0",
+    "parser": "synthetic-page-1.0.0",
+    "migration": "0006_collector_fixture_artifact.sql"
+  },
+  "environment": {
+    "node": "22.23.3",
+    "database": "isolated PG16.15 Unix-socket temporary databases; no customer DB",
+    "data": "synthetic artifacts + original golden fixture + local generated image",
+    "clock": "fixed UTC clocks and explicit clock advance for replay; PG clock default"
+  },
+  "checks": [
+    {
+      "command": "npm run check",
+      "exitCode": 0,
+      "tests": 60,
+      "collectorRuntimeTests": 9,
+      "log": "engineering-check.log"
+    },
+    {
+      "command": "python3 step0/tools/validate_offline.py",
+      "exitCode": 0,
+      "log": "step0-check.log",
+      "generatedReport": "step0/artifacts/20261116T142122328830Z/validation.json"
+    }
+  ],
+  "independentReview": {
+    "reviewer": "collector_review",
+    "mode": "read-only static, no stage signoff",
+    "resolved": [
+      "known pre-dispatch cancellation does not consume replay sequence or budget",
+      "per-job per-PID state files prevent unclaimed duplicate overwrites"
+    ],
+    "final": "No additional HIGH/MEDIUM found; offline commit permitted after checks"
+  },
+  "remaining": [
+    "No authorized eBay HTTP/browser parser or source fields verified",
+    "No real 14-day/7-day stability evidence",
+    "No production daemon/process supervisor or host isolation verified",
+    "No owner media HTTP/query service integration"
+  ],
+  "sha256": {
+    "packages/collector/src/access-guard.ts": "ccbc0ab94bacdfd651f9c373b4b587603a2c41e4152be306290fb6747858ece9",
+    "packages/collector/src/artifact.ts": "eef8d23887c6f1ae7d8f7a68fe3ed4ccdb8bee0e2202febc4587b44320197da4",
+    "packages/collector/src/fixture.ts": "7fbdeff39f7f99e448dc576681ff42af16741a1f55bb36d1411b250ab0e82581",
+    "packages/collector/src/index.ts": "5ecab6fde21270b4023e5a02b5dbd760709734141b0a329a13cf4d852eec5660",
+    "packages/collector/src/provision-fixture.ts": "66563fb70d85f1d4258d4bde660923d3ef0f943c630d22f70c354120aaae251b",
+    "packages/collector/src/store.ts": "92427f1838a7130ed71d25345dc51298fa078e2ab2976630154d120db541f960",
+    "packages/collector/src/worker.ts": "ce7afc0f0cb35e9210fc6974af0f1d05cda45e7f5ca1d5bba787cb36d02c177b",
+    "packages/db/migrations/0006_collector_fixture_artifact.sql": "d6d1afe7e8d8585a5f2eedb524161a765a03ad728eba13329bc5e3c1425f1fa9",
+    "scripts/collector-demo.mjs": "c00de389718987b199da9cf6ba2ab16ace36240736ce87dbdc2fa928ead5b6b5",
+    "scripts/collector-worker.mjs": "65d9c3a92d712256e690998f2b3c28e47ece7a2bf4e76ff9743b1b99b6290104",
+    "tests/collector-runtime.test.mjs": "378c66143fe4d186c44946db4b588c332a5f5d5ad246c22604429309dc537cda",
+    "tests/database.test.mjs": "4c0a652fe500a6932f58795501d5fd4d7b3426f96a6a37d0b89e474674098dab"
+  }
+}

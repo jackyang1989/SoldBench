@@ -99,7 +99,8 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
     assert.deepEqual(await migrate(db, "0004_image_rights_hardening.sql"), [
       "0004_image_rights_hardening.sql",
     ]);
-    assert.deepEqual(await migrate(db), ["0005_collector_pipeline.sql"]);
+    assert.deepEqual(await migrate(db, "0005_collector_pipeline.sql"), ["0005_collector_pipeline.sql"]);
+    assert.deepEqual(await migrate(db), ["0006_collector_fixture_artifact.sql"]);
     assert.deepEqual(await migrate(db), []);
     const mediaColumns = await db.query(
       "SELECT column_name FROM information_schema.columns WHERE table_name='listing_images'",
