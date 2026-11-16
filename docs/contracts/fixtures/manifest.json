@@ -1,0 +1,52 @@
+[
+  {
+    "file": "sold-200-50.json",
+    "schema": "SoldResult",
+    "status": 200
+  },
+  {
+    "file": "sold-200-stale.json",
+    "schema": "SoldResult",
+    "status": 200
+  },
+  {
+    "file": "sold-200-empty.json",
+    "schema": "SoldResult",
+    "status": 200
+  },
+  {
+    "file": "sold-200-low-sample.json",
+    "schema": "SoldResult",
+    "status": 200
+  },
+  {
+    "file": "sold-202.json",
+    "schema": "JobAccepted",
+    "status": 202
+  },
+  {
+    "file": "job-completed-unclaimed.json",
+    "schema": "JobResponse",
+    "status": 200
+  },
+  {
+    "file": "calculation-inputs-58.json",
+    "schema": "CalculationResponse",
+    "status": 200
+  },
+  {
+    "file": "data-expired.json",
+    "schema": "Error",
+    "status": 503
+  },
+  {
+    "file": "source-forbidden.json",
+    "schema": "Error",
+    "status": 403
+  },
+  {
+    "file": "result-unclaimed.json",
+    "schema": "Error",
+    "status": 409
+  }
+]

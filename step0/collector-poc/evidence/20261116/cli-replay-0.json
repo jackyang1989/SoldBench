@@ -1,0 +1,19 @@
+{
+  "mode": "offline_fixture",
+  "onlineVerified": false,
+  "sourceApproval": "NOT_CLEARED",
+  "version": "offline-poc-1.0.0",
+  "runId": "offline-demo",
+  "outcome": "completed",
+  "stopReason": null,
+  "completedPages": 2,
+  "attempts": 2,
+  "fixtureBodyBytes": 998,
+  "storedCandidateEvents": 2,
+  "observations": 4,
+  "quarantined": 1,
+  "dataAsOf": "2026-11-15T23:00:00Z",
+  "statisticsComputed": false,
+  "stateFile": "/var/folders/zf/l30tz2bd5xbgb8dh_4lhry780000gn/T/soldbench-collector-final-9hrghfby/state.json",
+  "reportFile": "/var/folders/zf/l30tz2bd5xbgb8dh_4lhry780000gn/T/soldbench-collector-final-9hrghfby/report-0.json"
+}

@@ -1,0 +1,125 @@
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+                                             result                                             
+------------------------------------------------------------------------------------------------
+ PASS: 24 negative constraints plus owner/source consistency and deferred ledger reconciliation
+(1 row)
+

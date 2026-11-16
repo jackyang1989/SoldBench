@@ -1,0 +1,62 @@
+{
+  "date": "2026-11-16",
+  "timezone": "Asia/Singapore",
+  "scope": "Design contracts and offline validation only; no merchant login, application, payment API call, real signature verification, capture, refund or payout.",
+  "decision": {
+    "primary": "stripe",
+    "supplemental": "paypal",
+    "reserve_qualification": [
+      "creem",
+      "dodo"
+    ],
+    "automatic_fallback": false
+  },
+  "checks": [
+    {
+      "status": "fulfilled",
+      "value": {
+        "chunk_id": "7916cd",
+        "wall_time_seconds": 8.625e-06,
+        "exit_code": 0,
+        "original_token_count": 62,
+        "output": "PASS: 31 Markdown files, 102 local links, 43 tasks, E1–E156, 16 features, 21 pages, 55 acceptance cases, 37 API groups, 12 decisions; original S-01…S-27 mapped.\nScope: documentation consistency only; no product, live-data or GO certification.\n"
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "chunk_id": "89630e",
+        "wall_time_seconds": 0.554027541,
+        "exit_code": 0,
+        "original_token_count": 107,
+        "output": "PASS: Stripe/PayPal checkout choices, four inactive/unknown choices rejected, independent webhook schemes.\nPASS: 78 component schemas, 49 unique operations, 10 complete synthetic fixtures, 11 invalid shapes rejected.\nPASS: 50 displayed / 58 complete calculation inputs / original 121-record stats reconcile.\nScope: JSON Schema + OpenAPI structure consistency; no HTTP implementation, live source, payment, or GO certification.\n"
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "chunk_id": "652013",
+        "wall_time_seconds": 1.6476334160000001,
+        "exit_code": 0,
+        "original_token_count": 126,
+        "output": "PASS: OpenAPI 3.1 specification validation (openapi-spec-validator 0.7.2).\nPASS: Stripe/PayPal checkout choices, four inactive/unknown choices rejected, independent webhook schemes.\nPASS: 78 component schemas, 49 unique operations, 10 complete synthetic fixtures, 11 invalid shapes rejected.\nPASS: 50 displayed / 58 complete calculation inputs / original 121-record stats reconcile.\nScope: JSON Schema + OpenAPI structure consistency; no HTTP implementation, live source, payment, or GO certification.\n"
+      }
+    }
+  ],
+  "runtime_acceptance": "NOT_RUN",
+  "sql": "Unchanged, no database tests repeated.",
+  "sha256": {
+    "AGENTS.md": "df1a0bbe0ae4c6321f1e1ed4e9b9a25b2d880276c2ba9455ee976020da4503c3",
+    "SoldBench 开发规格书 v1.4.md": "57e07b9f7d34bc617d8ea5d35e49f2371592276f3c847ba59589975e0a2a0e16",
+    "docs/Stripe与PayPal接入规格.md": "b7738410547d9df5400bb21b7694e63a7edc4fc18895adde3be9ebe3a8f383fa",
+    "docs/接口与数据契约.md": "db41da85cabefb81a1021263ba4d73501de68e6373b49c98f874444989735674",
+    "docs/工程实施规格.md": "fae87ffde6a7fd833b0b32d9cd008734e76379fd2c91596b23bd4312a029ccb8",
+    "docs/决策登记.md": "8b87e3d4eb0229fa3fa8a460140103edf5872e958bd9dea49287c388dc4e0c3d",
+    "docs/开发排期与任务台账.md": "4c47804c6b3e48a814ebe9e899db0246e18e8785b2e14094f63184f43b5ffedc",
+    "docs/验收矩阵.md": "428e6b2d6aa99d8ff1072295d805773b65ba58ab1593a484096933910996e6cf",
+    "docs/openapi.yaml": "626abe6880269a6a6ed8efcca0db35f05055dd2ea3f58ad8b56a6806ff63d4ad",
+    "docs/contracts/check_contracts.py": "a449880bdf34d9cef2dc29634073720c3666f093e2d3895b64c2d22b6f2b6aee",
+    "docs/check_docs.py": "fcfcd7750210726a24d47c3897d7953363761f2adba20e579807e2eb61709152",
+    "step0/payment-review.md": "272409b025bb07feb1e41384dba7539bc5a8686bebe3596b08063037b293a057"
+  }
+}

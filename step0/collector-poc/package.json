@@ -1,0 +1,10 @@
+{
+  "name": "soldbench-offline-collector-poc",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "test": "node --test tests/*.test.ts",
+    "demo": "node src/cli.ts"
+  }
+}

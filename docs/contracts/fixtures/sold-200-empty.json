@@ -1,0 +1,103 @@
+{
+  "data": {
+    "query_id": "00000000-0000-4000-8000-000000000001",
+    "query": {
+      "q": "synthetic empty result",
+      "marketplace": "ebay_us",
+      "window_days": 90,
+      "price_basis": "item_plus_observed_shipping",
+      "limit": 50,
+      "allow_stale": false,
+      "attributes": {}
+    },
+    "stats": {
+      "n_observed": 0,
+      "n_comparable": 0,
+      "n_price_verified": 0,
+      "n_excluded_unverified_price": 0,
+      "sold_last_30d_observed": 0,
+      "median_cents": null,
+      "p25_cents": null,
+      "p75_cents": null,
+      "trimmed_mean_cents": null,
+      "observed_min_cents": null,
+      "observed_max_cents": null,
+      "buy_it_now_verified_count": 0,
+      "best_offer_verified_count": 0,
+      "best_offer_displayed_only_count": 0
+    },
+    "quality": {
+      "data_insufficient": true,
+      "quality_status": "insufficient_sample",
+      "match": {
+        "matched": 0,
+        "excluded_hard_mismatch": 0,
+        "excluded_before_comparable": 0,
+        "mean_rule_match_score": null
+      },
+      "price": {
+        "verified_share": null,
+        "unverified_best_offer_count": 0
+      },
+      "sample": {
+        "verified_count": 0,
+        "recent_30d_count": 0
+      },
+      "freshness": {
+        "data_as_of": "2026-11-14T06:00:00Z",
+        "stale": false
+      },
+      "coverage": {
+        "status": "unknown",
+        "ratio": null,
+        "source_scope": null
+      },
+      "score": null,
+      "warnings": [
+        {
+          "code": "synthetic_fixture",
+          "message": "Synthetic regression data, not real market sales."
+        },
+        {
+          "code": "coverage_unknown",
+          "message": "Observed samples are not complete market sales."
+        }
+      ]
+    },
+    "comps": []
+  },
+  "meta": {
+    "engine_version": "1.4.0",
+    "cleaner_version": "1.4.0",
+    "billing_policy_version": "1.4.0",
+    "normalizer_version": "1.4.0",
+    "request_id": "req_synthetic_001",
+    "credits_charged": 0,
+    "query_total_credits_charged": 0,
+    "cache_hit": false,
+    "reused": false,
+    "data_as_of": "2026-11-14T06:00:00Z",
+    "evaluated_at": "2026-11-14T06:00:00Z",
+    "stale": false,
+    "freshness_state": "fresh",
+    "result_mode": "current",
+    "source_status": "healthy",
+    "coverage_status": "unknown",
+    "archive_coverage": null,
+    "source_scope": [
+      "synthetic_source_not_for_production"
+    ],
+    "parser_versions": {
+      "synthetic_source_not_for_production": "synthetic-1"
+    },
+    "candidate_set_hash": "c5f2a50b360cd703e63414c61081de5859af8213d90ebc4ad7063165062c2a2a",
+    "returned_comp_count": 0,
+    "available_comp_count": 0,
+    "permitted_comp_count": 0,
+    "truncated": false,
+    "truncation_reasons": [],
+    "source_window_start": "2026-08-16T06:00:00Z",
+    "source_window_end": "2026-11-14T06:00:00Z",
+    "data_mode": "synthetic_fixture"
+  }
+}

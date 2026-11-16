@@ -1,0 +1,22 @@
+{
+  "data": {
+    "job_id": "22222222-2222-4222-8222-222222222222",
+    "query_id": "00000000-0000-4000-8000-000000000001",
+    "status": "completed",
+    "compute_status": "completed",
+    "result_state": "ready",
+    "settlement_status": "pending",
+    "attempt_count": 1,
+    "created_at": "2026-11-14T06:00:00Z",
+    "updated_at": "2026-11-14T06:00:00Z",
+    "expires_at": "2026-11-15T06:00:00Z",
+    "error_code": null,
+    "retryable": false,
+    "result_url": "/v1/sold/00000000-0000-4000-8000-000000000001",
+    "claim_url": "/v1/sold/00000000-0000-4000-8000-000000000001/claim"
+  },
+  "meta": {
+    "credits_charged": 0,
+    "request_id": "req_synthetic_job"
+  }
+}

@@ -1,0 +1,135 @@
+{
+  "date": "2026-11-16",
+  "scope": "offline design contracts only",
+  "source_permission": "NOT_CLEARED",
+  "production_implemented": false,
+  "g0": "NOT_ISSUED",
+  "checks": [
+    {
+      "name": "golden_fixture",
+      "command": [
+        "python3",
+        "step0/tools/verify_fixture.py"
+      ],
+      "environment_overrides": {},
+      "exit_code": 0,
+      "output_log": "golden_fixture.log",
+      "stdout": "{\n  \"result\": \"PASS\",\n  \"mode\": \"offline_synthetic_fixture_only\",\n  \"sha256\": \"d59be9da67aa558d3cb494ec06d9918fd185afc3ec3b4daa31c0f6a7b244ae78\",\n  \"stats\": {\n    \"n_observed\": 121,\n    \"n_comparable\": 64,\n    \"n_price_verified\": 58,\n    \"n_excluded_unverified_price\": 6,\n    \"sold_last_30d_observed\": 35,\n    \"median_cents\": 5800,\n    \"p25_cents\": 4200,\n    \"p75_cents\": 7600,\n    \"trimmed_mean_cents\": 5930,\n    \"observed_min_cents\": 2900,\n    \"observed_max_cents\": 10800,\n    \"buy_it_now_verified_count\": 54,\n    \"best_offer_verified_count\": 4,\n    \"best_offer_displayed_only_count\": 6\n  },\n  \"quality\": {\n    \"data_insufficient\": false,\n    \"quality_status\": \"sufficient_sample\",\n    \"verified_share\": 0.90625,\n    \"coverage_status\": \"unknown\",\n    \"coverage_ratio\": null,\n    \"score\": null\n  },\n  \"records_missing_production_listing_id\": 63,\n  \"primary_fixture_exclusions\": {\n    \"strong_attribute_mismatch\": 57\n  },\n  \"does_not_verify\": [\n    \"source_rights\",\n    \"live_collector\",\n    \"matching_precision\",\n    \"billing\",\n    \"production_engine\",\n    \"GO\"\n  ]\n}",
+      "stderr": ""
+    },
+    {
+      "name": "documentation",
+      "command": [
+        "python3",
+        "docs/check_docs.py"
+      ],
+      "environment_overrides": {},
+      "exit_code": 0,
+      "output_log": "documentation.log",
+      "stdout": "PASS: 25 Markdown files, 66 local links, 43 tasks, E1–E138, 16 features, 21 pages, 54 acceptance cases, 37 API groups, 11 decisions; original S-01…S-27 mapped.\nScope: documentation consistency only; no product, live-data or GO certification.",
+      "stderr": ""
+    },
+    {
+      "name": "schema_and_openapi",
+      "command": [
+        "python3",
+        "-W",
+        "ignore",
+        "docs/contracts/check_contracts.py",
+        "--formal"
+      ],
+      "environment_overrides": {
+        "PYTHONPATH": "/tmp/soldbench-openapi-validator"
+      },
+      "exit_code": 0,
+      "output_log": "schema_and_openapi.log",
+      "stdout": "PASS: OpenAPI 3.1 specification validation (openapi-spec-validator 0.7.2).\nPASS: 78 component schemas, 47 unique operations, 10 complete synthetic fixtures, 11 invalid shapes rejected.\nPASS: 50 displayed / 58 complete calculation inputs / original 121-record stats reconcile.\nScope: JSON Schema + OpenAPI structure consistency; no HTTP implementation, live source, payment, or GO certification.",
+      "stderr": ""
+    },
+    {
+      "name": "pg16_schema_and_relations",
+      "command": [
+        "psql",
+        "-h",
+        "/tmp/soldbench-pg-contract.gpeRK3",
+        "-p",
+        "55439",
+        "-d",
+        "postgres",
+        "-q",
+        "-v",
+        "ON_ERROR_STOP=1",
+        "-f",
+        "docs/contracts/schema.sql",
+        "-f",
+        "docs/contracts/verify.sql"
+      ],
+      "environment_overrides": {
+        "PGOPTIONS": "-c search_path=contract_final,public"
+      },
+      "exit_code": 0,
+      "output_log": "pg16_schema_and_relations.log",
+      "stdout": "expect_rejection \n------------------\n \n(1 row)\n\n expect_rejection \n------------------\n \n(1 row)\n\n expect_rejection \n------------------\n \n(1 row)\n\n expect_rejection \n------------------\n \n(1 row)\n\n expect_rejection \n------------------\n \n(1 row)\n\n expect_rejection \n------------------\n \n(1 row)\n\n expect_rejection \n------------------\n \n(1 row)\n\n expect_rejection \n------------------\n \n(1 row)\n\n expect_rejection \n------------------\n \n(1 row)\n\n expect_rejection \n------------------\n \n(1 row)\n\n expect_rejection \n------------------\n \n(1 row)\n\n expect_rejection \n------------------\n \n(1 row)\n\n expect_rejection \n------------------\n \n(1 row)\n\n expect_rejection \n------------------\n \n(1 row)\n\n expect_rejection \n------------------\n \n(1 row)\n\n expect_rejection \n------------------\n \n(1 row)\n\n expect_rejection \n------------------\n \n(1 row)\n\n expect_rejection \n------------------\n \n(1 row)\n\n expect_rejection \n------------------\n \n(1 row)\n\n expect_rejection \n------------------\n \n(1 row)\n\n expect_rejection \n------------------\n \n(1 row)\n\n expect_rejection \n------------------\n \n(1 row)\n\n expect_rejection \n------------------\n \n(1 row)\n\n expect_rejection \n------------------\n \n(1 row)\n\n                                             result                                             \n------------------------------------------------------------------------------------------------\n PASS: 24 negative constraints plus owner/source consistency and deferred ledger reconciliation\n(1 row)",
+      "stderr": ""
+    },
+    {
+      "name": "pg16_identity",
+      "command": [
+        "psql",
+        "-h",
+        "/tmp/soldbench-pg-contract.gpeRK3",
+        "-p",
+        "55439",
+        "-d",
+        "postgres",
+        "-At",
+        "-c",
+        "select current_setting('server_version'),count(*) from information_schema.tables where table_schema='contract_final';"
+      ],
+      "environment_overrides": {},
+      "exit_code": 0,
+      "output_log": "pg16_identity.log",
+      "stdout": "16.15 (Homebrew)|47",
+      "stderr": ""
+    }
+  ],
+  "file_sha256": {
+    "AGENTS.md": "d78da7875a52b68a652efe48e3592101b14987147b35ee29fc83002cbd56e08e",
+    "README.md": "60f6b6beaa9b7c007cf69e8d966a4f5f394fcd66e10eae4576a68e85692c3598",
+    "SoldBench 开发规格书 v1.4.md": "afce1af0a5b0b963a7e4ad842a915d3f7967e24504b872acb8e8cda01ae45dea",
+    "docs/adr/ADR-11.md": "9088069b1411f5601cea2d599d9959dcc86b1676ccc0f04a11d53410e7f63555",
+    "docs/adr/ADR-12.md": "2b1b2e539d97246ca7b59bcfb7d88eddc4f93f2ea0116119eb8ea0c28993522a",
+    "docs/contracts/README.md": "6c7b178cea09118c2c1f4d2fd4b859bd187657e2d567acb5a5bcd8a5c44c0b44",
+    "docs/contracts/check_contracts.py": "2c6541ea3aa48c99fe3dff98e065e2c1adf0c0d88dfe04e8fc2fd1283b6ed57c",
+    "docs/contracts/fixtures/calculation-inputs-58.json": "afdb5eeb25ad2cc741ca4641931360bc3e489f0b1d8cc430bb4dd7db7d47ff7a",
+    "docs/contracts/fixtures/data-expired.json": "34ef8890340c4fcd31fafc30a42f7c691fea5c9fe3d387ebccd5f7b554b9f5b3",
+    "docs/contracts/fixtures/job-completed-unclaimed.json": "f0e1bc75931c612a967b1448b475b5dabea7f2ad2a04c6202e04a7defb664d4b",
+    "docs/contracts/fixtures/manifest.json": "5fc32b3f5556eaa73eeb70dbe3f7e7cf7dd056c6bed4187e55a150b849ea1ab1",
+    "docs/contracts/fixtures/result-unclaimed.json": "f7017c060d287b4334d57f03b3812f3a94f5a33b33f2fab7078ac3b5104fdb90",
+    "docs/contracts/fixtures/sold-200-50.json": "3c8c10650c8b7d3c89d18335c3ccf26504f52dbfc25b3d8680e9494f30f440a8",
+    "docs/contracts/fixtures/sold-200-empty.json": "235bd6b87a719e554adf693f9cf651a30120b9c3d95eaec99c13c72f692e756b",
+    "docs/contracts/fixtures/sold-200-low-sample.json": "956e0096eb29487627f435f099b717a970616e3441921ff814baf6c5e9d62cbf",
+    "docs/contracts/fixtures/sold-200-stale.json": "833d6141070e0bcfcefa1101b110596a3d908c0a53538888ab215336ccc4adbe",
+    "docs/contracts/fixtures/sold-202.json": "c3e8645b08335d874fcabee0b71e5f26c7548fbd89455b2a75250519f52f2bdb",
+    "docs/contracts/fixtures/source-forbidden.json": "b134c16c53e274bd401bcebc0032afec8f28c6cfbb764d762cb9e8468dbd4a1c",
+    "docs/contracts/requirements.txt": "af087711ab83d38f5b25d4a9e03dbbd40034bc29889174c990e0bb24d23f4e39",
+    "docs/contracts/schema.sql": "09c3d888601c2f5db82ad352b71d0b519ef5a0d68178f4d42f5d31e262d2fae3",
+    "docs/contracts/verify.sql": "e619b154a179e838bd5e505d13d6bf825cfc832251f2be132733356a8b397aec",
+    "docs/progress.md": "60a9c41f9a88540b77df54c48762acf10038a01f77d003d99543e8ae9c1200d5",
+    "docs/决策登记.md": "2c2f08861f5ea105112608aafd08a3914eb87798158887b5d517ac7ebacbb174",
+    "docs/功能与页面规格.md": "81c78e132f5274033e1a2ebf5f5e675ecfcd8692d275b15489e6f619e1f2ee00",
+    "docs/工程实施规格.md": "2f2d0b46f0224e12983278739225a2314e6847e70ce76075a7d1ed8b900a6374",
+    "docs/开发就绪检查.md": "1fc979fb7a192e26738df0c8c283bb22720cc4cc38954fcc372040659cb7b92e",
+    "docs/开发排期与任务台账.md": "eb5e3d3831f7efedeb09286d3b346b9c5e2781f5a676dacbabcc37d1b368fdfb",
+    "docs/执行与交接模板.md": "15e7d8d866148bdd114a2421e220d227b9d489724f701af7d23150fdc404b0f2",
+    "docs/接口与数据契约.md": "984aff57b161c70067a03e80569a9122ddb57916c77183399a6740d818e41333",
+    "docs/文档交付核对.md": "2be39d86b143163662b2cf58a966db88514aefe3212f0d808736f8b3ba107cf0",
+    "docs/采集稳定性专项规格.md": "5df041f6f50b6a223b43ada62d8da2b9febe75805678a9b6f4a16c24d8c08ccd",
+    "docs/项目审查与优化建议.md": "20d832ac7e1d4da5dc9b4cd766e7d812d44c1bd9b4d2c83e3fc0e109f2b83941",
+    "docs/验收矩阵.md": "89103556750ba67f4d072999dfd469be5f215ad3bc4b037a8fc42ea9ce0aab1f",
+    "v14_gameboy_58_verified.json": "d59be9da67aa558d3cb494ec06d9918fd185afc3ec3b4daa31c0f6a7b244ae78"
+  },
+  "temporary_postgres": "stopped after final validation; pg_ctl exit 0",
+  "cleanup_evidence": "server stopped; no production services or business databases used",
+  "final_documentation_recheck": "PASS after clarifying immutable external grant identity; policy version is a snapshot, not a re-grant discriminator"
+}

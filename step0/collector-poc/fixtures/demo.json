@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "synthetic": true,
+  "asOf": "2026-11-16T00:00:00Z",
+  "plan": {
+    "runId": "offline-demo",
+    "sourceId": "synthetic-ebay",
+    "queryHash": "6c4fa23b9e8997744b7b3e8f7391f02e3ae3daa0cced54c97b70b19f8b3d8bf4",
+    "maxPages": 5,
+    "maxRequests": 10,
+    "maxBytes": 100000,
+    "maxAttempts": 3,
+    "deadlineMs": 60000
+  },
+  "responses": {
+    "start": [
+      {
+        "status": 200,
+        "kind": "results",
+        "body": "{\"schema\":\"soldbench.offline.page.v1\",\"synthetic\":true,\"sourceId\":\"synthetic-ebay\",\"queryHash\":\"6c4fa23b9e8997744b7b3e8f7391f02e3ae3daa0cced54c97b70b19f8b3d8bf4\",\"cursor\":\"start\",\"nextCursor\":\"page-2\",\"coverageAsOf\":\"2026-11-16T00:00:00Z\",\"records\":[{\"listingId\":\"listing-1\",\"eventKey\":\"event-1\",\"identityEvidence\":\"synthetic_event_key\",\"title\":\"Synthetic completed item\"},{\"listingId\":\"listing-1\",\"eventKey\":\"event-2\",\"identityEvidence\":\"synthetic_event_key\",\"title\":\"Synthetic second independently identified event\"}]}"
+      }
+    ],
+    "page-2": [
+      {
+        "status": 200,
+        "kind": "results",
+        "body": "{\"schema\":\"soldbench.offline.page.v1\",\"synthetic\":true,\"sourceId\":\"synthetic-ebay\",\"queryHash\":\"6c4fa23b9e8997744b7b3e8f7391f02e3ae3daa0cced54c97b70b19f8b3d8bf4\",\"cursor\":\"page-2\",\"nextCursor\":null,\"coverageAsOf\":\"2026-11-15T23:00:00Z\",\"records\":[{\"listingId\":\"listing-1\",\"eventKey\":\"event-1\",\"identityEvidence\":\"synthetic_event_key\",\"title\":\"Synthetic completed item\"},{\"listingId\":\"listing-2\",\"eventKey\":null,\"identityEvidence\":\"unknown\",\"title\":\"Synthetic ambiguous event\"}]}"
+      }
+    ]
+  }
+}

@@ -1,0 +1,232 @@
+TAP version 13
+# Subtest: network blocker positive control rejects fetch, HTTP and raw sockets
+ok 1 - network blocker positive control rejects fetch, HTTP and raw sockets
+  ---
+  duration_ms: 0.549209
+  type: 'test'
+  ...
+# Subtest: two pages dedupe events, preserve ambiguous observations, use conservative watermark
+ok 2 - two pages dedupe events, preserve ambiguous observations, use conservative watermark
+  ---
+  duration_ms: 54.141709
+  type: 'test'
+  ...
+# Subtest: completed run survives reopen and does not fetch or duplicate events
+ok 3 - completed run survives reopen and does not fetch or duplicate events
+  ---
+  duration_ms: 45.70725
+  type: 'test'
+  ...
+# Subtest: independent repeated observation run adds evidence but no new sales
+ok 4 - independent repeated observation run adds evidence but no new sales
+  ---
+  duration_ms: 98.235125
+  type: 'test'
+  ...
+# Subtest: event-key conflict is quarantined instead of silently overwriting
+ok 5 - event-key conflict is quarantined instead of silently overwriting
+  ---
+  duration_ms: 51.794792
+  type: 'test'
+  ...
+# Subtest: no switch unlocks network mode {"mode":"approved_network"}
+ok 6 - no switch unlocks network mode {"mode":"approved_network"}
+  ---
+  duration_ms: 9.9505
+  type: 'test'
+  ...
+# Subtest: no switch unlocks network mode {"collectorEnabled":true}
+ok 7 - no switch unlocks network mode {"collectorEnabled":true}
+  ---
+  duration_ms: 12.160916
+  type: 'test'
+  ...
+# Subtest: offline replay revocation is checked before every dispatch
+ok 8 - offline replay revocation is checked before every dispatch
+  ---
+  duration_ms: 38.645958
+  type: 'test'
+  ...
+# Subtest: revocation after response prevents page publication
+ok 9 - revocation after response prevents page publication
+  ---
+  duration_ms: 29.81325
+  type: 'test'
+  ...
+# Subtest: access refusal 401/error opens persistent circuit with no retry
+ok 10 - access refusal 401/error opens persistent circuit with no retry
+  ---
+  duration_ms: 41.240958
+  type: 'test'
+  ...
+# Subtest: access refusal 403/error opens persistent circuit with no retry
+ok 11 - access refusal 403/error opens persistent circuit with no retry
+  ---
+  duration_ms: 42.564208
+  type: 'test'
+  ...
+# Subtest: access refusal 200/login_wall opens persistent circuit with no retry
+ok 12 - access refusal 200/login_wall opens persistent circuit with no retry
+  ---
+  duration_ms: 43.077541
+  type: 'test'
+  ...
+# Subtest: access refusal 200/challenge opens persistent circuit with no retry
+ok 13 - access refusal 200/challenge opens persistent circuit with no retry
+  ---
+  duration_ms: 42.97425
+  type: 'test'
+  ...
+# Subtest: access refusal 503/challenge opens persistent circuit with no retry
+ok 14 - access refusal 503/challenge opens persistent circuit with no retry
+  ---
+  duration_ms: 40.939625
+  type: 'test'
+  ...
+# Subtest: 200 error document is not an empty successful search
+ok 15 - 200 error document is not an empty successful search
+  ---
+  duration_ms: 31.17675
+  type: 'test'
+  ...
+# Subtest: verified synthetic empty page is distinguished from an invalid error page
+ok 16 - verified synthetic empty page is distinguished from an invalid error page
+  ---
+  duration_ms: 37.505709
+  type: 'test'
+  ...
+# Subtest: invalid page binding/date fails closed: sourceId
+ok 17 - invalid page binding/date fails closed: sourceId
+  ---
+  duration_ms: 28.191833
+  type: 'test'
+  ...
+# Subtest: invalid page binding/date fails closed: queryHash
+ok 18 - invalid page binding/date fails closed: queryHash
+  ---
+  duration_ms: 27.855542
+  type: 'test'
+  ...
+# Subtest: invalid page binding/date fails closed: cursor
+ok 19 - invalid page binding/date fails closed: cursor
+  ---
+  duration_ms: 30.412708
+  type: 'test'
+  ...
+# Subtest: invalid page binding/date fails closed: coverageAsOf
+ok 20 - invalid page binding/date fails closed: coverageAsOf
+  ---
+  duration_ms: 29.09025
+  type: 'test'
+  ...
+# Subtest: one invalid record prevents the entire page from committing
+ok 21 - one invalid record prevents the entire page from committing
+  ---
+  duration_ms: 31.288125
+  type: 'test'
+  ...
+# Subtest: cursor cycle terminates and never advances complete coverage
+ok 22 - cursor cycle terminates and never advances complete coverage
+  ---
+  duration_ms: 35.081209
+  type: 'test'
+  ...
+# Subtest: finite budget page_budget_exceeded
+ok 23 - finite budget page_budget_exceeded
+  ---
+  duration_ms: 39.615042
+  type: 'test'
+  ...
+# Subtest: finite budget request_budget_exceeded
+ok 24 - finite budget request_budget_exceeded
+  ---
+  duration_ms: 48.935875
+  type: 'test'
+  ...
+# Subtest: finite budget byte_budget_exceeded
+ok 25 - finite budget byte_budget_exceeded
+  ---
+  duration_ms: 24.522125
+  type: 'test'
+  ...
+# Subtest: finite budget invalid_plan
+ok 26 - finite budget invalid_plan
+  ---
+  duration_ms: 11.612042
+  type: 'test'
+  ...
+# Subtest: 429 honors Retry-After using logical time, then succeeds within budget
+ok 27 - 429 honors Retry-After using logical time, then succeeds within budget
+  ---
+  duration_ms: 69.097625
+  type: 'test'
+  ...
+# Subtest: rate limiting does not exceed deadline or silently ignore Retry-After
+ok 28 - rate limiting does not exceed deadline or silently ignore Retry-After
+  ---
+  duration_ms: 29.208833
+  type: 'test'
+  ...
+# Subtest: repeated 5xx has bounded attempts and no false watermark
+ok 29 - repeated 5xx has bounded attempts and no false watermark
+  ---
+  duration_ms: 43.868416
+  type: 'test'
+  ...
+# Subtest: late fetch cannot commit after deadline
+ok 30 - late fetch cannot commit after deadline
+  ---
+  duration_ms: 30.020125
+  type: 'test'
+  ...
+# Subtest: atomic page failure preserves old durable checkpoint, reopen/replay recovers exactly once
+ok 31 - atomic page failure preserves old durable checkpoint, reopen/replay recovers exactly once
+  ---
+  duration_ms: 85.581291
+  type: 'test'
+  ...
+# Subtest: budget reservations survive restart instead of resetting on transport failure
+ok 32 - budget reservations survive restart instead of resetting on transport failure
+  ---
+  duration_ms: 62.442583
+  type: 'test'
+  ...
+# Subtest: changed query cannot reuse an existing run checkpoint
+ok 33 - changed query cannot reuse an existing run checkpoint
+  ---
+  duration_ms: 69.538708
+  type: 'test'
+  ...
+# Subtest: failure of a later run retains the last fully committed watermark
+ok 34 - failure of a later run retains the last fully committed watermark
+  ---
+  duration_ms: 109.654083
+  type: 'test'
+  ...
+# Subtest: second writer is rejected, and reopening non-PoC state is rejected
+ok 35 - second writer is rejected, and reopening non-PoC state is rejected
+  ---
+  duration_ms: 3.530208
+  type: 'test'
+  ...
+# Subtest: untrusted plan identities are rejected before dispatch or map indexing
+ok 36 - untrusted plan identities are rejected before dispatch or map indexing
+  ---
+  duration_ms: 40.261125
+  type: 'test'
+  ...
+# Subtest: same version with malformed store shape is rejected on open
+ok 37 - same version with malformed store shape is rejected on open
+  ---
+  duration_ms: 2.991416
+  type: 'test'
+  ...
+1..37
+# tests 37
+# suites 0
+# pass 37
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1568.078125

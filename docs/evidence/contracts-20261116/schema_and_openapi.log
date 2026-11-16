@@ -1,0 +1,4 @@
+PASS: OpenAPI 3.1 specification validation (openapi-spec-validator 0.7.2).
+PASS: 78 component schemas, 47 unique operations, 10 complete synthetic fixtures, 11 invalid shapes rejected.
+PASS: 50 displayed / 58 complete calculation inputs / original 121-record stats reconcile.
+Scope: JSON Schema + OpenAPI structure consistency; no HTTP implementation, live source, payment, or GO certification.

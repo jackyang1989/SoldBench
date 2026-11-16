@@ -1,0 +1,154 @@
+{
+  "date": "2026-11-16",
+  "timezone": "Asia/Singapore",
+  "code_version": "offline-poc-1.0.0",
+  "node": "v22.23.3",
+  "data_mode": "offline_synthetic_fixture_only",
+  "source_clearance": "NOT_CLEARED",
+  "clock": "fixed/logical injected; not continuous calendar-day evidence",
+  "database": "local temporary JSON PoC store; no PostgreSQL or user accounts",
+  "git": "not a Git repository",
+  "configuration": {
+    "COLLECTOR_ENABLED": false,
+    "DATA_MODE": "offline_fixture"
+  },
+  "checks": [
+    {
+      "name": "collector-tests",
+      "command": [
+        "node",
+        "--test",
+        "step0/collector-poc/tests/collector.test.ts"
+      ],
+      "exit_code": 0,
+      "log": "collector-tests.log"
+    },
+    {
+      "name": "golden",
+      "command": [
+        "python3",
+        "step0/tools/verify_fixture.py"
+      ],
+      "exit_code": 0,
+      "log": "golden.log"
+    },
+    {
+      "name": "documentation",
+      "command": [
+        "python3",
+        "docs/check_docs.py"
+      ],
+      "exit_code": 0,
+      "log": "documentation.log"
+    },
+    {
+      "name": "contracts",
+      "command": [
+        "python3",
+        "docs/contracts/check_contracts.py"
+      ],
+      "exit_code": 0,
+      "log": "contracts.log"
+    },
+    {
+      "name": "cli-repeated-replay",
+      "command": [
+        "node",
+        "step0/collector-poc/src/cli.ts",
+        "--state",
+        "/var/folders/zf/l30tz2bd5xbgb8dh_4lhry780000gn/T/soldbench-collector-evidence-j5xcn2lc/state.json",
+        "--report",
+        "<fresh-report-path>"
+      ],
+      "exit_code": 0,
+      "assertion": "Both runs retain 2 candidate events / 4 observations / 1 quarantine; fixed oldest complete watermark"
+    },
+    {
+      "name": "COLLECTOR_ENABLED-reject",
+      "command": [
+        "node",
+        "step0/collector-poc/src/cli.ts",
+        "--state",
+        "/var/folders/zf/l30tz2bd5xbgb8dh_4lhry780000gn/T/soldbench-collector-evidence-j5xcn2lc/COLLECTOR_ENABLED-state.json",
+        "--report",
+        "/var/folders/zf/l30tz2bd5xbgb8dh_4lhry780000gn/T/soldbench-collector-evidence-j5xcn2lc/COLLECTOR_ENABLED.json"
+      ],
+      "configuration": {
+        "COLLECTOR_ENABLED": "true"
+      },
+      "exit_code": 1,
+      "expected_exit_code": 1,
+      "stderr": "COLLECTOR_ENABLED must be false",
+      "report_created": false
+    },
+    {
+      "name": "DATA_MODE-reject",
+      "command": [
+        "node",
+        "step0/collector-poc/src/cli.ts",
+        "--state",
+        "/var/folders/zf/l30tz2bd5xbgb8dh_4lhry780000gn/T/soldbench-collector-evidence-j5xcn2lc/DATA_MODE-state.json",
+        "--report",
+        "/var/folders/zf/l30tz2bd5xbgb8dh_4lhry780000gn/T/soldbench-collector-evidence-j5xcn2lc/DATA_MODE.json"
+      ],
+      "configuration": {
+        "DATA_MODE": "approved_network"
+      },
+      "exit_code": 1,
+      "expected_exit_code": 1,
+      "stderr": "Only offline_fixture is implemented",
+      "report_created": false
+    }
+  ],
+  "test_count": 37,
+  "independent_review": "NOT_RUN",
+  "not_verified": [
+    "actual eBay DOM or online access",
+    "14-day online stability",
+    "production persistence/queues/lease",
+    "production matching/statistics",
+    "payment or UI runtime",
+    "TypeScript static typecheck/lint/build",
+    "G0"
+  ],
+  "sha256": {
+    "step0/collector-poc/README.md": "583a88d1085edbb0cb21dc1730f649262c4bea16a609e335de7a7196d16e841d",
+    "step0/collector-poc/.gitignore": "a844e110fe0782d7b93d1a9ed0e56e5df4cb33df4c217f9fc9ed70c9aca03ac5",
+    "step0/collector-poc/package.json": "ed0006f9eb1eb4d923960742f7e2b9c9062c3e766f3ffddc1c30a58af2304f3c",
+    "step0/collector-poc/tests/collector.test.ts": "bcaa015e2896577b2c9ea6f8f36b8e758d57c65b7d11754cdf6a5d46b2906c7e",
+    "step0/collector-poc/fixtures/demo.json": "7c5cca8165b666bad0abb6812084503f610c3fc2f2bfd828e7a70c09e0c0ed1b",
+    "step0/collector-poc/src/cli.ts": "472e43accadcad3caae16868678763421b8348d624401db1ae1d56e3a94f1fa6",
+    "step0/collector-poc/src/collector.ts": "7ec21f95f530d902aa66de3e02d34f7e1ea5ebf73cfec5eba37385c503b86cd0"
+  },
+  "documentation_sha256": {
+    "agent.md": "5aa311b9c86e73a65d90ee8e8b0b515c817ab58a5529b8d894d528cb4b0eaeaa",
+    "README.md": "ca9dbdf2315263a4f69421f78938904a29481c0cd11bfbe7d64f65b70475a0af",
+    "SoldBench 开发规格书 v1.4.md": "35df258dbced27c7d40075ad8296bb8b64d24118f7c678bd589bbc8941e6d32d",
+    "AGENTS.md": "ae4a58b7037df4e035813f428c15add4cea101de70825a2a72cd6ea580019cf3",
+    "docs/开发排期与任务台账.md": "92b12706df5f83eb7f8b3ce7c6cdf8efd48031935975d24858127ae926df3812",
+    "docs/开发就绪检查.md": "2f0c29d4903151eb6eb1e53685fd68a72faa06c695bc6d80788393fcd2e3647a",
+    "docs/竞品核查与差异化建议_20261116.md": "4a694d5cc55489925f7f8d7127d3e16a5fa592b4488e1dea0616675343f30093",
+    "docs/Stripe与PayPal接入规格.md": "b7738410547d9df5400bb21b7694e63a7edc4fc18895adde3be9ebe3a8f383fa",
+    "docs/工程实施规格.md": "fae87ffde6a7fd833b0b32d9cd008734e76379fd2c91596b23bd4312a029ccb8",
+    "docs/验收矩阵.md": "428e6b2d6aa99d8ff1072295d805773b65ba58ab1593a484096933910996e6cf",
+    "docs/决策登记.md": "573ec6ce92b2c553c092e301b79a98d8dce148a69f6b544208b7c9113b5c5e4b",
+    "docs/收款渠道评估与接入路线_20261116.md": "696ca57113d7bf957a34ca1e534c8cddd4f9579acfe92d13f6b4eed90b5539a5",
+    "docs/progress.md": "60a9c41f9a88540b77df54c48762acf10038a01f77d003d99543e8ae9c1200d5",
+    "docs/功能与页面规格.md": "5b65a68bb21e42e827bf194201b847de855d032774316733d16d5782797e2198",
+    "docs/项目审查与优化建议.md": "8081c03d075e2fcd8d6796d956c58d78cfcbaeafbf6d8c404158902535e7aa26",
+    "docs/文档交付核对.md": "2be39d86b143163662b2cf58a966db88514aefe3212f0d808736f8b3ba107cf0",
+    "docs/国际站点规划与品牌评估_20261116.md": "84c6c468e30e18ee292380836e1409e2ef066b7788e8ef95f533d4c8cf187f2b",
+    "docs/多语言与商业交付补充规格.md": "6472d812979f714998b5105677819c26513aecf31cf12eca31ada1d3c6fc7984",
+    "docs/执行与交接模板.md": "15e7d8d866148bdd114a2421e220d227b9d489724f701af7d23150fdc404b0f2",
+    "docs/商业系统开发前缺口审查.md": "ea9e0e1688a556aa4c05230c8807d9d2cd330e2d6c0955b0464ddc5e0b33b5d0",
+    "docs/接口与数据契约.md": "db41da85cabefb81a1021263ba4d73501de68e6373b49c98f874444989735674",
+    "docs/采集稳定性专项规格.md": "1252eabfa388255403fcfd03ed0c135cefee5572ed564f98ac9fec5193a39527",
+    "docs/adr/ADR-11.md": "9088069b1411f5601cea2d599d9959dcc86b1676ccc0f04a11d53410e7f63555",
+    "docs/adr/ADR-12.md": "2b1b2e539d97246ca7b59bcfb7d88eddc4f93f2ea0116119eb8ea0c28993522a",
+    "docs/contracts/README.md": "cfa558be0900225bad1cea0a9422124c2f1b418724b2606cb83fdebe7eea41d4",
+    "docs/baselines/SoldBench-v1.4-original.md": "3fc154649f5f34031367f59f1e16f8b248d5eab89e2b6b1817d8db2892f1a7da",
+    "step0/README.md": "426b2ae42fb34eabfb8da992644d87afc0f01407068bd6399dac90e7f8552fb8",
+    "step0/verdict.md": "710b521ce3742bb0add4d90992993c9a4682eaeb2812edf8caefd05005ad7668"
+  },
+  "last_validation_note": "All final CLI checks repeated after the latest code changes. TASK-003 awaits independent review. Domain registered per user confirmation; DNS/TLS not checked."
+}

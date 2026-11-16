@@ -1,0 +1,119 @@
+{
+  "date": "2026-11-16",
+  "timezone": "Asia/Singapore",
+  "scope": "Documentation and design contracts only. Bilingual runtime and product acceptance remain NOT_RUN. No SQL changes, source collection, payment or production deployment.",
+  "initial_checks": [
+    {
+      "status": "fulfilled",
+      "value": {
+        "name": "documentation",
+        "chunk_id": "58e307",
+        "wall_time_seconds": 1.8375e-05,
+        "exit_code": 0,
+        "original_token_count": 62,
+        "output": "PASS: 29 Markdown files, 84 local links, 43 tasks, E1–E151, 16 features, 21 pages, 55 acceptance cases, 37 API groups, 12 decisions; original S-01…S-27 mapped.\nScope: documentation consistency only; no product, live-data or GO certification.\n"
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "name": "contracts",
+        "chunk_id": "31334b",
+        "wall_time_seconds": 0.403211209,
+        "exit_code": 1,
+        "original_token_count": 107,
+        "output": "Traceback (most recent call last):\n  File \"/Users/jianouyang/Project/SoldBench/docs/contracts/check_contracts.py\", line 66, in <module>\n    require(len(language_headers)==(0 if path.startswith('/webhooks/') else 1),\n  File \"/Users/jianouyang/Project/SoldBench/docs/contracts/check_contracts.py\", line 28, in require\n    raise ValueError(message)\nValueError: Language preference contract missing/duplicated: get /v1/categories\n"
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "name": "formal",
+        "chunk_id": "f0a221",
+        "wall_time_seconds": 1.432827958,
+        "exit_code": 1,
+        "original_token_count": 126,
+        "output": "PASS: OpenAPI 3.1 specification validation (openapi-spec-validator 0.7.2).\nTraceback (most recent call last):\n  File \"/Users/jianouyang/Project/SoldBench/docs/contracts/check_contracts.py\", line 66, in <module>\n    require(len(language_headers)==(0 if path.startswith('/webhooks/') else 1),\n  File \"/Users/jianouyang/Project/SoldBench/docs/contracts/check_contracts.py\", line 28, in require\n    raise ValueError(message)\nValueError: Language preference contract missing/duplicated: get /v1/categories\n"
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "name": "golden",
+        "chunk_id": "d0078f",
+        "wall_time_seconds": 7.375e-06,
+        "exit_code": 0,
+        "original_token_count": 268,
+        "output": "{\n  \"result\": \"PASS\",\n  \"mode\": \"offline_synthetic_fixture_only\",\n  \"sha256\": \"d59be9da67aa558d3cb494ec06d9918fd185afc3ec3b4daa31c0f6a7b244ae78\",\n  \"stats\": {\n    \"n_observed\": 121,\n    \"n_comparable\": 64,\n    \"n_price_verified\": 58,\n    \"n_excluded_unverified_price\": 6,\n    \"sold_last_30d_observed\": 35,\n    \"median_cents\": 5800,\n    \"p25_cents\": 4200,\n    \"p75_cents\": 7600,\n    \"trimmed_mean_cents\": 5930,\n    \"observed_min_cents\": 2900,\n    \"observed_max_cents\": 10800,\n    \"buy_it_now_verified_count\": 54,\n    \"best_offer_verified_count\": 4,\n    \"best_offer_displayed_only_count\": 6\n  },\n  \"quality\": {\n    \"data_insufficient\": false,\n    \"quality_status\": \"sufficient_sample\",\n    \"verified_share\": 0.90625,\n    \"coverage_status\": \"unknown\",\n    \"coverage_ratio\": null,\n    \"score\": null\n  },\n  \"records_missing_production_listing_id\": 63,\n  \"primary_fixture_exclusions\": {\n    \"strong_attribute_mismatch\": 57\n  },\n  \"does_not_verify\": [\n    \"source_rights\",\n    \"live_collector\",\n    \"matching_precision\",\n    \"billing\",\n    \"production_engine\",\n    \"GO\"\n  ]\n}\n"
+      }
+    }
+  ],
+  "final_checks": [
+    {
+      "status": "fulfilled",
+      "value": {
+        "name": "contracts",
+        "chunk_id": "eb8c64",
+        "wall_time_seconds": 0.491364958,
+        "exit_code": 0,
+        "original_token_count": 80,
+        "output": "PASS: 78 component schemas, 47 unique operations, 10 complete synthetic fixtures, 11 invalid shapes rejected.\nPASS: 50 displayed / 58 complete calculation inputs / original 121-record stats reconcile.\nScope: JSON Schema + OpenAPI structure consistency; no HTTP implementation, live source, payment, or GO certification.\n"
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "name": "formal",
+        "chunk_id": "6daf0b",
+        "wall_time_seconds": 1.492715209,
+        "exit_code": 0,
+        "original_token_count": 99,
+        "output": "PASS: OpenAPI 3.1 specification validation (openapi-spec-validator 0.7.2).\nPASS: 78 component schemas, 47 unique operations, 10 complete synthetic fixtures, 11 invalid shapes rejected.\nPASS: 50 displayed / 58 complete calculation inputs / original 121-record stats reconcile.\nScope: JSON Schema + OpenAPI structure consistency; no HTTP implementation, live source, payment, or GO certification.\n"
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "name": "documentation",
+        "chunk_id": "d955d4",
+        "wall_time_seconds": 9.042e-06,
+        "exit_code": 0,
+        "original_token_count": 62,
+        "output": "PASS: 29 Markdown files, 84 local links, 43 tasks, E1–E151, 16 features, 21 pages, 55 acceptance cases, 37 API groups, 12 decisions; original S-01…S-27 mapped.\nScope: documentation consistency only; no product, live-data or GO certification.\n"
+      }
+    }
+  ],
+  "fix": "Removed ten duplicate empty parameters mappings that shadowed Accept-Language; added duplicate YAML key rejection and optional-header/query-shape invariants.",
+  "sql": "Not rerun: SQL schema unchanged.",
+  "schedule": {
+    "tasks": 43,
+    "baseline_person_days": 151,
+    "buffer_person_days": 31,
+    "total_person_days": 182,
+    "bilingual_increment_person_days": 13
+  },
+  "runtime_acceptance": "AT-055 NOT_RUN",
+  "sha256": {
+    "AGENTS.md": "3468c8562d6b7e5a533e5f508af01aad809deff2a61329a22263ef79d5de4b6c",
+    "README.md": "1571c4082fb62e67b60ac5f14ba6fdd75495611a5fcca83d8f4961139c96f112",
+    "SoldBench 开发规格书 v1.4.md": "ca6248ab749766f4a141e92551fd9d38b1dffd47d45a5e3153073e10e367a80a",
+    "docs/多语言与商业交付补充规格.md": "6472d812979f714998b5105677819c26513aecf31cf12eca31ada1d3c6fc7984",
+    "docs/商业系统开发前缺口审查.md": "adefb4c2e816f9968da2be5bf882d2769f6eaf6b19e8fc75070498b502f861a4",
+    "docs/国际站点规划与品牌评估_20261116.md": "84c6c468e30e18ee292380836e1409e2ef066b7788e8ef95f533d4c8cf187f2b",
+    "docs/决策登记.md": "028bcbcf77eca7d73a6ae4067321042294bce96ad2b6c5fcdfe9988e4b202776",
+    "docs/工程实施规格.md": "e0a546d20655b7215eb5f50aadca11cab9659aa66932e800ba6560c2d69a988e",
+    "docs/接口与数据契约.md": "824ff8a3969d98688f8429670fc72a61114c46ee31d10a1870afbdc29a407d27",
+    "docs/功能与页面规格.md": "5b65a68bb21e42e827bf194201b847de855d032774316733d16d5782797e2198",
+    "docs/开发排期与任务台账.md": "4662d42f7d007a5e91afa62939aeca905bbae711efda9b16745bf8652c4fc22d",
+    "docs/验收矩阵.md": "1edb0e7e9df8e8a9f214a3512db7c1f3e0bdfb66cdaf4d3ffb0d756991296fe6",
+    "docs/开发就绪检查.md": "21b16073af0c88cf748fa16a030d8076cbd4e52c9428968111279659c4f33c88",
+    "docs/openapi.yaml": "dfa0a3449396151689b1a3418cbca23ab0d9949ca1dabfc35ef8e343be92ce13",
+    "docs/check_docs.py": "bbf283996ee30771b1b211e34e447eaa57b0d212a6290e5c7a3b42578ab8b3b8",
+    "docs/contracts/check_contracts.py": "a0d17d300178ee2e231a4ece92fc6a55b1b73c79849a676beb8b63900cf71859",
+    "docs/contracts/README.md": "149b86aa4f9689bc9eda41c4d141a19252750767c887260add3d46d55dca3fd6",
+    "docs/contracts/schema.sql": "09c3d888601c2f5db82ad352b71d0b519ef5a0d68178f4d42f5d31e262d2fae3",
+    "docs/baselines/SoldBench-v1.4-original.md": "3fc154649f5f34031367f59f1e16f8b248d5eab89e2b6b1817d8db2892f1a7da",
+    "v14_gameboy_58_verified.json": "d59be9da67aa558d3cb494ec06d9918fd185afc3ec3b4daa31c0f6a7b244ae78"
+  },
+  "note": "Hashes identify this document/contract snapshot. The task board entry and validation artifact are records, not independent acceptance."
+}

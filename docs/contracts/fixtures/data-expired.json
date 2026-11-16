@@ -1,0 +1,11 @@
+{
+  "error": {
+    "code": "data_expired",
+    "message": "Synthetic expected response. See recovery action.",
+    "details": {
+      "last_data_as_of": "2026-11-14T06:00:00Z",
+      "source_status": "stopped"
+    },
+    "request_id": "req_synthetic_error"
+  }
+}

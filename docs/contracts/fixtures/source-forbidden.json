@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "forbidden",
+    "message": "Synthetic expected response. See recovery action.",
+    "details": {},
+    "request_id": "req_synthetic_error"
+  }
+}

@@ -1,0 +1,385 @@
+{
+  "data": {
+    "query_id": "00000000-0000-4000-8000-000000000001",
+    "candidate_set_hash": "26e99d62c572295fddb355c2ddabc8a7328dae22214d902ad0fec4c3040e5636",
+    "as_of": "2026-11-14T06:00:00Z",
+    "price_basis": "item_plus_observed_shipping",
+    "versions": {
+      "engine_version": "1.4.0",
+      "cleaner_version": "1.4.0",
+      "billing_policy_version": "1.4.0",
+      "normalizer_version": "1.4.0"
+    },
+    "original_stats": {
+      "n_observed": 121,
+      "n_comparable": 64,
+      "n_price_verified": 58,
+      "n_excluded_unverified_price": 6,
+      "sold_last_30d_observed": 35,
+      "median_cents": 5800,
+      "p25_cents": 4200,
+      "p75_cents": 7600,
+      "trimmed_mean_cents": 5930,
+      "observed_min_cents": 2900,
+      "observed_max_cents": 10800,
+      "buy_it_now_verified_count": 54,
+      "best_offer_verified_count": 4,
+      "best_offer_displayed_only_count": 6
+    },
+    "items": [
+      {
+        "sale_event_id": "04e22376-8c64-5a2e-a4ac-693588c144ee",
+        "price_usd_cents": 3000,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "052489b5-cc1b-503d-94c2-40697fc36211",
+        "price_usd_cents": 6800,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "05366964-666c-5177-a5e1-c8c5eb1ab04a",
+        "price_usd_cents": 5450,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "0d165f3b-ca0b-552a-b7f1-30859d25ce32",
+        "price_usd_cents": 5470,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "10837927-40fe-59f0-962e-319d237814a5",
+        "price_usd_cents": 5450,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "11111111-1111-4111-8111-111111111111",
+        "price_usd_cents": 5999,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "1248ce17-3777-5f53-a89e-ed8467b85622",
+        "price_usd_cents": 3000,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "131e406f-e2b5-5d54-a519-34abc7e7ac33",
+        "price_usd_cents": 5450,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "14355280-c575-56ce-be71-2668e9a43f89",
+        "price_usd_cents": 3000,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "1cd56332-9440-5a33-8d2e-3a3250bea288",
+        "price_usd_cents": 5450,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "1d9e60e6-9921-50fd-bd83-2d49e79fa3ce",
+        "price_usd_cents": 3000,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "24a6a72c-1e51-50bf-b3d3-3935efbc0913",
+        "price_usd_cents": 5450,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "33c82f8b-0db6-5ac6-8f56-a22b1542c76f",
+        "price_usd_cents": 5800,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "44742759-66a3-59f4-a3e5-e586c6aa37c8",
+        "price_usd_cents": 3001,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "52d58a40-3e66-504d-a1e3-2edee18056c5",
+        "price_usd_cents": 5450,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "551b456b-1190-512a-a283-5faaa14f42ef",
+        "price_usd_cents": 4200,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "62fc6289-9f14-52c7-9dd9-8e166fa080b5",
+        "price_usd_cents": 3000,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "68046f72-5ab3-5fc5-9088-35e0e0978749",
+        "price_usd_cents": 3000,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "6d2286c6-8d82-5fba-817d-8fa994323aa4",
+        "price_usd_cents": 2900,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "7decfa54-483d-5479-b050-cb2cdc1631e6",
+        "price_usd_cents": 3000,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "97a2a73d-d8a8-51aa-9065-d3f266650f3d",
+        "price_usd_cents": 3000,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "9b528b26-dcd3-5b22-99bf-a45aac4f9072",
+        "price_usd_cents": 6800,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "9c9f9d90-fa9c-523d-b221-da65b9d57d6d",
+        "price_usd_cents": 5450,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "a3a559a4-336f-54f5-b240-b115d4d40426",
+        "price_usd_cents": 3000,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "a4b38a17-0f4b-5abf-bcdd-ed5ea692b4e1",
+        "price_usd_cents": 6800,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "a78d9ef4-1a57-5dd5-a3b7-99ab60cd11ce",
+        "price_usd_cents": 5800,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "b47f9c0b-5e99-57cf-a2ec-644d62bcd6e8",
+        "price_usd_cents": 3000,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "b9e64262-8c9d-5a41-bd6d-440fce203f93",
+        "price_usd_cents": 3000,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "bb2c73ea-f319-59c9-b75d-16d8d9e18b05",
+        "price_usd_cents": 6800,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "d1964b1e-8da1-5108-8624-7e7873c90ebe",
+        "price_usd_cents": 5450,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "de02c5ca-096d-5dd2-99fc-1b488dd77bf6",
+        "price_usd_cents": 4200,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "e4c9ce56-48e4-5e4b-bc1e-5dd833451164",
+        "price_usd_cents": 5450,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "ea16d319-a071-582f-a4c0-67bf8c2689ba",
+        "price_usd_cents": 5450,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "ed2ddc31-1d18-5d4e-aef4-8f25f404b7a1",
+        "price_usd_cents": 5450,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "fc372c11-aa60-5481-8579-e5a6465e39f1",
+        "price_usd_cents": 3000,
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "1246efdd-eea8-5c77-8cf8-67708469e1fa",
+        "price_usd_cents": 6800,
+        "sold_at": "2026-09-15T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "2eb27768-0942-523d-bfa6-95fe44be9ec1",
+        "price_usd_cents": 10800,
+        "sold_at": "2026-09-15T00:00:00Z",
+        "sale_format": "best_offer"
+      },
+      {
+        "sale_event_id": "360276b6-fea6-58d5-90a8-80857e06cce0",
+        "price_usd_cents": 8500,
+        "sold_at": "2026-09-15T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "3f810173-8f1a-59b7-9625-d95a45b0fb64",
+        "price_usd_cents": 8500,
+        "sold_at": "2026-09-15T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "452156fa-11e7-5755-bffc-765311ec8b87",
+        "price_usd_cents": 6800,
+        "sold_at": "2026-09-15T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "45cb60bb-7fa5-50d3-826e-8ad22fbeb208",
+        "price_usd_cents": 7600,
+        "sold_at": "2026-09-15T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "59b27705-a366-57a9-8aeb-3b647b71d161",
+        "price_usd_cents": 8500,
+        "sold_at": "2026-09-15T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "6add8961-f0e1-5e25-9851-8c25cc314a6e",
+        "price_usd_cents": 8500,
+        "sold_at": "2026-09-15T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "6d149c66-1b28-5cc6-b8e0-1d695df45c97",
+        "price_usd_cents": 8500,
+        "sold_at": "2026-09-15T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "78cd7956-bdd1-5297-8bd2-62201cfd23d6",
+        "price_usd_cents": 7600,
+        "sold_at": "2026-09-15T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "7fba69d2-c7cc-52f7-a87a-b3b09249c4c4",
+        "price_usd_cents": 8500,
+        "sold_at": "2026-09-15T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "a851b437-5478-5e1e-8c7a-4d75c26c688d",
+        "price_usd_cents": 8500,
+        "sold_at": "2026-09-15T00:00:00Z",
+        "sale_format": "best_offer"
+      },
+      {
+        "sale_event_id": "aca4e169-713c-5d3a-8d6d-7904fd057d85",
+        "price_usd_cents": 8500,
+        "sold_at": "2026-09-15T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "b050657d-ecfc-5de6-8c98-d79c97ad3a63",
+        "price_usd_cents": 8500,
+        "sold_at": "2026-09-15T00:00:00Z",
+        "sale_format": "best_offer"
+      },
+      {
+        "sale_event_id": "c0a91b23-b9ac-5622-919a-5516a52b8538",
+        "price_usd_cents": 8500,
+        "sold_at": "2026-09-15T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "c771b652-9e06-59e2-bc15-4e92e6386dfa",
+        "price_usd_cents": 8500,
+        "sold_at": "2026-09-15T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "d7e9962d-d403-5fa1-a500-2be5442a61e7",
+        "price_usd_cents": 6800,
+        "sold_at": "2026-09-15T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "dbe196ce-d947-5ccd-848f-9f1b2dda6775",
+        "price_usd_cents": 8500,
+        "sold_at": "2026-09-15T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "e0f2b42a-5909-5f95-842e-bf728ff91634",
+        "price_usd_cents": 6800,
+        "sold_at": "2026-09-15T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "e3830e64-5ca7-5125-9f9d-96c75524d798",
+        "price_usd_cents": 7600,
+        "sold_at": "2026-09-15T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "e7e0bcc7-62a9-55dd-bac3-50145c6dd611",
+        "price_usd_cents": 6800,
+        "sold_at": "2026-09-15T00:00:00Z",
+        "sale_format": "fixed_price"
+      },
+      {
+        "sale_event_id": "f5665cf9-5a1c-5cc6-880d-da02cd4fdb9f",
+        "price_usd_cents": 10000,
+        "sold_at": "2026-09-15T00:00:00Z",
+        "sale_format": "best_offer"
+      },
+      {
+        "sale_event_id": "fad0dc41-75e8-5718-b4c7-bc05779a70b0",
+        "price_usd_cents": 6800,
+        "sold_at": "2026-09-15T00:00:00Z",
+        "sale_format": "fixed_price"
+      }
+    ],
+    "is_complete": true
+  },
+  "meta": {
+    "request_id": "req_inputs",
+    "credits_charged": 0
+  }
+}

@@ -1,0 +1,209 @@
+{
+  "data": {
+    "query_id": "00000000-0000-4000-8000-000000000001",
+    "query": {
+      "q": "game boy color atomic purple",
+      "marketplace": "ebay_us",
+      "window_days": 90,
+      "price_basis": "item_plus_observed_shipping",
+      "limit": 50,
+      "allow_stale": false,
+      "attributes": {}
+    },
+    "stats": {
+      "n_observed": 7,
+      "n_comparable": 7,
+      "n_price_verified": 7,
+      "n_excluded_unverified_price": 0,
+      "sold_last_30d_observed": 7,
+      "median_cents": null,
+      "p25_cents": null,
+      "p75_cents": null,
+      "trimmed_mean_cents": null,
+      "observed_min_cents": 3000,
+      "observed_max_cents": 6800,
+      "buy_it_now_verified_count": 7,
+      "best_offer_verified_count": 0,
+      "best_offer_displayed_only_count": 0
+    },
+    "quality": {
+      "data_insufficient": true,
+      "quality_status": "insufficient_sample",
+      "match": {
+        "matched": 7,
+        "excluded_hard_mismatch": 0,
+        "excluded_before_comparable": 0,
+        "mean_rule_match_score": null
+      },
+      "price": {
+        "verified_share": 1,
+        "unverified_best_offer_count": 0
+      },
+      "sample": {
+        "verified_count": 7,
+        "recent_30d_count": 7
+      },
+      "freshness": {
+        "data_as_of": "2026-11-14T06:00:00Z",
+        "stale": false
+      },
+      "coverage": {
+        "status": "unknown",
+        "ratio": null,
+        "source_scope": null
+      },
+      "score": null,
+      "warnings": [
+        {
+          "code": "synthetic_fixture",
+          "message": "Synthetic regression data, not real market sales."
+        },
+        {
+          "code": "coverage_unknown",
+          "message": "Observed samples are not complete market sales."
+        }
+      ]
+    },
+    "comps": [
+      {
+        "sale_event_id": "04e22376-8c64-5a2e-a4ac-693588c144ee",
+        "title": "Nintendo Game Boy Color Atomic Purple Handheld",
+        "item_price_cents": 3000,
+        "observed_shipping_cents": 0,
+        "price_usd_cents": 3000,
+        "currency": "USD",
+        "sale_price_status": "verified_actual",
+        "sale_format": "fixed_price",
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sold_date_precision": "day",
+        "condition_std": "good",
+        "source_id": "synthetic_source_not_for_production",
+        "verification_evidence_type": "synthetic_test_marker"
+      },
+      {
+        "sale_event_id": "052489b5-cc1b-503d-94c2-40697fc36211",
+        "title": "Nintendo Game Boy Color Atomic Purple Handheld",
+        "item_price_cents": 6800,
+        "observed_shipping_cents": 0,
+        "price_usd_cents": 6800,
+        "currency": "USD",
+        "sale_price_status": "verified_actual",
+        "sale_format": "fixed_price",
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sold_date_precision": "day",
+        "condition_std": "good",
+        "source_id": "synthetic_source_not_for_production",
+        "verification_evidence_type": "synthetic_test_marker"
+      },
+      {
+        "sale_event_id": "05366964-666c-5177-a5e1-c8c5eb1ab04a",
+        "title": "Nintendo Game Boy Color Atomic Purple Handheld",
+        "item_price_cents": 5450,
+        "observed_shipping_cents": 0,
+        "price_usd_cents": 5450,
+        "currency": "USD",
+        "sale_price_status": "verified_actual",
+        "sale_format": "fixed_price",
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sold_date_precision": "day",
+        "condition_std": "good",
+        "source_id": "synthetic_source_not_for_production",
+        "verification_evidence_type": "synthetic_test_marker"
+      },
+      {
+        "sale_event_id": "0d165f3b-ca0b-552a-b7f1-30859d25ce32",
+        "title": "Nintendo Game Boy Color Atomic Purple Handheld",
+        "item_price_cents": 5470,
+        "observed_shipping_cents": 0,
+        "price_usd_cents": 5470,
+        "currency": "USD",
+        "sale_price_status": "verified_actual",
+        "sale_format": "fixed_price",
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sold_date_precision": "day",
+        "condition_std": "good",
+        "source_id": "synthetic_source_not_for_production",
+        "verification_evidence_type": "synthetic_test_marker"
+      },
+      {
+        "sale_event_id": "10837927-40fe-59f0-962e-319d237814a5",
+        "title": "Nintendo Game Boy Color Atomic Purple Handheld",
+        "item_price_cents": 5450,
+        "observed_shipping_cents": 0,
+        "price_usd_cents": 5450,
+        "currency": "USD",
+        "sale_price_status": "verified_actual",
+        "sale_format": "fixed_price",
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sold_date_precision": "day",
+        "condition_std": "good",
+        "source_id": "synthetic_source_not_for_production",
+        "verification_evidence_type": "synthetic_test_marker"
+      },
+      {
+        "sale_event_id": "11111111-1111-4111-8111-111111111111",
+        "title": "Nintendo Game Boy Color Atomic Purple Handheld",
+        "item_price_cents": 5500,
+        "observed_shipping_cents": 499,
+        "price_usd_cents": 5999,
+        "currency": "USD",
+        "sale_price_status": "verified_actual",
+        "sale_format": "fixed_price",
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sold_date_precision": "day",
+        "condition_std": "good",
+        "source_id": "synthetic_source_not_for_production",
+        "verification_evidence_type": "synthetic_test_marker"
+      },
+      {
+        "sale_event_id": "1248ce17-3777-5f53-a89e-ed8467b85622",
+        "title": "Nintendo Game Boy Color Atomic Purple Handheld",
+        "item_price_cents": 3000,
+        "observed_shipping_cents": 0,
+        "price_usd_cents": 3000,
+        "currency": "USD",
+        "sale_price_status": "verified_actual",
+        "sale_format": "fixed_price",
+        "sold_at": "2026-11-02T00:00:00Z",
+        "sold_date_precision": "day",
+        "condition_std": "good",
+        "source_id": "synthetic_source_not_for_production",
+        "verification_evidence_type": "synthetic_test_marker"
+      }
+    ]
+  },
+  "meta": {
+    "engine_version": "1.4.0",
+    "cleaner_version": "1.4.0",
+    "billing_policy_version": "1.4.0",
+    "normalizer_version": "1.4.0",
+    "request_id": "req_synthetic_001",
+    "credits_charged": 0,
+    "query_total_credits_charged": 0,
+    "cache_hit": false,
+    "reused": false,
+    "data_as_of": "2026-11-14T06:00:00Z",
+    "evaluated_at": "2026-11-14T06:00:00Z",
+    "stale": false,
+    "freshness_state": "fresh",
+    "result_mode": "current",
+    "source_status": "healthy",
+    "coverage_status": "unknown",
+    "archive_coverage": null,
+    "source_scope": [
+      "synthetic_source_not_for_production"
+    ],
+    "parser_versions": {
+      "synthetic_source_not_for_production": "synthetic-1"
+    },
+    "candidate_set_hash": "a6943660b6cc368d8a8df6671bc4716897b7ee8dd2759c7ae89dc3fb3aa0a8ce",
+    "returned_comp_count": 7,
+    "available_comp_count": 7,
+    "permitted_comp_count": 7,
+    "truncated": false,
+    "truncation_reasons": [],
+    "source_window_start": "2026-08-16T06:00:00Z",
+    "source_window_end": "2026-11-14T06:00:00Z",
+    "data_mode": "synthetic_fixture"
+  }
+}

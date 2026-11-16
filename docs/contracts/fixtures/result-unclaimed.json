@@ -1,0 +1,11 @@
+{
+  "error": {
+    "code": "result_not_claimed",
+    "message": "Synthetic expected response. See recovery action.",
+    "details": {
+      "claim_url": "/v1/sold/00000000-0000-4000-8000-000000000001/claim",
+      "result_state": "ready"
+    },
+    "request_id": "req_synthetic_error"
+  }
+}

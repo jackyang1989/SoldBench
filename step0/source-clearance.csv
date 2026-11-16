@@ -1,0 +1,2 @@
+candidate_id,marketplace,status,approved_entrypoint,allowed_access_method,automatic_access,store_raw,store_derived,publish_stats,redistribute_comp,share,api_redistribution,rate_cap,concurrency_cap,retention_days,effective_at,expires_at,evidence_ref,network_enabled,notes
+ebay_us_candidate,ebay_us,NOT_CLEARED,,offline_fixture,unknown,unknown,unknown,unknown,unknown,unknown,unknown,,,,,,,false,User confirmed no source permission; offline work only
