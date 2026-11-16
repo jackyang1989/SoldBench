@@ -1,0 +1,41 @@
+{
+  "result": "PASS",
+  "mode": "offline_synthetic_fixture_only",
+  "sha256": "d59be9da67aa558d3cb494ec06d9918fd185afc3ec3b4daa31c0f6a7b244ae78",
+  "stats": {
+    "n_observed": 121,
+    "n_comparable": 64,
+    "n_price_verified": 58,
+    "n_excluded_unverified_price": 6,
+    "sold_last_30d_observed": 35,
+    "median_cents": 5800,
+    "p25_cents": 4200,
+    "p75_cents": 7600,
+    "trimmed_mean_cents": 5930,
+    "observed_min_cents": 2900,
+    "observed_max_cents": 10800,
+    "buy_it_now_verified_count": 54,
+    "best_offer_verified_count": 4,
+    "best_offer_displayed_only_count": 6
+  },
+  "quality": {
+    "data_insufficient": false,
+    "quality_status": "sufficient_sample",
+    "verified_share": 0.90625,
+    "coverage_status": "unknown",
+    "coverage_ratio": null,
+    "score": null
+  },
+  "records_missing_production_listing_id": 63,
+  "primary_fixture_exclusions": {
+    "strong_attribute_mismatch": 57
+  },
+  "does_not_verify": [
+    "source_rights",
+    "live_collector",
+    "matching_precision",
+    "billing",
+    "production_engine",
+    "GO"
+  ]
+}

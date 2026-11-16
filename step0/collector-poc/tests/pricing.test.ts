@@ -69,6 +69,7 @@ test('event identity, repeat observations, conflicts and source scope fail conse
     evaluate([row(), row({ eventKey: 'e2' })], query).candidate_set_hash);
   assert.throws(() => evaluate([row({ sourceId: 'other' })], query), /mixed_source/);
   assert.throws(() => evaluate([], { ...query, limit: 201 }));
+  assert.throws(() => evaluate([], { ...query, days: 45 }), /invalid_query/);
 });
 
 test('exact window is lower-exclusive upper-inclusive, and malformed dates are excluded', () => {

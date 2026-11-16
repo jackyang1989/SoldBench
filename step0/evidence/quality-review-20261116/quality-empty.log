@@ -1,0 +1,61 @@
+{
+  "schema": "soldbench.quality-report.v1",
+  "evidence_kind": "synthetic",
+  "scope": "observed_candidate_snapshots_only",
+  "summary": {
+    "queries": 0,
+    "expected_candidates": 0,
+    "annotation_rows": 0,
+    "missing_annotations": 0,
+    "unknown_gold": 0,
+    "tp": 0,
+    "fp": 0,
+    "fn": 0,
+    "tn": 0,
+    "complete_candidate_snapshots": false,
+    "precision": null,
+    "recall_within_candidate_snapshot": null,
+    "precision_wilson": null,
+    "recall_wilson": null
+  },
+  "by_query": {},
+  "by_group": {},
+  "by_tier": {},
+  "by_split": {
+    "development": {
+      "queries": 0,
+      "expected_candidates": 0,
+      "annotation_rows": 0,
+      "missing_annotations": 0,
+      "unknown_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "tn": 0,
+      "complete_candidate_snapshots": false,
+      "precision": null,
+      "recall_within_candidate_snapshot": null,
+      "precision_wilson": null,
+      "recall_wilson": null
+    },
+    "holdout": {
+      "queries": 0,
+      "expected_candidates": 0,
+      "annotation_rows": 0,
+      "missing_annotations": 0,
+      "unknown_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "tn": 0,
+      "complete_candidate_snapshots": false,
+      "precision": null,
+      "recall_within_candidate_snapshot": null,
+      "precision_wilson": null,
+      "recall_wilson": null
+    }
+  },
+  "externalEvidenceVerified": false,
+  "releaseApproved": false,
+  "quality_score": null
+}

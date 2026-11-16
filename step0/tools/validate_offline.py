@@ -21,9 +21,15 @@ def main():
     commands = [
         ('typecheck', [str(POC / 'node_modules/.bin/tsc'), '--project', str(POC / 'tsconfig.json'), '--noEmit']),
         ('poc-tests', ['node', '--import', str(POC / 'src/offline-network.ts'), '--test', *tests]),
+        ('cli-first', ['node', '--import', str(POC / 'src/offline-network.ts'), str(POC / 'src/cli.ts'),
+                       '--state', str(output / 'cli-state.json'), '--report', str(output / 'cli-first.json')]),
+        ('cli-replay', ['node', '--import', str(POC / 'src/offline-network.ts'), str(POC / 'src/cli.ts'),
+                        '--state', str(output / 'cli-state.json'), '--report', str(output / 'cli-replay.json')]),
         ('corpus', [sys.executable, 'step0/tools/check_corpus.py']),
         ('preparation-tests', [sys.executable, '-m', 'unittest', 'discover', '-s', 'step0/tests', '-v']),
         ('source-preparation', [sys.executable, 'step0/tools/readiness.py']),
+        ('quality-empty', [sys.executable, 'step0/tools/quality_report.py', 'step0/labels/quality-input-empty.json']),
+        ('dependency-inventory', [sys.executable, 'step0/tools/dependency_inventory.py']),
         ('economics-unmeasured', [sys.executable, 'step0/tools/unit_economics.py', 'step0/unit-economics/unmeasured.json']),
         ('economics-scenarios', [sys.executable, 'step0/tools/unit_economics.py', 'step0/unit-economics/scenarios.json']),
         ('stability-no-records', [sys.executable, 'step0/tools/stability_report.py', '--start', '2026-12-01']),
@@ -42,12 +48,23 @@ def main():
         (output / (name + '.log')).write_text(log)
         checks.append({'name': name, 'command': command, 'exitCode': code, 'log': name + '.log'})
         print(name + ': ' + ('PASS' if code == 0 else 'FAIL'), flush=True)
+    try:
+        first = json.loads((output / 'cli-first.json').read_text())
+        replay = json.loads((output / 'cli-replay.json').read_text())
+        replay_ok = (first == replay and first['storedCandidateEvents'] == 2 and first['observations'] == 4
+                     and first['quarantined'] == 1 and first['dataAsOf'] == '2026-11-15T23:00:00Z')
+    except (OSError, ValueError, KeyError):
+        replay_ok = False
+    checks.append({'name': 'cli-replay-invariants', 'exitCode': 0 if replay_ok else 1,
+                   'evidence': ['cli-first.json', 'cli-replay.json']})
+    print('cli-replay-invariants: ' + ('PASS' if replay_ok else 'FAIL'), flush=True)
     hashes = {}
     paths = [ROOT / 'v14_gameboy_58_verified.json', ROOT / 'step0/corpus.csv', ROOT / 'step0/corpus-manifest.json',
              POC / 'package-lock.json', POC / 'tsconfig.json', *sorted((POC / 'src').glob('*.ts')),
              *sorted((POC / 'tests').glob('*.ts')), *sorted((ROOT / 'step0/tools').glob('*.py')),
              *sorted((ROOT / 'step0/tests').glob('*.py')), *sorted((ROOT / 'step0/unit-economics').glob('*.json')),
-             ROOT / 'step0/source-clearance.csv', ROOT / 'step0/source-capabilities.csv']
+             ROOT / 'step0/source-clearance.csv', ROOT / 'step0/source-capabilities.csv',
+             ROOT / 'step0/labels/quality-input-empty.json']
     for path in paths:
         hashes[str(path.relative_to(ROOT))] = hashlib.sha256(path.read_bytes()).hexdigest()
     report = {'schema': 'soldbench.offline-validation.v1', 'createdAt': stamp, 'platform': platform.platform(),

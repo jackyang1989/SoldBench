@@ -1,0 +1,24 @@
+test_failed_and_free_costs_change_full_cost_without_changing_billed_count (test_preparation.PreparationTests) ... ok
+test_invalid_rates_counts_cents_evidence_and_categories (test_preparation.PreparationTests) ... ok
+test_net_proceeds_and_full_cost_by_independent_hand_calculation (test_preparation.PreparationTests) ... ok
+test_preparation_rejects_network_enabled (test_preparation.PreparationTests) ... ok
+test_price_floor_rounds_up_and_achieves_target (test_preparation.PreparationTests) ... ok
+test_source_report_keeps_missing_rights_and_fields (test_preparation.PreparationTests) ... ok
+test_unknown_costs_remain_unknown (test_preparation.PreparationTests) ... ok
+test_zero_denominators_and_negative_margin (test_preparation.PreparationTests) ... ok
+test_empty_dataset_keeps_unknown_metrics (test_quality.QualityTests) ... ok
+test_event_leakage_duplicate_rows_unplanned_labels_and_bad_money (test_quality.QualityTests) ... ok
+test_human_label_mode_requires_distinct_reviewers_and_refs (test_quality.QualityTests) ... ok
+test_known_confusion_matrix_and_wilson_interval (test_quality.QualityTests) ... ok
+test_median_price_error_and_zero_or_small_sample (test_quality.QualityTests) ... ok
+test_missing_or_unknown_gold_cannot_improve_metrics (test_quality.QualityTests) ... ok
+test_full_offline_plan_does_not_claim_external_verification (test_stability.StabilityTests) ... ok
+test_online_reference_and_mode_separation (test_stability.StabilityTests) ... ok
+test_plan_1680_balanced_slots_and_preserves_missing_denominator (test_stability.StabilityTests) ... ok
+test_rejects_duplicate_unplanned_invalid_times_budget_and_boolean (test_stability.StabilityTests) ... ok
+test_retries_final_success_and_failed_cost_are_preserved (test_stability.StabilityTests) ... ok
+
+----------------------------------------------------------------------
+Ran 19 tests in 0.062s
+
+OK

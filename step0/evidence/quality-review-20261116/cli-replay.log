@@ -1,0 +1,20 @@
+{
+  "mode": "offline_fixture",
+  "onlineVerified": false,
+  "sourceApproval": "NOT_CLEARED",
+  "version": "offline-poc-1.0.0",
+  "parserVersion": "offline-page-parser-1.0.1",
+  "runId": "offline-demo",
+  "outcome": "completed",
+  "stopReason": null,
+  "completedPages": 2,
+  "attempts": 2,
+  "fixtureBodyBytes": 998,
+  "storedCandidateEvents": 2,
+  "observations": 4,
+  "quarantined": 1,
+  "dataAsOf": "2026-11-15T23:00:00Z",
+  "statisticsComputed": false,
+  "stateFile": "/Users/jianouyang/Project/SoldBench/step0/artifacts/20261116T060502371666Z/cli-state.json",
+  "reportFile": "/Users/jianouyang/Project/SoldBench/step0/artifacts/20261116T060502371666Z/cli-replay.json"
+}

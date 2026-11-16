@@ -46,3 +46,5 @@
 整包运行入口为`python3 step0/tools/validate_offline.py`，开发依赖安装见PoC README。120条草稿见 [查询语料](corpus.csv)，标注与签收见 [质量规程](quality-plan.md)，断源模拟见 [演练说明](outage-drill.md)。
 
 来源缺项用`python3 step0/tools/readiness.py`检查。成本输入与执行见 [成本工具](unit-economics/README.md)，真实数据表保留未知值，假设场景用于压力演算。已准备 [访谈提纲](interviews.md) 和 [14天验证计划与分析入口](online-validation-plan.md)，实际访谈和获准线上运行待执行。
+
+人工候选标注就绪后按 [质量规程](quality-plan.md) 生成Precision/Recall、Wilson区间及逐查询价格偏差。当前`labels/quality-input-empty.json`输出空报告，真实金标仍待制作。源码依赖和复核步骤见 [独立性审查准备](independence-audit.md)。

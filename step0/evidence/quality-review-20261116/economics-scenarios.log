@@ -1,0 +1,206 @@
+[
+  {
+    "schema": "soldbench.unit-economics-report.v1",
+    "scenario": "optimistic",
+    "evidence_kind": "assumed",
+    "evidence_ref": null,
+    "missing": [],
+    "priceApproved": false,
+    "stabilityVerified": false,
+    "stageVerdict": "NOT_ISSUED",
+    "status": "CALCULATED",
+    "metrics": {
+      "gross_revenue": {
+        "numerator": "290000",
+        "denominator": "1",
+        "rounded_cents": 290000
+      },
+      "net_proceeds": {
+        "numerator": "264700",
+        "denominator": "1",
+        "rounded_cents": 264700
+      },
+      "fixed_cash_cost": {
+        "numerator": "30000",
+        "denominator": "1",
+        "rounded_cents": 30000
+      },
+      "variable_cash_cost": {
+        "numerator": "20000",
+        "denominator": "1",
+        "rounded_cents": 20000
+      },
+      "labor_cost": {
+        "numerator": "70000",
+        "denominator": "1",
+        "rounded_cents": 70000
+      },
+      "full_cost": {
+        "numerator": "120000",
+        "denominator": "1",
+        "rounded_cents": 120000
+      },
+      "full_cost_per_billable_query": {
+        "numerator": "6",
+        "denominator": "5",
+        "rounded_cents": 1
+      },
+      "cash_contribution_margin": {
+        "numerator": "2447",
+        "denominator": "2647"
+      },
+      "fully_loaded_margin": {
+        "numerator": "1447",
+        "denominator": "2647"
+      },
+      "economic_profit": {
+        "numerator": "144700",
+        "denominator": "1",
+        "rounded_cents": 144700
+      },
+      "cash_profit": {
+        "numerator": "214700",
+        "denominator": "1",
+        "rounded_cents": 214700
+      },
+      "minimum_price_cents_for_target_margin": 2635,
+      "cash_break_even_customers_at_current_mix": 13
+    }
+  },
+  {
+    "schema": "soldbench.unit-economics-report.v1",
+    "scenario": "base",
+    "evidence_kind": "assumed",
+    "evidence_ref": null,
+    "missing": [],
+    "priceApproved": false,
+    "stabilityVerified": false,
+    "stageVerdict": "NOT_ISSUED",
+    "status": "CALCULATED",
+    "metrics": {
+      "gross_revenue": {
+        "numerator": "290000",
+        "denominator": "1",
+        "rounded_cents": 290000
+      },
+      "net_proceeds": {
+        "numerator": "264700",
+        "denominator": "1",
+        "rounded_cents": 264700
+      },
+      "fixed_cash_cost": {
+        "numerator": "30000",
+        "denominator": "1",
+        "rounded_cents": 30000
+      },
+      "variable_cash_cost": {
+        "numerator": "60000",
+        "denominator": "1",
+        "rounded_cents": 60000
+      },
+      "labor_cost": {
+        "numerator": "70000",
+        "denominator": "1",
+        "rounded_cents": 70000
+      },
+      "full_cost": {
+        "numerator": "160000",
+        "denominator": "1",
+        "rounded_cents": 160000
+      },
+      "full_cost_per_billable_query": {
+        "numerator": "16",
+        "denominator": "25",
+        "rounded_cents": 1
+      },
+      "cash_contribution_margin": {
+        "numerator": "2047",
+        "denominator": "2647"
+      },
+      "fully_loaded_margin": {
+        "numerator": "1047",
+        "denominator": "2647"
+      },
+      "economic_profit": {
+        "numerator": "104700",
+        "denominator": "1",
+        "rounded_cents": 104700
+      },
+      "cash_profit": {
+        "numerator": "174700",
+        "denominator": "1",
+        "rounded_cents": 174700
+      },
+      "minimum_price_cents_for_target_margin": 3495,
+      "cash_break_even_customers_at_current_mix": 15
+    }
+  },
+  {
+    "schema": "soldbench.unit-economics-report.v1",
+    "scenario": "stress",
+    "evidence_kind": "assumed",
+    "evidence_ref": null,
+    "missing": [],
+    "priceApproved": false,
+    "stabilityVerified": false,
+    "stageVerdict": "NOT_ISSUED",
+    "status": "CALCULATED",
+    "metrics": {
+      "gross_revenue": {
+        "numerator": "290000",
+        "denominator": "1",
+        "rounded_cents": 290000
+      },
+      "net_proceeds": {
+        "numerator": "264700",
+        "denominator": "1",
+        "rounded_cents": 264700
+      },
+      "fixed_cash_cost": {
+        "numerator": "30000",
+        "denominator": "1",
+        "rounded_cents": 30000
+      },
+      "variable_cash_cost": {
+        "numerator": "225000",
+        "denominator": "1",
+        "rounded_cents": 225000
+      },
+      "labor_cost": {
+        "numerator": "70000",
+        "denominator": "1",
+        "rounded_cents": 70000
+      },
+      "full_cost": {
+        "numerator": "325000",
+        "denominator": "1",
+        "rounded_cents": 325000
+      },
+      "full_cost_per_billable_query": {
+        "numerator": "13",
+        "denominator": "40",
+        "rounded_cents": 0
+      },
+      "cash_contribution_margin": {
+        "numerator": "397",
+        "denominator": "2647"
+      },
+      "fully_loaded_margin": {
+        "numerator": "-603",
+        "denominator": "2647"
+      },
+      "economic_profit": {
+        "numerator": "-60300",
+        "denominator": "1",
+        "rounded_cents": -60300
+      },
+      "cash_profit": {
+        "numerator": "9700",
+        "denominator": "1",
+        "rounded_cents": 9700
+      },
+      "minimum_price_cents_for_target_margin": 7044,
+      "cash_break_even_customers_at_current_mix": 76
+    }
+  }
+]

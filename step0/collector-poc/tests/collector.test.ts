@@ -7,7 +7,7 @@ import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
 import tls from 'node:tls';
-import { Store, FixtureTransport, collect, sha } from '../src/collector.ts';
+import { Store, FixtureTransport, collect, sha, VERSION } from '../src/collector.ts';
 
 const fixture = () => JSON.parse(readFileSync(new URL('../fixtures/demo.json',import.meta.url),'utf8'));
 let networkCalls = 0;
@@ -54,6 +54,15 @@ test('completed run survives reopen and does not fetch or duplicate events',asyn
   const c=setup(t);await c.run();c.reopen();const calls=c.transport.calls;const r=await c.run();
   assert.equal(r.outcome,'completed');assert.equal(c.transport.calls,calls);assert.equal(r.storedCandidateEvents,2);assert.equal(r.observations,4);
 });
+test('legacy parser checkpoint is preserved and a new run replays without duplicate events',async t=>{
+  const c=setup(t);const initial=await c.run();
+  c.store.transact(s=>{s.runs[c.plan.runId].binding=sha([VERSION,c.plan.sourceId,c.plan.queryHash,c.plan.asOf,c.transport.datasetHash]);});
+  c.reopen();const calls=c.transport.calls;
+  assert.equal((await c.run()).stopReason,'run_binding_conflict');assert.equal(c.transport.calls,calls);
+  const recovered=await c.run({runId:'new-parser-run'});
+  assert.equal(recovered.outcome,'completed');assert.equal(recovered.storedCandidateEvents,initial.storedCandidateEvents);
+  assert.equal(recovered.observations,initial.observations*2);
+});
 test('independent repeated observation run adds evidence but no new sales',async t=>{
   const c=setup(t);await c.run();const r=await c.run({runId:'second-run'});
   assert.equal(r.storedCandidateEvents,2);assert.equal(r.observations,8);
@@ -88,6 +97,16 @@ for (const [status,kind] of [[401,'error'],[403,'error'],[200,'login_wall'],[200
 test('200 error document is not an empty successful search',async t=>{
   const f=fixture();f.responses.start=[{status:200,kind:'error',body:'{}'}];const c=setup(t,f);const r=await c.run();
   assert.equal(r.stopReason,'schema_mismatch');assert.equal(r.dataAsOf,null);assert.equal(r.observations,0);
+});
+test('prototype property names cannot become pagination cursors',async t=>{
+  const f=fixture();mutatePage(f,'start',p=>p.nextCursor='constructor');
+  const c=setup(t,f);const r=await c.run();
+  assert.equal(r.stopReason,'schema_mismatch');assert.equal(c.transport.calls,1);
+  assert.equal(r.dataAsOf,null);
+});
+test('fixture transport cannot read an inherited response property',()=>{
+  const transport=new FixtureTransport({});
+  assert.throws(()=>transport.byteSize('constructor'),/fixture_cursor_missing/);
 });
 test('verified synthetic empty page is distinguished from an invalid error page',async t=>{
   const f=fixture();mutatePage(f,'start',p=>{p.records=[];p.nextCursor=null;});f.responses.start[0].kind='empty';

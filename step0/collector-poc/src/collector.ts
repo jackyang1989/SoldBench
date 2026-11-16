@@ -3,6 +3,7 @@ import { openSync, writeFileSync, fsyncSync, closeSync, renameSync, readFileSync
 import { dirname } from 'node:path';
 
 export const VERSION = 'offline-poc-1.0.0';
+export const PARSER_VERSION = 'offline-page-parser-1.0.1';
 export const sha = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 export class Stop extends Error {
@@ -47,6 +48,7 @@ export class FixtureTransport implements Transport {
     this.datasetHash = sha(this.responses);
   }
   private next(cursor: string): Response {
+    if (!Object.hasOwn(this.responses, cursor)) throw new Stop('fixture_cursor_missing');
     const entries = this.responses[cursor];
     if (!entries?.length) throw new Stop('fixture_cursor_missing');
     return entries[Math.min(this.perCursor[cursor] ?? 0, entries.length - 1)];
@@ -160,7 +162,7 @@ export function parsePage(response: Response, plan: Plan, cursor: string): Page 
   if (!page || Array.isArray(page) || Object.keys(page).sort().join() !== keys.sort().join() ||
       page.schema !== 'soldbench.offline.page.v1' || page.synthetic !== true ||
       page.sourceId !== plan.sourceId || page.queryHash !== plan.queryHash || page.cursor !== cursor ||
-      (page.nextCursor !== null && (typeof page.nextCursor !== 'string' || !page.nextCursor.length)) ||
+      (page.nextCursor !== null && !validCursor(page.nextCursor)) ||
       !Array.isArray(page.records) || page.records.length > 1000 ||
       !validDate(page.coverageAsOf) || Date.parse(page.coverageAsOf) > Date.parse(plan.asOf) ||
       !['results','empty'].includes(response.kind) ||
@@ -182,6 +184,10 @@ function validDate(value: unknown): value is string {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(value) &&
     Number.isFinite(Date.parse(value)) && new Date(value).toISOString().replace('.000Z','Z') === value;
 }
+function validCursor(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 512 &&
+    !['constructor', 'prototype', '__proto__'].includes(value);
+}
 function guard(plan: Plan, store: Store): void {
   if (plan.mode !== 'offline_fixture' || plan.collectorEnabled !== false) throw new Stop('network_mode_disabled');
   const safeId = (id: unknown) => typeof id === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/.test(id) &&
@@ -194,7 +200,7 @@ function guard(plan: Plan, store: Store): void {
 export async function collect(plan: Plan, transport: Transport, store: Store,
   clock = { now: () => Date.now(), wait: async (ms: number) => new Promise<void>(r => setTimeout(r, ms)) }) {
   const scope = sha([plan.sourceId, plan.queryHash]);
-  const binding = sha([VERSION, plan.sourceId, plan.queryHash, plan.asOf, transport.datasetHash]);
+  const binding = sha([VERSION, PARSER_VERSION, plan.sourceId, plan.queryHash, plan.asOf, transport.datasetHash]);
   let outcome = 'failed'; let reason: string | null = null;
   try {
     guard(plan, store);
@@ -223,6 +229,7 @@ export async function collect(plan: Plan, transport: Transport, store: Store,
         outcome = 'completed'; break;
       }
       const cursor = run.next;
+      if (!validCursor(cursor)) throw new Stop('schema_mismatch');
       if (run.seen.includes(cursor)) throw new Stop('pagination_loop');
       if (run.seen.length >= plan.maxPages) throw new Stop('page_budget_exceeded');
       const bytes = transport.byteSize(cursor);
@@ -277,7 +284,7 @@ export async function collect(plan: Plan, transport: Transport, store: Store,
   }
   const progress = Object.hasOwn(store.state.runs,plan.runId) && store.state.runs[plan.runId].binding === binding
     ? store.state.runs[plan.runId] : undefined;
-  return { mode:'offline_fixture', onlineVerified:false, sourceApproval:'NOT_CLEARED', version:VERSION,
+  return { mode:'offline_fixture', onlineVerified:false, sourceApproval:'NOT_CLEARED', version:VERSION, parserVersion:PARSER_VERSION,
     runId:plan.runId, outcome, stopReason:reason, completedPages:progress?.seen.length ?? 0,
     attempts:progress?.requests ?? 0, fixtureBodyBytes:progress?.bytes ?? 0,
     storedCandidateEvents:Object.values(store.state.events).filter(e => e.status === 'candidate').length,

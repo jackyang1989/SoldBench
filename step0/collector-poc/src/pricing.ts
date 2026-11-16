@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { inWindow, type SaleTime } from './time.ts';
 
-export const ENGINE_VERSION = 'offline-exploration-1.0.0';
+export const ENGINE_VERSION = 'offline-exploration-1.0.1';
 type Money = number | null;
 export function cents(value: number): bigint {
   if (!Number.isSafeInteger(value) || value < 0) throw new Error('invalid_integer_cents');
@@ -69,7 +69,7 @@ function price(record: Candidate, basis: Query['basis']): Money {
 }
 
 export function evaluate(records: readonly Candidate[], query: Query) {
-  if (!query.sourceId || !['item', 'item_plus_observed_shipping'].includes(query.basis) ||
+  if (!query.sourceId || ![30, 90, 180, 365].includes(query.days) || !['item', 'item_plus_observed_shipping'].includes(query.basis) ||
       !Number.isSafeInteger(query.limit) || query.limit < 1 || query.limit > 200) throw new Error('invalid_query');
   // Validate fixed clock/window even when there are no candidates.
   inWindow({ precision: 'unknown' }, query.asOf, query.days);
