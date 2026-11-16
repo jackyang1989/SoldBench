@@ -1,0 +1,250 @@
+{
+  "schema": "soldbench.offline-validation.v1",
+  "createdAt": "20261116T064343242679Z",
+  "platform": "macOS-26.3-arm64-arm-64bit",
+  "python": "3.9.6",
+  "node": "v22.23.3",
+  "mode": "offline_fixture",
+  "collectorEnabled": false,
+  "onlineVerified": false,
+  "database": "none; temporary JSON single-writer store",
+  "account": "synthetic fixtures; no product account",
+  "simulationClock": "2026-11-16 UTC plus injected offsets; individual tests declare their own fixed as_of",
+  "result": "PASS",
+  "stageVerdict": "NOT_ISSUED",
+  "independentReview": "PENDING",
+  "checks": [
+    {
+      "name": "typecheck",
+      "command": [
+        "/Users/jianouyang/Project/SoldBench/step0/collector-poc/node_modules/.bin/tsc",
+        "--project",
+        "/Users/jianouyang/Project/SoldBench/step0/collector-poc/tsconfig.json",
+        "--noEmit"
+      ],
+      "exitCode": 0,
+      "log": "typecheck.log"
+    },
+    {
+      "name": "poc-tests",
+      "command": [
+        "node",
+        "--import",
+        "/Users/jianouyang/Project/SoldBench/step0/collector-poc/src/offline-network.ts",
+        "--test",
+        "step0/collector-poc/tests/availability.test.ts",
+        "step0/collector-poc/tests/collector.test.ts",
+        "step0/collector-poc/tests/outage.test.ts",
+        "step0/collector-poc/tests/pricing.test.ts",
+        "step0/collector-poc/tests/snapshot.test.ts"
+      ],
+      "exitCode": 0,
+      "log": "poc-tests.log"
+    },
+    {
+      "name": "cli-first",
+      "command": [
+        "node",
+        "--import",
+        "/Users/jianouyang/Project/SoldBench/step0/collector-poc/src/offline-network.ts",
+        "/Users/jianouyang/Project/SoldBench/step0/collector-poc/src/cli.ts",
+        "--state",
+        "/Users/jianouyang/Project/SoldBench/step0/artifacts/20261116T064343242679Z/cli-state.json",
+        "--report",
+        "/Users/jianouyang/Project/SoldBench/step0/artifacts/20261116T064343242679Z/cli-first.json"
+      ],
+      "exitCode": 0,
+      "log": "cli-first.log"
+    },
+    {
+      "name": "cli-replay",
+      "command": [
+        "node",
+        "--import",
+        "/Users/jianouyang/Project/SoldBench/step0/collector-poc/src/offline-network.ts",
+        "/Users/jianouyang/Project/SoldBench/step0/collector-poc/src/cli.ts",
+        "--state",
+        "/Users/jianouyang/Project/SoldBench/step0/artifacts/20261116T064343242679Z/cli-state.json",
+        "--report",
+        "/Users/jianouyang/Project/SoldBench/step0/artifacts/20261116T064343242679Z/cli-replay.json"
+      ],
+      "exitCode": 0,
+      "log": "cli-replay.log"
+    },
+    {
+      "name": "integrated-study",
+      "command": [
+        "node",
+        "--import",
+        "/Users/jianouyang/Project/SoldBench/step0/collector-poc/src/offline-network.ts",
+        "/Users/jianouyang/Project/SoldBench/step0/collector-poc/src/study.ts",
+        "--output-dir",
+        "/Users/jianouyang/Project/SoldBench/step0/artifacts/20261116T064343242679Z/integrated-study"
+      ],
+      "exitCode": 0,
+      "log": "integrated-study.log"
+    },
+    {
+      "name": "corpus",
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "step0/tools/check_corpus.py"
+      ],
+      "exitCode": 0,
+      "log": "corpus.log"
+    },
+    {
+      "name": "preparation-tests",
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "step0/tests",
+        "-v"
+      ],
+      "exitCode": 0,
+      "log": "preparation-tests.log"
+    },
+    {
+      "name": "source-preparation",
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "step0/tools/readiness.py"
+      ],
+      "exitCode": 0,
+      "log": "source-preparation.log"
+    },
+    {
+      "name": "quality-empty",
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "step0/tools/quality_report.py",
+        "step0/labels/quality-input-empty.json"
+      ],
+      "exitCode": 0,
+      "log": "quality-empty.log"
+    },
+    {
+      "name": "dependency-inventory",
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "step0/tools/dependency_inventory.py"
+      ],
+      "exitCode": 0,
+      "log": "dependency-inventory.log"
+    },
+    {
+      "name": "economics-unmeasured",
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "step0/tools/unit_economics.py",
+        "step0/unit-economics/unmeasured.json"
+      ],
+      "exitCode": 0,
+      "log": "economics-unmeasured.log"
+    },
+    {
+      "name": "economics-scenarios",
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "step0/tools/unit_economics.py",
+        "step0/unit-economics/scenarios.json"
+      ],
+      "exitCode": 0,
+      "log": "economics-scenarios.log"
+    },
+    {
+      "name": "stability-no-records",
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "step0/tools/stability_report.py",
+        "--start",
+        "2026-12-01"
+      ],
+      "exitCode": 0,
+      "log": "stability-no-records.log"
+    },
+    {
+      "name": "golden",
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "step0/tools/verify_fixture.py"
+      ],
+      "exitCode": 0,
+      "log": "golden.log"
+    },
+    {
+      "name": "documentation",
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "docs/check_docs.py"
+      ],
+      "exitCode": 0,
+      "log": "documentation.log"
+    },
+    {
+      "name": "contracts",
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "docs/contracts/check_contracts.py"
+      ],
+      "exitCode": 0,
+      "log": "contracts.log"
+    },
+    {
+      "name": "cli-replay-invariants",
+      "exitCode": 0,
+      "evidence": [
+        "cli-first.json",
+        "cli-replay.json"
+      ]
+    },
+    {
+      "name": "integrated-study-invariants",
+      "exitCode": 0,
+      "evidence": [
+        "integrated-study-summary.json"
+      ]
+    }
+  ],
+  "sha256": {
+    "v14_gameboy_58_verified.json": "d59be9da67aa558d3cb494ec06d9918fd185afc3ec3b4daa31c0f6a7b244ae78",
+    "step0/corpus.csv": "973a0b6a77fed508650fe54bd9dc1d4e7108d87766380e8fe0e78a92efef8a93",
+    "step0/corpus-manifest.json": "148b2ef9f07fa0a17785cef2cf1e06696338f91d27b3e00f03cd7ad35a22cf29",
+    "step0/collector-poc/package.json": "dad3919981f9c00c15e738b7f552475bfa6f0132969dfc4bcf21a34e1575d8d8",
+    "step0/collector-poc/package-lock.json": "cf0ef50188edd0d4dda7d9c9bc123b3db3fc3563524bc08e8671cc141d89e37d",
+    "step0/collector-poc/tsconfig.json": "239f1a7861da59e428431b3098954106d80cfe59fc4e9fb1f7cff29c5951f005",
+    "step0/collector-poc/src/availability.ts": "8b0286ce95f541d55200bbdb87d2343ed46692e638d2efc81567163fd298af9f",
+    "step0/collector-poc/src/cli.ts": "472e43accadcad3caae16868678763421b8348d624401db1ae1d56e3a94f1fa6",
+    "step0/collector-poc/src/collector.ts": "923118d08c268e24a5dcdf61d894f1a18c6523bb3fc0613c53419d6ec0680995",
+    "step0/collector-poc/src/offline-network.ts": "779485929e9a5c94e5a5a4f951dabb252a72df5919cf52861388501895c27637",
+    "step0/collector-poc/src/pricing.ts": "6edf7698b8d23403a8c51bef9b84c25fb482d456285133c59020c5e64b65e676",
+    "step0/collector-poc/src/snapshot.ts": "c569e6e19291c7926012dd95d238b8465bea4c24cc1b8419f667a085a84aac89",
+    "step0/collector-poc/src/study-fixture.ts": "2f80e9fe888bc3cb448ae6b878dad21d1661a2942de164254aad41eb99e4dd71",
+    "step0/collector-poc/src/study.ts": "0cffe7cd7a1074fc64a9285cd4afd7fd2a611b3a285a846bfa3630cdfc9ee0bd",
+    "step0/collector-poc/src/time.ts": "35656b1685a7a48513ab1051db9fa948ba8e000840f55ed2de8c3c4ee9c7f8d1",
+    "step0/collector-poc/tests/availability.test.ts": "c3a0eb90471c90e527bf118e4600a3b353401eb7a742f66d55a86ebc80f90e4a",
+    "step0/collector-poc/tests/collector.test.ts": "17fbabea36e2d3feede28ba5dced1a9cce3dc0e185de747f722b99fdb9e5ef53",
+    "step0/collector-poc/tests/outage.test.ts": "908cdca14ad82db8c4de41a017a38f812a39d780f6c58d3ba865a8e30cdd759d",
+    "step0/collector-poc/tests/pricing.test.ts": "969a4780622b89b9c28ae2dd5547669b64a2e6929130a682354a87ab7ddc4f2b",
+    "step0/collector-poc/tests/snapshot.test.ts": "d0de29a701d08f46b67b461ed814ac28ce19372439c5f429dd97d3e8e709dbea",
+    "step0/tools/check_corpus.py": "417f036a32330360d450bd46a878a890c85c1b0741428941772675f908d3911d",
+    "step0/tools/dependency_inventory.py": "d5381e75fcbf8cfd576b282ea91faccf52280608d0f0cb4a5d691e439c6f7cdd",
+    "step0/tools/quality_report.py": "48b887ebb117f467c43e1df228642718ceb3337b74c345eae77cb575f6cd37c6",
+    "step0/tools/readiness.py": "2346ca057f98b37d2bb46b30c5af5a6c1ec8f41de58d85009f61a677813d54c5",
+    "step0/tools/stability_report.py": "93345b2a7f21b66858c1620efcc135c518e98c8a466098fc4ff0042fd1d32afc",
+    "step0/tools/unit_economics.py": "da202d54d56cb1cfd367ca583ec3d04a3d3a5ee3c0bba8232274f8c91fb93f84",
+    "step0/tools/validate_offline.py": "67c0d2d12816ac7de5c0761597d645cb4a65897017c0d49bd5e8858525fbdc48",
+    "step0/tools/verify_fixture.py": "4fd7aa6f374f8533d548a746d9eb4d162be1c29b16ec5edb73b919a003de3e2d",
+    "step0/tests/test_preparation.py": "008cbb695a4fd787a026116943da0a8d17dfbcf044e01624cac7a55b59faaffb",
+    "step0/tests/test_quality.py": "70a0c386b7e85dd721e344655d3cc54cb37bd19a1e10699a78775507d3c69afd",
+    "step0/tests/test_stability.py": "9216850fd4b058308a81b9113eb1b4fbf4cc598cdf8bdf614eb9a4a35c84cef0",
+    "step0/unit-economics/scenarios.json": "c042a0c5310df607d5b9938b2a71e9d1b478e545b50a8c7db32837bdad7418a9",
+    "step0/unit-economics/unmeasured.json": "9c631ecee30558d25e66f6f6ea732741fa9211f263f17533c858195e7b72f6a6",
+    "step0/source-clearance.csv": "a025259a5f806735691814416fcaf04233cef0d147516a67c5ee2caac003c29b",
+    "step0/source-capabilities.csv": "0aacaddaabc4f6f29f377fd7469d71e19ccd4497547c0a684785c527cc595aa6",
+    "step0/labels/quality-input-empty.json": "a2cebdeff8b39abff3500d4edba560603f311db37ee0ef1ecd99ea59c2b43c45"
+  }
+}

@@ -59,4 +59,20 @@ fixture是自定义`Page`接口JSON，记录仅含listing/event身份和合成�
 
 TASK-003/004/005/006按整包交非实现者复核。120条查询为待签收草稿，人工金标待取得获准候选数据后制作。下一可执行范围为TASK-001/008的离线来源资料、成本及访谈工具准备。TASK-007等待真实准入后连续14天验证，阶段状态以台账为准。
 
-2026-11-16边界复核修复了保留对象属性名作为cursor时的错误分类，FixtureTransport仅查自有响应键。parser版本为offline-page-parser-1.0.1，运行绑定包含parser版本。旧state保留原样，旧run与新parser绑定冲突时使用新state/report路径做新版本回放，或由显式新run开始复核，禁止删除原证据来恢复。统计探索版本offline-exploration-1.0.1只接受30/90/180/365查询窗口，具体可商用窗口仍待来源证据。
+2026-11-16边界复核修复了保留对象属性名作为cursor时的错误分类，FixtureTransport仅查自有响应键。运行绑定包含parser版本。旧state保留原样，旧run与新parser绑定冲突时使用新state/report路径做新版本回放，或由显式新run开始复核，禁止删除原证据来恢复。统计探索只接受30/90/180/365查询窗口，具体可商用窗口仍待来源证据。
+
+## 采集、快照与统计贯通
+
+parser为offline-page-parser-1.1.0，engine为offline-exploration-1.1.0。原page.v1兼容身份回放，新增明确标synthetic的page.v2，每条记录携带结构化Candidate。Candidate包含合成的可比性与价格资格输入，实际eBay字段提取和taxonomy匹配仍待获准真实样本。
+
+```sh
+node --import ./step0/collector-poc/src/offline-network.ts step0/collector-poc/src/study.ts
+```
+
+`--output-dir PATH`可指定独立输出目录。命令将原始黄金文件通过显式适配器转为三页v2夹具，缺listing_id使用synthetic前缀，缺币种使用XXX，原UTC时点仅用于复现算例。每页的观察、事件、正文hash、观察ID清单和checkpoint原子提交。候选集合严格来自已完成run的清单，保守水位来自该run的各页覆盖时间。
+
+snapshot.ts构建完整候选快照。读取时核对快照hash、查询/来源/版本、当前观察清单与事件状态，再复用pricing.ts出数，并在返回前再次读取模拟权限。用户视图limit只裁切明细。未知运费、价格核验不足、身份不明和强属性排除分项保留诊断。全局事件指纹不包含query-specific comparable，原始判断保留在各run观察中。
+
+新快照用同目录临时文件、fsync和原子链接发布，已存在路径拒绝覆盖。发布前失败清理临时文件，发布后遇目录fsync故障须先读已有快照核验，再选择新路径恢复。旧state与证据均保留。
+
+贯通演练从实际计算的58条合格样本驱动0/24/48/72h与撤销读取，Collector报告仍只描述采集，study-report单独标statisticsComputed=true。模拟读取允许不代表来源准入，全部输出保留sourceApproval=NOT_CLEARED、onlineVerified=false和actualChargePerformed=false。读取无新派发，后续run覆盖时间不能使旧快照变新鲜。真实账户、账本和Web/API验收按后续阶段执行。

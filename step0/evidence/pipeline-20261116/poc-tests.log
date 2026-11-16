@@ -1,0 +1,430 @@
+TAP version 13
+# Subtest: 0/24/48/72h outage and millisecond boundaries with explicit stale consent
+ok 1 - 0/24/48/72h outage and millisecond boundaries with explicit stale consent
+  ---
+  duration_ms: 1.924875
+  type: 'test'
+  ...
+# Subtest: revocation overrides cached permission, cold cache and low sample never charge
+ok 2 - revocation overrides cached permission, cold cache and low sample never charge
+  ---
+  duration_ms: 0.523334
+  type: 'test'
+  ...
+# Subtest: network blocker positive control rejects fetch, HTTP and raw sockets
+ok 3 - network blocker positive control rejects fetch, HTTP and raw sockets
+  ---
+  duration_ms: 0.673333
+  type: 'test'
+  ...
+# Subtest: two pages dedupe events, preserve ambiguous observations, use conservative watermark
+ok 4 - two pages dedupe events, preserve ambiguous observations, use conservative watermark
+  ---
+  duration_ms: 101.705541
+  type: 'test'
+  ...
+# Subtest: completed run survives reopen and does not fetch or duplicate events
+ok 5 - completed run survives reopen and does not fetch or duplicate events
+  ---
+  duration_ms: 135.113708
+  type: 'test'
+  ...
+# Subtest: legacy parser checkpoint is preserved and a new run replays without duplicate events
+ok 6 - legacy parser checkpoint is preserved and a new run replays without duplicate events
+  ---
+  duration_ms: 204.140375
+  type: 'test'
+  ...
+# Subtest: independent repeated observation run adds evidence but no new sales
+ok 7 - independent repeated observation run adds evidence but no new sales
+  ---
+  duration_ms: 163.624792
+  type: 'test'
+  ...
+# Subtest: event-key conflict is quarantined instead of silently overwriting
+ok 8 - event-key conflict is quarantined instead of silently overwriting
+  ---
+  duration_ms: 93.873125
+  type: 'test'
+  ...
+# Subtest: no switch unlocks network mode {"mode":"approved_network"}
+ok 9 - no switch unlocks network mode {"mode":"approved_network"}
+  ---
+  duration_ms: 25.333708
+  type: 'test'
+  ...
+# Subtest: no switch unlocks network mode {"collectorEnabled":true}
+ok 10 - no switch unlocks network mode {"collectorEnabled":true}
+  ---
+  duration_ms: 14.125333
+  type: 'test'
+  ...
+# Subtest: offline replay revocation is checked before every dispatch
+ok 11 - offline replay revocation is checked before every dispatch
+  ---
+  duration_ms: 59.142042
+  type: 'test'
+  ...
+# Subtest: revocation after response prevents page publication
+ok 12 - revocation after response prevents page publication
+  ---
+  duration_ms: 48.415166
+  type: 'test'
+  ...
+# Subtest: access refusal 401/error opens persistent circuit with no retry
+ok 13 - access refusal 401/error opens persistent circuit with no retry
+  ---
+  duration_ms: 54.458292
+  type: 'test'
+  ...
+# Subtest: access refusal 403/error opens persistent circuit with no retry
+ok 14 - access refusal 403/error opens persistent circuit with no retry
+  ---
+  duration_ms: 61.879083
+  type: 'test'
+  ...
+# Subtest: access refusal 200/login_wall opens persistent circuit with no retry
+ok 15 - access refusal 200/login_wall opens persistent circuit with no retry
+  ---
+  duration_ms: 55.289042
+  type: 'test'
+  ...
+# Subtest: access refusal 200/challenge opens persistent circuit with no retry
+ok 16 - access refusal 200/challenge opens persistent circuit with no retry
+  ---
+  duration_ms: 64.125292
+  type: 'test'
+  ...
+# Subtest: access refusal 503/challenge opens persistent circuit with no retry
+ok 17 - access refusal 503/challenge opens persistent circuit with no retry
+  ---
+  duration_ms: 61.989791
+  type: 'test'
+  ...
+# Subtest: 200 error document is not an empty successful search
+ok 18 - 200 error document is not an empty successful search
+  ---
+  duration_ms: 47.35675
+  type: 'test'
+  ...
+# Subtest: prototype property names cannot become pagination cursors
+ok 19 - prototype property names cannot become pagination cursors
+  ---
+  duration_ms: 44.32025
+  type: 'test'
+  ...
+# Subtest: fixture transport cannot read an inherited response property
+ok 20 - fixture transport cannot read an inherited response property
+  ---
+  duration_ms: 0.153583
+  type: 'test'
+  ...
+# Subtest: verified synthetic empty page is distinguished from an invalid error page
+ok 21 - verified synthetic empty page is distinguished from an invalid error page
+  ---
+  duration_ms: 71.838042
+  type: 'test'
+  ...
+# Subtest: invalid page binding/date fails closed: sourceId
+ok 22 - invalid page binding/date fails closed: sourceId
+  ---
+  duration_ms: 46.776125
+  type: 'test'
+  ...
+# Subtest: invalid page binding/date fails closed: queryHash
+ok 23 - invalid page binding/date fails closed: queryHash
+  ---
+  duration_ms: 41.545959
+  type: 'test'
+  ...
+# Subtest: invalid page binding/date fails closed: cursor
+ok 24 - invalid page binding/date fails closed: cursor
+  ---
+  duration_ms: 37.401667
+  type: 'test'
+  ...
+# Subtest: invalid page binding/date fails closed: coverageAsOf
+ok 25 - invalid page binding/date fails closed: coverageAsOf
+  ---
+  duration_ms: 49.313375
+  type: 'test'
+  ...
+# Subtest: one invalid record prevents the entire page from committing
+ok 26 - one invalid record prevents the entire page from committing
+  ---
+  duration_ms: 48.141708
+  type: 'test'
+  ...
+# Subtest: cursor cycle terminates and never advances complete coverage
+ok 27 - cursor cycle terminates and never advances complete coverage
+  ---
+  duration_ms: 68.334417
+  type: 'test'
+  ...
+# Subtest: finite budget page_budget_exceeded
+ok 28 - finite budget page_budget_exceeded
+  ---
+  duration_ms: 56.71525
+  type: 'test'
+  ...
+# Subtest: finite budget request_budget_exceeded
+ok 29 - finite budget request_budget_exceeded
+  ---
+  duration_ms: 57.781291
+  type: 'test'
+  ...
+# Subtest: finite budget byte_budget_exceeded
+ok 30 - finite budget byte_budget_exceeded
+  ---
+  duration_ms: 29.151416
+  type: 'test'
+  ...
+# Subtest: finite budget invalid_plan
+ok 31 - finite budget invalid_plan
+  ---
+  duration_ms: 13.578334
+  type: 'test'
+  ...
+# Subtest: 429 honors Retry-After using logical time, then succeeds within budget
+ok 32 - 429 honors Retry-After using logical time, then succeeds within budget
+  ---
+  duration_ms: 93.998459
+  type: 'test'
+  ...
+# Subtest: rate limiting does not exceed deadline or silently ignore Retry-After
+ok 33 - rate limiting does not exceed deadline or silently ignore Retry-After
+  ---
+  duration_ms: 53.967417
+  type: 'test'
+  ...
+# Subtest: repeated 5xx has bounded attempts and no false watermark
+ok 34 - repeated 5xx has bounded attempts and no false watermark
+  ---
+  duration_ms: 70.805292
+  type: 'test'
+  ...
+# Subtest: late fetch cannot commit after deadline
+ok 35 - late fetch cannot commit after deadline
+  ---
+  duration_ms: 40.18575
+  type: 'test'
+  ...
+# Subtest: atomic page failure preserves old durable checkpoint, reopen/replay recovers exactly once
+ok 36 - atomic page failure preserves old durable checkpoint, reopen/replay recovers exactly once
+  ---
+  duration_ms: 120.128917
+  type: 'test'
+  ...
+# Subtest: budget reservations survive restart instead of resetting on transport failure
+ok 37 - budget reservations survive restart instead of resetting on transport failure
+  ---
+  duration_ms: 82.434375
+  type: 'test'
+  ...
+# Subtest: changed query cannot reuse an existing run checkpoint
+ok 38 - changed query cannot reuse an existing run checkpoint
+  ---
+  duration_ms: 50.920959
+  type: 'test'
+  ...
+# Subtest: failure of a later run retains the last fully committed watermark
+ok 39 - failure of a later run retains the last fully committed watermark
+  ---
+  duration_ms: 83.096209
+  type: 'test'
+  ...
+# Subtest: second writer is rejected, and reopening non-PoC state is rejected
+ok 40 - second writer is rejected, and reopening non-PoC state is rejected
+  ---
+  duration_ms: 2.929667
+  type: 'test'
+  ...
+# Subtest: untrusted plan identities are rejected before dispatch or map indexing
+ok 41 - untrusted plan identities are rejected before dispatch or map indexing
+  ---
+  duration_ms: 37.576333
+  type: 'test'
+  ...
+# Subtest: same version with malformed store shape is rejected on open
+ok 42 - same version with malformed store shape is rejected on open
+  ---
+  duration_ms: 2.692583
+  type: 'test'
+  ...
+# Subtest: persisted collector coverage drives outage reads and recovery does not duplicate events
+ok 43 - persisted collector coverage drives outage reads and recovery does not duplicate events
+  ---
+  duration_ms: 229.966958
+  type: 'test'
+  ...
+# Subtest: all 121 golden records reproduce all 14 statistics and all 6 quality fields
+ok 44 - all 121 golden records reproduce all 14 statistics and all 6 quality fields
+  ---
+  duration_ms: 15.303541
+  type: 'test'
+  ...
+# Subtest: 0/1/7/8/29/30/58 samples and large safe cents cross-check Python Fraction oracle
+ok 45 - 0/1/7/8/29/30/58 samples and large safe cents cross-check Python Fraction oracle
+  ---
+  duration_ms: 34.618458
+  type: 'test'
+  ...
+# Subtest: price eligibility preserves unknowns, shipping basis and FX evidence
+ok 46 - price eligibility preserves unknowns, shipping basis and FX evidence
+  ---
+  duration_ms: 0.322084
+  type: 'test'
+  ...
+# Subtest: event identity, repeat observations, conflicts and source scope fail conservatively
+ok 47 - event identity, repeat observations, conflicts and source scope fail conservatively
+  ---
+  duration_ms: 0.274042
+  type: 'test'
+  ...
+# Subtest: exact window is lower-exclusive upper-inclusive, and malformed dates are excluded
+ok 48 - exact window is lower-exclusive upper-inclusive, and malformed dates are excluded
+  ---
+  duration_ms: 0.126833
+  type: 'test'
+  ...
+# Subtest: local dates respect IANA DST, whole-day containment and unknown precision
+ok 49 - local dates respect IANA DST, whole-day containment and unknown precision
+  ---
+  duration_ms: 4.604292
+  type: 'test'
+  ...
+# Subtest: golden fixture flows through 3 committed pages into all expected statistics and quality fields
+ok 50 - golden fixture flows through 3 committed pages into all expected statistics and quality fields
+  ---
+  duration_ms: 233.959708
+  type: 'test'
+  ...
+# Subtest: real computed n=0 drives availability and small sample statistics
+ok 51 - real computed n=0 drives availability and small sample statistics
+  ---
+  duration_ms: 70.311125
+  type: 'test'
+  ...
+# Subtest: real computed n=7 drives availability and small sample statistics
+ok 52 - real computed n=7 drives availability and small sample statistics
+  ---
+  duration_ms: 63.334917
+  type: 'test'
+  ...
+# Subtest: real computed n=8 drives availability and small sample statistics
+ok 53 - real computed n=8 drives availability and small sample statistics
+  ---
+  duration_ms: 66.952541
+  type: 'test'
+  ...
+# Subtest: real computed n=29 drives availability and small sample statistics
+ok 54 - real computed n=29 drives availability and small sample statistics
+  ---
+  duration_ms: 85.887792
+  type: 'test'
+  ...
+# Subtest: real computed n=30 drives availability and small sample statistics
+ok 55 - real computed n=30 drives availability and small sample statistics
+  ---
+  duration_ms: 81.603292
+  type: 'test'
+  ...
+# Subtest: cross-page duplicate observation is retained without a duplicate event or price
+ok 56 - cross-page duplicate observation is retained without a duplicate event or price
+  ---
+  duration_ms: 127.008125
+  type: 'test'
+  ...
+# Subtest: same event may be comparable for one query and excluded for another
+ok 57 - same event may be comparable for one query and excluded for another
+  ---
+  duration_ms: 138.774209
+  type: 'test'
+  ...
+# Subtest: unrelated later runs do not enter the original candidate snapshot
+ok 58 - unrelated later runs do not enter the original candidate snapshot
+  ---
+  duration_ms: 122.072541
+  type: 'test'
+  ...
+# Subtest: JSON property order changes do not conflict the same v2 event
+ok 59 - JSON property order changes do not conflict the same v2 event
+  ---
+  duration_ms: 120.349625
+  type: 'test'
+  ...
+# Subtest: source circuit opened by a later run does not require collector dispatch for snapshot reads
+ok 60 - source circuit opened by a later run does not require collector dispatch for snapshot reads
+  ---
+  duration_ms: 111.634708
+  type: 'test'
+  ...
+# Subtest: later coverage cannot refresh the timestamp of an earlier snapshot
+ok 61 - later coverage cannot refresh the timestamp of an earlier snapshot
+  ---
+  duration_ms: 123.680541
+  type: 'test'
+  ...
+# Subtest: fresh/stale/expired and current revocation use computed snapshot samples without dispatching
+ok 62 - fresh/stale/expired and current revocation use computed snapshot samples without dispatching
+  ---
+  duration_ms: 79.121584
+  type: 'test'
+  ...
+# Subtest: only completed runs can publish; partial failure preserves committed page evidence
+ok 63 - only completed runs can publish; partial failure preserves committed page evidence
+  ---
+  duration_ms: 167.722667
+  type: 'test'
+  ...
+# Subtest: restart preserves snapshot evidence and repeated complete run has no dispatch
+ok 64 - restart preserves snapshot evidence and repeated complete run has no dispatch
+  ---
+  duration_ms: 85.5965
+  type: 'test'
+  ...
+# Subtest: snapshot integrity, candidate evidence and query scope reject altered data
+ok 65 - snapshot integrity, candidate evidence and query scope reject altered data
+  ---
+  duration_ms: 76.704916
+  type: 'test'
+  ...
+# Subtest: corrupt or missing page evidence cannot produce a complete price snapshot
+ok 66 - corrupt or missing page evidence cannot produce a complete price snapshot
+  ---
+  duration_ms: 84.141
+  type: 'test'
+  ...
+# Subtest: new price evidence conflicts the event and prevents stale cached results
+ok 67 - new price evidence conflicts the event and prevents stale cached results
+  ---
+  duration_ms: 138.219708
+  type: 'test'
+  ...
+# Subtest: unknown identity and missing shipping remain excluded with explanatory diagnostics
+ok 68 - unknown identity and missing shipping remain excluded with explanatory diagnostics
+  ---
+  duration_ms: 62.571583
+  type: 'test'
+  ...
+# Subtest: schema v2 rejects candidate fields that do not belong to the enclosing event/source
+ok 69 - schema v2 rejects candidate fields that do not belong to the enclosing event/source
+  ---
+  duration_ms: 50.114792
+  type: 'test'
+  ...
+# Subtest: snapshot files publish atomically, preserve existing evidence and recover after interrupted publish
+ok 70 - snapshot files publish atomically, preserve existing evidence and recover after interrupted publish
+  ---
+  duration_ms: 118.923667
+  type: 'test'
+  ...
+1..70
+# tests 70
+# suites 0
+# pass 70
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2509.178958

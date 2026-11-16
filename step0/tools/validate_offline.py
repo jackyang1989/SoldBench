@@ -25,6 +25,8 @@ def main():
                        '--state', str(output / 'cli-state.json'), '--report', str(output / 'cli-first.json')]),
         ('cli-replay', ['node', '--import', str(POC / 'src/offline-network.ts'), str(POC / 'src/cli.ts'),
                         '--state', str(output / 'cli-state.json'), '--report', str(output / 'cli-replay.json')]),
+        ('integrated-study', ['node', '--import', str(POC / 'src/offline-network.ts'), str(POC / 'src/study.ts'),
+                              '--output-dir', str(output / 'integrated-study')]),
         ('corpus', [sys.executable, 'step0/tools/check_corpus.py']),
         ('preparation-tests', [sys.executable, '-m', 'unittest', 'discover', '-s', 'step0/tests', '-v']),
         ('source-preparation', [sys.executable, 'step0/tools/readiness.py']),
@@ -58,9 +60,26 @@ def main():
     checks.append({'name': 'cli-replay-invariants', 'exitCode': 0 if replay_ok else 1,
                    'evidence': ['cli-first.json', 'cli-replay.json']})
     print('cli-replay-invariants: ' + ('PASS' if replay_ok else 'FAIL'), flush=True)
+    try:
+        study = json.loads((output / 'integrated-study/study-report.json').read_text())
+        golden = json.loads((ROOT / 'v14_gameboy_58_verified.json').read_text())
+        fresh = study['scenarios'][0]['result']
+        study_ok = (fresh['stats'] == golden['expected_stats'] and fresh['quality'] == golden['expected_quality']
+                    and study['collected'] == study['replay'] and len(study['scenarios']) == 10
+                    and all(row['result'] is None for row in study['scenarios'] if 'rights' in row))
+        summary = {key: study[key] for key in ('schema', 'mode', 'sourceApproval', 'onlineVerified', 'snapshotHash', 'collected', 'replay')}
+        summary['scenarios'] = [{key: row[key] for key in ('hours', 'allowStale', 'rights', 'decision') if key in row} |
+                                {'stats': row['result']['stats'] if row['result'] else None,
+                                 'quality': row['result']['quality'] if row['result'] else None} for row in study['scenarios']]
+        (output / 'integrated-study-summary.json').write_text(json.dumps(summary, indent=2) + '\n')
+    except (OSError, ValueError, KeyError, TypeError):
+        study_ok = False
+    checks.append({'name': 'integrated-study-invariants', 'exitCode': 0 if study_ok else 1,
+                   'evidence': ['integrated-study-summary.json']})
+    print('integrated-study-invariants: ' + ('PASS' if study_ok else 'FAIL'), flush=True)
     hashes = {}
     paths = [ROOT / 'v14_gameboy_58_verified.json', ROOT / 'step0/corpus.csv', ROOT / 'step0/corpus-manifest.json',
-             POC / 'package-lock.json', POC / 'tsconfig.json', *sorted((POC / 'src').glob('*.ts')),
+             POC / 'package.json', POC / 'package-lock.json', POC / 'tsconfig.json', *sorted((POC / 'src').glob('*.ts')),
              *sorted((POC / 'tests').glob('*.ts')), *sorted((ROOT / 'step0/tools').glob('*.py')),
              *sorted((ROOT / 'step0/tests').glob('*.py')), *sorted((ROOT / 'step0/unit-economics').glob('*.json')),
              ROOT / 'step0/source-clearance.csv', ROOT / 'step0/source-capabilities.csv',

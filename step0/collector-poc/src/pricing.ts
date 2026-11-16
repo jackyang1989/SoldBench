@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { inWindow, type SaleTime } from './time.ts';
 
-export const ENGINE_VERSION = 'offline-exploration-1.0.1';
+export const ENGINE_VERSION = 'offline-exploration-1.1.0';
 type Money = number | null;
 export function cents(value: number): bigint {
   if (!Number.isSafeInteger(value) || value < 0) throw new Error('invalid_integer_cents');
@@ -40,32 +40,58 @@ export type Candidate = {
 };
 export type Query = { sourceId: string; asOf: string; days: number; basis: 'item' | 'item_plus_observed_shipping'; limit: number };
 
-function canonical(value: unknown): string {
-  if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']';
+export function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return '[' + value.map(canonicalJson).join(',') + ']';
   if (value !== null && typeof value === 'object') return '{' + Object.entries(value).sort(([a], [b]) => a.localeCompare(b))
-    .map(([k, v]) => JSON.stringify(k) + ':' + canonical(v)).join(',') + '}';
+    .map(([k, v]) => JSON.stringify(k) + ':' + canonicalJson(v)).join(',') + '}';
   return JSON.stringify(value) ?? 'null';
 }
 
-function price(record: Candidate, basis: Query['basis']): Money {
-  if (record.priceStatus !== 'verified_actual') return null;
+export function candidateFromJson(value: unknown): Candidate {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid_candidate');
+  const record = value as Candidate;
+  const validMoney = (amount: unknown) => amount === null || (typeof amount === 'number' && Number.isSafeInteger(amount) && amount >= 0);
+  if (typeof record.sourceId !== 'string' || !record.sourceId ||
+      !(record.eventKey === null || (typeof record.eventKey === 'string' && record.eventKey.length > 0)) ||
+      typeof record.identityVerified !== 'boolean' || typeof record.comparable !== 'boolean' ||
+      (record.eventKey === null && record.identityVerified) ||
+      !['verified_actual', 'displayed_only', 'unknown'].includes(record.priceStatus) ||
+      !['fixed_price', 'best_offer', 'auction'].includes(record.format) ||
+      typeof record.currency !== 'string' || !/^[A-Z]{3}$/.test(record.currency) ||
+      !validMoney(record.itemCents) || !validMoney(record.shippingCents) ||
+      !['observed', 'verified_free_shipping', 'unknown'].includes(record.shippingStatus)) throw new Error('invalid_candidate');
+  if (record.usdConversion !== undefined && (!record.usdConversion ||
+      !validMoney(record.usdConversion.itemCents) || record.usdConversion.itemCents === null ||
+      !validMoney(record.usdConversion.shippingCents) || typeof record.usdConversion.evidenceRef !== 'string')) {
+    throw new Error('invalid_candidate');
+  }
+  const time = record.time;
+  if (!time || !['instant', 'day', 'unknown'].includes(time.precision) ||
+      (time.precision !== 'unknown' && typeof time.value !== 'string') ||
+      (time.precision === 'day' && !(time.timeZone === null || typeof time.timeZone === 'string'))) throw new Error('invalid_candidate');
+  return structuredClone(record);
+}
+
+export function priceQualification(record: Candidate, basis: Query['basis']): { priceCents: Money; reason: string | null } {
+  const excluded = (reason: string) => ({ priceCents: null, reason });
+  if (record.priceStatus !== 'verified_actual') return excluded('unverified_actual_price');
   try { if (record.itemCents !== null) cents(record.itemCents); if (record.shippingCents !== null) cents(record.shippingCents); }
-  catch { return null; }
+  catch { return excluded('invalid_integer_cents'); }
   let item = record.itemCents, shipping = record.shippingCents;
   if (record.currency !== 'USD') {
-    if (!record.usdConversion?.evidenceRef.trim()) return null;
+    if (!record.usdConversion?.evidenceRef.trim()) return excluded('missing_fx_evidence');
     item = record.usdConversion.itemCents; shipping = record.usdConversion.shippingCents;
   }
-  if (item === null) return null;
+  if (item === null) return excluded('missing_item_price');
   try {
     const total = cents(item);
-    if (basis === 'item') return Number(total);
-    if (record.shippingStatus === 'unknown' || shipping === null) return null;
-    if (record.shippingStatus === 'verified_free_shipping' && shipping !== 0) return null;
+    if (basis === 'item') return { priceCents: Number(total), reason: null };
+    if (record.shippingStatus === 'unknown' || shipping === null) return excluded('missing_shipping_evidence');
+    if (record.shippingStatus === 'verified_free_shipping' && shipping !== 0) return excluded('inconsistent_free_shipping');
     const sum = total + cents(shipping);
-    if (sum > BigInt(Number.MAX_SAFE_INTEGER)) return null;
-    return Number(sum);
-  } catch { return null; }
+    if (sum > BigInt(Number.MAX_SAFE_INTEGER)) return excluded('amount_out_of_range');
+    return { priceCents: Number(sum), reason: null };
+  } catch { return excluded('invalid_integer_cents'); }
 }
 
 export function evaluate(records: readonly Candidate[], query: Query) {
@@ -79,16 +105,18 @@ export function evaluate(records: readonly Candidate[], query: Query) {
     if (record.sourceId !== query.sourceId) throw new Error('mixed_source_scope');
     if (!record.eventKey || !record.identityVerified) { unidentified++; continue; }
     const previous = keyed.get(record.eventKey);
-    if (previous && canonical(previous) !== canonical(record)) conflicts.add(record.eventKey);
+    if (previous && canonicalJson(previous) !== canonicalJson(record)) conflicts.add(record.eventKey);
     else keyed.set(record.eventKey, record);
   }
   const observed = [...keyed].filter(([key, r]) => !conflicts.has(key) && inWindow(r.time, query.asOf, query.days)).map(([, r]) => r);
   const comparable = observed.filter(r => r.comparable);
-  const verified = comparable.flatMap(record => { const p = price(record, query.basis); return p === null ? [] : [{ record, price: p }]; });
+  const qualifications = comparable.map(record => ({ record, decision: priceQualification(record, query.basis) }));
+  const verified = qualifications.flatMap(({ record, decision }) =>
+    decision.priceCents === null ? [] : [{ record, price: decision.priceCents }]);
   const n = verified.length;
   return {
     engine_version: ENGINE_VERSION,
-    candidate_set_hash: createHash('sha256').update(JSON.stringify(records.map(canonical).sort())).digest('hex'),
+    candidate_set_hash: createHash('sha256').update(JSON.stringify(records.map(canonicalJson).sort())).digest('hex'),
     stats: {
       n_observed: observed.length, n_comparable: comparable.length, n_price_verified: n,
       n_excluded_unverified_price: comparable.length - n,
@@ -100,7 +128,12 @@ export function evaluate(records: readonly Candidate[], query: Query) {
     },
     quality: { data_insufficient: n < 8, quality_status: n < 8 ? 'insufficient_sample' : n < 30 ? 'limited_sample' : 'sufficient_sample',
       verified_share: comparable.length ? n / comparable.length : null, coverage_status: 'unknown', coverage_ratio: null, score: null },
-    diagnostics: { unidentified_observations: unidentified, conflicting_event_keys: [...conflicts].sort(), duplicate_observations: records.length - unidentified - keyed.size },
+    diagnostics: { unidentified_observations: unidentified, conflicting_event_keys: [...conflicts].sort(),
+      duplicate_observations: records.length - unidentified - keyed.size,
+      outside_window_events: keyed.size - conflicts.size - observed.length,
+      hard_mismatch_events: observed.length - comparable.length,
+      price_exclusions: qualifications.filter(x => x.decision.reason !== null)
+        .map(x => ({ eventKey: x.record.eventKey, reason: x.decision.reason! })) },
     comps: verified.slice(0, query.limit).map(x => ({ eventKey: x.record.eventKey, priceCents: x.price })),
     available_comp_count: n,
   };

@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { openSync, writeFileSync, fsyncSync, closeSync, renameSync, readFileSync, existsSync, unlinkSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { candidateFromJson, canonicalJson, type Candidate } from './pricing.ts';
 
 export const VERSION = 'offline-poc-1.0.0';
-export const PARSER_VERSION = 'offline-page-parser-1.0.1';
+export const PARSER_VERSION = 'offline-page-parser-1.1.0';
 export const sha = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 export class Stop extends Error {
@@ -21,9 +22,10 @@ export interface ListingRecord {
   eventKey: string | null;
   identityEvidence: 'synthetic_event_key' | 'unknown';
   title: string;
+  candidate?: Candidate;
 }
 export interface Page {
-  schema: 'soldbench.offline.page.v1';
+  schema: 'soldbench.offline.page.v1' | 'soldbench.offline.page.v2';
   synthetic: true;
   sourceId: string;
   queryHash: string;
@@ -86,6 +88,20 @@ interface Progress {
   bytes: number;
   attempts: Record<string, number>;
   deadlineAt: number;
+  pages?: Record<string, PageEvidence>;
+}
+interface PageEvidence {
+  bodyHash: string;
+  coverageAsOf: string;
+  observationIds: string[];
+}
+interface Observation {
+  sourceId: string;
+  runId: string;
+  cursor: string;
+  fingerprint: string;
+  pageHash: string;
+  record: ListingRecord;
 }
 interface Event {
   record: ListingRecord;
@@ -160,7 +176,7 @@ export function parsePage(response: Response, plan: Plan, cursor: string): Page 
   try { page = JSON.parse(response.body); } catch { throw new Stop('schema_mismatch'); }
   const keys = ['schema','synthetic','sourceId','queryHash','cursor','nextCursor','coverageAsOf','records'];
   if (!page || Array.isArray(page) || Object.keys(page).sort().join() !== keys.sort().join() ||
-      page.schema !== 'soldbench.offline.page.v1' || page.synthetic !== true ||
+      !['soldbench.offline.page.v1', 'soldbench.offline.page.v2'].includes(page.schema) || page.synthetic !== true ||
       page.sourceId !== plan.sourceId || page.queryHash !== plan.queryHash || page.cursor !== cursor ||
       (page.nextCursor !== null && !validCursor(page.nextCursor)) ||
       !Array.isArray(page.records) || page.records.length > 1000 ||
@@ -169,16 +185,35 @@ export function parsePage(response: Response, plan: Plan, cursor: string): Page 
       (response.kind === 'empty' && (page.records.length !== 0 || page.nextCursor !== null)) ||
       (response.kind === 'results' && page.records.length === 0)) throw new Stop('schema_mismatch');
   for (const record of page.records) {
-    if (!record || typeof record !== 'object' ||
-        Object.keys(record).sort().join() !== ['listingId','eventKey','identityEvidence','title'].sort().join() ||
-        typeof record.listingId !== 'string' || !record.listingId ||
-        typeof record.title !== 'string' || !record.title ||
-        !((record.eventKey === null && record.identityEvidence === 'unknown') ||
-          (typeof record.eventKey === 'string' && record.eventKey.length > 0 && record.identityEvidence === 'synthetic_event_key'))) {
-      throw new Stop('schema_mismatch');
-    }
+    if (!validRecord(record, page.schema, plan.sourceId)) throw new Stop('schema_mismatch');
   }
   return page;
+}
+function validRecord(value: unknown, schema?: Page['schema'], sourceId?: string): value is ListingRecord {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const record = value as ListingRecord;
+  const hasCandidate = Object.hasOwn(record, 'candidate');
+  if ((schema === 'soldbench.offline.page.v1' && hasCandidate) ||
+      (schema === 'soldbench.offline.page.v2' && !hasCandidate)) return false;
+  const keys = ['listingId', 'eventKey', 'identityEvidence', 'title'];
+  if (hasCandidate) {
+    keys.push('candidate');
+    try {
+      const candidate = candidateFromJson(record.candidate);
+      if (candidate.eventKey !== record.eventKey || (sourceId && candidate.sourceId !== sourceId)) return false;
+    } catch { return false; }
+  }
+  return Object.keys(record).sort().join() === keys.sort().join() &&
+    typeof record.listingId === 'string' && record.listingId.length > 0 &&
+    typeof record.title === 'string' && record.title.length > 0 &&
+    ((record.eventKey === null && record.identityEvidence === 'unknown') ||
+      (typeof record.eventKey === 'string' && record.eventKey.length > 0 && record.identityEvidence === 'synthetic_event_key'));
+}
+function eventFingerprint(record: ListingRecord): string {
+  if (!record.candidate) return sha(record);
+  // Query comparability belongs to its observation, and cannot conflict the global event.
+  const { comparable: _comparable, ...facts } = record.candidate;
+  return createHash('sha256').update(canonicalJson({ ...record, candidate: facts })).digest('hex');
 }
 function validDate(value: unknown): value is string {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(value) &&
@@ -197,10 +232,63 @@ function guard(plan: Plan, store: Store): void {
   if (!plan.allowReplay()) throw new Stop('replay_permission_revoked');
   if (store.state.circuits[plan.sourceId]) throw new Stop('circuit_open');
 }
+function bindingFor(plan: Plan, datasetHash: string): string {
+  return sha([VERSION, PARSER_VERSION, plan.sourceId, plan.queryHash, plan.asOf, datasetHash]);
+}
+
+export function completedRunEvidence(plan: Plan, transport: Pick<Transport, 'datasetHash'>, store: Store) {
+  if (plan.mode !== 'offline_fixture' || plan.collectorEnabled !== false) throw new Stop('network_mode_disabled');
+  const run = Object.hasOwn(store.state.runs, plan.runId) ? store.state.runs[plan.runId] : undefined;
+  if (!run || run.binding !== bindingFor(plan, transport.datasetHash)) throw new Stop('run_binding_conflict');
+  if (run.status !== 'completed' || run.next !== null) throw new Stop('run_not_completed');
+  if (!run.pages || run.seen.length === 0 || new Set(run.seen).size !== run.seen.length ||
+      run.coverage.length !== run.seen.length || Object.keys(run.pages).length !== run.seen.length) {
+    throw new Stop('run_evidence_mismatch');
+  }
+  const observations: Array<Observation & { eventStatus: 'candidate' | 'conflicted' | 'uncertain' }> = [];
+  const expectedIds = new Set<string>();
+  for (const [index, cursor] of run.seen.entries()) {
+    const page = Object.hasOwn(run.pages, cursor) ? run.pages[cursor] : undefined;
+    if (!validCursor(cursor) || !page || !/^[a-f0-9]{64}$/.test(page.bodyHash) ||
+        page.coverageAsOf !== run.coverage[index] || !validDate(page.coverageAsOf) ||
+        Date.parse(page.coverageAsOf) > Date.parse(plan.asOf) || !Array.isArray(page.observationIds)) {
+      throw new Stop('run_evidence_mismatch');
+    }
+    for (const id of page.observationIds) {
+      const raw = Object.hasOwn(store.state.observations, id) ? store.state.observations[id] : undefined;
+      const observation = raw as Observation | undefined;
+      if (typeof id !== 'string' || expectedIds.has(id) || !observation || observation.runId !== plan.runId ||
+          observation.sourceId !== plan.sourceId || observation.cursor !== cursor || observation.pageHash !== page.bodyHash ||
+          !validRecord(observation.record, undefined, plan.sourceId) || observation.fingerprint !== sha(observation.record) ||
+          id !== sha([plan.runId, cursor, observation.fingerprint])) {
+        throw new Stop('run_evidence_mismatch');
+      }
+      expectedIds.add(id);
+      let eventStatus: 'candidate' | 'conflicted' | 'uncertain' = 'uncertain';
+      if (observation.record.eventKey !== null) {
+        const event = store.state.events[sha([plan.sourceId, observation.record.eventKey])];
+        if (!event || !validRecord(event.record, undefined, plan.sourceId) || event.fingerprint !== eventFingerprint(event.record) ||
+            !['candidate', 'conflicted'].includes(event.status) ||
+            (event.status === 'candidate' && event.fingerprint !== eventFingerprint(observation.record))) {
+          throw new Stop('run_evidence_mismatch');
+        }
+        eventStatus = event.status;
+      }
+      observations.push({ ...copy(observation), eventStatus });
+    }
+  }
+  const storedIds = Object.entries(store.state.observations).filter(([, value]) =>
+    value && typeof value === 'object' && (value as Observation).runId === plan.runId).map(([id]) => id);
+  if (storedIds.length !== expectedIds.size || storedIds.some(id => !expectedIds.has(id))) throw new Stop('run_evidence_mismatch');
+  const evidence = { runId: plan.runId, sourceId: plan.sourceId, queryHash: plan.queryHash,
+    asOf: plan.asOf, datasetHash: transport.datasetHash, parserVersion: PARSER_VERSION,
+    dataAsOf: [...run.coverage].sort()[0], observations };
+  return { ...evidence, evidenceRevision: sha(evidence) };
+}
 export async function collect(plan: Plan, transport: Transport, store: Store,
   clock = { now: () => Date.now(), wait: async (ms: number) => new Promise<void>(r => setTimeout(r, ms)) }) {
   const scope = sha([plan.sourceId, plan.queryHash]);
-  const binding = sha([VERSION, PARSER_VERSION, plan.sourceId, plan.queryHash, plan.asOf, transport.datasetHash]);
+  const binding = bindingFor(plan, transport.datasetHash);
   let outcome = 'failed'; let reason: string | null = null;
   try {
     guard(plan, store);
@@ -211,7 +299,7 @@ export async function collect(plan: Plan, transport: Transport, store: Store,
     if (existing && existing.binding !== binding) throw new Stop('run_binding_conflict');
     if (!existing) store.transact(s => {
       s.runs[plan.runId] = { binding, next: 'start', seen: [], coverage: [], status: 'running', stopReason: null,
-        requests: 0, bytes: 0, attempts: {}, deadlineAt: clock.now() + plan.deadlineMs };
+        requests: 0, bytes: 0, attempts: {}, deadlineAt: clock.now() + plan.deadlineMs, pages: {} };
     });
     while (true) {
       guard(plan, store);
@@ -257,17 +345,23 @@ export async function collect(plan: Plan, transport: Transport, store: Store,
       guard(plan, store);
       store.transact(s => {
         const current = s.runs[plan.runId];
+        if (!current.pages) throw new Stop('run_evidence_mismatch');
+        const observationIds = new Set<string>();
         for (const record of page.records) {
           const fingerprint = sha(record);
           const obs = sha([plan.runId, cursor, fingerprint]);
+          observationIds.add(obs);
           s.observations[obs] = { sourceId:plan.sourceId, runId:plan.runId, cursor, fingerprint, pageHash:sha(response.body), record };
           if (record.eventKey === null) { s.quarantined[obs] = { reason:'uncertain_event_identity', observation:obs }; continue; }
           const identity = sha([plan.sourceId, record.eventKey]);
           const event = s.events[identity];
-          if (event && event.fingerprint !== fingerprint) {
+          const eventHash = eventFingerprint(record);
+          if (event && event.fingerprint !== eventHash) {
             event.status = 'conflicted'; s.quarantined[obs] = { reason:'event_identity_conflict', observation:obs };
-          } else if (!event) s.events[identity] = { record, fingerprint, status:'candidate' };
+          } else if (!event) s.events[identity] = { record, fingerprint: eventHash, status:'candidate' };
         }
+        current.pages[cursor] = { bodyHash: sha(response.body), coverageAsOf: page.coverageAsOf,
+          observationIds: [...observationIds] };
         current.seen.push(cursor); current.coverage.push(page.coverageAsOf); current.next = page.nextCursor;
         current.status = 'running'; current.stopReason = null;
       });

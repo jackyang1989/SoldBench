@@ -48,3 +48,5 @@
 来源缺项用`python3 step0/tools/readiness.py`检查。成本输入与执行见 [成本工具](unit-economics/README.md)，真实数据表保留未知值，假设场景用于压力演算。已准备 [访谈提纲](interviews.md) 和 [14天验证计划与分析入口](online-validation-plan.md)，实际访谈和获准线上运行待执行。
 
 人工候选标注就绪后按 [质量规程](quality-plan.md) 生成Precision/Recall、Wilson区间及逐查询价格偏差。当前`labels/quality-input-empty.json`输出空报告，真实金标仍待制作。源码依赖和复核步骤见 [独立性审查准备](independence-audit.md)。
+
+采集到统计的贯通演练执行`node --import ./step0/collector-poc/src/offline-network.ts step0/collector-poc/src/study.ts`。完整候选和保守水位来自实际提交的合成run，按当前模拟权限决定可读性，输出快照、统计及断源场景，运行说明见PoC README。
