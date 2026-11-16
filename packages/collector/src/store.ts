@@ -11,6 +11,7 @@ import {
   parseFixturePage,
   uncertainCandidateKey,
 } from "./fixture.ts";
+import { type HtmlProfile, parseHtmlPage, validateHtmlProfile } from "./html.ts";
 import { CollectorIntegrityError, type QuarantineReason, quarantineReasons } from "./integrity.ts";
 
 export type Job = {
@@ -68,10 +69,28 @@ function missingRow(): never {
   throw new Error("collector_database_row_missing");
 }
 export class CollectorStore {
+  readonly htmlProfile?: HtmlProfile;
+  readonly profileHash: string | null;
   constructor(
     readonly db: Database,
     readonly clock?: () => string,
-  ) {}
+    options: { htmlProfile?: HtmlProfile } = {},
+  ) {
+    this.htmlProfile =
+      options.htmlProfile === undefined ? undefined : validateHtmlProfile(options.htmlProfile);
+    this.profileHash = this.htmlProfile ? digest(canonicalJson(this.htmlProfile)) : null;
+  }
+  get pageContentType() {
+    return this.htmlProfile ? "text/html" : "application/json";
+  }
+  parsePage(raw: Uint8Array, binding: { sourceId: string; queryHash: string; cursor: string; asOf: string }) {
+    const page = this.htmlProfile
+      ? parseHtmlPage(raw, binding, this.htmlProfile)
+      : parseFixturePage(raw, binding);
+    if (page.records.some((row) => row.recordEvidence && row.recordEvidence.profileHash !== this.profileHash))
+      throw new Error("record_profile_mismatch");
+    return page;
+  }
   private async now(c: Transaction): Promise<Date> {
     if (this.clock) return new Date(instant(this.clock()));
     return (await c.query<{ t: Date }>("SELECT clock_timestamp() AS t")).rows[0]?.t ?? missingRow();
@@ -120,12 +139,13 @@ export class CollectorStore {
       throw new Error("collector_config_disabled");
     const run = (
       await c.query(
-        "SELECT permission_snapshot_hash,collector_version,parser_version FROM collector_runs WHERE id=$1",
+        "SELECT permission_snapshot_hash,collector_version,parser_version,parser_profile_hash FROM collector_runs WHERE id=$1",
         [job.collector_run_id],
       )
     ).rows[0];
     if (run.collector_version !== COLLECTOR_VERSION || run.parser_version !== PARSER_VERSION)
       throw new Error("collector_version_mismatch");
+    if (run.parser_profile_hash !== this.profileHash) throw new Error("collector_profile_mismatch");
     if (
       run.permission_snapshot_hash !==
       digest(`offline:${source.permission_epoch}:${config.updated_at.toISOString()}`)
@@ -150,7 +170,9 @@ export class CollectorStore {
       const source = await this.source(c, input.sourceId),
         now = await this.now(c);
       if (instant(input.asOf) > now.getTime()) throw new Error("collector_as_of_in_future");
-      const requestHash = digest(canonicalJson({ ...input, ttlSeconds: ttl }));
+      const requestHash = digest(
+        canonicalJson({ ...input, ttlSeconds: ttl, parserProfileHash: this.profileHash }),
+      );
       const old = (
         await c.query<Job>("SELECT * FROM collector_jobs WHERE source_id=$1 AND run_key=$2", [
           input.sourceId,
@@ -177,7 +199,7 @@ export class CollectorStore {
       if (!budget.rowCount) throw new Error("collector_daily_jobs_exhausted");
       const runId = randomUUID();
       await c.query(
-        "INSERT INTO collector_runs(id,source_id,config_id,query_hash,collector_version,parser_version,permission_snapshot_hash,started_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+        "INSERT INTO collector_runs(id,source_id,config_id,query_hash,collector_version,parser_version,permission_snapshot_hash,started_at,parser_profile_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
         [
           runId,
           input.sourceId,
@@ -187,6 +209,7 @@ export class CollectorStore {
           PARSER_VERSION,
           digest(`offline:${source.permission_epoch}:${config.updated_at.toISOString()}`),
           now,
+          this.profileHash,
         ],
       );
       const result = await c.query<{ id: string }>(
@@ -232,12 +255,14 @@ export class CollectorStore {
         );
         for (const job of jobs.rows) {
           const run = (
-            await c.query("SELECT collector_version,parser_version FROM collector_runs WHERE id=$1", [
-              job.collector_run_id,
-            ])
+            await c.query(
+              "SELECT collector_version,parser_version,parser_profile_hash FROM collector_runs WHERE id=$1",
+              [job.collector_run_id],
+            )
           ).rows[0];
           if (run?.collector_version !== COLLECTOR_VERSION || run.parser_version !== PARSER_VERSION)
             throw new Error("collector_version_mismatch");
+          if (run.parser_profile_hash !== this.profileHash) throw new Error("collector_profile_mismatch");
           await this.abandon(c, job);
           const crashAttempt = job.status === "running" ? 1 : 0;
           if (job.expires_at <= now || job.attempts + crashAttempt >= 3) {
@@ -310,10 +335,12 @@ export class CollectorStore {
       if (!job || job.query_hash !== input.queryHash || job.as_of.getTime() !== instant(input.asOf))
         throw new Error("fixture_artifact_job_mismatch");
       const run = (
-        await c.query("SELECT fixture_artifact_hash FROM collector_runs WHERE id=$1 FOR UPDATE", [
-          job.collector_run_id,
-        ])
+        await c.query(
+          "SELECT fixture_artifact_hash,parser_profile_hash FROM collector_runs WHERE id=$1 FOR UPDATE",
+          [job.collector_run_id],
+        )
       ).rows[0];
+      if (run.parser_profile_hash !== this.profileHash) throw new Error("collector_profile_mismatch");
       if (run.fixture_artifact_hash && run.fixture_artifact_hash !== input.hash)
         throw new Error("fixture_artifact_changed");
       const pages = await c.query("SELECT cursor,raw_hash FROM collector_pages WHERE job_id=$1", [job.id]);
@@ -702,7 +729,7 @@ export class CollectorStore {
   ): Promise<EvidenceItem[]> {
     return transaction(this.db, async (c) => {
       const { job, now } = await this.locked(c, lease);
-      const parsed = parseFixturePage(raw, {
+      const parsed = this.parsePage(raw, {
         sourceId: job.source_id,
         queryHash: job.query_hash,
         cursor: job.cursor,
@@ -849,6 +876,21 @@ export class CollectorStore {
             row.listingId,
           ],
         );
+        if (row.recordEvidence) {
+          if (row.recordEvidence.profileHash !== this.profileHash) throw new Error("record_profile_mismatch");
+          await c.query(
+            "INSERT INTO listing_record_evidence(sale_event_id,listing_id,source_id,observation_id,profile_hash,record_index,evidence) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING",
+            [
+              eventId,
+              listing.id,
+              job.source_id,
+              observationId,
+              row.recordEvidence.profileHash,
+              row.recordEvidence.recordIndex,
+              JSON.stringify(row.recordEvidence),
+            ],
+          );
+        }
         const image =
           (
             await c.query<{ id: string }>(

@@ -1,0 +1,85 @@
+{
+  "schema": "soldbench.synthetic-html-profile.v1",
+  "synthetic": true,
+  "id": "soldbench-offline-html",
+  "revision": 1,
+  "root": "main[data-sb-schema]",
+  "records": "article.record",
+  "empty": "p.empty",
+  "primaryImages": "img.primary",
+  "attributes": "span.attribute",
+  "listingHosts": ["market.example.test"],
+  "imageHosts": ["images.example.test"],
+  "allowSyntheticSeller": false,
+  "decimal": ".",
+  "grouping": ",",
+  "fields": {
+    "listingId": {
+      "selector": "span.identity",
+      "attribute": "data-listing-id"
+    },
+    "eventKey": {
+      "selector": "span.identity",
+      "attribute": "data-event-key"
+    },
+    "eventProof": {
+      "selector": "span.identity",
+      "attribute": "data-event-proof"
+    },
+    "title": {
+      "selector": "h2.title"
+    },
+    "sold": {
+      "selector": "span.status"
+    },
+    "format": {
+      "selector": "span.format"
+    },
+    "price": {
+      "selector": "span.price"
+    },
+    "priceEvidence": {
+      "selector": "span.price",
+      "attribute": "data-evidence"
+    },
+    "currency": {
+      "selector": "span.price",
+      "attribute": "data-currency"
+    },
+    "shipping": {
+      "selector": "span.shipping"
+    },
+    "shippingEvidence": {
+      "selector": "span.shipping",
+      "attribute": "data-evidence"
+    },
+    "date": {
+      "selector": "time.sold-date",
+      "attribute": "datetime"
+    },
+    "dateSemantics": {
+      "selector": "time.sold-date",
+      "attribute": "data-semantic"
+    },
+    "timeZone": {
+      "selector": "time.sold-date",
+      "attribute": "data-time-zone"
+    },
+    "condition": {
+      "selector": "span.condition"
+    },
+    "conditionId": {
+      "selector": "span.condition",
+      "attribute": "data-condition-id"
+    },
+    "link": {
+      "selector": "a.listing-link",
+      "attribute": "href"
+    },
+    "sellerRef": {
+      "selector": "span.seller",
+      "attribute": "data-ref"
+    }
+  },
+  "accessBlocks": ["section.access-wall", "form.access-login"]
+}

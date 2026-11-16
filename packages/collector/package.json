@@ -10,9 +10,10 @@
     }
   },
   "dependencies": {
-    "@soldbench/shared": "*",
-    "@soldbench/db": "*",
     "@soldbench/core": "*",
-    "@soldbench/media": "*"
+    "@soldbench/db": "*",
+    "@soldbench/media": "*",
+    "@soldbench/shared": "*",
+    "cheerio": "1.2.0"
   }
 }

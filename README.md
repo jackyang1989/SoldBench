@@ -97,6 +97,9 @@ npm run db:start
 npm run collector:demo
 npm run collector:maintain
 
+# HTML正文→PG证据→8张本地生成主图→统计，一条命令离线演示
+npm run collector:html-demo
+
 # 只准备任务与合成响应包；从输出复制 artifactPath
 npm run collector:demo -- --prepare-only
 npm run collector:worker -- --fixture=/absolute/path/to/collector-fixture-JOB_ID.json --max-pages=1
@@ -108,3 +111,5 @@ npm run collector:worker -- --fixture=/absolute/path/to/collector-fixture-JOB_ID
 此命令在本机开发PG16或明确指定的专用本机数据库运行，使用原合成黄金fixture与本机生成图片；有数据库写入但没有外部来源请求，输出写入忽略提交的`.local/`。不是生产采集启动命令。先确保没有指向真实业务库的DATABASE_URL，配置与迁移要求见管线契约；没有凭证、准入或G0变化。
 
 独立worker的响应包与run固定绑定，不得换包续跑；状态含实际job终态、游标、预算和lastSuccessAt。退出0不代表完整采集完成，可能是retry/not_claimed。每个进程写带PID的私有周期状态文件（路径见heartbeatPath），不能把重复启动实例的退出当作持租约实例停机；运行事实以PG租约/检查点为准。没有生产daemon、在线采集或真实稳定性结论。
+
+HTML演示也支持`npm run collector:html-demo -- --prepare-only`，输出的artifactPath可交给同一个collector:worker分多周期续跑。样本与profile位于`tests/fixtures/html/`，全部由本项目编写；不是eBay网页捕获或已核验生产选择器。解析器不执行脚本、不访问HTML中的图片/iframe地址，主图只从本地响应包读取。真实eBay的45项字段仍全部未核验。

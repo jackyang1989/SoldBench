@@ -9,6 +9,7 @@ import {
   parseFixturePage,
   uncertainCandidateKey,
 } from "./fixture.ts";
+import { hasHtmlAccessBlock } from "./html.ts";
 import { CollectorIntegrityError } from "./integrity.ts";
 import type { CollectorStore, Lease } from "./store.ts";
 
@@ -48,9 +49,11 @@ export class OfflineCollectorWorker {
     if (
       [401, 403].includes(response.status) ||
       (html &&
-        /captcha|challenge|sign.?in|verify you are human/i.test(
-          Buffer.from(response.bytes.subarray(0, 8192)).toString(),
-        ))
+        (this.store.htmlProfile
+          ? hasHtmlAccessBlock(response.bytes, this.store.htmlProfile)
+          : /captcha|challenge|sign.?in|verify you are human/i.test(
+              Buffer.from(response.bytes.subarray(0, 8192)).toString(),
+            )))
     ) {
       await this.store.stop(lease.sourceId, "source_access_refused");
       throw new Error("source_access_refused");
@@ -109,7 +112,7 @@ export class OfflineCollectorWorker {
             observationId: task.observation_id,
             saleEventId: task.sale_event_id,
             sourceId: lease.sourceId,
-            hosts: ["images.example.test"],
+            hosts: this.store.htmlProfile?.imageHosts ?? ["images.example.test"],
             candidates: [
               {
                 listingId: task.listing_id,
@@ -176,10 +179,10 @@ export class OfflineCollectorWorker {
         const { response, id } = await this.response(lease, `page:${job.cursor}`, "page", options.signal);
         let page: FixturePage;
         try {
-          if (response.contentType.split(";")[0]?.trim().toLowerCase() !== "application/json")
+          if (response.contentType.split(";")[0]?.trim().toLowerCase() !== this.store.pageContentType)
             throw new CollectorIntegrityError("page_content_type_invalid");
           try {
-            page = parseFixturePage(response.bytes, {
+            page = this.store.parsePage(response.bytes, {
               sourceId,
               queryHash: job.query_hash,
               cursor: job.cursor,

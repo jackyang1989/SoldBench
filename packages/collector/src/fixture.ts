@@ -1,13 +1,15 @@
 import { createHash } from "node:crypto";
 import { type Candidate, candidateFromJson, canonicalJson, instant } from "@soldbench/core";
+import { type RecordEvidence, recordEvidenceFromJson } from "./record-evidence.ts";
 
-export const COLLECTOR_VERSION = "offline-pg-1.2.0";
-export const PARSER_VERSION = "synthetic-page-1.1.0";
+export const COLLECTOR_VERSION = "offline-pg-1.3.0";
+export const PARSER_VERSION = "offline-page-1.2.0";
 export type FixtureListing = {
   listingId: string;
   title: string;
   candidate: Candidate;
   primaryImage?: { role: "primary"; url: string };
+  recordEvidence?: RecordEvidence;
 };
 export type FixturePage = {
   schema: "soldbench.synthetic-page.v1";
@@ -19,6 +21,7 @@ export type FixturePage = {
   asOf: string;
   empty: boolean;
   records: FixtureListing[];
+  sourceReported?: { count: number; unit: "listings" | "items" | "events" | "unknown"; estimated: boolean };
 };
 export type FixtureResponse = {
   status: number;
@@ -100,6 +103,15 @@ export function parseFixturePage(
     throw new Error("fixture_page_binding_or_shape_invalid");
   if (storedInstant(page.asOf) > storedInstant(binding.asOf))
     throw new Error("fixture_page_future_watermark");
+  if (
+    page.sourceReported !== undefined &&
+    (!page.sourceReported ||
+      !Number.isSafeInteger(page.sourceReported.count) ||
+      page.sourceReported.count < 0 ||
+      !["listings", "items", "events", "unknown"].includes(page.sourceReported.unit) ||
+      typeof page.sourceReported.estimated !== "boolean")
+  )
+    throw new Error("fixture_reported_count_invalid");
   page.records = page.records.map((row) => {
     if (!row || !text(row.listingId, 160) || !text(row.title)) throw new Error("fixture_listing_invalid");
     const candidate = candidateFromJson(row.candidate);
@@ -128,7 +140,13 @@ export function parseFixturePage(
       (row.primaryImage?.role !== "primary" || !text(row.primaryImage.url, 2000))
     )
       throw new Error("fixture_primary_image_invalid");
-    return { ...row, candidate };
+    return {
+      ...row,
+      candidate,
+      ...(row.recordEvidence === undefined
+        ? {}
+        : { recordEvidence: recordEvidenceFromJson(row.recordEvidence) }),
+    };
   });
   return page;
 }
@@ -150,7 +168,7 @@ export function eventFacts(row: FixtureListing): string {
  * This deduplicates uncertain candidates, never proves a real transaction identity. */
 export function uncertainCandidateKey(row: FixtureListing): string {
   if (row.candidate.observationKey) return row.candidate.observationKey;
-  const { primaryImage: _image, candidate, ...record } = row;
+  const { primaryImage: _image, recordEvidence: _evidence, candidate, ...record } = row;
   const { observationKey: _key, ...body } = candidate;
   return digest(canonicalJson({ record, candidate: body }));
 }

@@ -52,7 +52,7 @@ const writeHeartbeat = (value) => {
 };
 try {
   await migrate(db);
-  const store = new CollectorStore(db, clock),
+  const store = new CollectorStore(db, clock, { htmlProfile: artifact.htmlProfile }),
     job = await store.view(artifact.jobId);
   const source = (
     await db.query("SELECT access_method,status,permission_epoch FROM sources WHERE id=$1", [

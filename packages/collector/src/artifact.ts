@@ -1,5 +1,6 @@
 import { canonicalJson, instant } from "@soldbench/core";
 import { digest, type FixtureResponse, FixtureTransport, parseFixturePage } from "./fixture.ts";
+import { type HtmlProfile, parseHtmlPage, validateHtmlProfile } from "./html.ts";
 
 export type FixtureArtifact = {
   schema: "soldbench.collector-artifact.v1";
@@ -8,6 +9,7 @@ export type FixtureArtifact = {
   jobId: string;
   queryHash: string;
   asOf: string;
+  htmlProfile?: HtmlProfile;
   frames: Array<{
     key: string;
     responses: Array<{
@@ -59,6 +61,7 @@ export function loadFixtureArtifact(bytes: Uint8Array) {
   )
     throw new Error("fixture_artifact_invalid_shape");
   instant(artifact.asOf);
+  const profile = artifact.htmlProfile === undefined ? undefined : validateHtmlProfile(artifact.htmlProfile);
   const frames = new Map<string, FixtureResponse[]>(),
     pageHashes = new Map<string, Set<string>>();
   for (const frame of artifact.frames) {
@@ -102,15 +105,17 @@ export function loadFixtureArtifact(bytes: Uint8Array) {
       if (
         frame.key.startsWith("page:") &&
         row.status === 200 &&
-        row.contentType.split(";")[0]?.trim().toLowerCase() === "application/json"
+        row.contentType.split(";")[0]?.trim().toLowerCase() === (profile ? "text/html" : "application/json")
       ) {
         const cursor = frame.key.slice(5);
-        parseFixturePage(raw, {
+        const binding = {
           sourceId: artifact.sourceId,
           queryHash: artifact.queryHash,
           cursor,
           asOf: artifact.asOf,
-        });
+        };
+        if (profile) parseHtmlPage(raw, binding, profile);
+        else parseFixturePage(raw, binding);
         const hashes = pageHashes.get(cursor) ?? new Set<string>();
         hashes.add(digest(raw));
         pageHashes.set(cursor, hashes);
