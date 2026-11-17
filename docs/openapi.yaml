@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.9.0
+  version: 1.10.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -4570,6 +4570,7 @@ paths:
                 type: string
               description: 私有/收费/分享响应使用no-store
       x-provider-profile: primary
+      x-offline-fixture: Explicit local configuration only; synthetic signed envelope and independent fixture confirmation. Never calls a real provider.
       x-task: TASK-029
       x-credit-policy: '0'
       x-roles:
@@ -4591,6 +4592,8 @@ paths:
       description: 只有获选且获批provider启用；按其官方签名协议验证原始字节，DB持久化后ack，失败5xx。外部事件schema由实际provider版本验证，不使用SoldBench伪造的事件格式。
       security:
       - PayPalSignature: []
+      - OfflinePayPalFixtureSignature: []
+        OfflinePayPalFixtureTime: []
       parameters:
       - name: paypal-transmission-id
         in: header
@@ -4704,6 +4707,7 @@ paths:
                 type: string
               description: 私有/收费/分享响应使用no-store
       x-provider-profile: supplemental
+      x-offline-fixture: Explicit local configuration only; synthetic signed envelope and independent fixture confirmation. Never calls a real provider.
       x-task: TASK-029
       x-credit-policy: '0'
       x-roles:
@@ -6726,8 +6730,83 @@ paths:
           arguments_schema: McpSearchArguments
         sold_stats:
           arguments_schema: McpStatsArguments
+  /billing/checkout/{id}:
+    get:
+      operationId: getOfflineCheckout
+      summary: Read an owned synthetic checkout. Never confirms payment.
+      security:
+      - Session: []
+      parameters:
+      - name: Accept-Language
+        in: header
+        required: false
+        schema:
+          type: string
+          maxLength: 256
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Offline checkout details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OfflineCheckoutResponse'
+        '400':
+          description: Invalid request, unauthorized owner, missing checkout, disabled
+            fixture or temporary service failure.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Invalid request, unauthorized owner, missing checkout, disabled
+            fixture or temporary service failure.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Invalid request, unauthorized owner, missing checkout, disabled
+            fixture or temporary service failure.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Invalid request, unauthorized owner, missing checkout, disabled
+            fixture or temporary service failure.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Invalid request, unauthorized owner, missing checkout, disabled
+            fixture or temporary service failure.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-task: TASK-029
+      x-roles:
+      - owner
+      x-credit-policy: '0'
 components:
   securitySchemes:
+    OfflinePayPalFixtureSignature:
+      type: apiKey
+      in: header
+      name: X-SoldBench-Fixture-PayPal-Signature
+      description: Local simulator only. Not a PayPal vendor credential.
+    OfflinePayPalFixtureTime:
+      type: apiKey
+      in: header
+      name: X-SoldBench-Fixture-PayPal-Time
+      description: Local fixture timestamp, paired with the local fixture signature.
     ApiKey:
       type: http
       scheme: bearer
@@ -8778,6 +8857,10 @@ components:
         policy_version:
           type: string
         credit_recovery_open: *id021
+        version:
+          type: [integer, 'null']
+          minimum: 1
+          description: Current subscription version for cancellation. Null for free or pending.
       required:
       - plan_code
       - status
@@ -8787,6 +8870,7 @@ components:
       - cancel_at_period_end
       - policy_version
       - credit_recovery_open
+      - version
       additionalProperties: false
     SubscriptionResponse:
       type: object
@@ -10288,5 +10372,46 @@ components:
           format: uuid
       required:
       - query_id
+      additionalProperties: false
+    OfflineCheckoutResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            provider:
+              enum:
+              - stripe
+              - paypal
+            status:
+              enum:
+              - pending
+              - confirmed
+              - expired
+              - awaiting_reconciliation
+            amount_cents:
+              type: integer
+              minimum: 1
+              maximum: 9007199254740991
+            currency:
+              const: USD
+            expires_at:
+              type: string
+              format: date-time
+            data_mode:
+              const: offline_fixture
+          required:
+          - provider
+          - status
+          - amount_cents
+          - currency
+          - expires_at
+          - data_mode
+          additionalProperties: false
+        meta:
+          $ref: '#/components/schemas/BasicMeta'
+      required:
+      - data
+      - meta
       additionalProperties: false
 x-design-evidence: docs/adr/ADR-12.md; docs/contracts/check_contracts.py; not production approval

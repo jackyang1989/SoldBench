@@ -127,7 +127,8 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
     assert.deepEqual(await migrate(db, "0016_collector_budget_binding.sql"), [
       "0016_collector_budget_binding.sql",
     ]);
-    assert.deepEqual(await migrate(db), ["0017_query_request_audit.sql"]);
+    assert.deepEqual(await migrate(db, "0017_query_request_audit.sql"), ["0017_query_request_audit.sql"]);
+    assert.deepEqual(await migrate(db), ["0018_offline_payment_lifecycle.sql"]);
     assert.deepEqual(await migrate(db), []);
     const mediaColumns = await db.query(
       "SELECT column_name FROM information_schema.columns WHERE table_name='listing_images'",
@@ -160,7 +161,7 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
     const tables = await db.query(
       "SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema='public'",
     );
-    assert.equal(tables.rows[0].n, 65);
+    assert.equal(tables.rows[0].n, 67);
     await assert.rejects(
       transaction(db, async (c) => {
         await c.query("INSERT INTO users(email,password_hash) VALUES('rollback@example.test','fixture')");

@@ -847,13 +847,7 @@ export class QueryService {
         })),
         next_cursor:
           ledger.length > pageSize ? this.makeCursor(identity.userId, "ledger", ledger[pageSize - 1]) : null,
-        credit_recovery_open: Boolean(
-          (
-            await c.query("SELECT 1 FROM credit_recoveries WHERE user_id=$1 AND status='open'", [
-              identity.userId,
-            ])
-          ).rowCount,
-        ),
+        credit_recovery_open: await this.billing.hasPaymentHold(c, identity.userId),
       };
     });
   }

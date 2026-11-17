@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AuthService } from "@soldbench/auth";
+import type { PaymentLifecycle } from "@soldbench/billing";
 import type { Database } from "@soldbench/db";
 import type { QueryService } from "@soldbench/query";
 import { AppError, type Config } from "@soldbench/shared";
@@ -9,12 +10,13 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { mountAuth } from "./auth.ts";
 import { mountDeveloper } from "./developer.ts";
 import { mountMcp } from "./mcp.ts";
+import { mountPayments } from "./payments.ts";
 import { mountQueries } from "./queries.ts";
 
 export function createApp(
   config: Config,
   db: Database,
-  services: { auth?: AuthService; query?: QueryService } = {},
+  services: { auth?: AuthService; query?: QueryService; payments?: PaymentLifecycle } = {},
 ) {
   const app = new Hono<{ Variables: { requestId: string } }>();
   app.use("*", async (c, next) => {
@@ -55,6 +57,7 @@ export function createApp(
   mountQueries(app, config, services.auth, services.query);
   mountMcp(app, config, services.auth, services.query);
   mountDeveloper(app);
+  mountPayments(app, config, services.auth, config.paymentFixtures ? services.payments : undefined);
   app.notFound((c) =>
     c.json(
       {

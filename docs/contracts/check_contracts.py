@@ -94,7 +94,10 @@ for provider in ('paddle','dodo'):
     require(SPEC['paths'][f'/webhooks/{provider}']['post']['x-provider-profile']=='reserved-disabled',
             f'Reserve webhook enabled in design: {provider}')
 for provider, scheme in (('stripe','StripeSignature'), ('paypal','PayPalSignature')):
-    require(SPEC['paths'][f'/webhooks/{provider}']['post']['security']==[{scheme:[]}],
+    expected_security = [{scheme: []}]
+    if provider == 'paypal':
+        expected_security.append({'OfflinePayPalFixtureSignature': [], 'OfflinePayPalFixtureTime': []})
+    require(SPEC['paths'][f'/webhooks/{provider}']['post']['security'] == expected_security,
             f'Wrong payment signature contract: {provider}')
 print('PASS: Stripe/PayPal checkout choices, four inactive/unknown choices rejected, independent webhook schemes.')
 for name,schema in SCHEMAS.items():

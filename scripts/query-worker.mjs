@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { AuthService, localAuthSecrets } from "@soldbench/auth";
-import { BillingService } from "@soldbench/billing";
+import { BillingService, localPaymentKeys, PaymentLifecycle } from "@soldbench/billing";
 import { assertLocalDatabaseUrl, database, migrate } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
 import { QueryService, RequestAuditService } from "@soldbench/query";
@@ -24,15 +24,15 @@ for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => abort.abort
 try {
   await migrate(db);
   const auth = new AuthService(db, localAuthSecrets(resolve(config.localStateRoot)), config.origin),
-    query = new QueryService(
-      db,
-      auth,
-      new BillingService(db),
-      new PrivateMediaStore(resolve(config.mediaRoot)),
-    ),
+    billing = new BillingService(db),
+    payments = config.paymentFixtures
+      ? new PaymentLifecycle(billing, config.origin, localPaymentKeys(resolve(config.localStateRoot)))
+      : null,
+    query = new QueryService(db, auth, billing, new PrivateMediaStore(resolve(config.mediaRoot))),
     worker = `query-${randomUUID()}`,
     audit = new RequestAuditService(query);
-  let nextMaintenance = 0;
+  let nextMaintenance = 0,
+    nextPaymentAttempt = 0;
   do {
     if (Date.now() >= nextMaintenance) {
       try {
@@ -44,8 +44,18 @@ try {
     }
     const result = await query.workOnce(worker);
     if (result) console.log(JSON.stringify({ data_mode: "offline_fixture", ...result }));
+    let event;
+    if (payments && Date.now() >= nextPaymentAttempt) {
+      try {
+        event = await payments.workOnce();
+      } catch {
+        console.error("soldbench_payment_fixture_processing_failed");
+        nextPaymentAttempt = Date.now() + 1000;
+      }
+    }
+    if (event) console.log(JSON.stringify({ data_mode: "offline_fixture", payment_event: event }));
     if (args[0] !== "--watch" || abort.signal.aborted) break;
-    if (!result) await setTimeout(1000, undefined, { signal: abort.signal }).catch(() => {});
+    if (!result && !event) await setTimeout(1000, undefined, { signal: abort.signal }).catch(() => {});
   } while (!abort.signal.aborted);
 } finally {
   await db.end();

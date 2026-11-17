@@ -7,6 +7,8 @@ export function loadConfig(env: Record<string, string | undefined>) {
     throw new Error("Only offline_fixture is enabled");
   if (env.PAYMENTS_MODE && env.PAYMENTS_MODE !== "offline")
     throw new Error("Payment network access remains disabled");
+  if (env.PAYMENT_FIXTURES && !["true", "false"].includes(env.PAYMENT_FIXTURES))
+    throw new Error("Invalid PAYMENT_FIXTURES");
   if (env.NODE_ENV === "production") throw new Error("Production release gates have not been signed");
   const port = Number(env.PORT ?? 3000);
   if (!Number.isSafeInteger(port) || port < 1 || port > 65535) throw new Error("Invalid PORT");
@@ -30,6 +32,7 @@ export function loadConfig(env: Record<string, string | undefined>) {
     port,
     dataMode: "offline_fixture" as const,
     paymentsMode: "offline" as const,
+    paymentFixtures: env.PAYMENT_FIXTURES === "true",
     collectorEnabled: false as const,
     databaseUrl: env.DATABASE_URL ?? null,
     localStateRoot: env.LOCAL_STATE_ROOT ?? ".local",

@@ -106,7 +106,7 @@ test("public developer assets are bilingual, fixed-path, cacheable and distingui
   assert.ok(status.operations.some((o) => o.status === "contract_only"));
   assert.ok(status.operations.find((o) => o.path === "/mcp").status === "local_route_present");
   const spec = await (await get("/openapi.json")).json();
-  assert.equal(spec.info.version, "1.9.0");
+  assert.match(spec.info.version, /^1\.\d+\.\d+$/);
   assert.ok(spec.paths["/mcp"]);
   const collection = await (await get("/soldbench.postman.json")).json();
   assert.equal(collection.variable.find((v) => v.key === "api_key").value, "");

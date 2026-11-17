@@ -103,3 +103,5 @@ SoldBench 是一个面向**个人卖家、收藏品交易商、二手商家、�
 台账§48补官方SDK2.4无状态MCP与双语开发者资源，按[MCP契约](MCP与开发者交付契约.md)接手。MCP只作适配，查询/claim继续走QueryService；sold_stats仅读已有可读快照。Web/MCP JSON转换共用core.queryParameters，再normalizeQuery；MCP20条展示不改REST默认50参数或完整统计，stats-only返回comp计数0。
 
 开发者源文件在developer/，build脚本生成dist固定路径注册表；改内容后npm run build。TS/Python/curl示例列入实际loopback/PG集成，demo写0600环境文件并统一LOCAL_STATE_ROOT/MEDIA_ROOT/数据库配置，禁止打印或提交。专业文档网页/Playground、两主流宿主验收未完成。新增GitHub离线workflow须观察实际远端结果，不把本机PASS当远端PASS。下一整包支付离线生命周期，真实资格/收款/上线门保持，不恢复否决UI。具体状态与证据仍只读台账。
+
+台账§49交付本机Stripe/PayPal支付生命周期与0018。PAYMENT_FIXTURES默认关闭，init生成0600模拟密钥，deliver在专用本机库写确认事实并签名投递，Worker从已验事件对账后原子更新账本。HTTP客户端点持owner锁复查当前会话；任何新增支付入口均走同一资金规则。真实支付账户、SDK/渠道消息验签、实际Portal/PayPal capture、真实财务对账与G3/G5不得以本机证据代签。

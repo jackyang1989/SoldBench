@@ -48,3 +48,35 @@ OpenAPI设计升至1.3.0，新增stripe/paypal webhook；原Paddle/Dodo端点保
 AT-037/038/040/049/050覆盖Stripe与PayPal分别的成功、失败、取消、退款、争议、续期、重复/乱序/响应丢失和账本对账；增加同owner跨渠道100并发订阅创建只形成一个有效支付意图/一期grant，拒绝跨渠道退款，inactive备用无发放。UI双语显示真实可用渠道和交易所属，渠道未开通不出现可用支付按钮。
 
 TASK-029从单MoR调整为Stripe＋PayPal两通道，TASK-042增加跨渠道回归。两个通道的商户账号、最终SDK/API版本及交易税务政策仍需真实确认，不向代码填假密钥、商户号或测试批准。预发布真实签名、渠道API、真实提现和授权小额交易留到对应实际集成/发布门；本轮静态校验不替代。
+
+## 5. 本机实施边界
+
+TASK-029 使用明确启用的本机合成渠道。Stripe 测试通知采用其原始字节与时间窗口签名格式，PayPal 使用独立的本机模拟签名和固定接收方。模拟密钥与商户仅在本机生成。真实 PayPal 验证使用官方验签接口，真实 Stripe 需要已核验的官方 SDK、事件版本和端点密钥。离线构建不向这两个接口发请求。
+
+客户只提交套餐、报价版本、渠道及幂等键。PG 事务写入支付意图和固定报价，订阅意图按 owner 唯一有效，购买包按意图独立。已签名通知先落库再确认。支付处理器读取独立记录的本机渠道确认事实，核对环境、商户、意图、金额、币种、交易归属及订阅周期后才允许发放。支付状态、额度桶与事件终态原子提交。续期按周期和支付交易去重，缺少原交易或当前渠道确认时留待重试。期末取消保持当前已付额度。尚未结案的争议暂停新收费查询，最终全额退款沿既有撤销、回收和审计规则处理，部分退款仅留给真实政策定版后的复核。账单只返回本人安全摘要。离线优惠版本为 `offline-v1`，沿原稿候选数字用于模拟。
+
+设置 `PAYMENT_FIXTURES=true` 后先执行 `npm run payment:fixture -- init`，再在相同环境下启动 `npm run dev`。`LOCAL_STATE_ROOT` 默认 `.local`，其中的密钥文件权限0600。该开关不能改变 `PAYMENTS_MODE=offline`。查询 worker 会处理已经验签的本机支付队列。遇暂时数据库异常回滚并在后续轮询重试，普通查询继续运行。接收与业务处理是两笔事务，验证通过并落库才返回空200，未知事实有可见的有界重试状态。
+
+例如用已获本人会话创建 PayPal `purchased_1500` checkout，从其URL取得 checkout UUID。保存如下JSON，将 paid_at 替换为当次合成交易的UTC时间（在意图创建之后、到期之前）：
+
+```json
+{
+  "provider": "paypal",
+  "event_type": "capture_completed",
+  "checkout_id": "00000000-0000-4000-8000-000000000001",
+  "object_id": "fixture_capture_1",
+  "revision": 1,
+  "kind": "transaction",
+  "status": "confirmed",
+  "amount_cents": 1000,
+  "currency": "USD",
+  "paid_at": "2026-11-18T00:00:00.000Z",
+  "subscription_id": null,
+  "period_start": null,
+  "period_end": null
+}
+```
+
+运行 `npm run payment:fixture -- deliver /path/to/fixture.json`。重复模拟通知可固定可选 `event_id`，不同通知指向同交易和版本也不会重复发放。Stripe购买包事件用 `payment_intent_succeeded`，Stripe订阅用 `invoice_paid`、PayPal用 `sale_completed`，均须提供稳定订阅ID与周期。支持全额退款、争议及失败模拟；退款不自动终止原订阅。Stripe Portal 在本机返回自有账单路径，PayPal返回自有管理路径。真实 hosted checkout、PayPal capture/验签、真实 Stripe Portal、同商户支付方案变更及预发布财务对账须按供应商批准环境验收。Creem、Dodo当前仍为资格准备。
+
+本机演练只变更合成账本。订单确认事实是受信本机CLI/测试数据，无公开创建确认事实的路由。迁移0018追加意图、确认事实和事件重试，以及交易/订阅归属约束。OpenAPI1.10增加GET checkout状态、订阅版本和PayPal本机签名方案；真实支付渠道仍各用独立验签方案。

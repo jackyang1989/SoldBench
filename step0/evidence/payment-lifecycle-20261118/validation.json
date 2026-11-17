@@ -1,0 +1,59 @@
+{
+  "date": "2026-11-18",
+  "baseline_commit": "8db4bb8",
+  "evidence_type": "offline_product_integration",
+  "environment": {
+    "db": "isolated PG16 empty and 0017 through 0018 upgrade; 67 tables",
+    "data_mode": "offline_fixture",
+    "collector_enabled": false,
+    "payments_mode": "offline",
+    "fixture_setting": "explicit per case; disabled by default",
+    "actors": "synthetic browser session, API key, two independent synthetic merchant contexts",
+    "clock": "fixed UTC case clocks and actual local dev launcher clock"
+  },
+  "commands": [
+    {
+      "command": "npm run check",
+      "exit_code": 0,
+      "node_tests": 204
+    },
+    {
+      "command": "node scripts/test.mjs tests/database.test.mjs tests/payments.test.mjs",
+      "exit_code": 0,
+      "node_tests": 13
+    },
+    {
+      "command": "npm run test:step0",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 docs/contracts/check_contracts.py --formal",
+      "exit_code": 0,
+      "operations": 63,
+      "schemas": 99
+    },
+    {
+      "command": "actionlint 1.7.9 .github/workflows/offline.yml",
+      "exit_code": 0
+    }
+  ],
+  "review": "Independent read-only review identified 3 medium issues. First-cycle out-of-order subscription identity, revoked session race, and invalid year were repaired and targeted rechecked; no outstanding reproducible high/medium was reported. Reviewer did not run PG/full tests or sign any gate.",
+  "github_ci": {
+    "prior_head": "8db4bb8",
+    "run_id": "44201485742",
+    "observed": "startup_failure, BuildFailed, no jobs or logs; local actionlint passed"
+  },
+  "not_verified": [
+    "provider merchant approval, live verification, capture, portal, plan-change and cash settlement",
+    "production database and release gates"
+  ],
+  "sha256": {
+    "packages/db/migrations/0018_offline_payment_lifecycle.sql": "fd0190e4628dd8dba3575883fbc33d52e7d9ee0e78af28e68183ed523aa73341",
+    "packages/billing/src/payment-lifecycle.ts": "2171749e4251a03461e239de4302bddcef196bfa8234215ba201679f4e5527ff",
+    "packages/billing/src/payment-fixtures.ts": "27db785105b8ad6be29b37bdba67038c56afa48b6770e4d9390995164a041898",
+    "apps/api/src/payments.ts": "e5cb7e6ed3f5f1a6bd7b8c8be37c783ea617c933f9269329e3799ee5ae1d1a27",
+    "scripts/payment-fixture.mjs": "e9f65ca595fc32a065343e7bf0aa517aad4a441745878231ffa2da35a422ce02",
+    "tests/payments.test.mjs": "8fa18fcf7bb1803b9adaad135f3c0795912fb34cc732a34f9f8bbf6af12f7a4a",
+    "docs/openapi.yaml": "ac9e87df2157c1f74e465a70f9202d3edc30ee0cd29c3cacbd3335aa8ff9ecf2"
+  }
+}

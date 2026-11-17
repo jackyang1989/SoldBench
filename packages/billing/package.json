@@ -12,6 +12,7 @@
   "dependencies": {
     "@soldbench/db": "*",
     "@soldbench/shared": "*",
-    "@soldbench/core": "*"
+    "@soldbench/core": "*",
+    "zod": "4.6.7"
   }
 }

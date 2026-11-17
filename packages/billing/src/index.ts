@@ -144,7 +144,7 @@ export class BillingService {
     if (!user.free_anchor_at || user.free_anchor_at > now) return;
     const paid = (
       await c.query(
-        "SELECT 1 FROM subscriptions s WHERE s.user_id=$1 AND s.status IN ('active','trialing') AND s.current_period_start<=$2 AND s.current_period_end>$2 AND EXISTS(SELECT 1 FROM credit_grants g JOIN credit_wallets w ON w.id=g.wallet_id JOIN payments p ON p.id=g.payment_id WHERE g.user_id=s.user_id AND g.grant_kind='subscription' AND g.provider=s.provider AND w.period_start=s.current_period_start AND w.period_end=s.current_period_end AND w.status='active' AND p.state='confirmed')",
+        "SELECT 1 FROM subscriptions s WHERE s.user_id=$1 AND s.status IN ('active','trialing') AND s.current_period_start<=$2 AND s.current_period_end>$2 AND EXISTS(SELECT 1 FROM credit_grants g JOIN credit_wallets w ON w.id=g.wallet_id JOIN payments p ON p.id=g.payment_id WHERE g.user_id=s.user_id AND g.grant_kind='subscription' AND g.provider=s.provider AND w.period_start=s.current_period_start AND w.period_end=s.current_period_end AND w.status='active' AND p.state IN ('confirmed','disputed'))",
         [user.id, now],
       )
     ).rowCount;
@@ -187,6 +187,16 @@ export class BillingService {
         periodStart: p.start,
       },
       now,
+    );
+  }
+  async hasPaymentHold(c: Transaction, userId: string) {
+    return Boolean(
+      (
+        await c.query(
+          "SELECT EXISTS(SELECT 1 FROM credit_recoveries WHERE user_id=$1 AND status='open') OR EXISTS(SELECT 1 FROM payments WHERE user_id=$1 AND state='disputed') AS open",
+          [userId],
+        )
+      ).rows[0].open,
     );
   }
   async balance(userId: string) {
@@ -238,9 +248,7 @@ export class BillingService {
       q.expires_at <= now
     )
       throw new Error("query_not_chargeable");
-    if (
-      (await c.query("SELECT 1 FROM credit_recoveries WHERE user_id=$1 AND status='open'", [userId])).rowCount
-    )
+    if (await this.hasPaymentHold(c, userId))
       reject("credit_recovery_required", 402, "Billing recovery requires review.");
     const u = (await c.query("SELECT id,free_anchor_at FROM users WHERE id=$1", [userId])).rows[0];
     await this.expireLocked(c, userId, now);
@@ -341,7 +349,8 @@ export class BillingService {
       return true;
     });
   }
-  private async revokePaymentLocked(c: Transaction, userId: string, paymentId: string, now: Date) {
+  /** Caller holds the owner lock and has verified and persisted a full refund in this transaction. */
+  async revokePaymentLocked(c: Transaction, userId: string, paymentId: string, now: Date) {
     const p = (
       await c.query("SELECT * FROM payments WHERE id=$1 AND user_id=$2 FOR UPDATE", [paymentId, userId])
     ).rows[0];
@@ -401,3 +410,13 @@ export class BillingService {
     ).rows;
   }
 }
+
+export { localPaymentKeys } from "./local-payment-keys.ts";
+export {
+  type FixtureKeys,
+  fixtureSignature,
+  merchant,
+  type Provider,
+  providers,
+} from "./payment-fixtures.ts";
+export { offerVersion, PaymentLifecycle } from "./payment-lifecycle.ts";
