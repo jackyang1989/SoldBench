@@ -10,6 +10,7 @@ export type SourceSnapshot = {
   status: string;
   permission_epoch: string;
   retry_after_until: Date | null;
+  daily_budget_policy_hash: string | null;
 };
 export type ConfigSnapshot = {
   id: string;
@@ -38,6 +39,7 @@ export function collectorConfigHash(source: SourceSnapshot, config: ConfigSnapsh
         collectorVersion: source.collector_version,
         entrypoint: source.entrypoint_id,
         epoch: source.permission_epoch,
+        dailyBudgetPolicy: source.daily_budget_policy_hash,
       },
       config: {
         id: config.id,

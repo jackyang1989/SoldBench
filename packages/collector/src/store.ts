@@ -123,6 +123,39 @@ export class CollectorStore {
     if (control?.circuit_open) throw new Error("source_circuit_open");
     return source;
   }
+  private async budgetPolicy(c: Transaction, source: Source, now: Date) {
+    if (!source.daily_budget_policy_hash) return null; // Legacy explicit day budgets are not a renewal policy.
+    const p = (
+      await c.query(
+        "SELECT * FROM collector_daily_budget_policies WHERE source_id=$1 AND policy_hash=$2 FOR SHARE",
+        [source.id, source.daily_budget_policy_hash],
+      )
+    ).rows[0];
+    if (!p || p.valid_from > now || p.valid_until <= now) throw new Error("source_budget_policy_unavailable");
+    return p;
+  }
+  private async ensureDailyBudget(c: Transaction, source: Source, now: Date) {
+    const policy = await this.budgetPolicy(c, source, now);
+    if (!policy) return;
+    for (const [kind, cap] of [
+      ["jobs", policy.jobs_cap],
+      ["pages", policy.pages_cap],
+      ["bytes", policy.bytes_cap],
+    ]) {
+      await c.query(
+        "INSERT INTO source_daily_budget(source_id,day,budget_kind,cap) VALUES($1,$2,$3,$4) ON CONFLICT(source_id,day,budget_kind) DO NOTHING",
+        [source.id, now.toISOString().slice(0, 10), kind, cap],
+      );
+      const existing = (
+        await c.query(
+          "SELECT cap FROM source_daily_budget WHERE source_id=$1 AND day=$2 AND budget_kind=$3",
+          [source.id, now.toISOString().slice(0, 10), kind],
+        )
+      ).rows[0];
+      if (!existing || BigInt(existing.cap) > BigInt(cap))
+        throw new Error("source_budget_policy_cap_exceeded");
+    }
+  }
   private async locked(c: Transaction, lease: Lease, allowCompleted = false) {
     const source = await this.source(c, lease.sourceId);
     const job = (
@@ -209,6 +242,7 @@ export class CollectorStore {
     return transaction(this.db, async (c) => {
       const source = await this.source(c, input.sourceId),
         now = await this.now(c);
+      await this.budgetPolicy(c, source, now);
       if (instant(input.asOf) > now.getTime()) throw new Error("collector_as_of_in_future");
       const requestHash = collectorRequestHash(input, this.profileHash);
       const old = (
@@ -266,6 +300,7 @@ export class CollectorStore {
           throw new Error("refresh_lease_lost");
       }
       const day = now.toISOString().slice(0, 10);
+      await this.ensureDailyBudget(c, source, now);
       const budget = await c.query(
         "UPDATE source_daily_budget SET used=used+1 WHERE source_id=$1 AND day=$2 AND budget_kind='jobs' AND used+reserved+1<=cap RETURNING cap",
         [input.sourceId, day],
@@ -311,6 +346,7 @@ export class CollectorStore {
     return transaction(this.db, async (c) => {
       const source = await this.source(c, sourceId);
       const now = await this.now(c);
+      await this.budgetPolicy(c, source, now);
       if (source.retry_after_until && source.retry_after_until > now) return null;
       const configs = await c.query<Config>(
         "SELECT * FROM collector_configs WHERE source_id=$1 AND enabled=true AND access_method='offline_fixture' ORDER BY id",
@@ -487,6 +523,7 @@ export class CollectorStore {
       if (concurrent.rowCount) throw new Error("dispatch_already_reserved");
       const day = now.toISOString().slice(0, 10),
         minute = new Date(Math.floor(now.getTime() / 60000) * 60000);
+      await this.ensureDailyBudget(c, source, now);
       const rate = await c.query(
         "INSERT INTO collector_rate_windows(source_id,minute,used) VALUES($1,$2,1) ON CONFLICT(source_id,minute) DO UPDATE SET used=collector_rate_windows.used+1 WHERE collector_rate_windows.used<$3 RETURNING used",
         [job.source_id, minute, config.rate_cap],
@@ -534,16 +571,18 @@ export class CollectorStore {
   async fixtureResponseIndex(lease: Lease, dispatchId: string): Promise<number> {
     return transaction(this.db, async (c) => {
       const { job, now, source } = await this.locked(c, lease);
+      await this.budgetPolicy(c, source, now);
       if (source.retry_after_until && source.retry_after_until > now)
         throw new Error("collector_rate_limited");
       const row = (
         await c.query(
-          "SELECT * FROM collector_dispatches WHERE id=$1 AND job_id=$2 AND lease_owner=$3 AND state='reserved' FOR UPDATE",
+          "SELECT *,budget_day::text AS budget_day FROM collector_dispatches WHERE id=$1 AND job_id=$2 AND lease_owner=$3 AND state='reserved' FOR UPDATE",
           [dispatchId, lease.jobId, lease.token],
         )
       ).rows[0];
       if (!row?.fixture_key_hash) throw new Error("dispatch_not_reserved");
       if (row.dispatched_at) return row.fixture_response_index;
+      if (row.budget_day !== now.toISOString().slice(0, 10)) throw new Error("collector_budget_day_changed");
       if (lease.imageTaskId) {
         const updated = await c.query(
           "UPDATE collector_image_jobs SET attempts=attempts+1 WHERE id=$1 AND attempts<3 RETURNING id",
@@ -683,9 +722,13 @@ export class CollectorStore {
       await this.abandon(c, job);
       const nextAttempt =
         job.attempts +
-        (["upstream_rate_limited", "collector_rate_limited", "worker_yield", "worker_shutdown"].includes(
-          reason,
-        )
+        ([
+          "upstream_rate_limited",
+          "collector_rate_limited",
+          "collector_budget_day_changed",
+          "worker_yield",
+          "worker_shutdown",
+        ].includes(reason)
           ? 0
           : 1);
       if (terminal || nextAttempt >= 3)
@@ -1305,6 +1348,7 @@ export class CollectorStore {
     return transaction(this.db, async (c) => {
       const source = await this.source(c, sourceId),
         now = await this.now(c);
+      await this.budgetPolicy(c, source, now);
       if (source.retry_after_until && source.retry_after_until > now) return null;
       const tasks = (
         await c.query(

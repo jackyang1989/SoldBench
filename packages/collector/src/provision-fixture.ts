@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { instant } from "@soldbench/core";
+import { canonicalJson, instant } from "@soldbench/core";
 import { type Database, transaction } from "@soldbench/db";
-import { COLLECTOR_VERSION } from "./fixture.ts";
+import { COLLECTOR_VERSION, digest } from "./fixture.ts";
 /** Creates an explicitly synthetic, offline-only source. Never an approved source. */
 export async function provisionFixtureSource(
   db: Database,
@@ -15,6 +15,7 @@ export async function provisionFixtureSource(
     dailyJobs?: number;
     dailyPages?: number;
     dailyBytes?: number;
+    budgetPolicyDays?: number;
   } = {},
 ) {
   instant(now);
@@ -27,11 +28,13 @@ export async function provisionFixtureSource(
     dailyJobs: 100,
     dailyPages: 1000,
     dailyBytes: 128 * 1024 * 1024,
+    budgetPolicyDays: 30,
     ...options,
   };
   for (const value of Object.values(settings))
     if (!Number.isSafeInteger(value) || value < 1) throw new Error("invalid_fixture_budget");
   if (settings.retentionDays > 30) throw new Error("invalid_fixture_retention");
+  if (settings.budgetPolicyDays > 30) throw new Error("invalid_fixture_policy_duration");
   return transaction(db, async (c) => {
     const clearance = randomUUID(),
       sourceId = randomUUID(),
@@ -56,6 +59,24 @@ export async function provisionFixtureSource(
         settings.maxBytes,
       ],
     );
+    const from = new Date(instant(now)).toISOString(),
+      until = new Date(instant(now) + settings.budgetPolicyDays * 86400000).toISOString(),
+      policyHash = digest(
+        canonicalJson({
+          sourceId,
+          jobs: settings.dailyJobs,
+          pages: settings.dailyPages,
+          bytes: settings.dailyBytes,
+          from,
+          until,
+          approval: "synthetic-fixture-only",
+        }),
+      );
+    await c.query(
+      "INSERT INTO collector_daily_budget_policies(source_id,policy_hash,jobs_cap,pages_cap,bytes_cap,approval_ref,valid_from,valid_until,created_at) VALUES($1,$2,$3,$4,$5,'synthetic-fixture-only',$6,$7,$6)",
+      [sourceId, policyHash, settings.dailyJobs, settings.dailyPages, settings.dailyBytes, from, until],
+    );
+    await c.query("UPDATE sources SET daily_budget_policy_hash=$2 WHERE id=$1", [sourceId, policyHash]);
     for (const [kind, cap] of [
       ["jobs", settings.dailyJobs],
       ["pages", settings.dailyPages],
@@ -63,7 +84,7 @@ export async function provisionFixtureSource(
     ])
       await c.query("INSERT INTO source_daily_budget(source_id,day,budget_kind,cap) VALUES($1,$2,$3,$4)", [
         sourceId,
-        now.slice(0, 10),
+        from.slice(0, 10),
         kind,
         cap,
       ]);

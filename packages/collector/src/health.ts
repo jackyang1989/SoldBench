@@ -58,6 +58,15 @@ export async function collectorHealth(
         [sourceId],
       )
     ).rows[0];
+    const policy = (
+      await c.query(
+        "SELECT policy_hash,valid_from,valid_until FROM collector_daily_budget_policies WHERE source_id=$1 AND policy_hash=$2",
+        [sourceId, source.daily_budget_policy_hash],
+      )
+    ).rows[0];
+    const policyUnavailable = Boolean(
+      source.daily_budget_policy_hash && (!policy || policy.valid_from > now || policy.valid_until <= now),
+    );
     const last = (
       await c.query(
         "SELECT max(completed_at) t FROM collector_runs WHERE source_id=$1 AND outcome='completed'",
@@ -118,12 +127,22 @@ export async function collectorHealth(
       sourceId,
       clock: options.now ? "explicit_simulation" : "database",
       retryAfterUntil: source.retry_after_until?.toISOString() ?? null,
+      dailyBudgetPolicy: {
+        status: source.daily_budget_policy_hash
+          ? policyUnavailable
+            ? "unavailable"
+            : "active"
+          : "legacy_explicit_days_only",
+        hash: source.daily_budget_policy_hash,
+        validUntil: policy?.valid_until.toISOString() ?? null,
+      },
       capturedAt: now.toISOString(),
       window: { from: from.toISOString(), until: now.toISOString() },
       sourceStatus: source.status,
       permissionEpoch: String(source.permission_epoch),
       circuit: circuit?.status ?? "closed",
       sourceStopped:
+        policyUnavailable ||
         source.status !== "active" ||
         !["draft", "reviewed", "active"].includes(source.clearance_status) ||
         Boolean(source.effective_at && source.effective_at > now) ||

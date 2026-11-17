@@ -178,7 +178,7 @@ export class OfflineCollectorWorker {
           continue;
         }
         if (error instanceof Error && error.message === "job_deferred") throw error;
-        // Source/lease/budget refusal must never become a harmless missing-photo result.
+        // Source rights and lease refusal must never become a harmless missing-photo result.
         await this.store.check(lease);
         const message = error instanceof Error ? error.message : "image_failed";
         if (phase === "publish") {
@@ -191,13 +191,22 @@ export class OfflineCollectorWorker {
           else await this.store.queueImageRetry(lease, task.image_id, message);
           continue;
         }
+        if (["source_budget_policy_unavailable", "source_budget_policy_cap_exceeded"].includes(message)) {
+          // Acquisition budget expiry does not withdraw rights to the fully committed page.
+          await this.store.failImage(lease, task.image_id, "image_budget_policy_unavailable");
+          continue;
+        }
         if (message === "collector_job_budget_exhausted") {
           await this.store.failImage(lease, task.image_id, "image_job_budget_exhausted");
           continue;
         }
         if (
           !lease.imageTaskId &&
-          ["collector_rate_limited", "collector_daily_budget_exhausted"].includes(message)
+          [
+            "collector_rate_limited",
+            "collector_daily_budget_exhausted",
+            "collector_budget_day_changed",
+          ].includes(message)
         ) {
           const until =
             message === "collector_daily_budget_exhausted"
@@ -207,7 +216,9 @@ export class OfflineCollectorWorker {
                     Date.parse(current.now)) /
                     1000,
                 )
-              : 60;
+              : message === "collector_budget_day_changed"
+                ? 1
+                : 60;
           await this.store.queueImageRetry(
             lease,
             task.image_id,
@@ -288,8 +299,8 @@ export class OfflineCollectorWorker {
           await this.store.defer(
             lease,
             message,
-            message === "worker_shutdown" ? 1 : 60,
-            !/fixture_response_missing|upstream_unavailable|collector_rate_limited|worker_shutdown/.test(
+            ["worker_shutdown", "collector_budget_day_changed"].includes(message) ? 1 : 60,
+            !/fixture_response_missing|upstream_unavailable|collector_rate_limited|collector_budget_day_changed|worker_shutdown/.test(
               message,
             ),
           );

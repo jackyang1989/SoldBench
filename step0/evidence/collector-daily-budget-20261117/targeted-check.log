@@ -1,0 +1,65 @@
+TAP version 13
+# Subtest: 100 concurrent UTC rollover enqueues initialize one day under fixed caps and never reset yesterday
+ok 1 - 100 concurrent UTC rollover enqueues initialize one day under fixed caps and never reset yesterday
+  ---
+  duration_ms: 210.710375
+  type: 'test'
+  ...
+# Subtest: responses and graceful undispatched cancellations settle against their original UTC budget day
+ok 2 - responses and graceful undispatched cancellations settle against their original UTC budget day
+  ---
+  duration_ms: 16.117042
+  type: 'test'
+  ...
+# Subtest: unknown pre-midnight reservation is conservatively consumed on the original day before lease takeover
+ok 3 - unknown pre-midnight reservation is conservatively consumed on the original day before lease takeover
+  ---
+  duration_ms: 5.078042
+  type: 'test'
+  ...
+# Subtest: policy expires without preventing settlement of already dispatched bytes, and cannot be changed or deleted
+ok 4 - policy expires without preventing settlement of already dispatched bytes, and cannot be changed or deleted
+  ---
+  duration_ms: 9.7935
+  type: 'test'
+  ...
+# Subtest: legacy explicit-day budgets do not silently obtain renewal policy or carry unused budget forward
+ok 5 - legacy explicit-day budgets do not silently obtain renewal policy or carry unused budget forward
+  ---
+  duration_ms: 5.488375
+  type: 'test'
+  ...
+# Subtest: policy cannot recreate a reduced explicit cap or accept a raised cap, and stop cannot initialize a new day
+ok 6 - policy cannot recreate a reduced explicit cap or accept a raised cap, and stop cannot initialize a new day
+  ---
+  duration_ms: 3.527792
+  type: 'test'
+  ...
+# Subtest: an unmarked pre-midnight reservation cannot dispatch against yesterday when today's cap is zero
+ok 7 - an unmarked pre-midnight reservation cannot dispatch against yesterday when today's cap is zero
+  ---
+  duration_ms: 5.261375
+  type: 'test'
+  ...
+# Subtest: a fully authorized image response crossing policy expiry still publishes and finishes the completed page
+ok 8 - a fully authorized image response crossing policy expiry still publishes and finishes the completed page
+  ---
+  duration_ms: 49.236084
+  type: 'test'
+  ...
+# Subtest: worker cancels pre-dispatch midnight rollover without a failed attempt or transport and resumes the same page
+ok 9 - worker cancels pre-dispatch midnight rollover without a failed attempt or transport and resumes the same page
+  ---
+  duration_ms: 15.838583
+  type: 'test'
+  ...
+1..9
+# tests 9
+# suites 0
+# pass 9
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 491.859417
+Isolated test evidence retained at /var/folders/zf/l30tz2bd5xbgb8dh_4lhry780000gn/T/soldbench-product-test-SqBXQA

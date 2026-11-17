@@ -1,0 +1,57 @@
+{
+  "evidence_type": "offline_simulation",
+  "baseline_commit": "cc2b7ee",
+  "date": "2026-11-17",
+  "collector_version": "offline-pg-1.7.0",
+  "parser_version": "offline-page-1.2.0",
+  "database": "isolated PG16 empty and0014->0015->0016;64 tables",
+  "configuration": {
+    "collector_enabled": false,
+    "data_mode": "offline_fixture",
+    "clock": "explicit synthetic UTC midnight/expiry; no actual observation days",
+    "transport": "in-memory fixtures plus local PG and generated PNG/WebP"
+  },
+  "commands": [
+    {
+      "command": "npm run check",
+      "exit_code": 0,
+      "node_tests": 155,
+      "budget_tests": 9
+    },
+    {
+      "command": "python3 step0/tools/validate_offline.py",
+      "exit_code": 0
+    }
+  ],
+  "review": "Read-only reviewer identified policy detach HIGH, midnight dispatch MEDIUM and in-flight image expiry MEDIUM. All remediated with targeted PG regressions. Reviewer final recheck unavailable due tool usage limit; final assertions are implementer-run, not independent final signoff.",
+  "coverage": [
+    "100 concurrent UTC new-day enqueues under fixed caps",
+    "immutable policy and permanent source binding",
+    "legacy no-policy day budgets fail closed",
+    "old-day actual/unknown/cancel settlement",
+    "unmarked midnight reservation denied, cancelled and resumed without failed attempt",
+    "today zero cap cannot be bypassed by yesterday reservation",
+    "policy expiry prevents new dispatch but valid in-flight image publishes",
+    "two-image terminal page completes with one image unavailable after policy expiry",
+    "complete prior auth/billing/golden/contracts regression"
+  ],
+  "not_verified": [
+    "real eBay requests/parser/45 fields",
+    "real access/image rights",
+    "production deployment/egress/cost/14+7 observation days",
+    "final independent rereview"
+  ],
+  "source_sha256": {
+    "packages/collector/src/config-snapshot.ts": "2d6a92308116828be313dfc871312f7714f603c2ec3167dcff83588d9dc166dc",
+    "packages/collector/src/fixture.ts": "f9041ee076694b26e71be139f71d00649f081c59c649b0dbdfff6ba14fd17790",
+    "packages/collector/src/health.ts": "db355e22a8ae6ee2014df2d400ad7a2d99b46016a3c07a1c3d626140cd6bfa40",
+    "packages/collector/src/provision-fixture.ts": "3f967a5a50ff4e8f6f3a87e2d6d2a9e5bd75b5b3bb7d7c6ac641d7773363dfe2",
+    "packages/collector/src/store.ts": "a66f2bfdf943a053fc8cbafb2bfed3cc0d41ae1d7cb615e676da35ba9315b8a4",
+    "packages/collector/src/worker.ts": "8c4bbb72d38b829ee6a7b89386cfa338cc8c3e0910192fc8d49ba0fdedc889e5",
+    "packages/db/migrations/0015_collector_daily_budget_policy.sql": "f9516bdb12043dc1b84f8067464874ab6eabfe09de4cfa355a408cb8ac2832be",
+    "packages/db/migrations/0016_collector_budget_binding.sql": "a062bf632d0e0704d15edcb88c4591d38378033f764cb525bc779da890d9fbfc",
+    "tests/collector-budget.test.mjs": "6d89688dc365fc44dc93a6ccf7c6914a90883d84ace128fbfcd5ed986b882ec6",
+    "tests/collector-pipeline.test.mjs": "d390eed0b7653478427e65a54d897e8b92c6ad1b50d1502b12c03ce65cb6d950",
+    "tests/database.test.mjs": "79e6bac3894e6af6fd5623427ed1a4986b1b024e9e310fd107333354a00dc4b7"
+  }
+}

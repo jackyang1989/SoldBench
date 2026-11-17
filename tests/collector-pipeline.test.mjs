@@ -513,7 +513,7 @@ test("rate windows are shared across jobs", async () => {
   );
 });
 
-test("reservations settle against their original UTC day; new-day budgets are not fabricated", async () => {
+test("reservations settle against their original UTC day; a frozen policy permits a separate new-day budget", async () => {
   const x = await setup({}, "2026-11-16T23:59:30Z"),
     lease = await x.store.claim(x.sourceId, 120);
   const id = await x.store.reserve(lease, "page", 1000);
@@ -527,14 +527,14 @@ test("reservations settle against their original UTC day; new-day budgets are no
   ).rows[0];
   assert.equal(old.used, "123");
   assert.equal(old.reserved, "0");
-  await assert.rejects(x.store.reserve(lease, "page", 1000), /daily_budget_exhausted/);
+  await x.store.reserve(lease, "page", 1000);
   assert.equal(
     (
       await db.query("SELECT * FROM source_daily_budget WHERE source_id=$1 AND day='2026-11-17'", [
         x.sourceId,
       ])
     ).rowCount,
-    0,
+    3,
   );
 });
 
