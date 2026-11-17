@@ -46,6 +46,7 @@ type Source = {
   status: string;
   permission_epoch: string;
   source_clearance_id: string;
+  retry_after_until: Date | null;
 };
 type Config = {
   id: string;
@@ -57,7 +58,7 @@ type Config = {
   max_bytes_per_job: string;
   updated_at: Date;
 };
-export type Lease = { jobId: string; token: string; sourceId: string };
+export type Lease = { jobId: string; token: string; sourceId: string; imageTaskId?: string };
 export type EvidenceItem = {
   listingId: string;
   eventId: string;
@@ -100,6 +101,17 @@ export class CollectorStore {
       .rows[0];
     if (source?.access_method !== "offline_fixture") throw new Error("network_collector_not_enabled");
     if (source.status !== "active") throw new Error("source_inactive");
+    const clearance = (
+        await c.query("SELECT * FROM source_clearances WHERE id=$1 FOR SHARE", [source.source_clearance_id])
+      ).rows[0],
+      now = await this.now(c);
+    if (
+      clearance?.provider !== "synthetic_fixture" ||
+      !["draft", "reviewed", "active"].includes(clearance.status) ||
+      (clearance.expires_at && clearance.expires_at <= now) ||
+      (clearance.effective_at && clearance.effective_at > now)
+    )
+      throw new Error("source_clearance_unavailable");
     const control = (
       await c.query(
         "SELECT status<>'closed' AS circuit_open FROM collector_circuits WHERE source_id=$1 AND category_key='*'",
@@ -118,7 +130,27 @@ export class CollectorStore {
       ])
     ).rows[0];
     const now = await this.now(c);
-    if (
+    const imageTask = lease.imageTaskId
+      ? (
+          await c.query(
+            "SELECT q.*,o.retention_until AS evidence_expires FROM collector_image_jobs q JOIN listing_images i ON i.id=q.image_id JOIN source_observations o ON o.id=i.observation_id JOIN collector_pages p ON p.observation_id=i.observation_id AND p.source_id=i.source_id AND p.job_id=q.parent_job_id WHERE q.id=$1 AND q.source_id=$2 AND q.parent_job_id=$3 AND i.state='pending' FOR UPDATE OF q",
+            [lease.imageTaskId, lease.sourceId, lease.jobId],
+          )
+        ).rows[0]
+      : null;
+    if (lease.imageTaskId) {
+      if (
+        job?.status !== "completed" ||
+        imageTask?.status !== "running" ||
+        imageTask.lease_owner !== lease.token ||
+        !imageTask.lease_until ||
+        imageTask.lease_until <= now ||
+        imageTask.expires_at <= now ||
+        !imageTask.evidence_expires ||
+        imageTask.evidence_expires <= now
+      )
+        throw new Error("collector_image_lease_lost");
+    } else if (
       !job ||
       job.lease_owner !== lease.token ||
       (!allowCompleted && job.status !== "running") ||
@@ -152,12 +184,22 @@ export class CollectorStore {
     )
       throw new Error("collector_config_or_permission_changed");
     const clearance = (
-      await c.query("SELECT retention_days FROM source_clearances WHERE id=$1", [source.source_clearance_id])
+      await c.query("SELECT retention_days,expires_at FROM source_clearances WHERE id=$1", [
+        source.source_clearance_id,
+      ])
     ).rows[0];
     const retentionDays = clearance?.retention_days;
     if (!Number.isSafeInteger(retentionDays) || retentionDays < 1 || retentionDays > 30)
       throw new Error("fixture_retention_unavailable");
-    return { job, source, config, now, retentionDays };
+    return {
+      job,
+      source,
+      config,
+      now,
+      retentionDays,
+      imageTask,
+      clearanceExpiresAt: clearance.expires_at as Date | null,
+    };
   }
   async enqueue(input: {
     sourceId: string;
@@ -241,8 +283,9 @@ export class CollectorStore {
     if (!Number.isSafeInteger(leaseSeconds) || leaseSeconds < 1 || leaseSeconds > 300)
       throw new Error("invalid_lease_duration");
     return transaction(this.db, async (c) => {
-      await this.source(c, sourceId);
+      const source = await this.source(c, sourceId);
       const now = await this.now(c);
+      if (source.retry_after_until && source.retry_after_until > now) return null;
       const configs = await c.query<Config>(
         "SELECT * FROM collector_configs WHERE source_id=$1 AND enabled=true AND access_method='offline_fixture' ORDER BY id",
         [sourceId],
@@ -250,7 +293,7 @@ export class CollectorStore {
       for (const config of configs.rows) {
         const running = (
           await c.query(
-            "SELECT count(*)::int AS n FROM collector_jobs WHERE source_id=$1 AND status='running' AND lease_until>$2",
+            "SELECT ((SELECT count(*) FROM collector_jobs WHERE source_id=$1 AND status='running' AND lease_until>$2)+(SELECT count(*) FROM collector_image_jobs WHERE source_id=$1 AND status='running' AND lease_until>$2))::int AS n",
             [sourceId, now],
           )
         ).rows[0].n;
@@ -277,15 +320,15 @@ export class CollectorStore {
               [job.collector_run_id, now],
             );
             await c.query(
-              "UPDATE collector_jobs SET status='failed',error_code='expired_or_attempts_exhausted' WHERE id=$1",
-              [job.id],
+              "UPDATE collector_jobs SET status='failed',error_code='expired_or_attempts_exhausted',finished_at=$2 WHERE id=$1",
+              [job.id, now],
             );
             continue;
           }
           const token = randomUUID();
           await c.query(
-            "UPDATE collector_jobs SET status='running',attempts=attempts+$4,lease_count=lease_count+1,version=version+1,lease_owner=$2,lease_until=$3 WHERE id=$1",
-            [job.id, token, new Date(now.getTime() + leaseSeconds * 1000), crashAttempt],
+            "UPDATE collector_jobs SET status='running',attempts=attempts+$4,lease_count=lease_count+1,version=version+1,lease_owner=$2,lease_until=$3,started_at=coalesce(started_at,$5) WHERE id=$1",
+            [job.id, token, new Date(now.getTime() + leaseSeconds * 1000), crashAttempt, now],
           );
           return { jobId: job.id, token, sourceId };
         }
@@ -362,7 +405,14 @@ export class CollectorStore {
     if (!Number.isSafeInteger(seconds) || seconds < 1 || seconds > 300)
       throw new Error("invalid_lease_duration");
     await transaction(this.db, async (c) => {
-      const { job, now } = await this.locked(c, lease);
+      const { job, now, imageTask } = await this.locked(c, lease);
+      if (lease.imageTaskId) {
+        await c.query("UPDATE collector_image_jobs SET lease_until=$2 WHERE id=$1", [
+          lease.imageTaskId,
+          new Date(Math.min(now.getTime() + seconds * 1000, imageTask.expires_at.getTime())),
+        ]);
+        return;
+      }
       await c.query("UPDATE collector_jobs SET lease_until=$2 WHERE id=$1", [
         job.id,
         new Date(Math.min(now.getTime() + seconds * 1000, job.expires_at.getTime())),
@@ -374,13 +424,29 @@ export class CollectorStore {
     kind: "page" | "image",
     maxBytes: number,
     fixtureKey?: string,
+    imageId?: string,
   ): Promise<string> {
     if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 5 * 1024 * 1024)
       throw new Error("invalid_dispatch_budget");
     if (fixtureKey !== undefined && (!fixtureKey.startsWith(`${kind}:`) || fixtureKey.length > 2200))
       throw new Error("invalid_fixture_request_key");
     return transaction(this.db, async (c) => {
-      const { job, config, now } = await this.locked(c, lease);
+      const { job, config, now, source, imageTask } = await this.locked(c, lease);
+      if (source.retry_after_until && source.retry_after_until > now)
+        throw new Error("collector_rate_limited");
+      if (imageTask && imageTask.image_id !== imageId) throw new Error("image_task_target_mismatch");
+      if (
+        imageId &&
+        (kind !== "image" ||
+          !(
+            await c.query(
+              "SELECT 1 FROM listing_images i JOIN collector_pages p ON p.observation_id=i.observation_id AND p.source_id=i.source_id WHERE i.id=$1 AND p.job_id=$2",
+              [imageId, job.id],
+            )
+          ).rowCount)
+      )
+        throw new Error("image_dispatch_evidence_mismatch");
+      if (lease.imageTaskId && kind !== "image") throw new Error("image_lease_cannot_fetch_page");
       if (
         job.request_count >= config.max_pages * 4 + 1000 ||
         (kind === "page" && job.page_count >= config.max_pages) ||
@@ -414,8 +480,20 @@ export class CollectorStore {
       const responseIndex = 0;
       const id = randomUUID();
       await c.query(
-        "INSERT INTO collector_dispatches(id,job_id,source_id,lease_owner,kind,budget_day,max_bytes,created_at,fixture_key_hash,fixture_response_index) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
-        [id, job.id, job.source_id, lease.token, kind, day, maxBytes, now, keyHash, responseIndex],
+        "INSERT INTO collector_dispatches(id,job_id,source_id,lease_owner,kind,budget_day,max_bytes,created_at,fixture_key_hash,fixture_response_index,image_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+        [
+          id,
+          job.id,
+          job.source_id,
+          lease.token,
+          kind,
+          day,
+          maxBytes,
+          now,
+          keyHash,
+          responseIndex,
+          imageId ?? null,
+        ],
       );
       await c.query(
         "UPDATE collector_jobs SET bytes_reserved=bytes_reserved+$2,request_count=request_count+1 WHERE id=$1",
@@ -429,7 +507,9 @@ export class CollectorStore {
   }
   async fixtureResponseIndex(lease: Lease, dispatchId: string): Promise<number> {
     return transaction(this.db, async (c) => {
-      const { job, now } = await this.locked(c, lease);
+      const { job, now, source } = await this.locked(c, lease);
+      if (source.retry_after_until && source.retry_after_until > now)
+        throw new Error("collector_rate_limited");
       const row = (
         await c.query(
           "SELECT * FROM collector_dispatches WHERE id=$1 AND job_id=$2 AND lease_owner=$3 AND state='reserved' FOR UPDATE",
@@ -438,6 +518,13 @@ export class CollectorStore {
       ).rows[0];
       if (!row?.fixture_key_hash) throw new Error("dispatch_not_reserved");
       if (row.dispatched_at) return row.fixture_response_index;
+      if (lease.imageTaskId) {
+        const updated = await c.query(
+          "UPDATE collector_image_jobs SET attempts=attempts+1 WHERE id=$1 AND attempts<3 RETURNING id",
+          [lease.imageTaskId],
+        );
+        if (!updated.rowCount) throw new Error("image_retry_exhausted");
+      }
       const index = (
         await c.query(
           "SELECT count(*)::int AS n FROM collector_dispatches WHERE job_id=$1 AND fixture_key_hash=$2 AND dispatched_at IS NOT NULL",
@@ -465,6 +552,10 @@ export class CollectorStore {
       if (!row) throw new Error("dispatch_not_reserved");
       if (row.state === "settled" && row.actual_bytes === "0" && row.dispatched_at === null) return;
       if (row.state !== "reserved") throw new Error("dispatch_already_consumed");
+      if (lease.imageTaskId && row.kind === "image" && row.dispatched_at)
+        await c.query("UPDATE collector_image_jobs SET attempts=greatest(0,attempts-1) WHERE id=$1", [
+          lease.imageTaskId,
+        ]);
       await c.query(
         "UPDATE source_daily_budget SET reserved=reserved-$3 WHERE source_id=$1 AND day=$2 AND budget_kind='bytes'",
         [job.source_id, row.budget_day, row.max_bytes],
@@ -544,14 +635,23 @@ export class CollectorStore {
   async check(lease: Lease) {
     return transaction(this.db, async (c) => {
       const x = await this.locked(c, lease, true);
+      if (x.source.retry_after_until && x.source.retry_after_until > x.now)
+        throw new Error("collector_rate_limited");
       return {
         epoch: Number(x.source.permission_epoch),
         now: x.now.toISOString(),
-        expiresAt: new Date(x.now.getTime() + x.retentionDays * 86400000).toISOString(),
+        expiresAt: new Date(
+          Math.min(
+            x.now.getTime() + x.retentionDays * 86400000,
+            x.imageTask?.evidence_expires?.getTime() ?? Infinity,
+            x.clearanceExpiresAt?.getTime() ?? Infinity,
+          ),
+        ).toISOString(),
       };
     });
   }
   async defer(lease: Lease, reason: string, delaySeconds: number, terminal = false) {
+    if (lease.imageTaskId) throw new Error("image_lease_cannot_mutate_parent");
     await transaction(this.db, async (c) => {
       const { job, now } = await this.locked(c, lease);
       await this.abandon(c, job);
@@ -568,7 +668,7 @@ export class CollectorStore {
           [job.collector_run_id, reason, now],
         );
       await c.query(
-        "UPDATE collector_jobs SET status=$2,error_code=$3,available_at=$4,lease_until=$5,attempts=$6 WHERE id=$1",
+        "UPDATE collector_jobs SET status=$2,error_code=$3,available_at=$4,lease_until=$5,attempts=$6,finished_at=CASE WHEN $2='failed' THEN $5::timestamptz ELSE NULL END WHERE id=$1",
         [
           job.id,
           terminal || nextAttempt >= 3 ? "failed" : "retry",
@@ -601,8 +701,28 @@ export class CollectorStore {
       ]);
     }
     await c.query(
-      "UPDATE collector_jobs SET status='failed',error_code=$2 WHERE source_id=$1 AND status IN ('queued','running','retry')",
-      [sourceId, reason],
+      "UPDATE collector_jobs SET status='failed',error_code=$2,finished_at=$3 WHERE source_id=$1 AND status IN ('queued','running','retry')",
+      [sourceId, reason, now],
+    );
+    const mediaTasks = (
+      await c.query(
+        "SELECT DISTINCT parent_job_id FROM collector_image_jobs WHERE source_id=$1 AND status='running'",
+        [sourceId],
+      )
+    ).rows;
+    for (const task of mediaTasks) {
+      const parent = (
+        await c.query<Job>("SELECT * FROM collector_jobs WHERE id=$1 FOR UPDATE", [task.parent_job_id])
+      ).rows[0];
+      if (parent) await this.abandon(c, parent);
+    }
+    await c.query(
+      "UPDATE listing_images SET state='failed',failure_reason='source_stopped' WHERE source_id=$1 AND state='pending'",
+      [sourceId],
+    );
+    await c.query(
+      "UPDATE collector_image_jobs SET status='failed',lease_owner=NULL,lease_until=NULL,failure_reason=$2,finished_at=$3 WHERE source_id=$1 AND status IN ('retry','running')",
+      [sourceId, reason, now],
     );
     if (revoke) {
       const row = (
@@ -633,6 +753,7 @@ export class CollectorStore {
       (reason === "event_identity_conflict") !== (affectedEventId !== undefined)
     )
       throw new Error("invalid_quarantine_evidence");
+    if (lease.imageTaskId) throw new Error("image_lease_cannot_mutate_parent");
     return transaction(this.db, async (c) => {
       const { job, now } = await this.locked(c, lease);
       const dispatch = (
@@ -685,10 +806,30 @@ export class CollectorStore {
       return incident.id as string;
     });
   }
+  async revokeInvalidClearance(sourceId: string): Promise<boolean> {
+    return transaction(this.db, async (c) => {
+      const source = (await c.query<Source>("SELECT * FROM sources WHERE id=$1 FOR UPDATE", [sourceId]))
+        .rows[0];
+      if (source?.access_method !== "offline_fixture") throw new Error("network_collector_not_enabled");
+      const clearance = (
+          await c.query("SELECT * FROM source_clearances WHERE id=$1 FOR SHARE", [source.source_clearance_id])
+        ).rows[0],
+        now = await this.now(c);
+      if (clearance?.provider !== "synthetic_fixture") throw new Error("network_collector_not_enabled");
+      const invalid =
+        !["draft", "reviewed", "active"].includes(clearance.status) ||
+        (clearance.effective_at && clearance.effective_at > now) ||
+        (clearance.expires_at && clearance.expires_at <= now);
+      if (source.status !== "active" || !invalid) return false;
+      await this.stopLocked(c, sourceId, "source_clearance_unavailable", true);
+      return true;
+    });
+  }
   async revokeSource(sourceId: string, reason: string) {
     await transaction(this.db, (c) => this.stopLocked(c, sourceId, reason, true));
   }
   async failBlocked(lease: Lease, reason: string) {
+    if (lease.imageTaskId) throw new Error("image_lease_cannot_mutate_parent");
     return transaction(this.db, async (c) => {
       await c.query("SELECT id FROM sources WHERE id=$1 FOR UPDATE", [lease.sourceId]);
       const job = (
@@ -700,7 +841,11 @@ export class CollectorStore {
       if (!job || job.lease_owner !== lease.token || job.status !== "running") return false;
       await this.abandon(c, job);
       const now = await this.now(c);
-      await c.query("UPDATE collector_jobs SET status='failed',error_code=$2 WHERE id=$1", [job.id, reason]);
+      await c.query("UPDATE collector_jobs SET status='failed',error_code=$2,finished_at=$3 WHERE id=$1", [
+        job.id,
+        reason,
+        now,
+      ]);
       await c.query("UPDATE collector_runs SET outcome='failed',stop_reason=$2,completed_at=$3 WHERE id=$1", [
         job.collector_run_id,
         reason,
@@ -733,6 +878,7 @@ export class CollectorStore {
     raw: Uint8Array,
     dispatchId: string,
   ): Promise<EvidenceItem[]> {
+    if (lease.imageTaskId) throw new Error("image_lease_cannot_mutate_parent");
     return transaction(this.db, async (c) => {
       const { job, now, retentionDays } = await this.locked(c, lease);
       const parsed = this.parsePage(raw, {
@@ -900,7 +1046,7 @@ export class CollectorStore {
         const image =
           (
             await c.query<{ id: string }>(
-              "INSERT INTO listing_images(listing_id,source_id,observation_id,sale_event_id,state,permission_epoch) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(sale_event_id,listing_id,observation_id,role) DO UPDATE SET state=listing_images.state RETURNING id",
+              "INSERT INTO listing_images(listing_id,source_id,observation_id,sale_event_id,state,permission_epoch,created_at) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(sale_event_id,listing_id,observation_id,role) DO UPDATE SET state=listing_images.state RETURNING id",
               [
                 listing.id,
                 job.source_id,
@@ -908,6 +1054,7 @@ export class CollectorStore {
                 eventId,
                 row.primaryImage ? "pending" : "missing",
                 job.permission_epoch,
+                now,
               ],
             )
           ).rows[0] ?? missingRow();
@@ -953,6 +1100,7 @@ export class CollectorStore {
     });
   }
   async finish(lease: Lease) {
+    if (lease.imageTaskId) throw new Error("image_lease_cannot_finish_parent");
     await transaction(this.db, async (c) => {
       const { job, now } = await this.locked(c, lease);
       const last = (
@@ -963,7 +1111,10 @@ export class CollectorStore {
       if (!last.some((x) => x.next_cursor === null) || !job.min_page_as_of)
         throw new Error("collector_run_incomplete");
       if (Number(job.bytes_reserved) !== 0) throw new Error("dispatches_unsettled");
-      await c.query("UPDATE collector_jobs SET status='completed' WHERE id=$1", [job.id]);
+      await c.query(
+        "UPDATE collector_jobs SET status='completed',finished_at=$2,error_code=NULL,lease_owner=NULL,lease_until=NULL WHERE id=$1",
+        [job.id, now],
+      );
       await c.query("UPDATE collector_runs SET completed_at=$2,outcome='completed' WHERE id=$1", [
         job.collector_run_id,
         now,
@@ -976,16 +1127,26 @@ export class CollectorStore {
   }
   async persistImage(lease: Lease, id: string, image: PrimaryImage, media: PrivateMediaStore) {
     await transaction(this.db, async (c) => {
-      const { job, source } = await this.locked(c, lease, true);
+      const { job, source, imageTask, now, clearanceExpiresAt } = await this.locked(c, lease, true);
+      if (imageTask && imageTask.image_id !== id) throw new Error("image_task_target_mismatch");
       if (image.sourceId !== source.id || image.permissionEpoch !== Number(source.permission_epoch))
         throw new Error("image_permission_changed");
       const target = (
         await c.query(
-          "SELECT id FROM listing_images WHERE id=$1 AND listing_id=$2 AND observation_id=$3 AND sale_event_id=$4 AND source_id=$5 AND permission_epoch=$6 FOR UPDATE",
+          "SELECT i.id,o.retention_until AS evidence_expires FROM listing_images i JOIN source_observations o ON o.id=i.observation_id WHERE i.id=$1 AND i.listing_id=$2 AND i.observation_id=$3 AND i.sale_event_id=$4 AND i.source_id=$5 AND i.permission_epoch=$6 FOR UPDATE OF i",
           [id, image.listingId, image.observationId, image.saleEventId, job.source_id, job.permission_epoch],
         )
       ).rows[0];
-      if (!target) throw new Error("image_evidence_mismatch");
+      if (!target?.evidence_expires || target.evidence_expires <= now)
+        throw new Error("image_evidence_mismatch");
+      const retentionUntil = new Date(
+        Math.min(
+          instant(image.retentionUntil),
+          target.evidence_expires.getTime(),
+          clearanceExpiresAt?.getTime() ?? Infinity,
+        ),
+      );
+      if (retentionUntil <= now) throw new Error("image_evidence_expired");
       // Network/decoding is already complete. Hold the source lock only for private
       // file publication and the matching DB link, so revoke cannot scan too early.
       await c.query("SAVEPOINT image_publication");
@@ -995,7 +1156,7 @@ export class CollectorStore {
         key = object.key;
         await this.locked(c, lease, true);
         await c.query(
-          "UPDATE listing_images SET state='available',object_key=$2,content_hash=$3,mime_type=$4,width=$5,height=$6,byte_size=$7,retention_until=$8 WHERE id=$1",
+          "UPDATE listing_images SET state='available',object_key=$2,content_hash=$3,mime_type=$4,width=$5,height=$6,byte_size=$7,retention_until=$8,failure_reason=NULL WHERE id=$1",
           [
             id,
             key,
@@ -1004,9 +1165,14 @@ export class CollectorStore {
             image.width,
             image.height,
             image.bytes.length,
-            image.retentionUntil,
+            retentionUntil,
           ],
         );
+        if (lease.imageTaskId)
+          await c.query(
+            "UPDATE collector_image_jobs SET status='completed',lease_owner=NULL,lease_until=NULL,finished_at=$2,failure_reason=NULL WHERE id=$1",
+            [lease.imageTaskId, now],
+          );
         await c.query("RELEASE SAVEPOINT image_publication");
       } catch (error) {
         await c.query("ROLLBACK TO SAVEPOINT image_publication");
@@ -1026,29 +1192,260 @@ export class CollectorStore {
   }
   async failImage(lease: Lease, id: string, reason: string) {
     await transaction(this.db, async (c) => {
-      const { job } = await this.locked(c, lease, true);
+      const { job, now, imageTask } = await this.locked(c, lease, true);
+      if (imageTask && imageTask.image_id !== id) throw new Error("image_task_target_mismatch");
+      if (lease.imageTaskId)
+        await c.query(
+          "UPDATE collector_image_jobs SET status='failed',lease_owner=NULL,lease_until=NULL,failure_reason=$2,finished_at=$3 WHERE id=$1",
+          [lease.imageTaskId, reason, now],
+        );
       await c.query(
         "UPDATE listing_images SET state='failed',failure_reason=$2 WHERE id=$1 AND source_id=$3 AND state='pending'",
         [id, reason, job.source_id],
       );
     });
   }
+  async recordBackoff(lease: Lease, seconds: number) {
+    if (!Number.isSafeInteger(seconds) || seconds < 1 || seconds > 86400)
+      throw new Error("invalid_retry_after");
+    await transaction(this.db, async (c) => {
+      const { now } = await this.locked(c, lease, true);
+      await c.query(
+        "UPDATE sources SET retry_after_until=greatest(coalesce(retry_after_until,$2),$2) WHERE id=$1",
+        [lease.sourceId, new Date(now.getTime() + seconds * 1000)],
+      );
+    });
+  }
+  async queueImageRetry(lease: Lease, imageId: string, reason: string, delaySeconds = 30) {
+    if (lease.imageTaskId || !Number.isSafeInteger(delaySeconds) || delaySeconds < 1 || delaySeconds > 86400)
+      throw new Error("image_task_already_queued");
+    return transaction(this.db, async (c) => {
+      const { job, now, clearanceExpiresAt } = await this.locked(c, lease, true);
+      const image = (
+        await c.query(
+          "SELECT i.*,o.retention_until AS evidence_expires FROM listing_images i JOIN source_observations o ON o.id=i.observation_id JOIN collector_pages p ON p.observation_id=i.observation_id AND p.source_id=i.source_id WHERE i.id=$1 AND p.job_id=$2 AND i.source_id=$3 FOR UPDATE OF i",
+          [imageId, job.id, lease.sourceId],
+        )
+      ).rows[0];
+      if (image?.state !== "pending") throw new Error("image_retry_evidence_missing");
+      const expires = new Date(
+        Math.min(
+          image.evidence_expires?.getTime() ?? 0,
+          now.getTime() + 86400000,
+          clearanceExpiresAt?.getTime() ?? Infinity,
+        ),
+      );
+      if (expires <= now) {
+        await c.query(
+          "UPDATE listing_images SET state='expired',failure_reason='evidence_expired' WHERE id=$1",
+          [imageId],
+        );
+        return;
+      }
+      const count = (
+        await c.query(
+          "SELECT count(*)::int n FROM collector_dispatches WHERE job_id=$1 AND image_id=$2 AND dispatched_at IS NOT NULL",
+          [job.id, imageId],
+        )
+      ).rows[0].n;
+      if (count >= 3) {
+        await c.query(
+          "UPDATE listing_images SET state='failed',failure_reason='image_retry_exhausted' WHERE id=$1",
+          [imageId],
+        );
+        return;
+      }
+      await c.query(
+        "INSERT INTO collector_image_jobs(image_id,source_id,parent_job_id,status,attempts,available_at,expires_at,failure_reason,created_at) VALUES($1,$2,$3,'retry',$8,$4,$5,$6,$7) ON CONFLICT(image_id) DO NOTHING",
+        [
+          imageId,
+          lease.sourceId,
+          job.id,
+          new Date(now.getTime() + delaySeconds * 1000),
+          expires,
+          reason,
+          now,
+          count,
+        ],
+      );
+      await c.query("UPDATE listing_images SET failure_reason=$2 WHERE id=$1", [imageId, reason]);
+      await c.query(
+        "INSERT INTO outbox(kind,event_key,payload,available_at) VALUES('collector.image_retry',$1,$2,$3) ON CONFLICT DO NOTHING",
+        [`image-retry:${imageId}`, JSON.stringify({ image_id: imageId, parent_job_id: job.id }), now],
+      );
+    });
+  }
+  async claimImageRetry(sourceId: string, parentJobId?: string): Promise<Lease | null> {
+    return transaction(this.db, async (c) => {
+      const source = await this.source(c, sourceId),
+        now = await this.now(c);
+      if (source.retry_after_until && source.retry_after_until > now) return null;
+      const tasks = (
+        await c.query(
+          "SELECT t.* FROM collector_image_jobs t JOIN collector_jobs j ON j.id=t.parent_job_id WHERE t.source_id=$1 AND ($2::uuid IS NULL OR t.parent_job_id=$2) AND (t.status='retry' AND (t.available_at<=$3 OR t.expires_at<=$3) OR t.status='running' AND t.lease_until<=$3) AND ((j.status='completed' AND NOT EXISTS(SELECT 1 FROM collector_image_jobs busy WHERE busy.parent_job_id=t.parent_job_id AND busy.status='running' AND busy.lease_until>$3)) OR j.status IN ('failed','cancelled','expired') OR t.expires_at<=$3) ORDER BY CASE WHEN j.status='completed' AND t.expires_at>$3 THEN 0 ELSE 1 END,t.available_at,t.id LIMIT 50",
+          [sourceId, parentJobId ?? null, now],
+        )
+      ).rows;
+      for (const task of tasks) {
+        const job = (
+          await c.query<Job>("SELECT * FROM collector_jobs WHERE id=$1 FOR UPDATE", [task.parent_job_id])
+        ).rows[0];
+        const current = (
+          await c.query("SELECT * FROM collector_image_jobs WHERE id=$1 FOR UPDATE", [task.id])
+        ).rows[0];
+        if (!job || !current || !["retry", "running"].includes(current.status)) continue;
+        if (current.status === "running") {
+          if (current.lease_until > now) continue;
+          await this.abandon(c, job);
+          job.bytes_reserved = (
+            await c.query("SELECT bytes_reserved FROM collector_jobs WHERE id=$1", [job.id])
+          ).rows[0].bytes_reserved;
+          await c.query(
+            "UPDATE collector_image_jobs SET status='retry',lease_owner=NULL,lease_until=NULL WHERE id=$1",
+            [current.id],
+          );
+        }
+        const image = (
+          await c.query("SELECT * FROM listing_images WHERE id=$1 FOR UPDATE", [current.image_id])
+        ).rows[0];
+        const config = (
+          await c.query<Config>("SELECT * FROM collector_configs WHERE id=$1 AND source_id=$2", [
+            job.config_id,
+            sourceId,
+          ])
+        ).rows[0];
+        const run = (
+          await c.query(
+            "SELECT collector_version,parser_version,parser_profile_hash,permission_snapshot_hash FROM collector_runs WHERE id=$1",
+            [job.collector_run_id],
+          )
+        ).rows[0];
+        const expired = current.expires_at <= now;
+        const linked = (
+          await c.query(
+            "SELECT 1 FROM listing_images i JOIN collector_pages p ON p.observation_id=i.observation_id AND p.source_id=i.source_id JOIN source_observations o ON o.id=i.observation_id WHERE i.id=$1 AND p.job_id=$2 AND o.retention_until>$3",
+            [current.image_id, job.id, now],
+          )
+        ).rowCount;
+        const valid =
+          Boolean(linked) &&
+          image?.state === "pending" &&
+          image.permission_epoch === source.permission_epoch &&
+          job.permission_epoch === source.permission_epoch &&
+          config?.enabled &&
+          config.access_method === "offline_fixture" &&
+          run?.collector_version === COLLECTOR_VERSION &&
+          run.parser_version === PARSER_VERSION &&
+          run.parser_profile_hash === this.profileHash &&
+          run.permission_snapshot_hash ===
+            digest(`offline:${source.permission_epoch}:${config.updated_at.toISOString()}`);
+        if (
+          expired ||
+          current.attempts >= 3 ||
+          !valid ||
+          ["failed", "cancelled", "expired"].includes(job.status)
+        ) {
+          const reason = expired
+            ? "image_retry_expired"
+            : current.attempts >= 3
+              ? "image_retry_exhausted"
+              : "image_retry_source_or_evidence_changed";
+          await c.query(
+            "UPDATE collector_image_jobs SET status=$2,lease_owner=NULL,lease_until=NULL,failure_reason=$3,finished_at=$4 WHERE id=$1",
+            [current.id, expired ? "expired" : "failed", reason, now],
+          );
+          if (image?.state === "pending")
+            await c.query("UPDATE listing_images SET state=$2,failure_reason=$3 WHERE id=$1", [
+              current.image_id,
+              expired ? "expired" : "failed",
+              reason,
+            ]);
+          continue;
+        }
+        if (job.status !== "completed") continue;
+        const busy = (
+          await c.query(
+            "SELECT ((SELECT count(*) FROM collector_jobs WHERE source_id=$1 AND status='running' AND lease_until>$2)+(SELECT count(*) FROM collector_image_jobs WHERE source_id=$1 AND status='running' AND lease_until>$2))::int n",
+            [sourceId, now],
+          )
+        ).rows[0].n;
+        if (busy >= config.concurrency_cap) continue;
+        const parentBusy = (
+          await c.query("SELECT 1 FROM collector_image_jobs WHERE parent_job_id=$1 AND status='running'", [
+            job.id,
+          ])
+        ).rowCount;
+        if (parentBusy || Number(job.bytes_reserved) > 0) continue;
+        const token = randomUUID();
+        await c.query(
+          "UPDATE collector_image_jobs SET status='running',lease_owner=$2,lease_until=$3 WHERE id=$1",
+          [current.id, token, new Date(Math.min(now.getTime() + 60000, current.expires_at.getTime()))],
+        );
+        return { jobId: job.id, sourceId, token, imageTaskId: current.id };
+      }
+      return null;
+    });
+  }
+  async deferImageRetry(lease: Lease, reason: string, delaySeconds = 30) {
+    if (!lease.imageTaskId || !Number.isSafeInteger(delaySeconds) || delaySeconds < 1 || delaySeconds > 86400)
+      throw new Error("invalid_image_retry");
+    return transaction(this.db, async (c) => {
+      const { job, now, imageTask } = await this.locked(c, lease, true);
+      await this.abandon(c, job);
+      const attempts = imageTask.attempts;
+      const next = new Date(now.getTime() + delaySeconds * 1000),
+        terminal = attempts >= 3 || next >= imageTask.expires_at;
+      await c.query(
+        "UPDATE collector_image_jobs SET status=$2,lease_owner=NULL,lease_until=NULL,available_at=$3,failure_reason=$4,finished_at=$5 WHERE id=$1",
+        [imageTask.id, terminal ? "failed" : "retry", next, reason, terminal ? now : null],
+      );
+      if (terminal)
+        await c.query(
+          "UPDATE listing_images SET state='failed',failure_reason=$2 WHERE id=$1 AND state='pending'",
+          [imageTask.image_id, reason],
+        );
+      return terminal ? "failed" : "retry";
+    });
+  }
+  /** Current readable synthetic evidence; circuit stops collection, rights withdrawal stops reads. */
+  async readScope(c: Transaction, sourceId: string) {
+    const row = (
+        await c.query(
+          "SELECT s.*,x.provider,x.status AS clearance_status,x.effective_at,x.expires_at FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id WHERE s.id=$1 FOR SHARE OF s,x",
+          [sourceId],
+        )
+      ).rows[0],
+      now = await this.now(c);
+    if (
+      row?.access_method !== "offline_fixture" ||
+      row.provider !== "synthetic_fixture" ||
+      row.status !== "active" ||
+      !["draft", "reviewed", "active"].includes(row.clearance_status) ||
+      (row.effective_at && row.effective_at > now) ||
+      (row.expires_at && row.expires_at <= now)
+    )
+      throw new Error("source_rights_unavailable");
+    return { source: row, now };
+  }
   async candidates(jobId: string): Promise<Candidate[]> {
     const job = await this.view(jobId);
     return transaction(this.db, async (c) => {
-      const source = (await c.query<Source>("SELECT * FROM sources WHERE id=$1 FOR SHARE", [job.source_id]))
-        .rows[0];
-      if (
-        source?.access_method !== "offline_fixture" ||
-        source.status !== "active" ||
-        source.permission_epoch !== job.permission_epoch
-      )
-        throw new Error("source_rights_unavailable");
+      const { source, now } = await this.readScope(c, job.source_id);
+      if (source.permission_epoch !== job.permission_epoch) throw new Error("source_rights_unavailable");
+      const expired = (
+        await c.query(
+          "SELECT 1 FROM collector_pages p JOIN source_observations o ON o.id=p.observation_id WHERE p.job_id=$1 AND (o.retention_until IS NULL OR o.retention_until<=$2) LIMIT 1",
+          [jobId, now],
+        )
+      ).rowCount;
+      if (expired) throw new Error("source_evidence_expired");
       const rows = await c.query(
-        "SELECT DISTINCT ON(e.sale_event_id) e.candidate,EXISTS(SELECT 1 FROM collector_quarantines q WHERE q.affected_event_id=e.sale_event_id) AS quarantined FROM sale_event_evidence e JOIN collector_pages p ON p.observation_id=e.observation_id AND p.source_id=e.source_id JOIN collector_jobs j ON j.id=p.job_id CROSS JOIN LATERAL jsonb_array_elements_text(j.visited_cursors) WITH ORDINALITY AS seq(cursor,position) WHERE p.job_id=$1 AND seq.cursor=p.cursor ORDER BY e.sale_event_id,seq.position DESC",
+        "SELECT DISTINCT ON(e.sale_event_id) e.candidate,o.retention_until,EXISTS(SELECT 1 FROM collector_quarantines q WHERE q.affected_event_id=e.sale_event_id) AS quarantined FROM sale_event_evidence e JOIN source_observations o ON o.id=e.observation_id JOIN collector_pages p ON p.observation_id=e.observation_id AND p.source_id=e.source_id JOIN collector_jobs j ON j.id=p.job_id CROSS JOIN LATERAL jsonb_array_elements_text(j.visited_cursors) WITH ORDINALITY AS seq(cursor,position) WHERE p.job_id=$1 AND seq.cursor=p.cursor ORDER BY e.sale_event_id,seq.position DESC",
         [jobId],
       );
       if (rows.rows.some((r) => r.quarantined)) throw new Error("collector_evidence_quarantined");
+      if (rows.rows.some((r) => !r.retention_until || r.retention_until <= now))
+        throw new Error("source_evidence_expired");
       return rows.rows.map((r) => candidateFromJson(r.candidate));
     });
   }

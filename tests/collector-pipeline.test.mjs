@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,9 +8,12 @@ import { after, before, test } from "node:test";
 import {
   COLLECTOR_VERSION,
   CollectorStore,
+  collectorHealth,
+  createFixtureArtifact,
   digest,
   FixtureTransport,
   fixtureResponse,
+  loadFixtureArtifact,
   OfflineCollectorWorker,
   PARSER_VERSION,
   parseFixturePage,
@@ -1079,4 +1083,560 @@ test("worker upgrades cannot silently mix collector or parser versions into a fr
     await assert.rejects(x.store.reserve(lease, "page", 1024), /collector_version_mismatch/);
     assert.equal((await x.store.view(x.jobId)).request_count, 0);
   }
+});
+
+async function retryCase(responses, options = {}) {
+  const x = await setup(options),
+    url = "https://images.example.test/retry.png",
+    png = await sharp({ create: { width: 12, height: 8, channels: 3, background: "#543210" } })
+      .png()
+      .toBuffer();
+  const values = responses.map((status) =>
+    status === 200
+      ? { status: 200, contentType: "image/png", bytes: png }
+      : status === 429
+        ? { status, contentType: "text/plain", bytes: Buffer.from("limited"), retryAfterSeconds: 120 }
+        : { status, contentType: "text/plain", bytes: Buffer.from("temporary") },
+  );
+  const entries = [
+    ["page:start", [fixtureResponse(page(x, [listing(x, 0, { primaryImage: { role: "primary", url } })]))]],
+    [`image:${url}`, values],
+  ];
+  const transport = frames(entries),
+    runner = worker(x, transport);
+  assert.equal((await runner.runOne(x.sourceId)).status, "completed");
+  return { ...x, runner, transport, entries, png, url };
+}
+const mediaRow = async (x) =>
+  (await db.query("SELECT * FROM listing_images WHERE source_id=$1", [x.sourceId])).rows[0];
+test("temporary image failure persists an independent retry while pages and price inputs are already complete", async () => {
+  const x = await retryCase([503, 200]);
+  assert.equal((await mediaRow(x)).state, "pending");
+  assert.equal(
+    (await db.query("SELECT count(*)::int n FROM collector_watermarks WHERE source_id=$1", [x.sourceId]))
+      .rows[0].n,
+    1,
+  );
+  const before = await x.store.candidates(x.jobId);
+  assert.equal((await x.runner.retryImages(x.sourceId)).length, 0);
+  clock = "2026-11-16T12:00:31Z";
+  const fresh = new OfflineCollectorWorker(new CollectorStore(db, () => clock), frames(x.entries), x.media);
+  const result = await fresh.retryImages(x.sourceId, { parentJobId: x.jobId });
+  assert.equal(result[0].status, "completed");
+  assert.equal((await mediaRow(x)).state, "available");
+  assert.ok((await fresh.readImageInternal((await mediaRow(x)).id)).length);
+  assert.deepEqual(await x.store.candidates(x.jobId), before);
+  assert.equal((await x.store.view(x.jobId)).status, "completed");
+  assert.equal(
+    (await db.query("SELECT count(*)::int n FROM sale_events WHERE source_id=$1", [x.sourceId])).rows[0].n,
+    1,
+  );
+});
+test("image retries stop at three total attempts and keep completed page watermark unchanged", async () => {
+  const x = await retryCase([503]);
+  clock = "2026-11-16T12:00:31Z";
+  assert.equal((await x.runner.retryImages(x.sourceId))[0].status, "retry");
+  clock = "2026-11-16T12:01:32Z";
+  assert.equal((await x.runner.retryImages(x.sourceId))[0].status, "failed");
+  clock = "2026-11-16T12:03:00Z";
+  assert.equal((await x.runner.retryImages(x.sourceId)).length, 0);
+  assert.equal(x.transport.calls.filter((k) => k.startsWith("image:")).length, 3);
+  assert.equal((await mediaRow(x)).state, "failed");
+  assert.equal((await x.store.view(x.jobId)).status, "completed");
+});
+test("media has its own deadline after parent page deadline; image expiry never extends original evidence", async () => {
+  const x = await retryCase([500, 200]);
+  clock = "2026-11-16T14:00:00Z";
+  assert.equal((await x.runner.retryImages(x.sourceId))[0].status, "completed");
+  const row = await mediaRow(x),
+    e = (await db.query("SELECT retention_until FROM source_observations WHERE id=$1", [row.observation_id]))
+      .rows[0];
+  assert.equal(row.retention_until.toISOString(), e.retention_until.toISOString());
+});
+test("shared source Retry-After prevents other jobs and lets remaining images queue without blocking complete pages", async () => {
+  const x = await setup(),
+    u1 = "https://images.example.test/one.png",
+    u2 = "https://images.example.test/two.png",
+    png = await sharp({ create: { width: 4, height: 4, channels: 3, background: "blue" } })
+      .png()
+      .toBuffer();
+  const transport = frames([
+      [
+        "page:start",
+        [
+          fixtureResponse(
+            page(x, [
+              listing(x, 1, { primaryImage: { role: "primary", url: u1 } }),
+              listing(x, 2, { primaryImage: { role: "primary", url: u2 } }),
+            ]),
+          ),
+        ],
+      ],
+      [
+        `image:${u1}`,
+        [
+          { status: 429, contentType: "text/plain", bytes: Buffer.from("wait"), retryAfterSeconds: 120 },
+          { status: 200, contentType: "image/png", bytes: png },
+        ],
+      ],
+      [`image:${u2}`, [{ status: 200, contentType: "image/png", bytes: png }]],
+    ]),
+    runner = worker(x, transport);
+  assert.equal((await runner.runOne(x.sourceId)).status, "completed");
+  assert.equal(transport.calls.filter((k) => k === `image:${u2}`).length, 0);
+  const q = (
+    await db.query("SELECT attempts FROM collector_image_jobs WHERE source_id=$1 ORDER BY attempts", [
+      x.sourceId,
+    ])
+  ).rows;
+  assert.deepEqual(
+    q.map((r) => r.attempts),
+    [0, 1],
+  );
+  const other = await x.store.enqueue({ ...x.input, runKey: "other" });
+  assert.equal(await x.store.claim(x.sourceId, 60, other), null);
+  clock = "2026-11-16T12:01:00Z";
+  assert.equal((await runner.retryImages(x.sourceId)).length, 0);
+  clock = "2026-11-16T12:02:01Z";
+  assert.equal((await runner.retryImages(x.sourceId)).filter((r) => r.status === "completed").length, 2);
+});
+test("crashed image lease recovers conservative dispatch budget, preserves response index and rejects the old writer", async () => {
+  const x = await retryCase([503, 200]);
+  clock = "2026-11-16T12:00:31Z";
+  const old = await x.store.claimImageRetry(x.sourceId),
+    image = await mediaRow(x),
+    dispatch = await x.store.reserve(old, "image", 1024, `image:${x.url}`, image.id);
+  await x.store.fixtureResponseIndex(old, dispatch);
+  clock = "2026-11-16T12:01:32Z";
+  assert.equal((await x.runner.retryImages(x.sourceId))[0].status, "completed");
+  await assert.rejects(x.store.settle(old, dispatch, 10), /lease_lost/);
+  assert.equal((await x.store.view(x.jobId)).bytes_reserved, "0");
+  assert.equal(
+    (
+      await db.query("SELECT bytes_unconfirmed FROM collector_runs WHERE id=$1", [
+        (await x.store.view(x.jobId)).collector_run_id,
+      ])
+    ).rows[0].bytes_unconfirmed,
+    "1024",
+  );
+});
+test("retention expiry, changed evidence and revoked sources prevent every later image dispatch", async () => {
+  const x = await retryCase([503, 200]);
+  clock = "2026-11-17T12:00:01Z";
+  const calls = x.transport.calls.length;
+  assert.equal((await x.runner.retryImages(x.sourceId)).length, 0);
+  assert.equal(x.transport.calls.length, calls);
+  assert.equal((await mediaRow(x)).state, "expired");
+  const y = await retryCase([503, 200]);
+  await y.store.revokeSource(y.sourceId, "offline revoke");
+  clock = "2026-11-16T12:00:31Z";
+  await assert.rejects(y.runner.retryImages(y.sourceId), /source_inactive/);
+  assert.equal(y.transport.calls.filter((k) => k.startsWith("image:")).length, 1);
+  const z = await retryCase([503, 200]);
+  const other = await z.store.enqueue({ ...z.input, runKey: "unrelated" });
+  await db.query("UPDATE collector_image_jobs SET parent_job_id=$2 WHERE source_id=$1", [z.sourceId, other]);
+  clock = "2026-11-16T12:00:31Z";
+  assert.equal((await z.runner.retryImages(z.sourceId)).length, 0);
+  assert.equal(z.transport.calls.filter((k) => k.startsWith("image:")).length, 1);
+});
+test("image retry authorization refusal opens the source circuit and stops all pending media", async () => {
+  const x = await retryCase([503, 403]);
+  clock = "2026-11-16T12:00:31Z";
+  assert.equal((await x.runner.retryImages(x.sourceId))[0].status, "failed");
+  assert.equal(
+    (await db.query("SELECT status FROM collector_circuits WHERE source_id=$1", [x.sourceId])).rows[0].status,
+    "open",
+  );
+  assert.equal((await x.store.view(x.jobId)).status, "completed");
+  assert.equal((await mediaRow(x)).state, "failed");
+});
+test("collector health uses real enqueued denominator, pending and conservative byte facts, never fabricated cost", async () => {
+  const x = await retryCase([503, 200]);
+  await x.store.enqueue({ ...x.input, runKey: "pending" });
+  const r = await collectorHealth(db, x.sourceId, { now: clock, persist: true });
+  assert.deepEqual(r.pageSemanticCompletion, { numerator: 1, denominator: 2, ratio: 0.5 });
+  assert.equal(r.jobs.pending, 1);
+  assert.equal(r.images.find((i) => i.state === "pending").n, 1);
+  assert.equal(r.retries.find((i) => i.status === "retry").n, 1);
+  assert.equal(r.measuredCostCents, null);
+  assert.equal(r.scheduleExecutionRate, null);
+  assert.equal(r.onlineVerified, false);
+  assert.equal(r.actualEbayFieldVerification, "unverified");
+  assert.equal(JSON.stringify(r).includes(x.url), false);
+  assert.equal(
+    (
+      await db.query("SELECT count(*)::int n FROM collector_health_snapshots WHERE source_id=$1", [
+        x.sourceId,
+      ])
+    ).rows[0].n,
+    1,
+  );
+});
+test("media-only CLI restarts with the same bound artifact and never fetches another page", async () => {
+  const x = await setup(),
+    url = "https://images.example.test/cli.png",
+    png = await sharp({ create: { width: 3, height: 3, channels: 3, background: "red" } })
+      .png()
+      .toBuffer(),
+    entries = new Map([
+      ["page:start", [fixtureResponse(page(x, [listing(x, 0, { primaryImage: { role: "primary", url } })]))]],
+      [
+        `image:${url}`,
+        [
+          { status: 503, contentType: "text/plain", bytes: Buffer.from("later") },
+          { status: 200, contentType: "image/png", bytes: png },
+        ],
+      ],
+    ]);
+  const artifact = createFixtureArtifact(
+      { sourceId: x.sourceId, jobId: x.jobId, queryHash: x.queryHash, asOf: x.input.asOf },
+      entries,
+    ),
+    raw = Buffer.from(JSON.stringify(artifact)),
+    loaded = loadFixtureArtifact(raw);
+  await x.store.bindFixtureArtifact({
+    jobId: x.jobId,
+    sourceId: x.sourceId,
+    queryHash: x.queryHash,
+    asOf: x.input.asOf,
+    hash: loaded.hash,
+    pageHashes: loaded.pageHashes,
+  });
+  const path = join(x.root, "media-artifact.json");
+  writeFileSync(path, raw);
+  x.media = new PrivateMediaStore(join(x.root, "collector-media"));
+  assert.equal((await worker(x, loaded.transport).runOne(x.sourceId)).status, "completed");
+  const output = execFileSync(
+    process.execPath,
+    [
+      "scripts/collector-worker.mjs",
+      `--fixture=${path}`,
+      "--media-only=true",
+      "--clock=2026-11-16T12:00:31Z",
+    ],
+    { encoding: "utf8", env: { ...process.env, COLLECTOR_DEMO_DIR: x.root } },
+  );
+  const r = JSON.parse(output);
+  assert.equal(r.cycleMode, "primary_image_retry");
+  assert.equal(r.mediaResults[0].status, "completed");
+  assert.equal(r.fixtureResponses, 1);
+  assert.equal(r.pageCount, 1);
+  assert.equal(r.networkRequests, 0);
+  assert.ok((await worker(x, loaded.transport).readImageInternal((await mediaRow(x)).id)).length);
+});
+
+test("media leases cannot re-open parent state, quarantine pages or publish page evidence", async () => {
+  const x = await retryCase([503, 200]);
+  clock = "2026-11-16T12:00:31Z";
+  const lease = await x.store.claimImageRetry(x.sourceId),
+    before = await x.store.view(x.jobId),
+    mark = (await db.query("SELECT * FROM collector_watermarks WHERE source_id=$1", [x.sourceId])).rows;
+  await assert.rejects(x.store.defer(lease, "worker_yield", 1), /image_lease/);
+  await assert.rejects(x.store.defer(lease, "terminal", 1, true), /image_lease/);
+  await assert.rejects(x.store.failBlocked(lease, "failed"), /image_lease/);
+  await assert.rejects(
+    x.store.commitPage(lease, {}, Buffer.from("not page"), "00000000-0000-0000-0000-000000000000"),
+    /image_lease/,
+  );
+  await assert.rejects(
+    x.store.quarantinePage(
+      lease,
+      "00000000-0000-0000-0000-000000000000",
+      Buffer.from("x"),
+      "page_structure_invalid",
+    ),
+    /image_lease/,
+  );
+  await assert.rejects(x.store.finish(lease), /image_lease/);
+  assert.deepEqual(await x.store.view(x.jobId), before);
+  assert.deepEqual(
+    (await db.query("SELECT * FROM collector_watermarks WHERE source_id=$1", [x.sourceId])).rows,
+    mark,
+  );
+});
+test("two provable pre-dispatch graceful shutdowns preserve image retry quota and release reservations", async () => {
+  const x = await retryCase([503, 200]);
+  clock = "2026-11-16T12:00:31Z";
+  for (let i = 0; i < 2; i++) {
+    const controller = new AbortController(),
+      original = x.store.renew.bind(x.store);
+    x.store.renew = async (...args) => {
+      await original(...args);
+      controller.abort();
+    };
+    assert.equal((await x.runner.retryImages(x.sourceId, { signal: controller.signal }))[0].status, "retry");
+    x.store.renew = original;
+    assert.equal(
+      (await db.query("SELECT attempts FROM collector_image_jobs WHERE source_id=$1", [x.sourceId])).rows[0]
+        .attempts,
+      1,
+    );
+    assert.equal((await x.store.view(x.jobId)).bytes_reserved, "0");
+    clock = new Date(Date.parse(clock) + 2000).toISOString();
+  }
+  assert.equal((await x.runner.retryImages(x.sourceId))[0].status, "completed");
+  assert.equal(x.transport.calls.filter((k) => k.startsWith("image:")).length, 2);
+});
+test("local source rate cap moves pending photo to media queue without blocking the final page", async () => {
+  const x = await setup({ rateCap: 1 }),
+    url = "https://images.example.test/local-rate.png",
+    png = await sharp({ create: { width: 2, height: 2, channels: 3, background: "red" } })
+      .png()
+      .toBuffer();
+  const transport = frames([
+      ["page:start", [fixtureResponse(page(x, [listing(x, 0, { primaryImage: { role: "primary", url } })]))]],
+      [`image:${url}`, [{ status: 200, contentType: "image/png", bytes: png }]],
+    ]),
+    runner = worker(x, transport);
+  assert.equal((await runner.runOne(x.sourceId)).status, "completed");
+  assert.equal(transport.calls.length, 1);
+  assert.equal((await mediaRow(x)).state, "pending");
+  assert.equal(
+    (await db.query("SELECT attempts FROM collector_image_jobs WHERE source_id=$1", [x.sourceId])).rows[0]
+      .attempts,
+    0,
+  );
+  clock = "2026-11-16T12:01:01Z";
+  assert.equal((await runner.retryImages(x.sourceId))[0].status, "completed");
+});
+test("clearance withdrawal alone prevents collection and deferred photos without waiting for source epoch cleanup", async () => {
+  const x = await retryCase([503, 200]),
+    count = x.transport.calls.length;
+  await db.query(
+    "UPDATE source_clearances SET status='revoked' WHERE id=(SELECT source_clearance_id FROM sources WHERE id=$1)",
+    [x.sourceId],
+  );
+  clock = "2026-11-16T12:00:31Z";
+  await assert.rejects(x.runner.retryImages(x.sourceId), /source_clearance_unavailable/);
+  assert.equal(x.transport.calls.length, count);
+  await assert.rejects(x.store.enqueue({ ...x.input, runKey: "withdrawn" }), /source_clearance_unavailable/);
+});
+
+test("abort after dispatch marker but before transport rolls back the media attempt exactly once", async () => {
+  const x = await retryCase([503, 200]);
+  clock = "2026-11-16T12:00:31Z";
+  for (let i = 0; i < 2; i++) {
+    const controller = new AbortController(),
+      original = x.store.fixtureResponseIndex.bind(x.store);
+    x.store.fixtureResponseIndex = async (...args) => {
+      const index = await original(...args);
+      controller.abort();
+      return index;
+    };
+    assert.equal((await x.runner.retryImages(x.sourceId, { signal: controller.signal }))[0].status, "retry");
+    x.store.fixtureResponseIndex = original;
+    assert.equal(
+      (await db.query("SELECT attempts FROM collector_image_jobs WHERE source_id=$1", [x.sourceId])).rows[0]
+        .attempts,
+      1,
+    );
+    clock = new Date(Date.parse(clock) + 2000).toISOString();
+  }
+  assert.equal((await x.runner.retryImages(x.sourceId))[0].status, "completed");
+  assert.equal(x.transport.calls.filter((k) => k.startsWith("image:")).length, 2);
+});
+test("image publication and task completion roll back together; storage failure is retried without orphaning bytes", async () => {
+  const x = await retryCase([503, 200]);
+  await db.query(
+    "CREATE FUNCTION collector_media_complete_fault() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.status='completed' THEN RAISE EXCEPTION 'injected_media_complete_failure'; END IF; RETURN NEW; END $$",
+  );
+  await db.query(
+    "CREATE TRIGGER collector_media_complete_fault BEFORE UPDATE ON collector_image_jobs FOR EACH ROW EXECUTE FUNCTION collector_media_complete_fault()",
+  );
+  try {
+    clock = "2026-11-16T12:00:31Z";
+    assert.equal((await x.runner.retryImages(x.sourceId))[0].status, "retry");
+    assert.equal((await mediaRow(x)).state, "pending");
+    assert.equal((await mediaRow(x)).object_key, null);
+    const { readdir } = await import("node:fs/promises");
+    assert.equal((await readdir(join(x.root, x.sourceId))).filter((n) => n.endsWith(".webp")).length, 0);
+  } finally {
+    await db.query("DROP TRIGGER collector_media_complete_fault ON collector_image_jobs");
+    await db.query("DROP FUNCTION collector_media_complete_fault()");
+  }
+  clock = "2026-11-16T12:01:32Z";
+  assert.equal((await x.runner.retryImages(x.sourceId))[0].status, "completed");
+  assert.equal((await x.store.view(x.jobId)).status, "completed");
+});
+test("current clearance withdrawal denies existing internal image and candidate reads and marks health stopped", async () => {
+  const x = await retryCase([200]),
+    image = await mediaRow(x);
+  assert.ok((await x.runner.readImageInternal(image.id)).length);
+  await db.query(
+    "UPDATE source_clearances SET status='revoked' WHERE id=(SELECT source_clearance_id FROM sources WHERE id=$1)",
+    [x.sourceId],
+  );
+  await assert.rejects(x.runner.readImageInternal(image.id), /image_unavailable/);
+  await assert.rejects(x.store.candidates(x.jobId), /source_rights_unavailable/);
+  assert.equal((await collectorHealth(db, x.sourceId, { now: clock })).sourceStopped, true);
+});
+test("page workers and media workers share one source concurrency cap", async () => {
+  const x = await retryCase([503, 200], { concurrency: 1 });
+  const other = await x.store.enqueue({ ...x.input, runKey: "parallel" });
+  clock = "2026-11-16T12:00:31Z";
+  const leases = await Promise.all([
+    x.store.claimImageRetry(x.sourceId),
+    x.store.claim(x.sourceId, 60, other),
+  ]);
+  assert.equal(leases.filter(Boolean).length, 1);
+});
+
+test("an expired empty snapshot is denied rather than reused as a permitted zero-sample result", async () => {
+  const x = await setup();
+  const runner = worker(x, frames([["page:start", [fixtureResponse(page(x, []))]]]));
+  assert.equal((await runner.runOne(x.sourceId)).status, "completed");
+  assert.deepEqual(await x.store.candidates(x.jobId), []);
+  clock = "2026-11-17T12:00:01Z";
+  await assert.rejects(x.store.candidates(x.jobId), /source_evidence_expired/);
+});
+
+test("50 deferred photos on an unfinished page job cannot starve a later completed parent", async () => {
+  const x = await setup(),
+    url = "https://images.example.test/deferred.png";
+  const first = frames([
+    [
+      "page:start",
+      [
+        fixtureResponse(
+          page(
+            x,
+            Array.from({ length: 50 }, (_, i) => listing(x, i, { primaryImage: { role: "primary", url } })),
+            "start",
+            "second",
+          ),
+        ),
+      ],
+    ],
+    ["page:second", [{ status: 503, contentType: "text/plain", bytes: Buffer.from("later") }]],
+    [`image:${url}`, [{ status: 503, contentType: "text/plain", bytes: Buffer.from("later") }]],
+  ]);
+  assert.equal((await worker(x, first).runOne(x.sourceId)).status, "retry");
+  clock = "2026-11-16T12:00:01Z";
+  const other = await x.store.enqueue({ ...x.input, runKey: "complete-later" }),
+    url2 = "https://images.example.test/complete.png",
+    png = await sharp({ create: { width: 2, height: 2, channels: 3, background: "red" } })
+      .png()
+      .toBuffer();
+  const transport = frames([
+    [
+      "page:start",
+      [fixtureResponse(page(x, [listing(x, 999, { primaryImage: { role: "primary", url: url2 } })]))],
+    ],
+    [
+      `image:${url2}`,
+      [
+        { status: 503, contentType: "text/plain", bytes: Buffer.from("later") },
+        { status: 200, contentType: "image/png", bytes: png },
+      ],
+    ],
+  ]);
+  const runner = worker(x, transport);
+  assert.equal((await runner.runOne(x.sourceId, { jobId: other })).status, "completed");
+  clock = "2026-11-16T12:00:40Z";
+  assert.equal((await runner.retryImages(x.sourceId, { maxTasks: 1 }))[0].status, "completed");
+  assert.equal(
+    (
+      await db.query(
+        "SELECT count(*)::int n FROM collector_image_jobs WHERE source_id=$1 AND status='retry'",
+        [x.sourceId],
+      )
+    ).rows[0].n,
+    50,
+  );
+});
+
+test("clearance expiry bounds stored photo lifetime and maintenance denies then clears the private copy", async () => {
+  const x = await setup(),
+    url = "https://images.example.test/expiring.png",
+    png = await sharp({ create: { width: 2, height: 2, channels: 3, background: "blue" } })
+      .png()
+      .toBuffer();
+  await db.query(
+    "UPDATE source_clearances SET expires_at='2026-11-16T12:01:00Z' WHERE id=(SELECT source_clearance_id FROM sources WHERE id=$1)",
+    [x.sourceId],
+  );
+  const runner = worker(
+    x,
+    frames([
+      ["page:start", [fixtureResponse(page(x, [listing(x, 0, { primaryImage: { role: "primary", url } })]))]],
+      [`image:${url}`, [{ status: 200, contentType: "image/png", bytes: png }]],
+    ]),
+  );
+  assert.equal((await runner.runOne(x.sourceId)).status, "completed");
+  const image = await mediaRow(x);
+  assert.equal(image.retention_until.toISOString(), "2026-11-16T12:01:00.000Z");
+  clock = "2026-11-16T12:01:01Z";
+  await assert.rejects(runner.readImageInternal(image.id), /image_unavailable/);
+  await runner.runMaintenance(x.sourceId);
+  assert.equal((await mediaRow(x)).state, "revoked");
+  await assert.rejects(x.media.get(image.object_key));
+  assert.equal((await collectorHealth(db, x.sourceId, { now: clock })).sourceStopped, true);
+});
+
+test("a clearance renewed between maintenance inspection and mutation is not revoked from stale state", async () => {
+  const x = await setup();
+  await db.query(
+    "UPDATE source_clearances SET expires_at='2026-11-16T12:01:00Z' WHERE id=(SELECT source_clearance_id FROM sources WHERE id=$1)",
+    [x.sourceId],
+  );
+  clock = "2026-11-16T12:01:01Z";
+  const original = x.store.revokeInvalidClearance.bind(x.store);
+  x.store.revokeInvalidClearance = async (id) => {
+    await db.query(
+      "UPDATE source_clearances SET expires_at='2026-11-16T15:00:00Z' WHERE id=(SELECT source_clearance_id FROM sources WHERE id=$1)",
+      [id],
+    );
+    return original(id);
+  };
+  await worker(x, frames([])).runMaintenance(x.sourceId);
+  const source = (await db.query("SELECT status,permission_epoch FROM sources WHERE id=$1", [x.sourceId]))
+    .rows[0];
+  assert.equal(source.status, "active");
+  assert.equal(source.permission_epoch, "1");
+  assert.ok(await x.store.claim(x.sourceId, 60, x.jobId));
+});
+
+test("the source report CLI persists a no-data report with null ratios, cost and schedule rather than invented success", async () => {
+  clock = "2026-11-16T12:00:00Z";
+  const source = await provisionFixtureSource(db, clock);
+  const raw = execFileSync(
+      process.execPath,
+      ["scripts/collector-report.mjs", `--source=${source.sourceId}`, `--clock=${clock}`],
+      { encoding: "utf8", env: process.env },
+    ),
+    r = JSON.parse(raw);
+  assert.equal(r.pageSemanticCompletion.denominator, 0);
+  assert.equal(r.pageSemanticCompletion.ratio, null);
+  assert.equal(r.freshWatermarks.ratio, null);
+  assert.equal(r.measuredCostCents, null);
+  assert.equal(r.scheduleExecutionRate, null);
+  assert.equal(r.networkRequests, 0);
+  assert.equal(r.onlineVerified, false);
+  assert.equal(r.clock, "explicit_simulation");
+  assert.equal(r.collectorVersion, COLLECTOR_VERSION);
+});
+
+test("completed page work releases its original lease before an independent image worker takes over", async () => {
+  const x = await setup(),
+    url = "https://images.example.test/released.png";
+  let pageLease;
+  const original = x.store.claim.bind(x.store);
+  x.store.claim = async (...args) => {
+    const lease = await original(...args);
+    if (lease) pageLease = lease;
+    return lease;
+  };
+  const runner = worker(
+    x,
+    frames([
+      ["page:start", [fixtureResponse(page(x, [listing(x, 0, { primaryImage: { role: "primary", url } })]))]],
+      [`image:${url}`, [{ status: 503, contentType: "text/plain", bytes: Buffer.from("later") }]],
+    ]),
+  );
+  assert.equal((await runner.runOne(x.sourceId)).status, "completed");
+  assert.equal((await x.store.view(x.jobId)).lease_owner, null);
+  await assert.rejects(x.store.check(pageLease), /lease_lost/);
+  await assert.rejects(x.store.persistImage(pageLease, (await mediaRow(x)).id, {}, x.media), /lease_lost/);
+  clock = "2026-11-16T12:00:31Z";
+  assert.ok(await x.store.claimImageRetry(x.sourceId));
 });

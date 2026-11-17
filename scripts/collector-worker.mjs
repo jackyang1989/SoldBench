@@ -9,12 +9,16 @@ import { localDatabaseUrl } from "./local-db.mjs";
 
 const args = new Map();
 for (const raw of process.argv.slice(2)) {
-  const match = /^--(fixture|max-pages|clock|status)=(.+)$/.exec(raw);
+  const match = /^--(fixture|max-pages|clock|status|media-only)=(.+)$/.exec(raw);
   if (!match || args.has(match[1])) throw new Error("invalid_collector_worker_argument");
   args.set(match[1], match[2]);
 }
 if (!args.get("fixture")) throw new Error("fixture_artifact_path_required");
 if (args.has("status") && args.get("status") !== "true") throw new Error("invalid_worker_status_option");
+if (args.has("media-only") && args.get("media-only") !== "true")
+  throw new Error("invalid_worker_media_option");
+if (args.has("media-only") && (args.has("status") || args.has("max-pages")))
+  throw new Error("conflicting_worker_options");
 const maxPages = args.has("max-pages") ? Number(args.get("max-pages")) : undefined;
 if (
   maxPages !== undefined &&
@@ -78,8 +82,12 @@ try {
     jobId: job.id,
     time: new Date().toISOString(),
   });
-  let claimed = false;
-  if (!args.has("status") && !["completed", "failed", "cancelled", "expired"].includes(job.status)) {
+  let claimed = false,
+    mediaResults = [];
+  if (
+    !args.has("status") &&
+    (args.has("media-only") || !["completed", "failed", "cancelled", "expired"].includes(job.status))
+  ) {
     await store.bindFixtureArtifact({
       jobId: job.id,
       sourceId: artifact.sourceId,
@@ -93,9 +101,16 @@ try {
       loaded.transport,
       new PrivateMediaStore(join(directory, "collector-media")),
     );
-    claimed =
-      (await runner.runOne(artifact.sourceId, { jobId: job.id, maxPages, signal: controller.signal })) !==
-      null;
+    if (args.has("media-only")) {
+      mediaResults = await runner.retryImages(artifact.sourceId, {
+        parentJobId: job.id,
+        signal: controller.signal,
+      });
+      claimed = mediaResults.length > 0;
+    } else
+      claimed =
+        (await runner.runOne(artifact.sourceId, { jobId: job.id, maxPages, signal: controller.signal })) !==
+        null;
   }
   const current = await store.view(job.id),
     captured = clock ? new Date(clock()) : (await db.query("SELECT clock_timestamp() t")).rows[0].t;
@@ -111,6 +126,8 @@ try {
   const report = {
     kind: args.has("status") ? "inspection" : "worker_cycle",
     claimed,
+    mediaResults,
+    cycleMode: args.has("media-only") ? "primary_image_retry" : "pages",
     heartbeatPath: heartbeat,
     lastSuccessAt: lastSuccess?.toISOString() ?? null,
     mode: "offline_fixture",
@@ -148,7 +165,11 @@ try {
           : "cycle_finished",
   });
   console.log(JSON.stringify(report));
-  if (["failed", "cancelled", "expired"].includes(current.status)) process.exitCode = 1;
+  if (
+    ["failed", "cancelled", "expired"].includes(current.status) ||
+    mediaResults.some((r) => ["failed", "expired"].includes(r.status))
+  )
+    process.exitCode = 1;
 } catch (error) {
   writeHeartbeat({
     state: "failed",

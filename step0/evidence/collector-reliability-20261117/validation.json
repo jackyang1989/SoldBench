@@ -1,0 +1,75 @@
+{
+  "evidence_type": "offline_simulation",
+  "baseline_commit": "978032f",
+  "branch": "codex/offline-product-foundation",
+  "date": "2026-11-17",
+  "timezone": "Asia/Singapore",
+  "collector_version": "offline-pg-1.5.0",
+  "parser_version": "offline-page-1.2.0",
+  "database": "isolated PostgreSQL 16 empty/0010/0011/0012; 61 tables",
+  "configuration": {
+    "data_mode": "offline_fixture",
+    "collector_enabled": false,
+    "payments_mode": "offline",
+    "transport": "in-memory bound fixtures only; local DB/CLI child processes",
+    "clock": "explicit synthetic 2026-11-16 and injected boundary clocks; not real observation days"
+  },
+  "actors": "synthetic sources/events, private generated images; no customer account access",
+  "ui_draft": "rejected and isolated in stash13c4d3217670ef8a87d49f76e8bdfbf8d1bb2eea; excluded from active code and tests",
+  "commands": [
+    {
+      "command": "npm run check",
+      "exit_code": 0,
+      "node_tests": 136,
+      "collector_pipeline_tests": 56
+    },
+    {
+      "command": "python3 step0/tools/validate_offline.py",
+      "exit_code": 0
+    },
+    {
+      "command": "npm audit --omit=dev --json",
+      "exit_code": 0
+    }
+  ],
+  "coverage": [
+    "independent primary-image retry and page watermark immutability",
+    "three dispatch maximum; known before/after-marker shutdown rollback",
+    "source Retry-After and local rate/daily budget shared across workers",
+    "single source concurrency including page and media work",
+    "old page lease released; media lease cannot mutate parent",
+    "media crash lease takeover and conservative unknown-byte settlement",
+    "publication/queue transaction rollback and orphan cleanup",
+    "source/clearance/epoch/observation retention/profile/version guards",
+    "withdrawal and expiry deny reads before cleanup; renewal race rechecked under locks",
+    "empty snapshot expiry and disputed image refusal",
+    "50 unfinished parent tasks do not starve a completed parent",
+    "actual media-only child-process CLI, bound response sequence, no page rerequest",
+    "health report real enqueued/pending denominator and null unknown schedule/cost",
+    "all prior golden121/64/58, identity/time/currency/shipping/owner/billing checks"
+  ],
+  "review": "security-review/code-review delegated read-only; identified findings remediated; final narrow expiry race rechecked. Reviewer did not run full tests. Not G1/G3 or founder sign-off.",
+  "not_verified": [
+    "real eBay adapters or any of45 fields",
+    "real authorized image retrieval",
+    "host egress/cgroup/production deployment",
+    "frozen real scheduling observations and actual cost",
+    "14-day source and7-day production stability",
+    "real email/payments or public release"
+  ],
+  "source_sha256": {
+    "package.json": "89da62d35ede7cfdffdc13dacebd26235ba4dc800d43659ad225394ce5d3e66e",
+    "packages/collector/src/fixture.ts": "e652b75c5b83bbf74eb5766ba88867e6ac5ad20ae215e92a151e4a04a10ee980",
+    "packages/collector/src/health.ts": "bc609db0e614e7f06ba6414c1cea44f08be85d480e3a3dbf65d6d32e54507b58",
+    "packages/collector/src/index.ts": "87051abde0d49a8276b16045dc7852b0c4cf29887ae74fedd6d28192ea2026cf",
+    "packages/collector/src/store.ts": "c8a3a6845756909d621fc053549739560c6b9b4f80f6b47a5e3ccee919070b30",
+    "packages/collector/src/worker.ts": "ffccc4d9ababda02a62ce6e71951d3b15114e95ef44c91b1e897c5b568dc1052",
+    "packages/db/migrations/0011_collector_image_retries.sql": "6749af6df8b3d5f60bb507fa5269386dcf19c23cffba5e30c6cb85cb9ec9fec5",
+    "packages/db/migrations/0012_collector_shared_backoff.sql": "3d85bc341c717dfced840ef3d4fe099bd2c76a2c9faf3b5935c28e2f5e26251c",
+    "scripts/collector-launcher.mjs": "bb6a7aadd6048a37375994eec661856482f97f706040831c9ec58080c1f79d2e",
+    "scripts/collector-report.mjs": "c4db940f97aaf027cf95dbf1c062e781cd1205d2ce448340d7bcc8ce1eebd69e",
+    "scripts/collector-worker.mjs": "322c181f3eddf17cf835d3518ecdca72b2da72667044b32431a7074ca2451cce",
+    "tests/collector-pipeline.test.mjs": "cc7ed7f8077e60730321ddd6a8096cee7d14a61f42fe5b93340d5040dd977223",
+    "tests/database.test.mjs": "1bafd2d2daef807c37512ddafc8ef939e0cf5e6b41394820c82a701dbe140e64"
+  }
+}

@@ -4,9 +4,9 @@
 
 面向个人卖家、收藏品交易商、二手商家、开发者、SaaS 企业和专业数据使用者的成交研究与定价参考产品。网页提供直接查价与研究体验，REST API 支持程序集成，MCP 支持 Agent 工作流，三者共享数据、匹配、统计和计费规则。生产数据由自研、自托管 Collector 在明确许可范围内获取。首发默认评级卡牌，最终由第 0 步验证确定；Game Boy 文件是统计合成夹具，不代表首发类目或真实成交证据。
 
-## 当前状态（2026-11-16）
+## 当前状态（2026-11-17）
 
-用户已明确授权先做完整离线产品工程；按 [ADR-13](docs/adr/ADR-13.md) 在真实来源许可前只使用synthetic/fixtures，禁止网络采集、真实支付和生产部署。第一工程整包TASK-011/012/013/019/020正在开发及审查：当前有monorepo、PG16迁移、查询/统计核心、SSR/API开发壳、双语消息、图片处理原型、许可预检与PG持久化离线采集管线，但**没有真实eBay供数、没有完整网页账户/收费/Search API/Dashboard/MCP，也没有CompSniper生产端到端功能对等**。OpenAPI1.6含58个操作，其中账户/会话/MFA/密钥已有离线服务，其余以实际任务记录为准，不能按契约数量算已实现。详细交接见 [Agent接手指南](docs/Agent接手指南.md)、当前唯一任务状态见 [排期台账](docs/开发排期与任务台账.md)。原始输入为 [v1.4规格](<SoldBench 开发规格书 v1.4.md>) 和 [合成夹具](v14_gameboy_58_verified.json)。
+用户已允许完整离线工程，真实来源许可前只使用synthetic/fixtures，禁止网络采集、真实收款和生产部署。当前已有PG采集管线、HTML合成解析、主图私有存储、账户/密钥，以及异步查询和账本交付；这些均为离线工程，**没有真实eBay供数、完整产品网页、真实支付或MCP验收，也未达到竞品生产功能对等**。OpenAPI1.7的58个操作是契约数量，不能当作实现数量。用户最新要求优先采集，已否决UI草稿被隔离，不在活动工程中继续沿用。实现和证据以[任务台账](docs/开发排期与任务台账.md)为准；[Agent接手指南](docs/Agent接手指南.md)说明交接，原始[v1.4规格](<SoldBench 开发规格书 v1.4.md>)和[黄金合成夹具](v14_gameboy_58_verified.json)保留。
 
 ## 阅读入口
 
@@ -122,3 +122,16 @@ HTML演示也支持`npm run collector:html-demo -- --prepare-only`，输出的ar
 账户与访问服务已提供注册验证、登录/找回、会话撤销、CSRF、TOTP/恢复码及Key创建/旋转/撤销。开发服务首次生成私有随机auth secret文件，邮件仅进入加密本地outbox。接口与重试依据[账户契约](docs/账户与访问实施契约.md)和[ADR-14](docs/adr/ADR-14.md)，真实邮件/生产身份验收及完整网页尚待实施。
 
 查询/账本离线服务接入持久化快照、异步计算、owner显式领取、Free周期、唯一charge、对账、当前权利主图和完整计算输入，见[实施契约](docs/查询账本与交付实施契约.md)。npm run dev同时启动API和独立query worker；也可单独运行npm run query:worker -- --once或--watch。无匹配快照明确503。默认私有图片目录为.local/collector-media，MEDIA_ROOT须与采集器一致。GameBoy演示保留原旧水位，不伪装实时价；当天流程可使用当天生成的HTML合成演示。
+
+采集补采与内部报告（仅离线）：
+
+```sh
+# 原页面作业完成后，按同一已绑定响应包补采主图；不重抓页面
+npm run collector:media -- --fixture=/absolute/path/to/collector-fixture-JOB_ID.json
+# 同一个资源受控启动器也支持媒体周期
+npm run collector:run -- --fixture=/absolute/path/to/collector-fixture-JOB_ID.json --media-only=true
+# 按实际PG记录保存来源健康快照，source取采集命令的UUID
+npm run collector:report -- --source=SOURCE_UUID
+```
+
+collector1.5将临时图片失败、共享来源退避、预算/租约恢复和当前许可读检纳入持久化链路；媒体失败不会修改成交身份/统计。命令退出0不代表所有媒体完成，应核对mediaResults及健康报告。未测成本和冻结计划执行率为null，真实eBay字段仍unverified；没有线上采集或连续稳定性结论。详细规则见[管线契约§12](docs/采集管线实施契约.md)。

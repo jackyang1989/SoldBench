@@ -24,10 +24,12 @@ export async function launchCollector(args, input = process.env) {
   loadConfig(input);
   const options = new Map();
   for (const raw of args) {
-    const match = /^--(fixture|max-ms|grace-ms|heap-mb|max-pages)=(.+)$/.exec(raw);
+    const match = /^--(fixture|max-ms|grace-ms|heap-mb|max-pages|media-only)=(.+)$/.exec(raw);
     if (!match || options.has(match[1])) throw new Error("invalid_collector_launcher_argument");
     options.set(match[1], match[2]);
   }
+  if (options.has("media-only") && (options.get("media-only") !== "true" || options.has("max-pages")))
+    throw new Error("invalid_collector_media_option");
   const path = options.get("fixture");
   if (!path) throw new Error("fixture_artifact_path_required");
   function number(key, fallback, min, max) {
@@ -50,6 +52,7 @@ export async function launchCollector(args, input = process.env) {
       `--max-old-space-size=${heapMb}`,
       worker,
       `--fixture=${path}`,
+      ...(options.has("media-only") ? ["--media-only=true"] : []),
       ...(maxPages === undefined ? [] : [`--max-pages=${maxPages}`]),
     ],
     {

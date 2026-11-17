@@ -13,6 +13,12 @@ import { hasHtmlAccessBlock } from "./html.ts";
 import { CollectorIntegrityError } from "./integrity.ts";
 import type { CollectorStore, Lease } from "./store.ts";
 
+class ImageBackoff extends Error {
+  constructor(readonly seconds: number) {
+    super("image_upstream_rate_limited");
+  }
+}
+
 /** A fixture-only worker; neither its page nor image transport can access networks. */
 export class OfflineCollectorWorker {
   constructor(
@@ -21,20 +27,30 @@ export class OfflineCollectorWorker {
     readonly media: PrivateMediaStore,
     readonly limits = { pageBytes: 1024 * 1024, imageBytes: 5 * 1024 * 1024 },
   ) {}
-  private async response(lease: Lease, key: string, kind: "page" | "image", signal?: AbortSignal) {
+  private async response(
+    lease: Lease,
+    key: string,
+    kind: "page" | "image",
+    signal?: AbortSignal,
+    imageId?: string,
+  ) {
     if (signal?.aborted) throw new Error("worker_shutdown");
     await this.store.renew(lease);
     const max = kind === "page" ? this.limits.pageBytes : this.limits.imageBytes;
-    const id = await this.store.reserve(lease, kind, max, key);
-    await this.store.check(lease);
-    if (signal?.aborted) {
-      await this.store.cancelUndispatchedFixture(lease, id);
-      throw new Error("worker_shutdown");
-    }
-    const responseIndex = await this.store.fixtureResponseIndex(lease, id);
-    if (signal?.aborted) {
-      await this.store.cancelUndispatchedFixture(lease, id);
-      throw new Error("worker_shutdown");
+    const id = await this.store.reserve(lease, kind, max, key, imageId);
+    let responseIndex: number;
+    try {
+      await this.store.check(lease);
+      if (signal?.aborted) throw new Error("worker_shutdown");
+      responseIndex = await this.store.fixtureResponseIndex(lease, id);
+      if (signal?.aborted) throw new Error("worker_shutdown");
+    } catch (error) {
+      try {
+        await this.store.cancelUndispatchedFixture(lease, id);
+      } catch {
+        /* Stop/revocation has already accounted for the reservation. */
+      }
+      throw error;
     }
     let response: FixtureResponse;
     try {
@@ -63,7 +79,10 @@ export class OfflineCollectorWorker {
       const delay = response.retryAfterSeconds;
       if (typeof delay !== "number" || !Number.isSafeInteger(delay) || delay < 1 || delay > 86400)
         throw new Error("invalid_retry_after");
-      await this.store.defer(lease, "upstream_rate_limited", delay);
+      await this.store.recordBackoff(lease, delay);
+      if (kind === "image" && !lease.imageTaskId) throw new ImageBackoff(delay);
+      if (lease.imageTaskId) await this.store.deferImageRetry(lease, "upstream_rate_limited", delay);
+      else await this.store.defer(lease, "upstream_rate_limited", delay);
       throw new Error("job_deferred");
     }
     if (response.status !== 200) throw new Error("upstream_unavailable");
@@ -71,11 +90,20 @@ export class OfflineCollectorWorker {
   }
   private async images(lease: Lease, signal?: AbortSignal) {
     const tasks = await this.store.db.query(
-      "SELECT i.id AS image_id,i.listing_id,i.sale_event_id,i.observation_id,e.external_listing_id,e.candidate AS evidence_candidate,p.raw_hash,p.payload FROM listing_images i JOIN collector_pages p ON p.observation_id=i.observation_id AND p.source_id=i.source_id JOIN sale_event_evidence e ON e.sale_event_id=i.sale_event_id AND e.listing_id=i.listing_id AND e.source_id=i.source_id AND e.observation_id=i.observation_id WHERE p.job_id=$1 AND i.state='pending'",
-      [lease.jobId],
+      "SELECT i.id AS image_id,i.listing_id,i.sale_event_id,i.observation_id,e.external_listing_id,e.candidate AS evidence_candidate,p.raw_hash,p.payload FROM listing_images i JOIN collector_pages p ON p.observation_id=i.observation_id AND p.source_id=i.source_id JOIN sale_event_evidence e ON e.sale_event_id=i.sale_event_id AND e.listing_id=i.listing_id AND e.source_id=i.source_id AND e.observation_id=i.observation_id WHERE p.job_id=$1 AND i.state='pending' AND (($2::uuid IS NULL AND NOT EXISTS(SELECT 1 FROM collector_image_jobs q WHERE q.image_id=i.id)) OR EXISTS(SELECT 1 FROM collector_image_jobs q WHERE q.id=$2 AND q.image_id=i.id AND q.status='running'))",
+      [lease.jobId, lease.imageTaskId ?? null],
     );
     for (const task of tasks.rows) {
-      const current = await this.store.check(lease);
+      let current: Awaited<ReturnType<CollectorStore["check"]>>;
+      try {
+        current = await this.store.check(lease);
+      } catch (error) {
+        if (!lease.imageTaskId && error instanceof Error && error.message === "collector_rate_limited") {
+          await this.store.queueImageRetry(lease, task.image_id, "source_cooldown", 30);
+          continue;
+        }
+        throw error;
+      }
       const page = parseFixturePage(Buffer.from(JSON.stringify(task.payload)), {
         sourceId: lease.sourceId,
         queryHash: task.payload.queryHash,
@@ -95,8 +123,15 @@ export class OfflineCollectorWorker {
         await this.store.failImage(lease, task.image_id, "primary_missing");
         continue;
       }
+      let phase: "fetch" | "decode" | "publish" = "fetch";
       try {
-        const response = await this.response(lease, `image:${row.primaryImage.url}`, "image", signal);
+        const response = await this.response(
+          lease,
+          `image:${row.primaryImage.url}`,
+          "image",
+          signal,
+          task.image_id,
+        );
         const latest = await this.store.check(lease);
         const rights = {
           sourceId: lease.sourceId,
@@ -106,6 +141,7 @@ export class OfflineCollectorWorker {
           expiresAt: current.expiresAt,
         };
         if (latest.epoch !== current.epoch) throw new Error("image_permission_changed");
+        phase = "decode";
         const image = await collectPrimaryImage(
           {
             listingId: task.listing_id,
@@ -134,11 +170,52 @@ export class OfflineCollectorWorker {
             tripSourceCircuit: async (reason) => this.store.stop(lease.sourceId, reason),
           },
         );
+        phase = "publish";
         await this.store.persistImage(lease, task.image_id, image, this.media);
       } catch (error) {
+        if (error instanceof ImageBackoff) {
+          await this.store.queueImageRetry(lease, task.image_id, "upstream_rate_limited", error.seconds);
+          continue;
+        }
+        if (error instanceof Error && error.message === "job_deferred") throw error;
         // Source/lease/budget refusal must never become a harmless missing-photo result.
         await this.store.check(lease);
         const message = error instanceof Error ? error.message : "image_failed";
+        if (phase === "publish") {
+          if (lease.imageTaskId) await this.store.deferImageRetry(lease, "image_storage_unavailable", 60);
+          else await this.store.queueImageRetry(lease, task.image_id, "image_storage_unavailable");
+          continue;
+        }
+        if (/^(upstream_unavailable|fixture_response_missing)$/.test(message)) {
+          if (lease.imageTaskId) await this.store.deferImageRetry(lease, message, 60);
+          else await this.store.queueImageRetry(lease, task.image_id, message);
+          continue;
+        }
+        if (message === "collector_job_budget_exhausted") {
+          await this.store.failImage(lease, task.image_id, "image_job_budget_exhausted");
+          continue;
+        }
+        if (
+          !lease.imageTaskId &&
+          ["collector_rate_limited", "collector_daily_budget_exhausted"].includes(message)
+        ) {
+          const until =
+            message === "collector_daily_budget_exhausted"
+              ? Math.ceil(
+                  (new Date(`${new Date(current.now).toISOString().slice(0, 10)}T00:00:00Z`).getTime() +
+                    86400000 -
+                    Date.parse(current.now)) /
+                    1000,
+                )
+              : 60;
+          await this.store.queueImageRetry(
+            lease,
+            task.image_id,
+            message,
+            Math.max(1, Math.min(86400, until)),
+          );
+          continue;
+        }
         if (
           /budget|rate_limited|job_deferred|worker_shutdown|permission|lease|source_|network_|config/.test(
             message,
@@ -223,36 +300,84 @@ export class OfflineCollectorWorker {
       return { jobId: lease.jobId, status: (await this.store.view(lease.jobId)).status };
     }
   }
+  async retryImages(
+    sourceId: string,
+    options: { parentJobId?: string; maxTasks?: number; signal?: AbortSignal } = {},
+  ) {
+    const max = options.maxTasks ?? 32;
+    if (!Number.isSafeInteger(max) || max < 1 || max > 100) throw new Error("invalid_media_cycle_limit");
+    const results: Array<{ taskId: string; status: string }> = [];
+    for (let i = 0; i < max; i++) {
+      if (options.signal?.aborted) break;
+      let lease: Lease | null;
+      try {
+        lease = await this.store.claimImageRetry(sourceId, options.parentJobId);
+      } catch (error) {
+        if (
+          results.length &&
+          error instanceof Error &&
+          /^(source_circuit_open|source_inactive)$/.test(error.message)
+        )
+          break;
+        throw error;
+      }
+      if (!lease?.imageTaskId) break;
+      try {
+        await this.images(lease, options.signal);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : "image_retry_failed";
+        if (reason !== "job_deferred") {
+          try {
+            await this.store.deferImageRetry(
+              lease,
+              /^[a-z_]+$/.test(reason) ? reason : "image_retry_failed",
+              reason === "worker_shutdown" ? 1 : 60,
+            );
+          } catch {
+            /* Revocation/stop/lease takeover has already closed or owns the task. */
+          }
+        }
+      }
+      const task = (
+        await this.store.db.query("SELECT status FROM collector_image_jobs WHERE id=$1", [lease.imageTaskId])
+      ).rows[0];
+      results.push({ taskId: lease.imageTaskId, status: task?.status ?? "unavailable" });
+    }
+    return results;
+  }
   /** Internal worker read only, NOT a substitute for customer owner authorization. */
   async readImageInternal(id: string): Promise<Buffer> {
-    const metadata = async () => {
+    return transaction(this.store.db, async (c) => {
+      const ref = (await c.query("SELECT source_id FROM listing_images WHERE id=$1", [id])).rows[0];
+      if (!ref) throw new Error("image_unavailable");
+      const first = await this.store.readScope(c, ref.source_id);
       const row = (
-        await this.store.db.query(
-          "SELECT i.*,s.status AS source_status,s.access_method,s.permission_epoch AS current_epoch,(c.status<>'closed') AS circuit_open FROM listing_images i JOIN sources s ON s.id=i.source_id LEFT JOIN collector_circuits c ON c.source_id=s.id AND c.category_key='*' WHERE i.id=$1",
+        await c.query(
+          "SELECT i.*,o.retention_until AS evidence_expires,EXISTS(SELECT 1 FROM collector_quarantines q WHERE q.affected_event_id=i.sale_event_id) AS quarantined FROM listing_images i JOIN source_observations o ON o.id=i.observation_id WHERE i.id=$1 FOR SHARE OF i",
           [id],
         )
       ).rows[0];
-      const now = this.store.clock
-        ? new Date(instant(this.store.clock()))
-        : (await this.store.db.query("SELECT clock_timestamp() t")).rows[0].t;
-      if (
-        row?.source_status !== "active" ||
-        row.access_method !== "offline_fixture" ||
-        row.state !== "available" ||
-        row.permission_epoch !== row.current_epoch ||
-        !row.retention_until ||
-        row.retention_until <= now
-      )
+      const valid = (now: Date) =>
+        row?.state === "available" &&
+        row.permission_epoch === first.source.permission_epoch &&
+        row.retention_until &&
+        row.retention_until > now &&
+        row.evidence_expires &&
+        row.evidence_expires > now &&
+        !row.quarantined &&
+        row.object_key;
+      if (!valid(first.now)) throw new Error("image_unavailable");
+      const bytes = await this.media.get(row.object_key),
+        after = await this.store.readScope(c, ref.source_id);
+      if (!valid(after.now)) throw new Error("image_unavailable");
+      return bytes;
+    }).catch((error) => {
+      if (error instanceof Error && error.message === "source_rights_unavailable")
         throw new Error("image_unavailable");
-      return row;
-    };
-    const first = await metadata();
-    const bytes = await this.media.get(first.object_key);
-    const after = await metadata();
-    if (first.current_epoch !== after.current_epoch || first.object_key !== after.object_key)
-      throw new Error("image_unavailable");
-    return bytes;
+      throw error;
+    });
   }
+
   async purgeStoppedImages(sourceId: string) {
     const source = (
       await this.store.db.query(
@@ -294,9 +419,24 @@ export class OfflineCollectorWorker {
       [sourceId],
     );
     const state = (
-      await this.store.db.query("SELECT status,access_method FROM sources WHERE id=$1", [sourceId])
+      await this.store.db.query(
+        "SELECT s.status,s.access_method,x.provider,x.status AS clearance_status,x.effective_at,x.expires_at FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id WHERE s.id=$1",
+        [sourceId],
+      )
     ).rows[0];
     if (state?.access_method !== "offline_fixture") throw new Error("network_collector_not_enabled");
+    if (state.provider !== "synthetic_fixture") throw new Error("network_collector_not_enabled");
+    const inspectedNow = this.store.clock
+      ? new Date(instant(this.store.clock()))
+      : ((await this.store.db.query("SELECT clock_timestamp() t")).rows[0].t as Date);
+    if (
+      state.status === "active" &&
+      (!["draft", "reviewed", "active"].includes(state.clearance_status) ||
+        (state.effective_at && state.effective_at > inspectedNow) ||
+        (state.expires_at && state.expires_at <= inspectedNow))
+    ) {
+      if (await this.store.revokeInvalidClearance(sourceId)) state.status = "revoked";
+    }
     if (pending.rowCount || state.status !== "active") {
       await this.purgeStoppedImages(sourceId);
       await this.store.db.query(

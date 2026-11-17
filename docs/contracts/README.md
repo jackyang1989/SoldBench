@@ -58,3 +58,5 @@ OpenAPI设计版本1.2.0新增非webhook接口的可选Accept-Language，并说�
 采集整包追加0005：复用原collector_jobs/circuits，新增5个持久化表，54表空库/旧版升级测试；sale_event_evidence回填后图片组合外键改引用多观察证据，图片唯一键含event。共享SQL基线不是最新全部DDL，运行库完整结构以顺序应用的0001–0005迁移为准；旧版SQL不回改。
 
 新增0010与查询账本实现见[实施契约](../查询账本与交付实施契约.md)。tests/database.test.mjs验证0009→0010及空库，tests/validate-response.py验证实际HTTP响应；原SQL文件仍是初始设计基线，不是已部署数据库。
+
+采集运行进一步追加0011与0012，见[管线契约§12](../采集管线实施契约.md)。空库及0010→0011→0012在独立PG16验证，新增collector_image_jobs，运行表总数61；冻结SQL设计基线不被当作已部署迁移。
