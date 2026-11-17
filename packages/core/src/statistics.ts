@@ -39,3 +39,21 @@ export function distribution(values: readonly number[]) {
     observed_max_cents: n ? Number(prices[n - 1]) : null,
   };
 }
+/** Exact Type7 quartile fences; flags never remove prices from the distribution. */
+export function outlierCandidates(values: readonly number[]) {
+  const sorted = values.map(cents).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  if (sorted.length < 8) return new Set<number>();
+  const quarter = (p: number) => {
+    const h = (sorted.length - 1) * p,
+      i = Math.floor(h / 4),
+      r = BigInt(h % 4);
+    const lower = sorted[i],
+      upper = sorted[Math.min(i + 1, sorted.length - 1)];
+    if (lower === undefined || upper === undefined) throw new Error("quantile_index_out_of_range");
+    return lower * (4n - r) + upper * r;
+  };
+  const a = quarter(1),
+    b = quarter(3),
+    spread = 3n * (b - a);
+  return new Set(values.filter((v) => 8n * cents(v) < 2n * a - spread || 8n * cents(v) > 2n * b + spread));
+}

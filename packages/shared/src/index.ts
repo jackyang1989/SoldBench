@@ -5,7 +5,7 @@ export * from "./i18n.ts";
 export const BRAND = "SoldBench";
 export const VERSIONS = {
   normalizer: "1.1.0",
-  engine: "1.1.0",
+  engine: "1.2.0",
   cleaner: "1.0.0",
   billing: "1.1.0",
   translation: "1",

@@ -1,13 +1,90 @@
-import type { AuthService } from "@soldbench/auth";
+import type { AuthService, Identity } from "@soldbench/auth";
 import { normalizeQuery } from "@soldbench/core";
-import type { QueryService } from "@soldbench/query";
+import {
+  type QueryService,
+  type RequestAudit,
+  RequestAuditService,
+  type RequestOperation,
+  ResearchService,
+} from "@soldbench/query";
 import { AppError, type Config } from "@soldbench/shared";
 import type { Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { getCookie } from "hono/cookie";
 
-type Env = { Variables: { requestId: string } };
+type Env = { Variables: { requestId: string; queryTrace?: Partial<RequestAudit> & { actor?: Identity } } };
 export function mountQueries(app: Hono<Env>, config: Config, auth?: AuthService, query?: QueryService) {
+  const audit = query ? new RequestAuditService(query) : null,
+    research = query ? new ResearchService(query) : null;
+  const routes: [string, RegExp, RequestOperation][] = [
+    ["GET", /^\/v1\/sold$/, "sold_search"],
+    ["POST", /^\/web\/search$/, "sold_search"],
+    ["GET", /^\/v1\/sold\/[^/]+$/, "sold_result"],
+    ["POST", /^\/v1\/sold\/[^/]+\/claim$/, "sold_claim"],
+    ["GET", /^\/v1\/sold\/[^/]+\/calculation-inputs$/, "sold_calculation"],
+    ["GET", /^\/v1\/sold\/[^/]+\/diagnostics$/, "sold_diagnostics"],
+    ["GET", /^\/v1\/sold\/[^/]+\/comps\/[^/]+$/, "sold_detail"],
+    ["POST", /^\/v1\/sold\/[^/]+\/export$/, "sold_export"],
+    ["GET", /^\/v1\/jobs\/[^/]+$/, "job_get"],
+    ["POST", /^\/v1\/jobs\/[^/]+\/cancel$/, "job_cancel"],
+    ["GET", /^\/v1\/usage$/, "usage_get"],
+    ["GET", /^\/v1\/queries$/, "history_get"],
+    ["GET", /^\/v1\/media\/[^/]+$/, "media_get"],
+  ];
+  app.use("*", async (c, next) => {
+    const path = new URL(c.req.url).pathname,
+      operation = routes.find((r) => r[0] === c.req.method && r[1].test(path))?.[2];
+    if (!operation || !audit) return next();
+    const started = performance.now(),
+      trace: Partial<RequestAudit> & { actor?: Identity } = {
+        operation,
+        channel: path.startsWith("/web/") ? "web" : "api",
+        creditsCharged: 0,
+      };
+    const resource = /^\/v1\/(sold|jobs)\/([a-f0-9-]{36})(?:\/|$)/.exec(path);
+    if (resource) trace[resource[1] === "sold" ? "queryId" : "jobId"] = resource[2];
+    c.set("queryTrace", trace);
+    await next();
+    if (trace.actor)
+      try {
+        await audit.record(trace.actor, {
+          requestId: c.get("requestId"),
+          operation,
+          channel: trace.channel ?? "api",
+          queryId: trace.queryId,
+          jobId: trace.jobId,
+          status: c.res.status,
+          errorCode: c.error instanceof AppError ? c.error.code : c.error ? "service_unavailable" : undefined,
+          durationMs: Math.min(2147483647, Math.max(0, Math.round(performance.now() - started))),
+          creditsCharged: trace.creditsCharged ?? 0,
+          reused: trace.reused,
+          stale: trace.stale,
+        });
+      } catch {
+        console.error("soldbench_request_audit_write_failed");
+      }
+  });
+  const traceActor = (c: Context<Env>, actor: Identity) => {
+    const t = c.get("queryTrace");
+    if (t) t.actor = actor;
+  };
+  const result = async (c: Context<Env>, claim = false) => {
+    const r = await service().result(
+        await identity(c, "sold:read", claim),
+        id(c.req.param("id")),
+        c.get("requestId"),
+        claim,
+        claim ? c.req.header("Idempotency-Key") : undefined,
+      ),
+      t = c.get("queryTrace");
+    if (t) {
+      t.queryId = r.data.query_id;
+      t.creditsCharged = r.meta.credits_charged;
+      t.reused = r.meta.reused;
+      t.stale = r.meta.stale;
+    }
+    return c.json(r);
+  };
   const service = () => {
     if (!query) throw new AppError("service_unavailable", 503, "Query service is not configured.");
     return query;
@@ -21,6 +98,7 @@ export function mountQueries(app: Hono<Env>, config: Config, auth?: AuthService,
       const token = /^Bearer (\S+)$/.exec(bearer)?.[1];
       if (!token) throw new AppError("unauthenticated", 401, "Invalid authentication header.");
       const actor = await auth.keyIdentity(token, scope);
+      traceActor(c, actor);
       await service().rate(actor);
       return actor;
     }
@@ -30,11 +108,15 @@ export function mountQueries(app: Hono<Env>, config: Config, auth?: AuthService,
       await auth.assertCsrf(cookie ?? "", c.req.header("X-CSRF-Token") ?? "");
     }
     const actor = await auth.sessionIdentity(cookie ?? "");
+    traceActor(c, actor);
     await service().rate(actor);
     return actor;
   };
-  const id = (value: string) => {
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value))
+  const id = (value: string | undefined) => {
+    if (
+      typeof value !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value)
+    )
       throw new AppError("invalid_parameter", 400, "Invalid identifier.");
     return value;
   };
@@ -43,6 +125,12 @@ export function mountQueries(app: Hono<Env>, config: Config, auth?: AuthService,
     const normalized = normalizeQuery(params),
       actor = await identity(c, "sold:read", true),
       r = await service().submit(actor, normalized);
+    const trace = c.get("queryTrace");
+    if (trace) {
+      trace.queryId = r.queryId;
+      trace.jobId = r.jobId;
+      trace.reused = r.reused;
+    }
     return c.json(
       {
         data: {
@@ -117,20 +205,8 @@ export function mountQueries(app: Hono<Env>, config: Config, auth?: AuthService,
     }
     return start(c, parameters);
   });
-  app.get("/v1/sold/:id", async (c) =>
-    c.json(await service().result(await identity(c), id(c.req.param("id")), c.get("requestId"))),
-  );
-  app.post("/v1/sold/:id/claim", async (c) =>
-    c.json(
-      await service().result(
-        await identity(c, "sold:read", true),
-        id(c.req.param("id")),
-        c.get("requestId"),
-        true,
-        c.req.header("Idempotency-Key"),
-      ),
-    ),
-  );
+  app.get("/v1/sold/:id", (c) => result(c));
+  app.post("/v1/sold/:id/claim", (c) => result(c, true));
   app.get("/v1/sold/:id/calculation-inputs", async (c) =>
     c.json({ data: await service().calculation(await identity(c), id(c.req.param("id"))), meta: meta(c) }),
   );
@@ -179,6 +255,65 @@ export function mountQueries(app: Hono<Env>, config: Config, auth?: AuthService,
   app.get("/v1/queries", async (c) => {
     const p = page(c);
     return c.json({ data: await service().history(await identity(c), p.cursor, p.size), meta: meta(c) });
+  });
+
+  app.get("/v1/sold/:id/diagnostics", async (c) => {
+    const p = page(c);
+    if (!research) throw new AppError("service_unavailable", 503, "Research service is not configured.");
+    return c.json({
+      data: await research.diagnostics(await identity(c), id(c.req.param("id")), p.cursor, p.size),
+      meta: meta(c),
+    });
+  });
+  app.get("/v1/sold/:id/comps/:event_id", async (c) => {
+    if (!research) throw new AppError("service_unavailable", 503, "Research service is not configured.");
+    return c.json({
+      data: await research.detail(await identity(c), id(c.req.param("id")), id(c.req.param("event_id"))),
+      meta: meta(c),
+    });
+  });
+  app.use("/v1/sold/:id/export", bodyLimit({ maxSize: 100000 }));
+  app.post("/v1/sold/:id/export", async (c) => {
+    const actor = await identity(c, "sold:read", true);
+    if (!research) throw new AppError("service_unavailable", 503, "Research service is not configured.");
+    if (c.req.header("Content-Type")?.split(";")[0]?.trim() !== "application/json")
+      throw new AppError("invalid_parameter", 415, "Use application/json.");
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      throw new AppError("invalid_parameter", 400, "Invalid JSON.");
+    }
+    const r = await research.export(actor, id(c.req.param("id")), body);
+    c.header("Content-Type", r.contentType);
+    c.header("Content-Disposition", `attachment; filename="${r.filename}"`);
+    c.header("Cache-Control", "private, no-store");
+    return c.body(r.body);
+  });
+  app.get("/v1/requests", async (c) => {
+    const p = new URL(c.req.url).searchParams;
+    if (
+      [...p.keys()].some(
+        (k) =>
+          !["cursor", "page_size", "channel", "operation", "status"].includes(k) || p.getAll(k).length !== 1,
+      )
+    )
+      throw new AppError("invalid_parameter", 400, "Invalid request log filters.");
+    const size = p.get("page_size") ?? "20",
+      status = p.get("status");
+    if (!/^\d+$/.test(size) || (status !== null && !/^\d{3}$/.test(status)))
+      throw new AppError("invalid_parameter", 400, "Invalid request log filters.");
+    if (!audit) throw new AppError("service_unavailable", 503, "Audit service is not configured.");
+    return c.json({
+      data: await audit.list(await identity(c, "usage:read"), {
+        cursor: p.get("cursor") ?? undefined,
+        size: Number(size),
+        channel: p.get("channel") ?? undefined,
+        operation: p.get("operation") ?? undefined,
+        status: status === null ? undefined : Number(status),
+      }),
+      meta: meta(c),
+    });
   });
   app.get("/v1/media/:id", async (c) => {
     const bytes = await service().image(await identity(c), id(c.req.param("id")));

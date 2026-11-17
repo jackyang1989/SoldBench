@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.7.0
+  version: 1.8.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -6292,6 +6292,342 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateKey'
+  /v1/sold/{id}/comps/{event_id}:
+    get:
+      operationId: getSoldCompDetail
+      summary: Owner-only frozen research snapshot; no new collection or query credit.
+      security:
+      - ApiKey: []
+      - Session: []
+      parameters:
+      - name: Accept-Language
+        in: header
+        required: false
+        schema:
+          type: string
+          maxLength: 256
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: event_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Synthetic offline implementation response; current rights checked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompDetailResponse'
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '400':
+          description: Stable error and request ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Stable error and request ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Stable error and request ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Stable error and request ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Stable error and request ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          description: Stable error and request ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Stable error and request ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Stable error and request ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Stable error and request ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-task: TASK-028
+      x-roles:
+      - owner
+      x-credit-policy: '0'
+      x-scopes:
+      - sold:read
+  /v1/sold/{id}/export:
+    post:
+      operationId: exportSoldResearch
+      summary: Owner-only frozen research snapshot; no new collection or query credit.
+      security:
+      - ApiKey: []
+      - Session: []
+      parameters:
+      - name: Accept-Language
+        in: header
+        required: false
+        schema:
+          type: string
+          maxLength: 256
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Synthetic offline implementation response; current rights checked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResearchExport'
+            text/csv:
+              schema:
+                type: string
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '400':
+          description: Stable error and request ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Stable error and request ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Stable error and request ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Stable error and request ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Stable error and request ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          description: Stable error and request ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Stable error and request ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Stable error and request ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Stable error and request ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-task: TASK-028
+      x-roles:
+      - owner
+      x-credit-policy: '0'
+      x-scopes:
+      - sold:read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResearchExportRequest'
+  /v1/requests:
+    get:
+      operationId: listRequestAudit
+      summary: Owner-only frozen research snapshot; no new collection or query credit.
+      security:
+      - ApiKey: []
+      - Session: []
+      parameters:
+      - name: Accept-Language
+        in: header
+        required: false
+        schema:
+          type: string
+          maxLength: 256
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          maxLength: 2048
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      - name: channel
+        in: query
+        required: false
+        schema:
+          enum:
+          - web
+          - api
+          - mcp
+      - name: operation
+        in: query
+        required: false
+        schema:
+          enum:
+          - sold_search
+          - sold_result
+          - sold_claim
+          - sold_calculation
+          - sold_diagnostics
+          - sold_detail
+          - sold_export
+          - job_get
+          - job_cancel
+          - usage_get
+          - history_get
+          - media_get
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 100
+          maximum: 599
+      responses:
+        '200':
+          description: Synthetic offline implementation response; current rights checked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestAuditResponse'
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '400':
+          description: Stable error and request ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Stable error and request ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Stable error and request ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Stable error and request ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Stable error and request ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          description: Stable error and request ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Stable error and request ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Stable error and request ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Stable error and request ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-task: TASK-028
+      x-roles:
+      - owner
+      x-credit-policy: '0'
+      x-scopes:
+      - usage:read
 components:
   securitySchemes:
     ApiKey:
@@ -9157,6 +9493,573 @@ components:
             recovery_codes: *auth_schema_003
           required:
           - recovery_codes
+          additionalProperties: false
+        meta:
+          $ref: '#/components/schemas/BasicMeta'
+      required:
+      - data
+      - meta
+      additionalProperties: false
+    ResearchFieldValue:
+      type: object
+      properties:
+        state:
+          type: string
+          enum:
+          - present
+          - missing
+          - withheld
+        value: {}
+      required:
+      - state
+      - value
+      additionalProperties: false
+      allOf:
+      - if:
+          properties:
+            state:
+              enum:
+              - missing
+              - withheld
+        then:
+          properties:
+            value:
+              type: 'null'
+      - if:
+          properties:
+            state:
+              const: present
+        then:
+          properties:
+            value:
+              not:
+                type: 'null'
+    CompDetailResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            query_id:
+              type: string
+              format: uuid
+            candidate_set_hash:
+              type: string
+              pattern: ^[a-f0-9]{64}$
+            sale_event_id:
+              type: string
+              format: uuid
+            data_mode:
+              const: synthetic_fixture
+            verification:
+              type: object
+              properties:
+                sale_price_status:
+                  enum:
+                  - verified_actual
+                  - displayed_only
+                  - unknown
+                event_identity_verified:
+                  type: boolean
+                evidence_type:
+                  const: synthetic_test_marker
+              required:
+              - sale_price_status
+              - event_identity_verified
+              - evidence_type
+              additionalProperties: false
+            decision:
+              type: object
+              properties:
+                is_comparable:
+                  type: boolean
+                include_in_price_stats:
+                  type: boolean
+                primary_exclusion_reason:
+                  anyOf:
+                  - type: string
+                  - type: 'null'
+                exclusion_reasons:
+                  type: array
+                  items:
+                    type: string
+                outlier_candidate:
+                  type: boolean
+              required:
+              - is_comparable
+              - include_in_price_stats
+              - primary_exclusion_reason
+              - exclusion_reasons
+              - outlier_candidate
+              additionalProperties: false
+            fields:
+              type: object
+              properties:
+                identity:
+                  $ref: '#/components/schemas/ResearchFieldValue'
+                title:
+                  $ref: '#/components/schemas/ResearchFieldValue'
+                condition:
+                  $ref: '#/components/schemas/ResearchFieldValue'
+                attributes:
+                  $ref: '#/components/schemas/ResearchFieldValue'
+                description:
+                  $ref: '#/components/schemas/ResearchFieldValue'
+                defects:
+                  $ref: '#/components/schemas/ResearchFieldValue'
+                price:
+                  $ref: '#/components/schemas/ResearchFieldValue'
+                shipping:
+                  $ref: '#/components/schemas/ResearchFieldValue'
+                sold_date:
+                  $ref: '#/components/schemas/ResearchFieldValue'
+                primary_image:
+                  $ref: '#/components/schemas/ResearchFieldValue'
+                listing_url:
+                  $ref: '#/components/schemas/ResearchFieldValue'
+              required:
+              - identity
+              - title
+              - condition
+              - attributes
+              - description
+              - defects
+              - price
+              - shipping
+              - sold_date
+              - primary_image
+              - listing_url
+              additionalProperties: false
+            observed_at:
+              type: string
+              format: date-time
+            data_as_of:
+              type: string
+              format: date-time
+            evaluated_at:
+              type: string
+              format: date-time
+            freshness_state:
+              enum:
+              - fresh
+              - stale_acceptable
+              - expired
+              - forbidden
+              - unknown
+            result_mode:
+              enum:
+              - current
+              - history
+          required:
+          - query_id
+          - candidate_set_hash
+          - sale_event_id
+          - data_mode
+          - verification
+          - decision
+          - fields
+          - observed_at
+          - data_as_of
+          - evaluated_at
+          - freshness_state
+          - result_mode
+          additionalProperties: false
+        meta:
+          $ref: '#/components/schemas/BasicMeta'
+      required:
+      - data
+      - meta
+      additionalProperties: false
+    ResearchExportRequest:
+      type: object
+      properties:
+        format:
+          type: string
+          enum:
+          - json
+          - csv
+        view:
+          type: string
+          enum:
+          - authoritative
+          - adjusted
+        excluded_sale_event_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          maxItems: 2000
+          uniqueItems: true
+      required:
+      - format
+      - view
+      additionalProperties: false
+      allOf:
+      - if:
+          properties:
+            view:
+              const: authoritative
+        then:
+          properties:
+            excluded_sale_event_ids:
+              maxItems: 0
+    ResearchExport:
+      type: object
+      properties:
+        schema:
+          const: soldbench.research-export.v1
+        query_id:
+          type: string
+          format: uuid
+        candidate_set_hash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        view:
+          enum:
+          - authoritative
+          - adjusted
+        user_modified:
+          type: boolean
+        excluded_sale_event_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          maxItems: 2000
+        data_mode:
+          const: synthetic_fixture
+        currency:
+          const: USD
+        price_basis:
+          enum:
+          - item
+          - item_plus_observed_shipping
+        as_of:
+          type: string
+          format: date-time
+        data_as_of:
+          type: string
+          format: date-time
+        exported_at:
+          type: string
+          format: date-time
+        versions:
+          type: object
+          properties:
+            engine:
+              type: string
+            cleaner:
+              type: string
+            normalizer:
+              type: string
+            billing:
+              type: string
+          required:
+          - engine
+          - cleaner
+          - normalizer
+          - billing
+          additionalProperties: false
+        completeness:
+          type: object
+          properties:
+            is_complete:
+              const: true
+            original_price_input_count:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            exported_count:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            presentation_limit:
+              type: integer
+              minimum: 1
+              maximum: 200
+            market_coverage:
+              const: unknown
+          required:
+          - is_complete
+          - original_price_input_count
+          - exported_count
+          - presentation_limit
+          - market_coverage
+          additionalProperties: false
+        price_summary:
+          type: object
+          properties:
+            n_price_verified:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            median_cents:
+              anyOf:
+              - type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              - type: 'null'
+            p25_cents:
+              anyOf:
+              - type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              - type: 'null'
+            p75_cents:
+              anyOf:
+              - type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              - type: 'null'
+            trimmed_mean_cents:
+              anyOf:
+              - type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              - type: 'null'
+            observed_min_cents:
+              anyOf:
+              - type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              - type: 'null'
+            observed_max_cents:
+              anyOf:
+              - type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              - type: 'null'
+          required:
+          - n_price_verified
+          - median_cents
+          - p25_cents
+          - p75_cents
+          - trimmed_mean_cents
+          - observed_min_cents
+          - observed_max_cents
+          additionalProperties: false
+        original_stats:
+          $ref: '#/components/schemas/SoldStats'
+        columns:
+          type: object
+          properties:
+            price_usd_cents:
+              type: string
+            observed_shipping_cents:
+              type: string
+            sold_at:
+              type: string
+          required:
+          - price_usd_cents
+          - observed_shipping_cents
+          - sold_at
+          additionalProperties: false
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              sale_event_id:
+                type: string
+                format: uuid
+              title:
+                anyOf:
+                - type: string
+                - type: 'null'
+              condition:
+                anyOf:
+                - type: string
+                - type: 'null'
+              item_price_cents:
+                anyOf:
+                - type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                - type: 'null'
+              observed_shipping_cents:
+                anyOf:
+                - type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                - type: 'null'
+              price_usd_cents:
+                type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              currency:
+                const: USD
+              sale_format:
+                enum:
+                - fixed_price
+                - auction
+                - best_offer
+              sold_at:
+                anyOf:
+                - type: string
+                - type: 'null'
+              sold_date_precision:
+                enum:
+                - instant
+                - day
+                - unknown
+            required:
+            - sale_event_id
+            - title
+            - condition
+            - item_price_cents
+            - observed_shipping_cents
+            - price_usd_cents
+            - currency
+            - sale_format
+            - sold_at
+            - sold_date_precision
+            additionalProperties: false
+          maxItems: 2000
+        freshness_state:
+          enum:
+          - fresh
+          - stale_acceptable
+          - expired
+          - forbidden
+          - unknown
+        result_mode:
+          enum:
+          - current
+          - history
+      required:
+      - schema
+      - query_id
+      - candidate_set_hash
+      - view
+      - user_modified
+      - excluded_sale_event_ids
+      - data_mode
+      - currency
+      - price_basis
+      - as_of
+      - data_as_of
+      - exported_at
+      - versions
+      - completeness
+      - price_summary
+      - original_stats
+      - columns
+      - items
+      - freshness_state
+      - result_mode
+      additionalProperties: false
+    RequestAuditResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            items:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  request_id:
+                    type: string
+                    format: uuid
+                  operation:
+                    enum:
+                    - sold_search
+                    - sold_result
+                    - sold_claim
+                    - sold_calculation
+                    - sold_diagnostics
+                    - sold_detail
+                    - sold_export
+                    - job_get
+                    - job_cancel
+                    - usage_get
+                    - history_get
+                    - media_get
+                  channel:
+                    enum:
+                    - web
+                    - api
+                    - mcp
+                  query_id:
+                    anyOf:
+                    - type: string
+                      format: uuid
+                    - type: 'null'
+                  job_id:
+                    anyOf:
+                    - type: string
+                      format: uuid
+                    - type: 'null'
+                  http_status:
+                    type: integer
+                    minimum: 100
+                    maximum: 599
+                  error_code:
+                    anyOf:
+                    - type: string
+                    - type: 'null'
+                  duration_ms:
+                    type: integer
+                    minimum: 0
+                    maximum: 2147483647
+                  credits_charged:
+                    type: integer
+                    minimum: 0
+                    maximum: 1
+                  charge_id:
+                    anyOf:
+                    - type: string
+                      format: uuid
+                    - type: 'null'
+                  ledger_ids:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+                  reused:
+                    anyOf:
+                    - type: boolean
+                    - type: 'null'
+                  stale:
+                    anyOf:
+                    - type: boolean
+                    - type: 'null'
+                  created_at:
+                    type: string
+                    format: date-time
+                  retention_until:
+                    type: string
+                    format: date-time
+                required:
+                - id
+                - request_id
+                - operation
+                - channel
+                - query_id
+                - job_id
+                - http_status
+                - error_code
+                - duration_ms
+                - credits_charged
+                - charge_id
+                - ledger_ids
+                - reused
+                - stale
+                - created_at
+                - retention_until
+                additionalProperties: false
+              maxItems: 100
+            next_cursor:
+              anyOf:
+              - type: string
+              - type: 'null'
+          required:
+          - items
+          - next_cursor
           additionalProperties: false
         meta:
           $ref: '#/components/schemas/BasicMeta'

@@ -40,7 +40,7 @@ export async function provisionFixtureSource(
       sourceId = randomUUID(),
       configId = randomUUID();
     await c.query(
-      "INSERT INTO source_clearances(id,provider,dataset,revision,status,retention_days) VALUES($1,'synthetic_fixture',$2,1,'draft',$3)",
+      'INSERT INTO source_clearances(id,provider,dataset,revision,status,retention_days,permitted_fields) VALUES($1,\'synthetic_fixture\',$2,1,\'draft\',$3,\'{"research":["identity","title","condition","attributes","description","defects","price","shipping","sold_date","primary_image"]}\')',
       [clearance, sourceId, settings.retentionDays],
     );
     await c.query(

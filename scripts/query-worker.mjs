@@ -5,7 +5,7 @@ import { AuthService, localAuthSecrets } from "@soldbench/auth";
 import { BillingService } from "@soldbench/billing";
 import { assertLocalDatabaseUrl, database, migrate } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
-import { QueryService } from "@soldbench/query";
+import { QueryService, RequestAuditService } from "@soldbench/query";
 import { loadConfig } from "@soldbench/shared";
 import { localDatabaseUrl } from "./local-db.mjs";
 
@@ -30,8 +30,18 @@ try {
       new BillingService(db),
       new PrivateMediaStore(resolve(config.mediaRoot)),
     ),
-    worker = `query-${randomUUID()}`;
+    worker = `query-${randomUUID()}`,
+    audit = new RequestAuditService(query);
+  let nextMaintenance = 0;
   do {
+    if (Date.now() >= nextMaintenance) {
+      try {
+        await audit.purgeExpired();
+      } catch {
+        console.error("soldbench_request_audit_cleanup_failed");
+      }
+      nextMaintenance = Date.now() + 60000;
+    }
     const result = await query.workOnce(worker);
     if (result) console.log(JSON.stringify({ data_mode: "offline_fixture", ...result }));
     if (args[0] !== "--watch" || abort.signal.aborted) break;

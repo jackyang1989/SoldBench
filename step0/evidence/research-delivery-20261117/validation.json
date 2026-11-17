@@ -1,0 +1,71 @@
+{
+  "evidence_type": "offline_product_integration",
+  "baseline_commit": "d55b696",
+  "date": "2026-11-17",
+  "engine_version": "1.2.0",
+  "openapi_version": "1.8.0",
+  "database": "isolated PG16 empty/0016->0017;65 tables",
+  "configuration": {
+    "collector_enabled": false,
+    "payments_mode": "offline",
+    "data_mode": "offline_fixture",
+    "clock": "synthetic UTC instant/retention boundaries; loopback app requests only"
+  },
+  "commands": [
+    {
+      "command": "npm run check",
+      "exit_code": 0,
+      "node_tests": 177
+    },
+    {
+      "command": "npm run lint:fix && npm run build",
+      "exit_code": 0
+    },
+    {
+      "command": "node scripts/test.mjs tests/research.test.mjs",
+      "exit_code": 0,
+      "tests": 16,
+      "note": "Final identity/retention/CSV metadata guards verified by targeted suite after full run"
+    },
+    {
+      "command": "python3 step0/tools/validate_offline.py",
+      "exit_code": 0
+    }
+  ],
+  "coverage": [
+    "complete candidate decisions from shared evaluation; exact IQR without default deletion",
+    "unclaimed/owner/current source/field revocation across result/details/diagnostics/calculation/media/export",
+    "canonical listing evidence links only when permitted and safe",
+    "58 complete inputs beyond5 displayed; authoritative versus adjusted export;0 remaining samples null",
+    "CSV formula/control/BOM escaping; no private raw evidence/URLs/object keys",
+    "signed owner/query/hash diagnostic cursors and request log filter cursors",
+    "actualHTTP DTO validation against OpenAPI",
+    "funds charge survives independent audit failure without duplicate billing",
+    "actual charge/ledger references, no other owner IDs or raw parameters",
+    "30day visibility and bounded expiry cleanup preserving fresh logs",
+    "query-worker periodic cleanup integration",
+    "all prior golden121/64/58 and100 concurrent funds regressions"
+  ],
+  "review": "Read-only code/security review found listing_url omission, fixed. Final no remaining HIGH/MEDIUM; reviewer independently checked pure IQR/CSV/public evaluate shape only, not PG/full suite or stage signoff.",
+  "not_verified": [
+    "real eBay/source/field/image rights",
+    "frontend and browser acceptance (rejected draft remains isolated)",
+    "MCP/Skill and payment adapters (next packages)",
+    "production cost/egress/14+7 days/release"
+  ],
+  "source_sha256": {
+    "apps/api/src/queries.ts": "57ce6400bcbc1125b17ef44ad7574fc75d4c337aa3ed0b2e535b224143fae97b",
+    "packages/core/src/pricing.ts": "a4e6c269006902e0c0865b69b283dcd2ff53bdfc56028b2c6088164516ec7647",
+    "packages/core/src/statistics.ts": "b02f926104eab3513d44f3612c5b1d52db90f40f941c9351d2028305650dfcbc",
+    "packages/query/src/index.ts": "3dcafc331cdd77073df2af98667680461d80132889e3e41ced0a2b075b6e6376",
+    "packages/query/src/research.ts": "3780e399d7f0693950f4cdf8e0f5ae723f69f6947c94fbebd8b5eeac475a0a0a",
+    "packages/query/src/request-audit.ts": "b44a54ec7fb1cb068eb8ecffebe830b1f8ef56c0e785b501bd6193d38b2d46cc",
+    "packages/collector/src/provision-fixture.ts": "c64481ad033a9b723e084cf44fefc3748678810d41f6ed4e502e7b58d6974660",
+    "packages/shared/src/index.ts": "b0c58c7e186875e0761b3f0aca4ae5996683ed7a6b45642449eaf4a952ca868d",
+    "packages/db/migrations/0017_query_request_audit.sql": "a10d6b070d9f12d0775cb4f585d1c88af2fa0d7dea30cd07e136bd91a298841d",
+    "scripts/query-worker.mjs": "4d6c4aade9767899d540d8e68bba961affacf35f38957c6eacea33d0044ef525",
+    "tests/research.test.mjs": "75bdd63716385ec724daf7dfea0535b25ddfa80fdc0da3563d338ce1e43aea8b",
+    "tests/database.test.mjs": "a6f1c5316fbd4c0720f319a5b36aafe7241233641b46f1128160caefd3f133ac",
+    "docs/openapi.yaml": "1256f3cac0fa668d52cfb83d38e93ddc822c4994c4bb46251e27ac6d768704b8"
+  }
+}

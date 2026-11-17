@@ -97,3 +97,5 @@ SoldBench 是一个面向**个人卖家、收藏品交易商、二手商家、�
 §45追加固定UTC日预算政策/永久绑定与跨日初始化（collector1.7，0015/0016），替代§44“所有次日均须手工预置”的临时限制；旧源无政策仍拒绝缺日。政策到期只停新派发，不能使合法在途主图/完整页作废。新专项为tests/collector-budget.test.mjs，真实来源/45字段仍未验证。最终独立复核未完成，见台账限制。
 
 §46新增有界LoopbackHttpTransport、传输接口和collector:http-demo，实际HTTP→HTML→PG→8主图链已可执行；仍只允许127.0.0.1本机样本服务，没有eBay/外部网络adapter。内存artifact回放继续可用，切勿把本机10次请求报告当真实源稳定性。后续真实获取实现应沿同一Worker/证据/预算/媒体服务接入，先满足真实许可/样本，不能复制另一套统计或偷偷启用外部origin。
+
+台账§47新增ResearchService与RequestAuditService（0017）、engine1.2诊断、OpenAPI1.8。后续Web/MCP直接复用：readSnapshot挡owner/未领取/权利；字段权限为当前synthetic clearance.permitted_fields.research明确数组，缺少时不公开逐条数据，旧样本不自动补许可。详情用present/missing/withheld；导出最多2000价格行/5MiB，调整不改权威或收费；请求审计不存秘密/参数，query-worker每60秒最多清1000过期记录。实际功能与证据仍以台账为准；不得恢复否决UI。

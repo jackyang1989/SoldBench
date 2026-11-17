@@ -11,7 +11,7 @@ import { inWindow, type SaleTime } from "./time.ts";
 export const ENGINE_VERSION = VERSIONS.engine;
 type Money = number | null;
 
-import { cents, distribution } from "./statistics.ts";
+import { cents, distribution, outlierCandidates } from "./statistics.ts";
 
 export { cents, distribution } from "./statistics.ts";
 
@@ -209,6 +209,34 @@ function evaluateComplete(records: readonly Candidate[], query: Query) {
     decision.priceCents === null ? [] : [{ record, price: decision.priceCents }],
   );
   const n = verified.length;
+  const comparableSet = new Set(comparable),
+    prices = new Map(verified.map((x) => [x.record, x.price])),
+    outliers = outlierCandidates(verified.map((x) => x.price));
+  const recordDecisions = records.map((input) => {
+    const record = input.eventKey ? (keyed.get(input.eventKey) ?? input) : input;
+    const reason =
+      !input.eventKey || !input.identityVerified
+        ? "uncertain_identity"
+        : conflicts.has(input.eventKey)
+          ? "event_identity_conflict"
+          : !inWindow(record.time, query.asOf, query.days)
+            ? "outside_window"
+            : !record.comparable
+              ? "hard_attribute_mismatch"
+              : !comparableSet.has(record)
+                ? "query_filter"
+                : priceQualification(record, query.basis).reason;
+    const included = reason === null,
+      price = prices.get(record);
+    return {
+      eventKey: input.eventKey,
+      observationKey: input.observationKey ?? null,
+      isComparable: input.identityVerified && !!input.eventKey && comparableSet.has(record),
+      includeInPriceStats: included,
+      exclusionReasons: reason ? [reason] : [],
+      outlierCandidate: included && price !== undefined && outliers.has(price),
+    };
+  });
   const ordered = sortComparables(verified, query.presentationSort);
   const supplemental = analyzeSearch(verified, query.asOf, query.days, query.observationCoverage);
   return {
@@ -282,12 +310,17 @@ function evaluateComplete(records: readonly Candidate[], query: Query) {
     comps: ordered.slice(0, query.limit).map((x) => ({ eventKey: x.record.eventKey, priceCents: x.price })),
     available_comp_count: n,
     calculation_inputs: ordered.map((x) => ({ record: x.record, priceCents: x.price })),
+    record_decisions: recordDecisions,
   };
 }
 
 /** Public result keeps presentation bounded; worker consumes the same full qualification pass. */
 export function evaluate(records: readonly Candidate[], query: Query) {
-  const { calculation_inputs: _inputs, ...result } = evaluateComplete(records, query);
+  const {
+    calculation_inputs: _inputs,
+    record_decisions: _decisions,
+    ...result
+  } = evaluateComplete(records, query);
   return result;
 }
 export function evaluateSnapshot(records: readonly Candidate[], query: Query) {

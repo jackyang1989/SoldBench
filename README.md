@@ -6,7 +6,7 @@
 
 ## 当前状态（2026-11-17）
 
-用户已允许完整离线工程，真实来源许可前只使用synthetic/fixtures，禁止网络采集、真实收款和生产部署。当前已有PG采集管线、HTML合成解析、主图私有存储、账户/密钥，以及异步查询和账本交付；这些均为离线工程，**没有真实eBay供数、完整产品网页、真实支付或MCP验收，也未达到竞品生产功能对等**。OpenAPI1.7的58个操作是契约数量，不能当作实现数量。用户最新要求优先采集，已否决UI草稿被隔离，不在活动工程中继续沿用。实现和证据以[任务台账](docs/开发排期与任务台账.md)为准；[Agent接手指南](docs/Agent接手指南.md)说明交接，原始[v1.4规格](<SoldBench 开发规格书 v1.4.md>)和[黄金合成夹具](v14_gameboy_58_verified.json)保留。
+用户已允许完整离线工程，真实来源许可前只使用synthetic/fixtures，禁止网络采集、真实收款和生产部署。当前已有PG采集管线、HTML合成解析、主图私有存储、账户/密钥，以及异步查询和账本交付；这些均为离线工程，**没有真实eBay供数、完整产品网页、真实支付或MCP验收，也未达到竞品生产功能对等**。OpenAPI1.8的61个操作是契约数量，不能当作实现数量。用户最新要求优先采集，已否决UI草稿被隔离，不在活动工程中继续沿用。实现和证据以[任务台账](docs/开发排期与任务台账.md)为准；[Agent接手指南](docs/Agent接手指南.md)说明交接，原始[v1.4规格](<SoldBench 开发规格书 v1.4.md>)和[黄金合成夹具](v14_gameboy_58_verified.json)保留。
 
 ## 阅读入口
 
@@ -139,3 +139,5 @@ collector1.5将临时图片失败、共享来源退避、预算/租约恢复和�
 周期刷新计划：`npm run collector:refresh -- --action=create --source=UUID --config=UUID --query='q=Game+Boy+Color' --key=UNIQUE_ASCII_KEY_16_PLUS --interval=3600 --lag=300`；再运行`npm run collector:refresh -- --source=UUID`按固定计划补发生项/入队；停止用`--action=retire --source=UUID --plan=UUID`。仅offline_fixture，不执行来源请求。独立worker使用匹配job/profile的固定响应包执行；报告分母包含漏调度，排队不算执行。详见[管线契约§13](docs/采集管线实施契约.md)。
 
 HTTP获取联通演示：`npm run collector:http-demo`。它启动仅绑定127.0.0.1的本机样本服务，经真实HTTP获取2页合成HTML和8张生成主图，再走同一解析、PG证据、WebP私有存储与共享统计。输出`transport=loopback_fixture`、`localHttpRequests=10`、`externalNetworkRequests=0`及证据报告；不是eBay采集命令。请求有超时、正文上限、取消和断流处理，禁止跟随重定向、压缩正文和配置外部origin。获准真实来源及适配仍待完成。
+
+研究后端已提供owner详情`/v1/sold/{id}/comps/{event_id}`、分页`/diagnostics`、`POST /v1/sold/{id}/export`（JSON/CSV、权威/调整）及`/v1/requests`请求审计；共用已领取快照/当前字段权限，免费复取，不重抓。需要现有已核验session或对应scope的API key。字段许可缺失会裁剪逐条数据，不能以旧DTO绕过；说明/属性未采到会返回明确missing。见[研究交付契约](docs/查询账本与交付实施契约.md)。网页与真实供数未验收。

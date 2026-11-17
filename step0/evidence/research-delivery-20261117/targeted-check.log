@@ -1,0 +1,107 @@
+TAP version 13
+# Subtest: complete diagnostics persist all candidate decisions, paginate by owner/snapshot and flag rather than delete outliers
+ok 1 - complete diagnostics persist all candidate decisions, paginate by owner/snapshot and flag rather than delete outliers
+  ---
+  duration_ms: 295.734292
+  type: 'test'
+  ...
+# Subtest: detail returns explicit missing fields, matching current primary image and no raw/private evidence
+ok 2 - detail returns explicit missing fields, matching current primary image and no raw/private evidence
+  ---
+  duration_ms: 71.022417
+  type: 'test'
+  ...
+# Subtest: unclaimed and foreign snapshots deny detail, diagnostics and export before revealing any records
+ok 3 - unclaimed and foreign snapshots deny detail, diagnostics and export before revealing any records
+  ---
+  duration_ms: 111.784792
+  type: 'test'
+  ...
+# Subtest: current field withdrawals apply across detail, result, diagnostics, calculation inputs, media and export
+ok 4 - current field withdrawals apply across detail, result, diagnostics, calculation inputs, media and export
+  ---
+  duration_ms: 66.465166
+  type: 'test'
+  ...
+# Subtest: authoritative and adjusted exports use all58 prices beyond limit5 and never mutate or recharge the snapshot
+ok 5 - authoritative and adjusted exports use all58 prices beyond limit5 and never mutate or recharge the snapshot
+  ---
+  duration_ms: 54.303917
+  type: 'test'
+  ...
+# Subtest: export validates JSON options, foreign exclusions and duplicate IDs, and HTTP downloads retain private headers
+ok 6 - export validates JSON options, foreign exclusions and duplicate IDs, and HTTP downloads retain private headers
+  ---
+  duration_ms: 55.21325
+  type: 'test'
+  ...
+# Subtest: request audit links real charge/ledger without secrets, records errors, filters/paginates and isolates owners
+ok 7 - request audit links real charge/ledger without secrets, records errors, filters/paginates and isolates owners
+  ---
+  duration_ms: 125.754042
+  type: 'test'
+  ...
+# Subtest: an audit outage cannot turn committed claim into failure or cause a second charge
+ok 8 - an audit outage cannot turn committed claim into failure or cause a second charge
+  ---
+  duration_ms: 53.150334
+  type: 'test'
+  ...
+# Subtest: source revocation immediately stops all research delivery while minimal owner audit remains readable
+ok 9 - source revocation immediately stops all research delivery while minimal owner audit remains readable
+  ---
+  duration_ms: 51.018666
+  type: 'test'
+  ...
+# Subtest: request audit is retained30 days, expires honestly and maintenance deletes only expired rows
+ok 10 - request audit is retained30 days, expires honestly and maintenance deletes only expired rows
+  ---
+  duration_ms: 50.254
+  type: 'test'
+  ...
+# Subtest: record decisions use exact unrounded IQR fences, preserve outliers and suppress low-sample flags
+ok 11 - record decisions use exact unrounded IQR fences, preserve outliers and suppress low-sample flags
+  ---
+  duration_ms: 0.820667
+  type: 'test'
+  ...
+# Subtest: actual research HTTP DTOs validate against the frozen OpenAPI and retained historical exports are labeled
+ok 12 - actual research HTTP DTOs validate against the frozen OpenAPI and retained historical exports are labeled
+  ---
+  duration_ms: 822.167666
+  type: 'test'
+  ...
+# Subtest: detail exposes only explicitly permitted stored canonical evidence fields and refuses unsafe listing links
+ok 13 - detail exposes only explicitly permitted stored canonical evidence fields and refuses unsafe listing links
+  ---
+  duration_ms: 56.648541
+  type: 'test'
+  ...
+# Subtest: unauthorized query access cannot place another owner's resource or ledger IDs into request audit
+ok 14 - unauthorized query access cannot place another owner's resource or ledger IDs into request audit
+  ---
+  duration_ms: 104.7495
+  type: 'test'
+  ...
+# Subtest: CSV serialization neutralizes formula and control prefixes while preserving unknown as blank
+ok 15 - CSV serialization neutralizes formula and control prefixes while preserving unknown as blank
+  ---
+  duration_ms: 0.123667
+  type: 'test'
+  ...
+# Subtest: an unverified candidate cannot inherit comparable identity from a verified candidate reporting the same key
+ok 16 - an unverified candidate cannot inherit comparable identity from a verified candidate reporting the same key
+  ---
+  duration_ms: 0.114709
+  type: 'test'
+  ...
+1..16
+# tests 16
+# suites 0
+# pass 16
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2025.31
+Isolated test evidence retained at /var/folders/zf/l30tz2bd5xbgb8dh_4lhry780000gn/T/soldbench-product-test-4UoiVQ

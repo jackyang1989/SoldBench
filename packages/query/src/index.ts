@@ -12,6 +12,7 @@ import {
 import { type Database, type Transaction, transaction } from "@soldbench/db";
 import type { PrivateMediaStore } from "@soldbench/media";
 import { AppError, VERSIONS } from "@soldbench/shared";
+import { canPrice, csv, permissions, writeComparables } from "./research.ts";
 
 const fail = (code: string, status: number, message: string): never => {
   throw new AppError(code, status, message);
@@ -38,7 +39,7 @@ export class QueryService {
   private async source(c: Transaction, sourceId: string, epoch: string, clearanceId: string, now: Date) {
     const s = (
       await c.query(
-        "SELECT s.*,x.provider,x.status AS clearance_status,x.expires_at AS clearance_expires FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id WHERE s.id=$1 FOR SHARE OF s,x",
+        "SELECT s.*,x.provider,x.status AS clearance_status,x.expires_at AS clearance_expires,x.effective_at AS clearance_effective FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id WHERE s.id=$1 FOR SHARE OF s,x",
         [sourceId],
       )
     ).rows[0];
@@ -48,7 +49,8 @@ export class QueryService {
       s.status !== "active" ||
       s.permission_epoch !== epoch ||
       s.source_clearance_id !== clearanceId ||
-      ["revoked", "suspended", "expired"].includes(s.clearance_status) ||
+      !["draft", "reviewed", "active"].includes(s.clearance_status) ||
+      (s.clearance_effective && s.clearance_effective > now) ||
       (s.clearance_expires && s.clearance_expires <= now)
     )
       fail("forbidden", 403, "Source rights are unavailable.");
@@ -325,8 +327,11 @@ export class QueryService {
             q.collector_job_id,
           ],
         );
+        await writeComparables(c, q.id, result.candidate_set_hash, records, result.record_decisions);
         for (const [position, input] of result.calculation_inputs.entries()) {
-          const r = records.find((r) => r.candidate.eventKey === input.record.eventKey);
+          const r = records.find(
+            (r) => r.candidate.identityVerified && r.candidate.eventKey === input.record.eventKey,
+          );
           if (!r) throw new Error("snapshot_event_missing");
           // Day precision is preserved verbatim in the canonical candidate and returned DTO.
           const soldAt =
@@ -481,39 +486,32 @@ export class QueryService {
         [q.id],
       )
     ).rows;
+    const policy = await permissions(c, q.id),
+      permitted = (
+        await c.query(
+          "SELECT source_id FROM query_calculation_inputs i JOIN query_snapshot_records s ON s.query_id=i.query_id AND s.sale_event_id=i.sale_event_id WHERE i.query_id=$1",
+          [q.id],
+        )
+      ).rows.filter((r) => canPrice(policy.get(r.source_id))).length;
     const comps = [];
     for (const item of items) {
-      const image = (
-        await c.query(
-          "SELECT i.*,src.permission_epoch AS current_epoch FROM listing_images i JOIN sources src ON src.id=i.source_id JOIN query_snapshot_records s ON s.sale_event_id=i.sale_event_id AND s.observation_id=i.observation_id AND s.listing_id=i.listing_id AND s.source_id=i.source_id WHERE s.query_id=$1 AND s.sale_event_id=$2 AND i.role='primary' LIMIT 1",
-          [q.id, item.sale_event_id],
-        )
-      ).rows[0];
-      const available =
-        image?.state === "available" &&
-        image.retention_until > now &&
-        image.permission_epoch === image.current_epoch;
+      const allowed = policy.get(item.visible_payload.source_id);
+      if (!canPrice(allowed) || !allowed) continue;
+      const { title, condition_std, ...visible } = item.visible_payload;
       comps.push({
-        ...item.visible_payload,
-        primary_image: {
-          state: available
-            ? "available"
-            : image?.state === "available"
-              ? image.permission_epoch !== image.current_epoch
-                ? "revoked"
-                : "expired"
-              : (image?.state ?? "missing"),
-          url: available ? `/v1/media/${image.id}` : null,
-          width: available ? image.width : null,
-          height: available ? image.height : null,
-        },
+        ...visible,
+        ...(allowed.has("title") && title ? { title } : {}),
+        ...(allowed.has("condition") && condition_std ? { condition_std } : {}),
+        primary_image: allowed.has("primary_image")
+          ? await this.imageView(c, q.id, item.sale_event_id, now)
+          : { state: "not_permitted", url: null, width: null, height: null },
       });
     }
     const stopped = Boolean(
       (
         await c.query(
-          "SELECT 1 FROM query_result_sources r JOIN collector_circuits x ON x.source_id=r.source_id WHERE r.query_id=$1 AND x.category_key='*' AND x.status<>'closed' LIMIT 1",
-          [q.id],
+          "SELECT 1 FROM query_result_sources r JOIN sources s ON s.id=r.source_id LEFT JOIN collector_circuits x ON x.source_id=r.source_id AND x.category_key='*' LEFT JOIN collector_daily_budget_policies p ON p.source_id=s.id AND p.policy_hash=s.daily_budget_policy_hash WHERE r.query_id=$1 AND (x.status<>'closed' OR (s.daily_budget_policy_hash IS NOT NULL AND (p.source_id IS NULL OR p.valid_from>$2 OR p.valid_until<=$2))) LIMIT 1",
+          [q.id, now],
         )
       ).rowCount,
     );
@@ -572,9 +570,12 @@ export class QueryService {
         candidate_set_hash: q.candidate_set_hash,
         returned_comp_count: comps.length,
         available_comp_count: stats.n_price_verified,
-        permitted_comp_count: stats.n_price_verified,
+        permitted_comp_count: permitted,
         truncated: comps.length < stats.n_price_verified,
-        truncation_reasons: comps.length < stats.n_price_verified ? ["presentation_limit"] : [],
+        truncation_reasons: [
+          ...(permitted < stats.n_price_verified ? ["field_rights"] : []),
+          ...(comps.length < permitted ? ["presentation_limit"] : []),
+        ],
         source_window_start: iso(q.source_window_start),
         source_window_end: iso(q.source_window_end),
         data_mode: "synthetic_fixture",
@@ -586,9 +587,43 @@ export class QueryService {
       this.resultLocked(c, await this.readable(c, identity, id, claim, key), requestId),
     );
   }
+  async readSnapshot<T>(
+    identity: Identity,
+    id: string,
+    work: (c: Transaction, result: Awaited<ReturnType<QueryService["readable"]>>) => Promise<T>,
+  ) {
+    return transaction(this.db, async (c) => work(c, await this.readable(c, identity, id, false)));
+  }
+  async imageView(c: Transaction, id: string, eventId: string, now: Date) {
+    const image = (
+      await c.query(
+        "SELECT i.*,src.permission_epoch AS current_epoch FROM listing_images i JOIN sources src ON src.id=i.source_id JOIN query_snapshot_records s ON s.sale_event_id=i.sale_event_id AND s.observation_id=i.observation_id AND s.listing_id=i.listing_id AND s.source_id=i.source_id WHERE s.query_id=$1 AND s.sale_event_id=$2 AND i.role='primary' LIMIT 1",
+        [id, eventId],
+      )
+    ).rows[0];
+    const available =
+      image?.state === "available" &&
+      image.retention_until > now &&
+      image.permission_epoch === image.current_epoch;
+    return {
+      state: available
+        ? "available"
+        : image?.state === "available"
+          ? image.permission_epoch !== image.current_epoch
+            ? "revoked"
+            : "expired"
+          : (image?.state ?? "missing"),
+      url: available ? `/v1/media/${image.id}` : null,
+      width: available ? image.width : null,
+      height: available ? image.height : null,
+    };
+  }
   async calculation(identity: Identity, id: string) {
     return transaction(this.db, async (c) => {
       const { q } = await this.readable(c, identity, id, false);
+      const policy = await permissions(c, id);
+      if ([...policy.values()].some((p) => !canPrice(p)))
+        fail("forbidden", 403, "Current field rights do not allow complete calculation inputs.");
       const items = (
         await c.query(
           "SELECT sale_event_id,price_usd_cents,sold_at,sale_format FROM query_calculation_inputs WHERE query_id=$1 ORDER BY sale_event_id",
@@ -680,6 +715,12 @@ export class QueryService {
       // A withdrawn linked query cannot be bypassed through another cached result.
       for (const link of links) await this.rights(c, link.id, now);
       const i = (await c.query("SELECT * FROM listing_images WHERE id=$1 FOR SHARE", [imageId])).rows[0];
+      for (const link of links)
+        if (
+          !(await permissions(c, link.id)).get(i.source_id)?.has("primary_image") ||
+          !(await permissions(c, link.id)).get(i.source_id)?.has("identity")
+        )
+          fail("not_found", 404, "Image unavailable.");
       const source = (await c.query("SELECT permission_epoch FROM sources WHERE id=$1", [i.source_id]))
         .rows[0];
       if (
@@ -693,13 +734,13 @@ export class QueryService {
       return this.media.get(i.object_key);
     });
   }
-  private cursor(owner: string, kind: string, row: { id: string; cursor_at: string }) {
+  makeCursor(owner: string, kind: string, row: { id: string; cursor_at: string }) {
     const data = Buffer.from(JSON.stringify({ owner, kind, id: row.id, time: row.cursor_at })).toString(
       "base64url",
     );
     return `${data}.${this.auth.crypto.hash("query.cursor", data)}`;
   }
-  private cursorValue(owner: string, kind: string, value?: string) {
+  readCursor(owner: string, kind: string, value?: string) {
     if (!value) return null;
     const [data, signature, ...extra] = value.split(".");
     if (
@@ -732,7 +773,7 @@ export class QueryService {
       if (!Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 100)
         fail("invalid_parameter", 400, "Invalid page size.");
       await this.owner(c, identity);
-      const after = this.cursorValue(identity.userId, "queries", cursor);
+      const after = this.readCursor(identity.userId, "queries", cursor);
       const rows = (
         await c.query(
           `SELECT q.*,j.id AS job_id,to_char(q.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_at FROM queries q LEFT JOIN query_jobs j ON j.query_id=q.id WHERE q.user_id=$1 AND ($2::timestamptz IS NULL OR (q.created_at,q.id)<($2::timestamptz,$3::uuid)) ORDER BY q.created_at DESC,q.id DESC LIMIT $4`,
@@ -753,7 +794,7 @@ export class QueryService {
           job_id: q.job_id,
         })),
         next_cursor:
-          rows.length > pageSize ? this.cursor(identity.userId, "queries", page[page.length - 1]) : null,
+          rows.length > pageSize ? this.makeCursor(identity.userId, "queries", page[page.length - 1]) : null,
       };
     });
   }
@@ -761,7 +802,7 @@ export class QueryService {
     return transaction(this.db, async (c) => {
       if (!Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 100)
         fail("invalid_parameter", 400, "Invalid page size.");
-      const after = this.cursorValue(identity.userId, "ledger", cursor);
+      const after = this.readCursor(identity.userId, "ledger", cursor);
       const now = await this.owner(c, identity, "usage:read"),
         user = (await c.query("SELECT id,free_anchor_at FROM users WHERE id=$1", [identity.userId])).rows[0];
       await this.billing.expireLocked(c, identity.userId, now);
@@ -805,7 +846,7 @@ export class QueryService {
           created_at: iso(l.created_at),
         })),
         next_cursor:
-          ledger.length > pageSize ? this.cursor(identity.userId, "ledger", ledger[pageSize - 1]) : null,
+          ledger.length > pageSize ? this.makeCursor(identity.userId, "ledger", ledger[pageSize - 1]) : null,
         credit_recovery_open: Boolean(
           (
             await c.query("SELECT 1 FROM credit_recoveries WHERE user_id=$1 AND status='open'", [
@@ -818,6 +859,7 @@ export class QueryService {
   }
 }
 export function safeCsvCell(value: unknown) {
-  const s = String(value ?? "");
-  return `"${(/^[\s]*[=+\-@\t\r]/.test(s) ? "'" : "") + s.replaceAll('"', '""')}"`;
+  return csv(value);
 }
+export * from "./request-audit.ts";
+export * from "./research.ts";
