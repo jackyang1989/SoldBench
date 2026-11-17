@@ -31,7 +31,8 @@
     "collector:run": "npm run build && node --env-file-if-exists=.env scripts/collector-launcher.mjs",
     "query:worker": "npm run build && node --env-file-if-exists=.env scripts/query-worker.mjs",
     "collector:media": "npm run build && node --env-file-if-exists=.env scripts/collector-worker.mjs --media-only=true",
-    "collector:report": "npm run build && node --env-file-if-exists=.env scripts/collector-report.mjs"
+    "collector:report": "npm run build && node --env-file-if-exists=.env scripts/collector-report.mjs",
+    "collector:refresh": "npm run build && node --env-file-if-exists=.env scripts/collector-refresh.mjs"
   },
   "devDependencies": {
     "typescript": "7.0.2",

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { type Candidate, candidateFromJson, canonicalJson, instant } from "@soldbench/core";
 import { type Database, type Transaction, transaction } from "@soldbench/db";
 import type { PrimaryImage, PrivateMediaStore } from "@soldbench/media";
+import { type ConfigSnapshot, collectorConfigHash, type SourceSnapshot } from "./config-snapshot.ts";
 import {
   COLLECTOR_VERSION,
   digest,
@@ -40,24 +41,25 @@ export type Job = {
   min_page_as_of: Date | null;
   error_code: string | null;
 };
-type Source = {
-  id: string;
-  access_method: string;
-  status: string;
-  permission_epoch: string;
-  source_clearance_id: string;
-  retry_after_until: Date | null;
+type Source = SourceSnapshot;
+type Config = ConfigSnapshot;
+export type CollectorEnqueueInput = {
+  sourceId: string;
+  configId: string;
+  queryHash: string;
+  runKey: string;
+  asOf: string;
+  ttlSeconds?: number;
+  expectedConfigHash?: string;
+  dispatchDeadline?: string;
+  refreshClaim?: { id: string; token: string };
 };
-type Config = {
-  id: string;
-  enabled: boolean;
-  access_method: string;
-  rate_cap: number;
-  concurrency_cap: number;
-  max_pages: number;
-  max_bytes_per_job: string;
-  updated_at: Date;
-};
+export function collectorRequestHash(input: CollectorEnqueueInput, profileHash: string | null) {
+  const { refreshClaim: _claim, ...stable } = input;
+  return digest(
+    canonicalJson({ ...stable, ttlSeconds: input.ttlSeconds ?? 3600, parserProfileHash: profileHash }),
+  );
+}
 export type Lease = { jobId: string; token: string; sourceId: string; imageTaskId?: string };
 export type EvidenceItem = {
   listingId: string;
@@ -178,10 +180,7 @@ export class CollectorStore {
     if (run.collector_version !== COLLECTOR_VERSION || run.parser_version !== PARSER_VERSION)
       throw new Error("collector_version_mismatch");
     if (run.parser_profile_hash !== this.profileHash) throw new Error("collector_profile_mismatch");
-    if (
-      run.permission_snapshot_hash !==
-      digest(`offline:${source.permission_epoch}:${config.updated_at.toISOString()}`)
-    )
+    if (run.permission_snapshot_hash !== collectorConfigHash(source, config))
       throw new Error("collector_config_or_permission_changed");
     const clearance = (
       await c.query("SELECT retention_days,expires_at FROM source_clearances WHERE id=$1", [
@@ -201,14 +200,7 @@ export class CollectorStore {
       clearanceExpiresAt: clearance.expires_at as Date | null,
     };
   }
-  async enqueue(input: {
-    sourceId: string;
-    configId: string;
-    queryHash: string;
-    runKey: string;
-    asOf: string;
-    ttlSeconds?: number;
-  }): Promise<string> {
+  async enqueue(input: CollectorEnqueueInput): Promise<string> {
     if (!/^[a-f0-9]{64}$/.test(input.queryHash) || !input.runKey || input.runKey.length > 160)
       throw new Error("invalid_collector_plan");
     instant(input.asOf);
@@ -218,9 +210,7 @@ export class CollectorStore {
       const source = await this.source(c, input.sourceId),
         now = await this.now(c);
       if (instant(input.asOf) > now.getTime()) throw new Error("collector_as_of_in_future");
-      const requestHash = digest(
-        canonicalJson({ ...input, ttlSeconds: ttl, parserProfileHash: this.profileHash }),
-      );
+      const requestHash = collectorRequestHash(input, this.profileHash);
       const old = (
         await c.query<Job>("SELECT * FROM collector_jobs WHERE source_id=$1 AND run_key=$2", [
           input.sourceId,
@@ -239,6 +229,42 @@ export class CollectorStore {
       ).rows[0];
       if (!config?.enabled || config.access_method !== "offline_fixture")
         throw new Error("collector_config_disabled");
+      if (source.collector_version !== COLLECTOR_VERSION || config.collector_version !== COLLECTOR_VERSION)
+        throw new Error("collector_version_mismatch");
+      if (
+        input.expectedConfigHash !== undefined &&
+        input.expectedConfigHash !== collectorConfigHash(source, config)
+      )
+        throw new Error("collector_config_or_permission_changed");
+      if (input.dispatchDeadline && instant(input.dispatchDeadline) <= now.getTime())
+        throw new Error("refresh_deadline_expired");
+      if (input.runKey.startsWith("refresh:") && !input.refreshClaim)
+        throw new Error("refresh_claim_required");
+      if (input.refreshClaim) {
+        const occurrence = (
+          await c.query(
+            "SELECT o.*,p.config_id,p.query_hash,p.config_hash,p.retired_at,p.job_ttl_seconds,p.collector_version,p.parser_version,p.profile_hash FROM collector_refresh_occurrences o JOIN collector_refresh_plans p ON p.id=o.plan_id WHERE o.id=$1 AND o.source_id=$2 FOR UPDATE OF o",
+            [input.refreshClaim.id, input.sourceId],
+          )
+        ).rows[0];
+        if (
+          occurrence?.status !== "dispatching" ||
+          occurrence.retired_at ||
+          occurrence.lease_owner !== input.refreshClaim.token ||
+          occurrence.lease_until <= now ||
+          input.runKey !== `refresh:${occurrence.id}` ||
+          ttl !== occurrence.job_ttl_seconds ||
+          occurrence.collector_version !== COLLECTOR_VERSION ||
+          occurrence.parser_version !== PARSER_VERSION ||
+          occurrence.profile_hash !== this.profileHash ||
+          occurrence.config_id !== input.configId ||
+          occurrence.query_hash !== input.queryHash ||
+          occurrence.config_hash !== input.expectedConfigHash ||
+          occurrence.as_of?.toISOString() !== new Date(input.asOf).toISOString() ||
+          occurrence.deadline_at.toISOString() !== input.dispatchDeadline
+        )
+          throw new Error("refresh_lease_lost");
+      }
       const day = now.toISOString().slice(0, 10);
       const budget = await c.query(
         "UPDATE source_daily_budget SET used=used+1 WHERE source_id=$1 AND day=$2 AND budget_kind='jobs' AND used+reserved+1<=cap RETURNING cap",
@@ -255,7 +281,7 @@ export class CollectorStore {
           input.queryHash,
           COLLECTOR_VERSION,
           PARSER_VERSION,
-          digest(`offline:${source.permission_epoch}:${config.updated_at.toISOString()}`),
+          collectorConfigHash(source, config),
           now,
           this.profileHash,
         ],
@@ -1337,8 +1363,7 @@ export class CollectorStore {
           run?.collector_version === COLLECTOR_VERSION &&
           run.parser_version === PARSER_VERSION &&
           run.parser_profile_hash === this.profileHash &&
-          run.permission_snapshot_hash ===
-            digest(`offline:${source.permission_epoch}:${config.updated_at.toISOString()}`);
+          run.permission_snapshot_hash === collectorConfigHash(source, config);
         if (
           expired ||
           current.attempts >= 3 ||

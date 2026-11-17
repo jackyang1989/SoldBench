@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { type Candidate, candidateFromJson, canonicalJson, instant } from "@soldbench/core";
 import { type RecordEvidence, recordEvidenceFromJson } from "./record-evidence.ts";
 
-export const COLLECTOR_VERSION = "offline-pg-1.5.0";
+export const COLLECTOR_VERSION = "offline-pg-1.6.0";
 export const PARSER_VERSION = "offline-page-1.2.0";
 export type FixtureListing = {
   listingId: string;

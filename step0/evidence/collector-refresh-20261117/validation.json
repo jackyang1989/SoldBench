@@ -1,0 +1,69 @@
+{
+  "evidence_type": "offline_simulation",
+  "baseline_commit": "812cca1",
+  "date": "2026-11-17",
+  "timezone": "Asia/Singapore",
+  "collector_version": "offline-pg-1.6.0",
+  "parser_version": "offline-page-1.2.0",
+  "database": "isolated PG16 empty and0012->0013->0014;63 tables",
+  "configuration": {
+    "data_mode": "offline_fixture",
+    "collector_enabled": false,
+    "payments_mode": "offline",
+    "transport": "in-memory fixtures; independent CLI process",
+    "clock": "explicit synthetic 2026-11-17 and boundary clocks; no real observation days"
+  },
+  "commands": [
+    {
+      "command": "npm run check",
+      "exit_code": 0,
+      "node_tests": 146,
+      "refresh_tests": 10
+    },
+    {
+      "command": "python3 step0/tools/validate_offline.py",
+      "exit_code": 0
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0
+    }
+  ],
+  "coverage": [
+    "20 concurrent create/materialize/dispatch idempotency",
+    "bounded catch-up and missing slots in denominator",
+    "lost connection after commit recovers job without duplicated budget",
+    "full config signature detects changes without updated_at",
+    "lease bound to source/config/query/run key/TTL/version/profile/as_of/deadline",
+    "retirement/deadline/stop/budget fail closed",
+    "frozen historical slots protected against delete/mutation",
+    "same-millisecond retirement and replacement cannot overlap",
+    "actual started and on-time starts reported separately from queued",
+    "independent CLI create/cycle/replay/retire and no transport",
+    "all previous price/auth/billing/owner/migration checks"
+  ],
+  "review": "Delegated read-only code/security review. HIGH frozen claim runKey/TTL/profile binding remediated; final no remaining HIGH/MEDIUM. Reviewer did not run PG/full suite; not stage certification.",
+  "not_verified": [
+    "real eBay adapter and45 fields",
+    "actual access/image redistribution rights",
+    "real cost and14+7 continuous observation days",
+    "production host/egress and deployment",
+    "automatic UTC daily policy rollover (next package)",
+    "UI; rejected draft remains isolated"
+  ],
+  "source_sha256": {
+    "package.json": "4ce49dc5ec9f4d54768b1ba630dae7061c1a4d1d5df6f9fab984f9bd0a7a108f",
+    "packages/collector/src/config-snapshot.ts": "e66712879da90c34271799f76797b1dc6b9144beb8551be410808eb0c073d4a3",
+    "packages/collector/src/fixture.ts": "c20b74567c17bf5ce80c6efba11f0c99c6cd1295d7ac95e3f8b6da73ba6f3913",
+    "packages/collector/src/health.ts": "e1b217616005af926e5d3878784ff52696831e596dc60086b481aca1f08137b5",
+    "packages/collector/src/index.ts": "d81662ad05f95952df8b441291b3ea48ef8051cfec3bc8af7a87a190dd332c12",
+    "packages/collector/src/refresh.ts": "554f93e02eab132ea2fdf0e0c12b136cec95276bb8f1974c74b7900bef7ea48c",
+    "packages/collector/src/store.ts": "1aa088bd08af87c3393dc1012f8458c4639e91c79bb4bfa93a8bfa19438ed8ac",
+    "packages/db/migrations/0013_collector_refresh_plans.sql": "01a0ab03c90e1e9ca1215f9dedd918481cb3f0f1c5f1ebe9ea6a043394bc3b6e",
+    "packages/db/migrations/0014_collector_refresh_retirement.sql": "f1e41575c4e9636930c77dad4a0bebe5b00cb3c863ff93f0e4f680446548c923",
+    "scripts/collector-refresh.mjs": "e842a88179adcc61d5638980c2edd9d4874117ebe3f9125ae8f868cc9e69db92",
+    "tests/collector-refresh.test.mjs": "e10aebfc68b501a7d347f1975b08cbd0378e38dcc6a7185e63cf09e1c1b521bd",
+    "tests/database.test.mjs": "5e057dfd556c06b530aed9c301d02cb48cdcb9aa52e2a08a65e7fe5f705c8852"
+  },
+  "step0_artifact": "/Users/jianouyang/Project/SoldBench/step0/artifacts/20261117T085845895132Z/validation.json"
+}

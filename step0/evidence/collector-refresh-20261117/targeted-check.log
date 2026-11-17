@@ -1,0 +1,71 @@
+TAP version 13
+# Subtest: concurrent identical plans and occurrence dispatch create one frozen plan/job and consume job budget once
+ok 1 - concurrent identical plans and occurrence dispatch create one frozen plan/job and consume job budget once
+  ---
+  duration_ms: 166.836834
+  type: 'test'
+  ...
+# Subtest: frozen planned slots include missing/late cycles, bounded materialization never drops a slot and retirement preserves history
+ok 2 - frozen planned slots include missing/late cycles, bounded materialization never drops a slot and retirement preserves history
+  ---
+  duration_ms: 5.81725
+  type: 'test'
+  ...
+# Subtest: a committed job followed by lost connection is recovered after lease expiry without reusing budget
+ok 3 - a committed job followed by lost connection is recovered after lease expiry without reusing budget
+  ---
+  duration_ms: 6.837542
+  type: 'test'
+  ...
+# Subtest: unapproved config mutation without changing updated_at is rejected both by scheduled enqueue and existing lease
+ok 4 - unapproved config mutation without changing updated_at is rejected both by scheduled enqueue and existing lease
+  ---
+  duration_ms: 8.485167
+  type: 'test'
+  ...
+# Subtest: retirement or deadline crossed between planning claim and enqueue prevents new jobs
+ok 5 - retirement or deadline crossed between planning claim and enqueue prevents new jobs
+  ---
+  duration_ms: 5.794834
+  type: 'test'
+  ...
+# Subtest: source stop and daily job budget failures remain visible planned failures, with no collector bypass
+ok 6 - source stop and daily job budget failures remain visible planned failures, with no collector bypass
+  ---
+  duration_ms: 8.138875
+  type: 'test'
+  ...
+# Subtest: schedule health counts unmaterialized and failed slots and separates execution from on-time execution
+ok 7 - schedule health counts unmaterialized and failed slots and separates execution from on-time execution
+  ---
+  duration_ms: 19.462125
+  type: 'test'
+  ...
+# Subtest: independent refresh CLI creates, cycles, replays and retires without fetching or hiding missing cycles
+ok 8 - independent refresh CLI creates, cycles, replays and retires without fetching or hiding missing cycles
+  ---
+  duration_ms: 595.776667
+  type: 'test'
+  ...
+# Subtest: refresh lease cannot be reused for a different run key, TTL or source
+ok 9 - refresh lease cannot be reused for a different run key, TTL or source
+  ---
+  duration_ms: 10.777292
+  type: 'test'
+  ...
+# Subtest: future plan has no due slots and retirement cannot erase materialized history
+ok 10 - future plan has no due slots and retirement cannot erase materialized history
+  ---
+  duration_ms: 6.297709
+  type: 'test'
+  ...
+1..10
+# tests 10
+# suites 0
+# pass 10
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1016.9085
+Isolated test evidence retained at /var/folders/zf/l30tz2bd5xbgb8dh_4lhry780000gn/T/soldbench-product-test-hpiLS2
