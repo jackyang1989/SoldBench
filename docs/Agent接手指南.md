@@ -99,3 +99,7 @@ SoldBench 是一个面向**个人卖家、收藏品交易商、二手商家、�
 §46新增有界LoopbackHttpTransport、传输接口和collector:http-demo，实际HTTP→HTML→PG→8主图链已可执行；仍只允许127.0.0.1本机样本服务，没有eBay/外部网络adapter。内存artifact回放继续可用，切勿把本机10次请求报告当真实源稳定性。后续真实获取实现应沿同一Worker/证据/预算/媒体服务接入，先满足真实许可/样本，不能复制另一套统计或偷偷启用外部origin。
 
 台账§47新增ResearchService与RequestAuditService（0017）、engine1.2诊断、OpenAPI1.8。后续Web/MCP直接复用：readSnapshot挡owner/未领取/权利；字段权限为当前synthetic clearance.permitted_fields.research明确数组，缺少时不公开逐条数据，旧样本不自动补许可。详情用present/missing/withheld；导出最多2000价格行/5MiB，调整不改权威或收费；请求审计不存秘密/参数，query-worker每60秒最多清1000过期记录。实际功能与证据仍以台账为准；不得恢复否决UI。
+
+台账§48补官方SDK2.4无状态MCP与双语开发者资源，按[MCP契约](MCP与开发者交付契约.md)接手。MCP只作适配，查询/claim继续走QueryService；sold_stats仅读已有可读快照。Web/MCP JSON转换共用core.queryParameters，再normalizeQuery；MCP20条展示不改REST默认50参数或完整统计，stats-only返回comp计数0。
+
+开发者源文件在developer/，build脚本生成dist固定路径注册表；改内容后npm run build。TS/Python/curl示例列入实际loopback/PG集成，demo写0600环境文件并统一LOCAL_STATE_ROOT/MEDIA_ROOT/数据库配置，禁止打印或提交。专业文档网页/Playground、两主流宿主验收未完成。新增GitHub离线workflow须观察实际远端结果，不把本机PASS当远端PASS。下一整包支付离线生命周期，真实资格/收款/上线门保持，不恢复否决UI。具体状态与证据仍只读台账。

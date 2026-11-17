@@ -1,0 +1,43 @@
+name: Offline engineering checks
+on:
+  push:
+    branches: [main, 'codex/**']
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: offline-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      COLLECTOR_ENABLED: 'false'
+      DATA_MODE: offline_fixture
+      PAYMENTS_MODE: offline
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6, verified 2026-11-17
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22.23.3'
+          cache: npm
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Install isolated-test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-16 libpq-dev
+          echo '/usr/lib/postgresql/16/bin' >> "$GITHUB_PATH"
+          python -m pip install --requirement docs/contracts/requirements.txt
+          npm ci
+      - name: Check offline application and contracts
+        run: npm run check
+      - name: Check full step0 fixtures
+        run: npm run test:step0
+      - name: Validate product Skill
+        run: python scripts/check-developer-assets.py

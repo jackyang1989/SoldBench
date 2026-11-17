@@ -12,7 +12,7 @@ const config = loadConfig(process.env);
 if (!config.databaseUrl) throw new Error("DATABASE_URL is required");
 const db = database(config.databaseUrl);
 await migrate(db);
-const auth = new AuthService(db, localAuthSecrets(), config.origin);
+const auth = new AuthService(db, localAuthSecrets(resolve(config.localStateRoot)), config.origin);
 const query = new QueryService(
   db,
   auth,

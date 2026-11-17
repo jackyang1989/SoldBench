@@ -1,5 +1,5 @@
 import type { AuthService, Identity } from "@soldbench/auth";
-import { normalizeQuery } from "@soldbench/core";
+import { normalizeQuery, queryParameters } from "@soldbench/core";
 import {
   type QueryService,
   type RequestAudit,
@@ -156,54 +156,7 @@ export function mountQueries(app: Hono<Env>, config: Config, auth?: AuthService,
     } catch {
       throw new AppError("invalid_parameter", 400, "Invalid JSON.");
     }
-    if (
-      !body ||
-      Array.isArray(body) ||
-      typeof body !== "object" ||
-      Object.keys(body).some(
-        (k) =>
-          ![
-            "q",
-            "marketplace",
-            "category",
-            "brand",
-            "model",
-            "condition",
-            "window_days",
-            "price_basis",
-            "limit",
-            "allow_stale",
-            "min_price_cents",
-            "max_price_cents",
-            "sale_format",
-            "attributes",
-          ].includes(k),
-      )
-    )
-      throw new AppError("invalid_parameter", 400, "Invalid search parameters.");
-    const parameters = new URLSearchParams();
-    for (const [key, value] of Object.entries(body)) {
-      if (key === "attributes") {
-        if (!value || typeof value !== "object" || Array.isArray(value))
-          throw new AppError("invalid_parameter", 400, "Invalid attributes.");
-        for (const [attribute, text] of Object.entries(value)) {
-          if (typeof text !== "string")
-            throw new AppError("invalid_parameter", 400, "Invalid attribute value.");
-          parameters.set(`attr_${attribute}`, text);
-        }
-      } else {
-        const expected =
-          key === "allow_stale"
-            ? "boolean"
-            : ["window_days", "limit", "min_price_cents", "max_price_cents"].includes(key)
-              ? "number"
-              : "string";
-        if (typeof value !== expected || (expected === "number" && !Number.isSafeInteger(value)))
-          throw new AppError("invalid_parameter", 400, "Invalid parameter type.");
-        parameters.set(key, String(value));
-      }
-    }
-    return start(c, parameters);
+    return start(c, queryParameters(body));
   });
   app.get("/v1/sold/:id", (c) => result(c));
   app.post("/v1/sold/:id/claim", (c) => result(c, true));

@@ -153,3 +153,50 @@ export function collectionQueryHash(query: SoldQuery): string {
     .update(canonicalJson({ collection_version: "1", normalizer: VERSIONS.normalizer, ...scope }))
     .digest("hex");
 }
+
+/** JSON adapters share the same accepted keys/types before the canonical query normalizer. */
+export function queryParameters(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new AppError("invalid_parameter", 400, "Invalid search parameters.");
+  const input = value as Record<string, unknown>,
+    allowed = [
+      "q",
+      "marketplace",
+      "category",
+      "brand",
+      "model",
+      "condition",
+      "window_days",
+      "price_basis",
+      "limit",
+      "allow_stale",
+      "min_price_cents",
+      "max_price_cents",
+      "sale_format",
+      "attributes",
+    ];
+  if (Object.keys(input).some((k) => !allowed.includes(k)))
+    throw new AppError("invalid_parameter", 400, "Invalid search parameters.");
+  const params = new URLSearchParams();
+  for (const [key, text] of Object.entries(input)) {
+    if (key === "attributes") {
+      if (!text || typeof text !== "object" || Array.isArray(text))
+        throw new AppError("invalid_parameter", 400, "Invalid attributes.");
+      for (const [attribute, v] of Object.entries(text)) {
+        if (typeof v !== "string") throw new AppError("invalid_parameter", 400, "Invalid attribute value.");
+        params.set(`attr_${attribute}`, v);
+      }
+    } else {
+      const expected =
+        key === "allow_stale"
+          ? "boolean"
+          : ["window_days", "limit", "min_price_cents", "max_price_cents"].includes(key)
+            ? "number"
+            : "string";
+      if (typeof text !== expected || (expected === "number" && !Number.isSafeInteger(text)))
+        throw new AppError("invalid_parameter", 400, "Invalid parameter type.");
+      params.set(key, String(text));
+    }
+  }
+  return params;
+}

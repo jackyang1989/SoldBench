@@ -4,6 +4,7 @@ import { AppError } from "@soldbench/shared";
 import type { QueryService } from "./index.ts";
 export const requestOperations = [
   "sold_search",
+  "sold_stats",
   "sold_result",
   "sold_claim",
   "sold_calculation",

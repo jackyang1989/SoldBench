@@ -1,0 +1,52 @@
+{
+  "date": "2026-11-18",
+  "baseline_commit": "71e1f2e",
+  "evidence_type": "offline_product_integration",
+  "configuration": {
+    "database": "isolated PostgreSQL 16",
+    "data_mode": "offline_fixture",
+    "collector_enabled": false,
+    "payments_mode": "offline",
+    "accounts": "synthetic verified account and private fixture API key",
+    "clock": "fixed synthetic test timestamps and real local demo clocks"
+  },
+  "versions": {
+    "openapi": "1.9.0",
+    "mcp_sdk": "2.4.0"
+  },
+  "checks": {
+    "npm_run_check": {
+      "exit_code": 0,
+      "node_tests": 192,
+      "schemas": 98,
+      "operations": 62
+    },
+    "step0": {
+      "exit_code": 0
+    },
+    "developer_assets": {
+      "exit_code": 0
+    },
+    "skill_validator": {
+      "exit_code": 0
+    },
+    "production_dependency_audit": {
+      "vulnerabilities": 0
+    }
+  },
+  "file_sha256": {
+    "apps/api/src/mcp.ts": "7714e7e4dbbcf46030d38911d5fe28212384f4bf2a0bccf8764acd7e5e46905b",
+    "apps/api/src/developer.ts": "26a80f0d5c144b10755b2b16fe1a6687d691bfa0d3b2c45d196215fd7e1133dc",
+    "scripts/developer-demo.mjs": "db06f0d8e949e0f0ff2e6bffadb4639920c2310bd0e833192abdb0202eccee09",
+    "tests/developer.test.mjs": "88c9b8e157dc597f4e4d648d73174aff76c6eeb13b8664f05198f92846822953",
+    "tests/mcp.test.mjs": "a4635a16466160a8c4c52523a4a7586bca6d5eac8775f92b8e226793534e2011",
+    "docs/openapi.yaml": "167b294dee1b05fcb1da2e6ce76c5ca037d24fbef34e0cbdbf8d82578755865c"
+  },
+  "review": "Read-only reviewer found inherited curlrc redirect and split demo authority issues. Both repaired and covered by final tests. Reviewer quota prevented final independent recheck; no stage signoff.",
+  "not_run": [
+    "GitHub Actions remote run at evidence collection time",
+    "two independent MCP host apps",
+    "professional docs UI and Playground",
+    "approved sources and payment integrations"
+  ]
+}

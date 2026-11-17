@@ -1,0 +1,4 @@
+interface:
+  display_name: "SoldBench"
+  short_description: "Build reliable SoldBench API and MCP clients"
+  default_prompt: "Use $soldbench to build a server-side sold-price research client with explicit claims and safe retries."

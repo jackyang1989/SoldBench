@@ -32,6 +32,7 @@ export function loadConfig(env: Record<string, string | undefined>) {
     paymentsMode: "offline" as const,
     collectorEnabled: false as const,
     databaseUrl: env.DATABASE_URL ?? null,
+    localStateRoot: env.LOCAL_STATE_ROOT ?? ".local",
     mediaRoot: env.MEDIA_ROOT ?? ".local/collector-media",
   };
 }

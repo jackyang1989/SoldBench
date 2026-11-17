@@ -690,7 +690,9 @@ type QualityReport = {
 | MCP 工具 | 行为 |
 | --- | --- |
 | `sold_search` | 与 `/v1/sold` 同查询能力，摘要及前 20 条 comp；有权限用户可由查询 ID 复取；执行新有效查询按标准规则收费 |
-| `sold_stats` | 从已有查询/授权类目快照读取；需要发起新实时查询时与 REST 共用计费与限流 |
+| `sold_stats` | 从本人已有可读快照读取，永不隐式新查或领取。 |
+
+MCP 的 search、status、result 和 claim 动作见 [MCP 与开发者交付契约](docs/MCP与开发者交付契约.md)。只有调用方明确同意后才执行 claim，沿 REST 原子结算。MCP 的 20 条展示上限不改变规范参数、候选集或完整统计。双语 Markdown、Skill、OpenAPI JSON 和客户端示例随仓库交付。
 
 远程 MCP 采用 Streamable HTTP；Bearer API key 的 scopes、租户权限、计费和 REST 一致。必须覆盖余额不足、异步等待、重复查询不多扣、分享越权及两个主流 MCP 客户端联调。
 

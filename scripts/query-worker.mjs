@@ -23,7 +23,7 @@ const db = database(url),
 for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => abort.abort());
 try {
   await migrate(db);
-  const auth = new AuthService(db, localAuthSecrets(), config.origin),
+  const auth = new AuthService(db, localAuthSecrets(resolve(config.localStateRoot)), config.origin),
     query = new QueryService(
       db,
       auth,

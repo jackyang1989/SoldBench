@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.8.0
+  version: 1.9.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -6537,6 +6537,7 @@ paths:
           enum:
           - sold_search
           - sold_result
+          - sold_stats
           - sold_claim
           - sold_calculation
           - sold_diagnostics
@@ -6628,6 +6629,103 @@ paths:
       x-credit-policy: '0'
       x-scopes:
       - usage:read
+  /mcp:
+    post:
+      operationId: callMcp
+      summary: Stateless SoldBench MCP tools; explicit claim, shared owner rights and
+        credit rules.
+      security:
+      - ApiKey: []
+      parameters:
+      - name: Accept-Language
+        in: header
+        required: false
+        schema:
+          type: string
+          maxLength: 256
+      - name: MCP-Protocol-Version
+        in: header
+        required: false
+        schema:
+          enum:
+          - '2026-07-28'
+          - '2025-11-25'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/McpRequest'
+      responses:
+        '200':
+          description: Modern JSON or legacy per-request SSE; tool errors use isError=true.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+            text/event-stream:
+              schema:
+                type: string
+        '202':
+          description: Accepted protocol notification; no business credit.
+        '204':
+          description: No protocol response body.
+        '400':
+          description: Invalid JSON, batch, cookie or protocol request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Invalid or revoked Bearer key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Scope, Origin, Host or current owner/source rights denied.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '408':
+          description: Bounded request timed out.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '413':
+          description: Body exceeds 128 KiB.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '415':
+          description: Use application/json.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Service unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-task: TASK-037
+      x-roles:
+      - owner
+      x-scopes:
+      - sold:read
+      - jobs:read for status
+      x-credit-policy: '0 except explicit sold_search action=claim: at most 1; same
+        shared QueryService settlement.'
+      x-mcp-tools:
+        sold_search:
+          arguments_schema: McpSearchArguments
+        sold_stats:
+          arguments_schema: McpStatsArguments
 components:
   securitySchemes:
     ApiKey:
@@ -9969,6 +10067,7 @@ components:
                     enum:
                     - sold_search
                     - sold_result
+                    - sold_stats
                     - sold_claim
                     - sold_calculation
                     - sold_diagnostics
@@ -10066,5 +10165,128 @@ components:
       required:
       - data
       - meta
+      additionalProperties: false
+    McpRequest:
+      type: object
+      properties:
+        jsonrpc:
+          const: '2.0'
+        id:
+          type:
+          - string
+          - integer
+          - 'null'
+        method:
+          type: string
+          maxLength: 256
+        params:
+          type: object
+          additionalProperties: true
+      required:
+      - jsonrpc
+      - method
+      additionalProperties: false
+      description: One request only, <=128 KiB. Protocol methods are handled by official
+        SDK 2.4.0; batches disabled.
+    McpSearchArguments:
+      oneOf:
+      - type: object
+        properties:
+          action:
+            const: search
+          query:
+            type: object
+            properties:
+              q:
+                type: string
+              marketplace:
+                const: ebay_us
+              category:
+                type: string
+              brand:
+                type: string
+              model:
+                type: string
+              condition:
+                type: string
+              window_days:
+                type: integer
+              price_basis:
+                enum:
+                - item
+                - item_plus_observed_shipping
+              limit:
+                type: integer
+                minimum: 1
+                maximum: 200
+              allow_stale:
+                type: boolean
+              min_price_cents:
+                type: integer
+                minimum: 0
+              max_price_cents:
+                type: integer
+                minimum: 0
+              sale_format:
+                enum:
+                - fixed_price
+                - auction
+                - best_offer
+              attributes:
+                type: object
+                additionalProperties:
+                  type: string
+            required:
+            - q
+            additionalProperties: false
+        required:
+        - action
+        - query
+        additionalProperties: false
+      - type: object
+        properties:
+          action:
+            const: status
+          job_id:
+            type: string
+            format: uuid
+        required:
+        - action
+        - job_id
+        additionalProperties: false
+      - type: object
+        properties:
+          action:
+            const: result
+          query_id:
+            type: string
+            format: uuid
+        required:
+        - action
+        - query_id
+        additionalProperties: false
+      - type: object
+        properties:
+          action:
+            const: claim
+          query_id:
+            type: string
+            format: uuid
+          idempotency_key:
+            type: string
+            pattern: ^[\x21-\x7e]{16,128}$
+        required:
+        - action
+        - query_id
+        - idempotency_key
+        additionalProperties: false
+    McpStatsArguments:
+      type: object
+      properties:
+        query_id:
+          type: string
+          format: uuid
+      required:
+      - query_id
       additionalProperties: false
 x-design-evidence: docs/adr/ADR-12.md; docs/contracts/check_contracts.py; not production approval

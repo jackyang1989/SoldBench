@@ -7,6 +7,8 @@ import { renderHome } from "@soldbench/web";
 import { Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { mountAuth } from "./auth.ts";
+import { mountDeveloper } from "./developer.ts";
+import { mountMcp } from "./mcp.ts";
 import { mountQueries } from "./queries.ts";
 
 export function createApp(
@@ -51,6 +53,8 @@ export function createApp(
   app.get("/", (c) => c.html(renderHome("en")));
   app.get("/zh-CN", (c) => c.html(renderHome("zh-CN")));
   mountQueries(app, config, services.auth, services.query);
+  mountMcp(app, config, services.auth, services.query);
+  mountDeveloper(app);
   app.notFound((c) =>
     c.json(
       {
