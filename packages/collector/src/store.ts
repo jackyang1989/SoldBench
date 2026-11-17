@@ -151,7 +151,13 @@ export class CollectorStore {
       digest(`offline:${source.permission_epoch}:${config.updated_at.toISOString()}`)
     )
       throw new Error("collector_config_or_permission_changed");
-    return { job, source, config, now };
+    const clearance = (
+      await c.query("SELECT retention_days FROM source_clearances WHERE id=$1", [source.source_clearance_id])
+    ).rows[0];
+    const retentionDays = clearance?.retention_days;
+    if (!Number.isSafeInteger(retentionDays) || retentionDays < 1 || retentionDays > 30)
+      throw new Error("fixture_retention_unavailable");
+    return { job, source, config, now, retentionDays };
   }
   async enqueue(input: {
     sourceId: string;
@@ -541,7 +547,7 @@ export class CollectorStore {
       return {
         epoch: Number(x.source.permission_epoch),
         now: x.now.toISOString(),
-        expiresAt: new Date(Math.min(x.now.getTime() + 86400000, x.job.expires_at.getTime())).toISOString(),
+        expiresAt: new Date(x.now.getTime() + x.retentionDays * 86400000).toISOString(),
       };
     });
   }
@@ -728,7 +734,7 @@ export class CollectorStore {
     dispatchId: string,
   ): Promise<EvidenceItem[]> {
     return transaction(this.db, async (c) => {
-      const { job, now } = await this.locked(c, lease);
+      const { job, now, retentionDays } = await this.locked(c, lease);
       const parsed = this.parsePage(raw, {
         sourceId: job.source_id,
         queryHash: job.query_hash,
@@ -783,7 +789,7 @@ export class CollectorStore {
           rawHash,
           PARSER_VERSION,
           page.records.length,
-          new Date(now.getTime() + 86400000),
+          new Date(now.getTime() + retentionDays * 86400000),
         ],
       );
       await c.query("UPDATE collector_dispatches SET committed_observation_id=$2 WHERE id=$1", [

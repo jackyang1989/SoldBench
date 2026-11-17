@@ -24,6 +24,12 @@
     },
     {
       "path": "../../packages/auth"
+    },
+    {
+      "path": "../../packages/billing"
+    },
+    {
+      "path": "../../packages/query"
     }
   ]
 }

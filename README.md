@@ -120,3 +120,5 @@ HTML演示也支持`npm run collector:html-demo -- --prepare-only`，输出的ar
 `collector:run`仅传必要本地DB/目录和OS环境，不把支付、会话密钥或Node preload传给worker；等待子进程退出后才报告结束。V8 heap不是RSS/CPU隔离，启动器被SIGKILL时仍依赖部署监督器清理子进程；宿主出口和生产资源限制尚未验收。
 
 账户与访问服务已提供注册验证、登录/找回、会话撤销、CSRF、TOTP/恢复码及Key创建/旋转/撤销。开发服务首次生成私有随机auth secret文件，邮件仅进入加密本地outbox。接口与重试依据[账户契约](docs/账户与访问实施契约.md)和[ADR-14](docs/adr/ADR-14.md)，真实邮件/生产身份验收及完整网页尚待实施。
+
+查询/账本离线服务接入持久化快照、异步计算、owner显式领取、Free周期、唯一charge、对账、当前权利主图和完整计算输入，见[实施契约](docs/查询账本与交付实施契约.md)。npm run dev同时启动API和独立query worker；也可单独运行npm run query:worker -- --once或--watch。无匹配快照明确503。默认私有图片目录为.local/collector-media，MEDIA_ROOT须与采集器一致。GameBoy演示保留原旧水位，不伪装实时价；当天流程可使用当天生成的HTML合成演示。

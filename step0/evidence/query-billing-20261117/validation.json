@@ -1,0 +1,83 @@
+{
+  "evidence_type": "offline_simulation",
+  "baseline_commit": "69c89c4",
+  "branch": "codex/offline-product-foundation",
+  "timezone": "Asia/Singapore",
+  "database": "isolated temporary PostgreSQL 16; empty and 0009 upgrade",
+  "actor": "synthetic users/API keys; operator role fixture",
+  "data_mode": "offline_fixture",
+  "network_collector": false,
+  "payments": "offline synthetic only",
+  "engine_version": "1.1.0",
+  "billing_version": "1.1.0",
+  "collector_version": "offline-pg-1.4.0",
+  "commands": [
+    {
+      "command": "npm run check",
+      "exit_code": 0,
+      "tests": 113
+    },
+    {
+      "command": "python3 step0/tools/validate_offline.py",
+      "exit_code": 0
+    },
+    {
+      "command": "npm audit --omit=dev --json",
+      "exit_code": 0
+    }
+  ],
+  "coverage": [
+    "121/64/58 golden; limit50/200; complete58 inputs",
+    "0/7/8/29/30 sample boundary",
+    "100 concurrent same-query claims; one credit and100 distinct ready queries",
+    "100 notification identifiers same payment grant once",
+    "UTC month/upgrade/confirmed downgrade; no unpaid reanchor",
+    "cash/credit refund order and expired compensation lineage; reconcile",
+    "owner/key revocation; admin12h; signed pagination",
+    "worker lease recovery/cancel/24h expiry; inflight11m dedupe",
+    "HTML/private main-image current epoch; data retention; FX null shipping",
+    "actual HTTP responses validate frozen OpenAPI1.7",
+    "8 concurrent first-boot secret processes"
+  ],
+  "review": "security-review/code-review delegated read-only; reported HIGH/MEDIUM fixed, no remaining same-level finding; reviewer did not run full suite; not G3",
+  "not_verified": [
+    "real eBay adapter/45 fields/rights",
+    "actual stability, source costs or pricing",
+    "real payments/email/deployment",
+    "complete Web, anonymous/details/exports/logs/MCP",
+    "independent stage acceptance"
+  ],
+  "source_sha256": {
+    "apps/api/package.json": "f43fb3d3b0864de4148414bcab4e445e57f4f8ba9cfee1fcb954d6ed49d9c603",
+    "apps/api/src/index.ts": "00a34bbcfb940294a797fb83bfe90dea4e6e7f0d217fea2c24feba0c0031025d",
+    "apps/api/src/queries.ts": "41ad163386e388d8820ac5fccc4dd1d1b01844b370e1f28c131f65833a5aab55",
+    "apps/api/src/server.ts": "7a7fec1999aee33f55c14af012f58e249de80958054dfaceb8b495f22cb9a5e5",
+    "apps/api/tsconfig.json": "6754bbce9dcd8a17155bb6038dbfe836e7c4a6d1f96fff4bab836a26c205baac",
+    "packages/auth/src/local.ts": "b267c25dd212001fa2121670629a23fc4ae5a4784fcfd2289eb2317a3bb1ed64",
+    "packages/auth/src/service.ts": "3e45cf4da2fa5b06caff7ffed5cd2c8e46700a9710c2c6b3dd1f6a228bc59614",
+    "packages/billing/package.json": "7d861e57df25de39ee46dea270b437d11a70a6a9df28c6c0b77b02b708aa9fc2",
+    "packages/billing/src/index.ts": "2db489d7dd14e322b8902c5a820bd56301a1aeb0c49bef98c40b4f27f57661cc",
+    "packages/billing/tsconfig.json": "a4587aaf8c443eab5414c057154ee3e611cbc0fac72064dd66dd6420296ce90a",
+    "packages/collector/src/fixture.ts": "145036fbcb98c0fdb9e1753f3b105f0eca0ee7fccad7e8ccc757e16cfa08c1cc",
+    "packages/collector/src/provision-fixture.ts": "d924ca5961498c0d8272f1e795a7fc2ef90e6301678176065436eb849e0b8594",
+    "packages/collector/src/store.ts": "84cfa2560d2b558a555d3d2d33bcfd3d074e9e526d992ef35f717d4b8bff77f5",
+    "packages/core/src/pricing.ts": "a46a8faf312c2e800129054faad328d09389b7e6fc2892e93a634a7fc71eb06b",
+    "packages/core/src/query.ts": "5921934bf5131b6940d3cf8c2bad278c857656e6874916e5a0b218acdfb3daab",
+    "packages/db/migrations/0010_query_billing.sql": "30e6814f94a6ca541544bea17a74ec04086ede61b798e5f8c185bc8e153839b1",
+    "packages/query/package.json": "40c31e5eeecf2a981e45519c0c0216b3565c6349238266b2881952f8f80a2c19",
+    "packages/query/src/index.ts": "a9206bbc28f9f6d6a31df512aa12eed864ffd323228ee40f81c147489eb20968",
+    "packages/query/tsconfig.json": "cdc660be6671581df75695193ccaf0a00a6ff179a3368b6bb34b9492f6dd18b7",
+    "packages/shared/src/config.ts": "d38fa1446d15bb7dc2fe69dbfe0aea7bf943da84ed4e16e8da72f714c9b30a7e",
+    "packages/shared/src/index.ts": "4be028ba6f2f0abd44b300b45f26fcfb8b10760d82c53dc81b36f5e69b257d2a",
+    "scripts/collector-demo.mjs": "0b6dc7b4db2df80b816a27f25c44e630cf33f7ce3dd59b60ed11b0d8fa217b87",
+    "scripts/collector-html-demo.mjs": "94cdb7ee13afd4853b638677f4105957f8c66d041b71c2c0e57e06d997e311af",
+    "scripts/dev.mjs": "dd11f4a714c214133dad0d4604feed65a1eb9ff92405d0c6c84ac7672d0ea701",
+    "scripts/query-worker.mjs": "98cf83bf68b2fcc6a05ee02c4e195d56ca7760847d036098ad82beef22a07656",
+    "scripts/test.mjs": "a701a838d55a62f9a6ccd7b6407b4033272d0dbbaccb5c85e40f6df38c976bab",
+    "tests/auth-access.test.mjs": "cfd310ad8469d49d4ee505a771a807f558e96a03a91dc4835314b3f9982c9bc4",
+    "tests/collector-pipeline.test.mjs": "ed1c8acee7a87b29c172063b50e395887cda3203a45266ea7a49647f4fa1fb69",
+    "tests/database.test.mjs": "14ced95040e3bfa8c78727fe68c31d52cc9ce54a7188b895094325b2ab3e563a",
+    "tests/query-billing.test.mjs": "e17f4858374e16b4b97d3e7b649272641c232d76c2bf6b5b6497907fcf019dc2",
+    "tests/validate-response.py": "3edd7d7c458405becb15043e49828ad23143c0853040e865b7a866c82e049237"
+  }
+}

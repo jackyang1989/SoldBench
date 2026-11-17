@@ -147,7 +147,7 @@ export function priceQualification(
   }
 }
 
-export function evaluate(records: readonly Candidate[], query: Query) {
+function evaluateComplete(records: readonly Candidate[], query: Query) {
   if (
     !query.sourceId ||
     ![30, 90, 180, 365].includes(query.days) ||
@@ -281,5 +281,15 @@ export function evaluate(records: readonly Candidate[], query: Query) {
     },
     comps: ordered.slice(0, query.limit).map((x) => ({ eventKey: x.record.eventKey, priceCents: x.price })),
     available_comp_count: n,
+    calculation_inputs: ordered.map((x) => ({ record: x.record, priceCents: x.price })),
   };
+}
+
+/** Public result keeps presentation bounded; worker consumes the same full qualification pass. */
+export function evaluate(records: readonly Candidate[], query: Query) {
+  const { calculation_inputs: _inputs, ...result } = evaluateComplete(records, query);
+  return result;
+}
+export function evaluateSnapshot(records: readonly Candidate[], query: Query) {
+  return evaluateComplete(records, query);
 }

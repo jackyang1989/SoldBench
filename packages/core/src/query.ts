@@ -145,3 +145,11 @@ export function matchStrongAttributes(
     actual[key] !== value ? [{ attribute: key, expected: value, actual: actual[key] ?? null }] : [],
   );
 }
+
+/** A collector watermark is scoped to every filter, but not presentation or stale consent. */
+export function collectionQueryHash(query: SoldQuery): string {
+  const { limit: _limit, allow_stale: _stale, ...scope } = query;
+  return createHash("sha256")
+    .update(canonicalJson({ collection_version: "1", normalizer: VERSIONS.normalizer, ...scope }))
+    .digest("hex");
+}

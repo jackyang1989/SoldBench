@@ -3,12 +3,11 @@ import { join, resolve } from "node:path";
 import {
   CollectorStore,
   createFixtureArtifact,
-  digest,
   loadFixtureArtifact,
   OfflineCollectorWorker,
   provisionFixtureSource,
 } from "@soldbench/collector";
-import { evaluate } from "@soldbench/core";
+import { collectionQueryHash, evaluate, normalizeQuery } from "@soldbench/core";
 import { assertLocalDatabaseUrl, database, migrate } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
 import { loadConfig } from "@soldbench/shared";
@@ -33,7 +32,7 @@ try {
     profile = JSON.parse(readFileSync(new URL("../tests/fixtures/html/profile.json", import.meta.url))),
     template = readFileSync(new URL("../tests/fixtures/html/search.html", import.meta.url), "utf8"),
     store = new CollectorStore(db, undefined, { htmlProfile: profile }),
-    queryHash = digest("synthetic-html-demo"),
+    queryHash = collectionQueryHash(normalizeQuery(new URLSearchParams({ q: "Nintendo Switch OLED" }))),
     jobId = await store.enqueue({ ...source, queryHash, runKey: "html-demo", asOf: now }),
     frames = new Map();
   for (let page = 0; page < 2; page++) {

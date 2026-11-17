@@ -10,7 +10,7 @@ import {
   OfflineCollectorWorker,
   provisionFixtureSource,
 } from "@soldbench/collector";
-import { candidateFromJson, evaluate, normalizeQuery, queryHash } from "@soldbench/core";
+import { candidateFromJson, collectionQueryHash, evaluate, normalizeQuery } from "@soldbench/core";
 import { assertLocalDatabaseUrl, database, migrate } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
 import { loadConfig } from "@soldbench/shared";
@@ -38,7 +38,7 @@ try {
   const source = await provisionFixtureSource(db, new Date().toISOString());
   const store = new CollectorStore(db),
     media = new PrivateMediaStore(resolve(demoDir, "collector-media"));
-  const hash = queryHash(normalizeQuery(new URLSearchParams({ q: "Game Boy Color" })));
+  const hash = collectionQueryHash(normalizeQuery(new URLSearchParams({ q: "Game Boy Color" })));
   const jobId = await store.enqueue({
     ...source,
     queryHash: hash,

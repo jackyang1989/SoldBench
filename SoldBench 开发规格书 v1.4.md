@@ -1196,3 +1196,5 @@ assert(archive_coverage is None if coverage_unknown else 0 <= archive_coverage <
 2026-11-16支付执行补充：用户账户与最新候选、Stripe资格路径及现有OpenAPI渠道缺口，见 [收款渠道评估与接入路线](docs/收款渠道评估与接入路线_20261116.md)。原Paddle/Dodo接口不是多渠道已实现证据；选型后先补对应DTO/事件/验收再编码。
 
 2026-11-16最终支付决策：Stripe先接入作为主支付，PayPal纳入补充接入；Creem、Dodo先核验已有账户/申请资格作为备用，Paddle不在当前开发范围。执行以 [Stripe与PayPal接入规格](docs/Stripe与PayPal接入规格.md) 为准，替换本文件及评估稿早先候选优先级。OpenAPI1.3.0已补目标契约，不代表已有生产接入或账户批准。
+
+运行交付补充：2026-11-17查询、账本、owner主图读取的离线契约见[查询账本与交付实施契约](docs/查询账本与交付实施契约.md)。收费标准和真实准入不变，历史快照不自动升级计算版本。

@@ -7,6 +7,7 @@ export async function provisionFixtureSource(
   db: Database,
   now: string,
   options: {
+    retentionDays?: number;
     rateCap?: number;
     concurrency?: number;
     maxPages?: number;
@@ -18,6 +19,7 @@ export async function provisionFixtureSource(
 ) {
   instant(now);
   const settings = {
+    retentionDays: 1,
     rateCap: 100,
     concurrency: 2,
     maxPages: 16,
@@ -29,13 +31,14 @@ export async function provisionFixtureSource(
   };
   for (const value of Object.values(settings))
     if (!Number.isSafeInteger(value) || value < 1) throw new Error("invalid_fixture_budget");
+  if (settings.retentionDays > 30) throw new Error("invalid_fixture_retention");
   return transaction(db, async (c) => {
     const clearance = randomUUID(),
       sourceId = randomUUID(),
       configId = randomUUID();
     await c.query(
-      "INSERT INTO source_clearances(id,provider,dataset,revision,status,retention_days) VALUES($1,'synthetic_fixture',$2,1,'draft',1)",
-      [clearance, sourceId],
+      "INSERT INTO source_clearances(id,provider,dataset,revision,status,retention_days) VALUES($1,'synthetic_fixture',$2,1,'draft',$3)",
+      [clearance, sourceId, settings.retentionDays],
     );
     await c.query(
       "INSERT INTO sources(id,source_clearance_id,marketplace,access_method,collector_version,entrypoint_id,status) VALUES($1,$2,'ebay_us','offline_fixture',$3,'in-memory-fixture','active')",

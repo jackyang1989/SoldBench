@@ -783,6 +783,47 @@ export class AuthService {
       await this.audit(c, user.id, "auth.key_revoked", id, context.requestId);
     });
   }
+  /** Recheck an already authenticated request inside the business owner lock. */
+  async assertIdentityLocked(c: Transaction, identity: Identity, scope: string, now: Date) {
+    const user = await this.user(c, identity.userId);
+    if (user.status !== "active" || !user.email_verified_at)
+      deny("email_verification_required", 403, "Verify the account before querying.");
+    if (identity.keyId) {
+      const key = (
+        await c.query("SELECT * FROM api_keys WHERE id=$1 AND user_id=$2 FOR SHARE", [
+          identity.keyId,
+          user.id,
+        ])
+      ).rows[0];
+      if (!key || key.revoked_at) deny();
+      if (!key.scopes.includes(scope)) deny("forbidden", 403, "API key scope is insufficient.");
+    } else if (identity.sessionId) {
+      const row = (
+        await c.query<Session>("SELECT * FROM sessions WHERE id=$1 AND user_id=$2 FOR SHARE", [
+          identity.sessionId,
+          user.id,
+        ])
+      ).rows[0];
+      if (
+        !row ||
+        row.revoked_at ||
+        row.expires_at <= now ||
+        row.credential_version !== user.credential_version ||
+        (user.is_admin && now.getTime() - row.created_at.getTime() >= 43200000) ||
+        row.mfa_pending ||
+        !identity.csrfToken ||
+        row.csrf_hash !== this.crypto.hash("auth.csrf-store", identity.csrfToken)
+      )
+        deny();
+      if (
+        user.is_admin &&
+        (!row.mfa_at ||
+          !(await c.query("SELECT 1 FROM user_mfa WHERE user_id=$1 AND state='enabled'", [user.id])).rowCount)
+      )
+        deny("forbidden", 403, "Administrator MFA is required.");
+    } else deny();
+    return user;
+  }
   async keyIdentity(secret: string, scope: string): Promise<Identity> {
     if (!/^sb_k_[A-Za-z0-9_-]{43}$/.test(secret)) deny();
     return transaction(this.db, async (c) => {

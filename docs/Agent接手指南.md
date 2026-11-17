@@ -85,3 +85,5 @@ SoldBench 是一个面向**个人卖家、收藏品交易商、二手商家、�
 §40转入完整产品链：新增`packages/auth`和0009、OpenAPI1.6/90schema/58operation、[ADR-14](adr/ADR-14.md)与[账户契约](账户与访问实施契约.md)。真实接口实现范围是auth/session/MFA/key，不可把剩余设计接口当可用。生产秘钥/KDF资源/外部安全、真实邮件、网页表单与G3未验；API本机开发首次随机生成`.local/auth-secrets.json`，生产拒绝此配置。包结束继续billing/query，不等待新的“继续”。
 
 以台账§35的最新提交/证据为准。快照的canonical候选选最新已提交观察，而非直接把所有观察传入core制造元数据冲突。网络熔断与权利撤销不同：前者允许仍有效的已有缓存，后者立即拒读再清理。不要把helper创建的active offline_fixture源当成平台许可——对应clearance仍draft，只能使用标记synthetic的内存响应。
+
+§41新增packages/billing、packages/query、0010、独立query-worker与HTTP交付，见[查询账本契约](查询账本与交付实施契约.md)。Web/MCP必须复用这些领域服务。实际状态和证据以台账§41为准；真实集成/阶段未验收，完成整包后继续Web，无需等用户再次发送“继续”。

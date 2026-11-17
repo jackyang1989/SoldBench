@@ -1,14 +1,19 @@
 import { randomUUID } from "node:crypto";
 import type { AuthService } from "@soldbench/auth";
-import { normalizeQuery } from "@soldbench/core";
 import type { Database } from "@soldbench/db";
+import type { QueryService } from "@soldbench/query";
 import { AppError, type Config } from "@soldbench/shared";
 import { renderHome } from "@soldbench/web";
 import { Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { mountAuth } from "./auth.ts";
+import { mountQueries } from "./queries.ts";
 
-export function createApp(config: Config, db: Database, services: { auth?: AuthService } = {}) {
+export function createApp(
+  config: Config,
+  db: Database,
+  services: { auth?: AuthService; query?: QueryService } = {},
+) {
   const app = new Hono<{ Variables: { requestId: string } }>();
   app.use("*", async (c, next) => {
     c.set("requestId", randomUUID());
@@ -45,10 +50,7 @@ export function createApp(config: Config, db: Database, services: { auth?: AuthS
   });
   app.get("/", (c) => c.html(renderHome("en")));
   app.get("/zh-CN", (c) => c.html(renderHome("zh-CN")));
-  app.get("/v1/sold", (c) => {
-    normalizeQuery(new URL(c.req.url).searchParams);
-    throw new AppError("unauthenticated", 401, "Sign in or provide an API key");
-  });
+  mountQueries(app, config, services.auth, services.query);
   app.notFound((c) =>
     c.json(
       {

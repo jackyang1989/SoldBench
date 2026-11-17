@@ -1,11 +1,15 @@
+import { randomUUID } from "node:crypto";
 import {
   closeSync,
   constants,
   existsSync,
+  fsyncSync,
+  linkSync,
   lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
@@ -18,17 +22,23 @@ export function localAuthSecrets(directory = resolve(".local")): AuthSecrets {
   const path = join(directory, "auth-secrets.json");
   if (!existsSync(path)) {
     let file: number | undefined;
+    const temporary = join(directory, `.auth-secrets-${randomUUID()}.tmp`);
     try {
       file = openSync(
-        path,
+        temporary,
         constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW,
         0o600,
       );
       writeFileSync(file, JSON.stringify(newAuthSecrets()));
+      fsyncSync(file);
+      closeSync(file);
+      file = undefined;
+      linkSync(temporary, path);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     } finally {
       if (file !== undefined) closeSync(file);
+      rmSync(temporary, { force: true });
     }
   }
   const file = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);

@@ -11,7 +11,9 @@ try {
   const tests = readdirSync("tests")
     .filter((name) => name.endsWith(".test.mjs"))
     .map((name) => `tests/${name}`);
-  for (const [index, test] of tests.entries()) {
+  const selected = process.argv.slice(2);
+  if (selected.some((file) => !tests.includes(file))) throw new Error("unknown_test_file");
+  for (const [index, test] of (selected.length ? selected : tests).entries()) {
     const name = `soldbench_test_${index}`;
     execFileSync(join(config.binaries, "createdb"), [
       "-h",

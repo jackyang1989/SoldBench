@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.6.0
+  version: 1.7.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -6369,54 +6369,90 @@ components:
         attributes:
           type: object
           properties:
+            grading_company:
+              type: string
+              minLength: 1
+              maxLength: 120
             grade:
               type: string
               minLength: 1
-              maxLength: 160
-            grade_company:
-              type: string
-              minLength: 1
-              maxLength: 160
-            grade_value:
-              type: string
-              minLength: 1
-              maxLength: 160
+              maxLength: 120
             card_number:
               type: string
               minLength: 1
-              maxLength: 160
-            edition:
-              type: string
-              minLength: 1
-              maxLength: 160
+              maxLength: 120
             language:
               type: string
               minLength: 1
-              maxLength: 160
+              maxLength: 120
+            set:
+              type: string
+              minLength: 1
+              maxLength: 120
+            edition:
+              type: string
+              minLength: 1
+              maxLength: 120
             year:
               type: string
               minLength: 1
-              maxLength: 160
+              maxLength: 120
             size:
               type: string
               minLength: 1
-              maxLength: 160
-            color:
+              maxLength: 120
+            size_system:
               type: string
               minLength: 1
-              maxLength: 160
-            capacity:
+              maxLength: 120
+            colorway:
               type: string
               minLength: 1
-              maxLength: 160
-            memory_gb:
+              maxLength: 120
+            reference:
               type: string
               minLength: 1
-              maxLength: 160
+              maxLength: 120
+            box:
+              type: string
+              minLength: 1
+              maxLength: 120
+            papers:
+              type: string
+              minLength: 1
+              maxLength: 120
+            platform:
+              type: string
+              minLength: 1
+              maxLength: 120
+            region:
+              type: string
+              minLength: 1
+              maxLength: 120
             variant:
               type: string
               minLength: 1
-              maxLength: 160
+              maxLength: 120
+            completeness:
+              type: string
+              minLength: 1
+              maxLength: 120
+            vram_gb:
+              type: string
+              minLength: 1
+              maxLength: 120
+            chipset:
+              type: string
+              minLength: 1
+              maxLength: 120
+            series:
+              type: string
+              minLength: 1
+              maxLength: 120
+            number:
+              type: string
+              minLength: 1
+              maxLength: 120
           additionalProperties: false
       required:
       - q
@@ -6488,54 +6524,90 @@ components:
         attributes:
           type: object
           properties:
+            grading_company:
+              type: string
+              minLength: 1
+              maxLength: 120
             grade:
               type: string
               minLength: 1
-              maxLength: 160
-            grade_company:
-              type: string
-              minLength: 1
-              maxLength: 160
-            grade_value:
-              type: string
-              minLength: 1
-              maxLength: 160
+              maxLength: 120
             card_number:
               type: string
               minLength: 1
-              maxLength: 160
-            edition:
-              type: string
-              minLength: 1
-              maxLength: 160
+              maxLength: 120
             language:
               type: string
               minLength: 1
-              maxLength: 160
+              maxLength: 120
+            set:
+              type: string
+              minLength: 1
+              maxLength: 120
+            edition:
+              type: string
+              minLength: 1
+              maxLength: 120
             year:
               type: string
               minLength: 1
-              maxLength: 160
+              maxLength: 120
             size:
               type: string
               minLength: 1
-              maxLength: 160
-            color:
+              maxLength: 120
+            size_system:
               type: string
               minLength: 1
-              maxLength: 160
-            capacity:
+              maxLength: 120
+            colorway:
               type: string
               minLength: 1
-              maxLength: 160
-            memory_gb:
+              maxLength: 120
+            reference:
               type: string
               minLength: 1
-              maxLength: 160
+              maxLength: 120
+            box:
+              type: string
+              minLength: 1
+              maxLength: 120
+            papers:
+              type: string
+              minLength: 1
+              maxLength: 120
+            platform:
+              type: string
+              minLength: 1
+              maxLength: 120
+            region:
+              type: string
+              minLength: 1
+              maxLength: 120
             variant:
               type: string
               minLength: 1
-              maxLength: 160
+              maxLength: 120
+            completeness:
+              type: string
+              minLength: 1
+              maxLength: 120
+            vram_gb:
+              type: string
+              minLength: 1
+              maxLength: 120
+            chipset:
+              type: string
+              minLength: 1
+              maxLength: 120
+            series:
+              type: string
+              minLength: 1
+              maxLength: 120
+            number:
+              type: string
+              minLength: 1
+              maxLength: 120
           additionalProperties: false
       required:
       - q
@@ -7325,6 +7397,7 @@ components:
               enum:
               - queued
               - running
+              - completed
             status_url:
               type: string
             expires_at: *id023
@@ -7344,6 +7417,9 @@ components:
     JobView:
       type: object
       properties:
+        version:
+          type: integer
+          minimum: 1
         job_id: *id002
         query_id: *id002
         status: &id024

@@ -340,3 +340,27 @@ test("password reset retains enabled MFA and a previously consumed TOTP step can
   const full = await x.auth.mfaVerify(login.token, { recovery_code: enabled.recovery_codes[0] }, x.context);
   assert.equal((await x.auth.sessionIdentity(full.token)).mfaPending, false);
 });
+
+test("concurrent first-boot processes publish one complete private secret file atomically", async () => {
+  const { mkdtemp, rm, stat } = await import("node:fs/promises"),
+    { tmpdir } = await import("node:os"),
+    { join } = await import("node:path"),
+    { execFile } = await import("node:child_process"),
+    { promisify } = await import("node:util");
+  const directory = await mkdtemp(join(tmpdir(), "soldbench-auth-race-"));
+  try {
+    const program =
+      "import {localAuthSecrets} from '@soldbench/auth';import {createHash} from 'node:crypto';const secrets=localAuthSecrets(process.argv[1]);console.log(createHash('sha256').update(JSON.stringify(secrets)).digest('hex'));";
+    const outputs = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        promisify(execFile)(process.execPath, ["--input-type=module", "-e", program, directory], {
+          env: { ...process.env, NODE_ENV: "test" },
+        }),
+      ),
+    );
+    assert.equal(new Set(outputs.map((r) => r.stdout.trim())).size, 1);
+    assert.equal((await stat(join(directory, "auth-secrets.json"))).mode & 0o777, 0o600);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

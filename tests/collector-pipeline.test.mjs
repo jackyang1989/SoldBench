@@ -758,11 +758,11 @@ test("retention maintenance preserves a shared valid object, expires old referen
     ])
   ).rows[0];
   assert.equal(first.object_key, other.object_key);
-  clock = "2026-11-16T13:00:01Z";
+  clock = "2026-11-17T12:00:01Z";
   assert.equal((await runner.runMaintenance(x.sourceId)).expired, 1);
   await assert.rejects(runner.readImageInternal(first.id));
   assert.ok((await runner.readImageInternal(other.id)).length > 0);
-  clock = "2026-11-16T13:31:00Z";
+  clock = "2026-11-17T12:31:00Z";
   assert.equal((await runner.runMaintenance(x.sourceId)).expired, 1);
   await assert.rejects(x.media.get(first.object_key));
   const orphan = await x.media.put(x.sourceId, Buffer.from("old-orphan"));

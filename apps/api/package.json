@@ -17,6 +17,8 @@
     "@soldbench/web": "*",
     "hono": "4.13.18",
     "@hono/node-server": "2.1.8",
-    "@soldbench/auth": "*"
+    "@soldbench/auth": "*",
+    "@soldbench/query": "*",
+    "@soldbench/billing": "*"
   }
 }
