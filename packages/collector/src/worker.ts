@@ -2,11 +2,12 @@ import { instant } from "@soldbench/core";
 import { transaction } from "@soldbench/db";
 import { collectPrimaryImage, type PrivateMediaStore } from "@soldbench/media";
 import {
+  type CollectorTransport,
   digest,
   type FixturePage,
   type FixtureResponse,
-  type FixtureTransport,
   parseFixturePage,
+  TransportReadError,
   uncertainCandidateKey,
 } from "./fixture.ts";
 import { hasHtmlAccessBlock } from "./html.ts";
@@ -23,10 +24,13 @@ class ImageBackoff extends Error {
 export class OfflineCollectorWorker {
   constructor(
     readonly store: CollectorStore,
-    readonly transport: FixtureTransport,
+    readonly transport: CollectorTransport,
     readonly media: PrivateMediaStore,
     readonly limits = { pageBytes: 1024 * 1024, imageBytes: 5 * 1024 * 1024 },
-  ) {}
+  ) {
+    if (!["memory_fixture", "loopback_fixture"].includes(transport.mode))
+      throw new Error("network_collector_not_enabled");
+  }
   private async response(
     lease: Lease,
     key: string,
@@ -54,9 +58,13 @@ export class OfflineCollectorWorker {
     }
     let response: FixtureResponse;
     try {
-      response = await this.transport.read(key, responseIndex);
+      response = await this.transport.read(key, responseIndex, signal);
     } catch (error) {
-      await this.store.settle(lease, id, 0);
+      await this.store.settle(
+        lease,
+        id,
+        error instanceof TransportReadError ? Math.min(max, error.receivedBytes) : 0,
+      );
       throw error;
     }
     const oversized = response.bytes.length > max;
@@ -186,7 +194,11 @@ export class OfflineCollectorWorker {
           else await this.store.queueImageRetry(lease, task.image_id, "image_storage_unavailable");
           continue;
         }
-        if (/^(upstream_unavailable|fixture_response_missing)$/.test(message)) {
+        if (
+          /^(upstream_unavailable|fixture_response_missing|http_request_failed|http_request_timeout|http_response_interrupted)$/.test(
+            message,
+          )
+        ) {
           if (lease.imageTaskId) await this.store.deferImageRetry(lease, message, 60);
           else await this.store.queueImageRetry(lease, task.image_id, message);
           continue;
@@ -300,7 +312,7 @@ export class OfflineCollectorWorker {
             lease,
             message,
             ["worker_shutdown", "collector_budget_day_changed"].includes(message) ? 1 : 60,
-            !/fixture_response_missing|upstream_unavailable|collector_rate_limited|collector_budget_day_changed|worker_shutdown/.test(
+            !/fixture_response_missing|upstream_unavailable|http_request_failed|http_request_timeout|http_response_interrupted|collector_rate_limited|collector_budget_day_changed|worker_shutdown/.test(
               message,
             ),
           );

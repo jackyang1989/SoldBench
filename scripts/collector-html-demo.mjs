@@ -1,8 +1,10 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { join, resolve } from "node:path";
 import {
   CollectorStore,
   createFixtureArtifact,
+  LoopbackHttpTransport,
   loadFixtureArtifact,
   OfflineCollectorWorker,
   provisionFixtureSource,
@@ -15,7 +17,10 @@ import { load } from "cheerio/slim";
 import sharp from "sharp";
 import { localDatabaseUrl } from "./local-db.mjs";
 
-if (process.argv.slice(2).some((arg) => arg !== "--prepare-only") || process.argv.slice(2).length > 1)
+if (
+  process.argv.slice(2).some((arg) => !["--prepare-only", "--http"].includes(arg)) ||
+  process.argv.slice(2).length > 1
+)
   throw new Error("invalid_html_demo_argument");
 loadConfig(process.env);
 const url = process.env.DATABASE_URL ?? localDatabaseUrl();
@@ -25,6 +30,8 @@ assertLocalDatabaseUrl(url, [
 ]);
 const db = database(url),
   directory = resolve(process.env.COLLECTOR_DEMO_DIR ?? ".local");
+let server,
+  localHttpRequests = 0;
 try {
   await migrate(db);
   const now = (await db.query("SELECT clock_timestamp() t")).rows[0].t.toISOString(),
@@ -89,10 +96,39 @@ try {
     hash: loaded.hash,
     pageHashes: loaded.pageHashes,
   });
+  let transport = loaded.transport;
+  if (process.argv.includes("--http")) {
+    const responses = new Map(),
+      routes = [];
+    for (const [key, values] of frames) {
+      const path = `/fixture/${routes.length}`;
+      responses.set(path, values[0]);
+      routes.push({ key, path });
+    }
+    server = createServer((req, res) => {
+      localHttpRequests++;
+      const response = responses.get(req.url);
+      if (!response) {
+        res.writeHead(404);
+        res.end();
+        return;
+      }
+      res.writeHead(response.status, {
+        "content-type": response.contentType,
+        "content-length": response.bytes.byteLength,
+      });
+      res.end(response.bytes);
+    });
+    await new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    transport = new LoopbackHttpTransport({ origin: `http://127.0.0.1:${server.address().port}`, routes });
+  }
   if (!process.argv.includes("--prepare-only"))
     await new OfflineCollectorWorker(
       store,
-      loaded.transport,
+      transport,
       new PrivateMediaStore(join(directory, "collector-media")),
     ).runOne(source.sourceId, { jobId });
   const job = await store.view(jobId),
@@ -115,7 +151,10 @@ try {
   const report = {
     mode: "offline_fixture",
     sourceVerified: false,
-    networkRequests: 0,
+    networkRequests: localHttpRequests,
+    externalNetworkRequests: 0,
+    localHttpRequests,
+    transport: transport.mode,
     jobId,
     status: job.status,
     pageCount: job.page_count,
@@ -131,5 +170,9 @@ try {
   console.log(JSON.stringify(report));
   if (!process.argv.includes("--prepare-only") && job.status !== "completed") process.exitCode = 1;
 } finally {
+  if (server) {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
   await db.end();
 }

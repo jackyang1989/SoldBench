@@ -122,6 +122,7 @@ export async function collectorHealth(
       mode: "offline_fixture",
       onlineVerified: false,
       networkRequests: 0,
+      networkRequestsScope: "external_source_access_only",
       collectorVersion: COLLECTOR_VERSION,
       parserVersion: PARSER_VERSION,
       sourceId,

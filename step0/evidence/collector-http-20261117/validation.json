@@ -1,0 +1,73 @@
+{
+  "evidence_type": "offline_loopback_integration",
+  "baseline_commit": "769df13",
+  "date": "2026-11-17",
+  "collector_version": "offline-pg-1.8.0",
+  "parser_version": "offline-page-1.2.0",
+  "database": "isolated PostgreSQL16;64 tables; unchanged migrations",
+  "configuration": {
+    "collector_enabled": false,
+    "data_mode": "offline_fixture",
+    "http_allowed_origin": "127.0.0.1 ephemeral local test server only",
+    "real_source_requests": 0,
+    "clock": "synthetic tests; demo uses DB clock; not continuous observation"
+  },
+  "commands": [
+    {
+      "command": "npm run check",
+      "exit_code": 0,
+      "node_tests": 162
+    },
+    {
+      "command": "npm run lint:fix && npm run build",
+      "exit_code": 0
+    },
+    {
+      "command": "node scripts/test.mjs tests/collector-http.test.mjs",
+      "exit_code": 0,
+      "tests": 7,
+      "note": "Final request counter labeling change verified here after full run"
+    },
+    {
+      "command": "python3 step0/tools/validate_offline.py",
+      "exit_code": 0
+    }
+  ],
+  "integration": {
+    "command": "collector:http-demo",
+    "actual_loopback_http_requests": 10,
+    "external_requests": 0,
+    "html_pages": 2,
+    "record_evidence": 8,
+    "available_primary_images": 8,
+    "verified_synthetic_price_samples": 8
+  },
+  "review": "Implementer inspection and actual local HTTP/PG regression. Independent final reviewer unavailable due usage limit; no independent stage signoff.",
+  "coverage": [
+    "immutable local origin/routes and no credentials",
+    "redirect/compression/body overflow reject",
+    "whole request timeout/abort/interrupted body and cleanup",
+    "bounded Retry-After forwarding",
+    "actual403 source circuit and no page commit",
+    "partial byte settlement and bounded3 retry",
+    "single-command local HTML pagination/images/PG/shared statistics"
+  ],
+  "not_verified": [
+    "real external HTTP/browser acquisition",
+    "eBay DOM/45 actual fields",
+    "source/image licensing",
+    "real bandwidth costs/production egress",
+    "14-day and7-day stability",
+    "production release"
+  ],
+  "source_sha256": {
+    "package.json": "a75bffd50e3148af9b196eef5e886f21054ccc2d00905410ab5efa27c8c7c6a0",
+    "packages/collector/src/fixture.ts": "06fe96b93b726b24ec50ea8937461fbe4ad5247d751430f304f6aaac2e250cb8",
+    "packages/collector/src/http-transport.ts": "b652c7b05d134dc16f0f40338620dba6f281b655af47d9dcace22bae8d03bad9",
+    "packages/collector/src/health.ts": "b0e2e1394eb8add1e5babbaffdbd850bbadfb676140caf05e12dd17389e1d5d3",
+    "packages/collector/src/index.ts": "2eda9ebeeb08159ea775d0add5517fa505b836eb1a19e54efd3d02f193639f7d",
+    "packages/collector/src/worker.ts": "f511da4046de0c01183bf1dd09ab116950530ac741368c9e283a493448195cfa",
+    "scripts/collector-html-demo.mjs": "d662404602a7b0920f06657b548b8e24d545309543532b19d061b998ff8500a8",
+    "tests/collector-http.test.mjs": "3cf972af1f56f01156f85b427396e5617ca602137e15f1d4f0fff3ceef46cc89"
+  }
+}

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { type Candidate, candidateFromJson, canonicalJson, instant } from "@soldbench/core";
 import { type RecordEvidence, recordEvidenceFromJson } from "./record-evidence.ts";
 
-export const COLLECTOR_VERSION = "offline-pg-1.7.0";
+export const COLLECTOR_VERSION = "offline-pg-1.8.0";
 export const PARSER_VERSION = "offline-page-1.2.0";
 export type FixtureListing = {
   listingId: string;
@@ -29,6 +29,18 @@ export type FixtureResponse = {
   bytes: Uint8Array;
   retryAfterSeconds?: number;
 };
+export type CollectorTransport = {
+  readonly mode: "memory_fixture" | "loopback_fixture";
+  read(key: string, index?: number, signal?: AbortSignal): Promise<FixtureResponse>;
+};
+export class TransportReadError extends Error {
+  constructor(
+    code: string,
+    readonly receivedBytes: number,
+  ) {
+    super(code);
+  }
+}
 export function digest(value: string | Uint8Array): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -37,6 +49,7 @@ export function fixtureResponse(page: FixturePage): FixtureResponse {
 }
 /** Only in-memory bytes; this class has no URL, HTTP, DNS or browser operations. */
 export class FixtureTransport {
+  readonly mode = "memory_fixture" as const;
   #responses: Map<string, FixtureResponse[]>;
   calls: string[] = [];
   constructor(responses: ReadonlyMap<string, readonly FixtureResponse[]>) {

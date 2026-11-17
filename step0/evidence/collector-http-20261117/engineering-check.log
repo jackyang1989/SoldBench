@@ -1,0 +1,1173 @@
+
+> soldbench@0.1.0 check
+> npm run lint && npm run typecheck && npm test && npm run contracts
+
+
+> soldbench@0.1.0 lint
+> biome check apps packages scripts tests
+
+Checked 96 files in 46ms. No fixes applied.
+
+> soldbench@0.1.0 typecheck
+> tsc -b --pretty false
+
+
+> soldbench@0.1.0 test
+> npm run build && node scripts/test.mjs
+
+
+> soldbench@0.1.0 build
+> tsc -b
+
+TAP version 13
+# Subtest: health and readiness disclose fixture mode without claiming collector availability
+ok 1 - health and readiness disclose fixture mode without claiming collector availability
+  ---
+  duration_ms: 9.969375
+  type: 'test'
+  ...
+# Subtest: SSR home stays bilingual, synthetic-data disclosed and protected by response headers
+ok 2 - SSR home stays bilingual, synthetic-data disclosed and protected by response headers
+  ---
+  duration_ms: 13.332375
+  type: 'test'
+  ...
+# Subtest: sold search validates inputs but does not return fake data or bypass authentication
+ok 3 - sold search validates inputs but does not return fake data or bypass authentication
+  ---
+  duration_ms: 0.786916
+  type: 'test'
+  ...
+1..3
+# tests 3
+# suites 0
+# pass 3
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 132.670708
+TAP version 13
+# Subtest: registration and verification persist encrypted localized mail and single-use hash-only tokens
+ok 1 - registration and verification persist encrypted localized mail and single-use hash-only tokens
+  ---
+  duration_ms: 1310.59625
+  type: 'test'
+  ...
+# Subtest: session reauthentication rotates cookie/CSRF without extending expiry and revocation is immediate
+ok 2 - session reauthentication rotates cookie/CSRF without extending expiry and revocation is immediate
+  ---
+  duration_ms: 685.395958
+  type: 'test'
+  ...
+# Subtest: password changes invalidate existing reset links and resetting twice cannot change credentials again
+ok 3 - password changes invalidate existing reset links and resetting twice cannot change credentials again
+  ---
+  duration_ms: 1529.66725
+  type: 'test'
+  ...
+# Subtest: HTTP auth/key handlers enforce Origin, CSRF, body limits and no replayed key secret
+ok 4 - HTTP auth/key handlers enforce Origin, CSRF, body limits and no replayed key secret
+  ---
+  duration_ms: 524.542042
+  type: 'test'
+  ...
+# Subtest: API key scopes, rotation, cross-owner denial and account suspension stay current
+ok 5 - API key scopes, rotation, cross-owner denial and account suspension stay current
+  ---
+  duration_ms: 681.712375
+  type: 'test'
+  ...
+# Subtest: MFA login is restricted until proof, rotates cookie and consumes recovery codes once under concurrency
+ok 6 - MFA login is restricted until proof, rotates cookie and consumes recovery codes once under concurrency
+  ---
+  duration_ms: 862.628334
+  type: 'test'
+  ...
+# Subtest: per-owner MFA budget survives distributed client IDs and admin promotion restricts existing sessions
+ok 7 - per-owner MFA budget survives distributed client IDs and admin promotion restricts existing sessions
+  ---
+  duration_ms: 864.477875
+  type: 'test'
+  ...
+# Subtest: AES-GCM rejects ciphertext tampering and cross-purpose replay
+ok 8 - AES-GCM rejects ciphertext tampering and cross-purpose replay
+  ---
+  duration_ms: 0.518334
+  type: 'test'
+  ...
+# Subtest: a real loopback HTTP server creates and authenticates an actual cookie session
+ok 9 - a real loopback HTTP server creates and authenticates an actual cookie session
+  ---
+  duration_ms: 528.67125
+  type: 'test'
+  ...
+# Subtest: password reset retains enabled MFA and a previously consumed TOTP step cannot be replayed
+ok 10 - password reset retains enabled MFA and a previously consumed TOTP step cannot be replayed
+  ---
+  duration_ms: 869.302167
+  type: 'test'
+  ...
+# Subtest: concurrent first-boot processes publish one complete private secret file atomically
+ok 11 - concurrent first-boot processes publish one complete private secret file atomically
+  ---
+  duration_ms: 113.781959
+  type: 'test'
+  ...
+1..11
+# tests 11
+# suites 0
+# pass 11
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 8084.550708
+TAP version 13
+# Subtest: 100 concurrent UTC rollover enqueues initialize one day under fixed caps and never reset yesterday
+ok 1 - 100 concurrent UTC rollover enqueues initialize one day under fixed caps and never reset yesterday
+  ---
+  duration_ms: 650.563541
+  type: 'test'
+  ...
+# Subtest: responses and graceful undispatched cancellations settle against their original UTC budget day
+ok 2 - responses and graceful undispatched cancellations settle against their original UTC budget day
+  ---
+  duration_ms: 23.073459
+  type: 'test'
+  ...
+# Subtest: unknown pre-midnight reservation is conservatively consumed on the original day before lease takeover
+ok 3 - unknown pre-midnight reservation is conservatively consumed on the original day before lease takeover
+  ---
+  duration_ms: 5.593208
+  type: 'test'
+  ...
+# Subtest: policy expires without preventing settlement of already dispatched bytes, and cannot be changed or deleted
+ok 4 - policy expires without preventing settlement of already dispatched bytes, and cannot be changed or deleted
+  ---
+  duration_ms: 16.364791
+  type: 'test'
+  ...
+# Subtest: legacy explicit-day budgets do not silently obtain renewal policy or carry unused budget forward
+ok 5 - legacy explicit-day budgets do not silently obtain renewal policy or carry unused budget forward
+  ---
+  duration_ms: 6.976625
+  type: 'test'
+  ...
+# Subtest: policy cannot recreate a reduced explicit cap or accept a raised cap, and stop cannot initialize a new day
+ok 6 - policy cannot recreate a reduced explicit cap or accept a raised cap, and stop cannot initialize a new day
+  ---
+  duration_ms: 4.094375
+  type: 'test'
+  ...
+# Subtest: an unmarked pre-midnight reservation cannot dispatch against yesterday when today's cap is zero
+ok 7 - an unmarked pre-midnight reservation cannot dispatch against yesterday when today's cap is zero
+  ---
+  duration_ms: 6.413459
+  type: 'test'
+  ...
+# Subtest: a fully authorized image response crossing policy expiry still publishes and finishes the completed page
+ok 8 - a fully authorized image response crossing policy expiry still publishes and finishes the completed page
+  ---
+  duration_ms: 55.6575
+  type: 'test'
+  ...
+# Subtest: worker cancels pre-dispatch midnight rollover without a failed attempt or transport and resumes the same page
+ok 9 - worker cancels pre-dispatch midnight rollover without a failed attempt or transport and resumes the same page
+  ---
+  duration_ms: 23.845083
+  type: 'test'
+  ...
+1..9
+# tests 9
+# suites 0
+# pass 9
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 987.444292
+TAP version 13
+# Subtest: HTML text parser preserves sold evidence, actual price, withheld seller and correctly bound lazy primary image
+ok 1 - HTML text parser preserves sold evidence, actual price, withheld seller and correctly bound lazy primary image
+  ---
+  duration_ms: 539.693708
+  type: 'test'
+  ...
+# Subtest: money conversion uses exact declared separators and rejects ranges, ambiguous grouping and unsafe amounts
+ok 2 - money conversion uses exact declared separators and rejects ranges, ambiguous grouping and unsafe amounts
+  ---
+  duration_ms: 0.522792
+  type: 'test'
+  ...
+# Subtest: unknown accepted offer, shipping, event identity and ended date never become verified facts
+ok 3 - unknown accepted offer, shipping, event identity and ended date never become verified facts
+  ---
+  duration_ms: 66.401125
+  type: 'test'
+  ...
+# Subtest: HTML page raw hash, observation/event metadata and generated primary image persist atomically
+ok 4 - HTML page raw hash, observation/event metadata and generated primary image persist atomically
+  ---
+  duration_ms: 39.581292
+  type: 'test'
+  ...
+# Subtest: HTML structural drift, ambiguous fields, image mismatches and unsafe URLs quarantine without a watermark
+ok 5 - HTML structural drift, ambiguous fields, image mismatches and unsafe URLs quarantine without a watermark
+  ---
+  duration_ms: 121.729417
+  type: 'test'
+  ...
+# Subtest: explicit empty marker is required and source-reported totals keep their unit without altering statistics
+ok 6 - explicit empty marker is required and source-reported totals keep their unit without altering statistics
+  ---
+  duration_ms: 6.132792
+  type: 'test'
+  ...
+# Subtest: profile is frozen per run, changed profile cannot claim or bind an artifact, and parser itself cannot mutate it
+ok 7 - profile is frozen per run, changed profile cannot claim or bind an artifact, and parser itself cannot mutate it
+  ---
+  duration_ms: 8.168708
+  type: 'test'
+  ...
+# Subtest: HTML response artifact runs through a new CLI process with profile binding and original HTML evidence
+ok 8 - HTML response artifact runs through a new CLI process with profile binding and original HTML evidence
+  ---
+  duration_ms: 139.738042
+  type: 'test'
+  ...
+# Subtest: legitimate challenge or sign-in text never acts as a source access refusal, but explicit access markers do
+ok 9 - legitimate challenge or sign-in text never acts as a source access refusal, but explicit access markers do
+  ---
+  duration_ms: 39.3315
+  type: 'test'
+  ...
+# Subtest: invalid selector configurations are rejected before a run or circuit mutation
+ok 10 - invalid selector configurations are rejected before a run or circuit mutation
+  ---
+  duration_ms: 0.630917
+  type: 'test'
+  ...
+# Subtest: persisted HTML candidates retain titles for downstream result sorting
+ok 11 - persisted HTML candidates retain titles for downstream result sorting
+  ---
+  duration_ms: 18.313167
+  type: 'test'
+  ...
+# Subtest: one-command HTML demo proves two real HTML pages, eight bound generated primary images and an eligible median
+ok 12 - one-command HTML demo proves two real HTML pages, eight bound generated primary images and an eligible median
+  ---
+  duration_ms: 291.264125
+  type: 'test'
+  ...
+# Subtest: HTML and main-image work resumes across two separate processes without replaying committed pages
+ok 13 - HTML and main-image work resumes across two separate processes without replaying committed pages
+  ---
+  duration_ms: 515.916834
+  type: 'test'
+  ...
+1..13
+# tests 13
+# suites 0
+# pass 13
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1915.379292
+TAP version 13
+# Subtest: HTTP origin and fixed routes cannot select external hosts, credentials, redirects or arbitrary keys
+ok 1 - HTTP origin and fixed routes cannot select external hosts, credentials, redirects or arbitrary keys
+  ---
+  duration_ms: 539.248875
+  type: 'test'
+  ...
+# Subtest: HTTP stream reads exact bytes without cookies or caller credentials and supports numeric/date Retry-After
+ok 2 - HTTP stream reads exact bytes without cookies or caller credentials and supports numeric/date Retry-After
+  ---
+  duration_ms: 12.005333
+  type: 'test'
+  ...
+# Subtest: HTTP redirect, compression and declared/streamed body overflow fail before becoming parser inputs
+ok 3 - HTTP redirect, compression and declared/streamed body overflow fail before becoming parser inputs
+  ---
+  duration_ms: 7.008917
+  type: 'test'
+  ...
+# Subtest: HTTP overall deadline, abort and interrupted body destroy sockets and preserve partial byte facts
+ok 4 - HTTP overall deadline, abort and interrupted body destroy sockets and preserve partial byte facts
+  ---
+  duration_ms: 176.869458
+  type: 'test'
+  ...
+# Subtest: actual HTTP 403 travels through the worker and persists a source stop without committing a page
+ok 5 - actual HTTP 403 travels through the worker and persists a source stop without committing a page
+  ---
+  duration_ms: 68.943334
+  type: 'test'
+  ...
+# Subtest: HTTP interrupted requests settle actual partial bytes and retry with a bounded failure count
+ok 6 - HTTP interrupted requests settle actual partial bytes and retry with a bounded failure count
+  ---
+  duration_ms: 72.5705
+  type: 'test'
+  ...
+# Subtest: single command executes real local HTTP HTML pagination and eight primary images into PG and shared statistics
+ok 7 - single command executes real local HTTP HTML pagination and eight primary images into PG and shared statistics
+  ---
+  duration_ms: 307.930625
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 7
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1283.986084
+TAP version 13
+# Subtest: collector child environment excludes application credentials and Node preloads
+ok 1 - collector child environment excludes application credentials and Node preloads
+  ---
+  duration_ms: 256.7585
+  type: 'test'
+  ...
+# Subtest: bounded launcher executes an owned worker and reports its actual final cycle
+ok 2 - bounded launcher executes an owned worker and reports its actual final cycle
+  ---
+  duration_ms: 481.451791
+  type: 'test'
+  ...
+# Subtest: watchdog kills a stalled child after a bounded grace interval without consuming a queued job
+ok 3 - watchdog kills a stalled child after a bounded grace interval without consuming a queued job
+  ---
+  duration_ms: 570.1285
+  type: 'test'
+  ...
+# Subtest: parent termination propagates to a stalled child and waits for child exit
+ok 4 - parent termination propagates to a stalled child and waits for child exit
+  ---
+  duration_ms: 381.785291
+  type: 'test'
+  ...
+# Subtest: killing an active collector preserves a live API and recovery conservatively settles unknown dispatch budget
+ok 5 - killing an active collector preserves a live API and recovery conservatively settles unknown dispatch budget
+  ---
+  duration_ms: 361.374292
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2205.330167
+TAP version 13
+# Subtest: PG collector replays golden pages, persists provenance, de-duplicates and stores/reads real image bytes
+ok 1 - PG collector replays golden pages, persists provenance, de-duplicates and stores/reads real image bytes
+  ---
+  duration_ms: 503.727167
+  type: 'test'
+  ...
+# Subtest: enqueue, lease and budgets remain atomic under concurrent dispatch attempts
+ok 2 - enqueue, lease and budgets remain atomic under concurrent dispatch attempts
+  ---
+  duration_ms: 90.720208
+  type: 'test'
+  ...
+# Subtest: expired worker reservations are conservatively consumed, lease takeover rejects stale publication
+ok 3 - expired worker reservations are conservatively consumed, lease takeover rejects stale publication
+  ---
+  duration_ms: 9.464625
+  type: 'test'
+  ...
+# Subtest: 429 observes retry-after and a subsequent worker resumes the same job without advancing prematurely
+ok 4 - 429 observes retry-after and a subsequent worker resumes the same job without advancing prematurely
+  ---
+  duration_ms: 17.948917
+  type: 'test'
+  ...
+# Subtest: 401/403/login challenges persistently stop all source dispatches including oversized responses
+ok 5 - 401/403/login challenges persistently stop all source dispatches including oversized responses
+  ---
+  duration_ms: 20.917
+  type: 'test'
+  ...
+# Subtest: failed second page preserves committed evidence and resumes checkpoint without duplicating sales
+ok 6 - failed second page preserves committed evidence and resumes checkpoint without duplicating sales
+  ---
+  duration_ms: 23.613042
+  type: 'test'
+  ...
+# Subtest: event conflict and pagination loops roll back the failing page and never publish a complete watermark
+ok 7 - event conflict and pagination loops roll back the failing page and never publish a complete watermark
+  ---
+  duration_ms: 47.337917
+  type: 'test'
+  ...
+# Subtest: cancelled, revoked and configuration-changed workers cannot reserve or publish
+ok 8 - cancelled, revoked and configuration-changed workers cannot reserve or publish
+  ---
+  duration_ms: 30.798
+  type: 'test'
+  ...
+# Subtest: private media objects reject traversal, symlinks and corruption; synthetic parser rejects false empty pages
+ok 9 - private media objects reject traversal, symlinks and corruption; synthetic parser rejects false empty pages
+  ---
+  duration_ms: 16.80675
+  type: 'test'
+  ...
+# Subtest: uncertain observations can be replayed across runs without inventing verified sales
+ok 10 - uncertain observations can be replayed across runs without inventing verified sales
+  ---
+  duration_ms: 16.539416
+  type: 'test'
+  ...
+# Subtest: normal empty evidence succeeds, but a mutated page cannot commit against its raw-response digest
+ok 11 - normal empty evidence succeeds, but a mutated page cannot commit against its raw-response digest
+  ---
+  duration_ms: 13.517792
+  type: 'test'
+  ...
+# Subtest: the executable collector demo runs against the isolated database with no network
+ok 12 - the executable collector demo runs against the isolated database with no network
+  ---
+  duration_ms: 217.677416
+  type: 'test'
+  ...
+# Subtest: later observations can add their own primary image evidence without creating another sale
+ok 13 - later observations can add their own primary image evidence without creating another sale
+  ---
+  duration_ms: 40.077375
+  type: 'test'
+  ...
+# Subtest: collection outage preserves still-permitted cached evidence; revocation denies it and replays cleanup
+ok 14 - collection outage preserves still-permitted cached evidence; revocation denies it and replays cleanup
+  ---
+  duration_ms: 32.149583
+  type: 'test'
+  ...
+# Subtest: rate windows are shared across jobs
+ok 15 - rate windows are shared across jobs
+  ---
+  duration_ms: 6.240167
+  type: 'test'
+  ...
+# Subtest: reservations settle against their original UTC day; a frozen policy permits a separate new-day budget
+ok 16 - reservations settle against their original UTC day; a frozen policy permits a separate new-day budget
+  ---
+  duration_ms: 7.467333
+  type: 'test'
+  ...
+# Subtest: healthy rate-limited pagination can renew leases without exhausting the failure retry budget
+ok 17 - healthy rate-limited pagination can renew leases without exhausting the failure retry budget
+  ---
+  duration_ms: 38.553166
+  type: 'test'
+  ...
+# Subtest: same-listing independent events in the same page keep their own primary images
+ok 18 - same-listing independent events in the same page keep their own primary images
+  ---
+  duration_ms: 31.745625
+  type: 'test'
+  ...
+# Subtest: revocation failure rolls back stop, epoch, budgets and cleanup event as one transaction
+ok 19 - revocation failure rolls back stop, epoch, budgets and cleanup event as one transaction
+  ---
+  duration_ms: 6.787084
+  type: 'test'
+  ...
+# Subtest: revocation cleanup also deletes a privately written object that never obtained a DB link
+ok 20 - revocation cleanup also deletes a privately written object that never obtained a DB link
+  ---
+  duration_ms: 9.390791
+  type: 'test'
+  ...
+# Subtest: snapshot assembly selects latest per-event metadata without inventing price conflicts
+ok 21 - snapshot assembly selects latest per-event metadata without inventing price conflicts
+  ---
+  duration_ms: 24.851667
+  type: 'test'
+  ...
+# Subtest: source revocation waits for private publication, then cleanup removes the newly written file
+ok 22 - source revocation waits for private publication, then cleanup removes the newly written file
+  ---
+  duration_ms: 52.639083
+  type: 'test'
+  ...
+# Subtest: an identical unknown candidate on two different pages is one uncertain candidate with valid primary evidence
+ok 23 - an identical unknown candidate on two different pages is one uncertain candidate with valid primary evidence
+  ---
+  duration_ms: 35.856375
+  type: 'test'
+  ...
+# Subtest: retention maintenance preserves a shared valid object, expires old references and collects aged orphans
+ok 24 - retention maintenance preserves a shared valid object, expires old references and collects aged orphans
+  ---
+  duration_ms: 38.97375
+  type: 'test'
+  ...
+# Subtest: an invalid maintenance/read clock cannot extend image visibility or delete valid objects
+ok 25 - an invalid maintenance/read clock cannot extend image visibility or delete valid objects
+  ---
+  duration_ms: 19.016042
+  type: 'test'
+  ...
+# Subtest: malformed successful pages quarantine bounded metadata and atomically stop every queued source job
+ok 26 - malformed successful pages quarantine bounded metadata and atomically stop every queued source job
+  ---
+  duration_ms: 45.728
+  type: 'test'
+  ...
+# Subtest: a structure drift preserves valid previous evidence while a later event conflict blocks affected cached inputs
+ok 27 - a structure drift preserves valid previous evidence while a later event conflict blocks affected cached inputs
+  ---
+  duration_ms: 29.083958
+  type: 'test'
+  ...
+# Subtest: quarantine rejects cross-job, mismatched bytes, unconsumed dispatches and old leases
+ok 28 - quarantine rejects cross-job, mismatched bytes, unconsumed dispatches and old leases
+  ---
+  duration_ms: 6.7955
+  type: 'test'
+  ...
+# Subtest: quarantine outbox failure rolls back incident, circuit and other job mutations
+ok 29 - quarantine outbox failure rolls back incident, circuit and other job mutations
+  ---
+  duration_ms: 7.175833
+  type: 'test'
+  ...
+# Subtest: conflicting events first seen within one page quarantine without referencing rolled back event IDs
+ok 30 - conflicting events first seen within one page quarantine without referencing rolled back event IDs
+  ---
+  duration_ms: 16.056125
+  type: 'test'
+  ...
+# Subtest: inconsistent persistence semantics and invalid dates are classified before SQL as quarantined bad pages
+ok 31 - inconsistent persistence semantics and invalid dates are classified before SQL as quarantined bad pages
+  ---
+  duration_ms: 80.124375
+  type: 'test'
+  ...
+# Subtest: non-USD verified free shipping is deterministic zero while missing item FX remains unknown and excluded
+ok 32 - non-USD verified free shipping is deterministic zero while missing item FX remains unknown and excluded
+  ---
+  duration_ms: 8.380459
+  type: 'test'
+  ...
+# Subtest: worker upgrades cannot silently mix collector or parser versions into a frozen run
+ok 33 - worker upgrades cannot silently mix collector or parser versions into a frozen run
+  ---
+  duration_ms: 6.666
+  type: 'test'
+  ...
+# Subtest: temporary image failure persists an independent retry while pages and price inputs are already complete
+ok 34 - temporary image failure persists an independent retry while pages and price inputs are already complete
+  ---
+  duration_ms: 32.762458
+  type: 'test'
+  ...
+# Subtest: image retries stop at three total attempts and keep completed page watermark unchanged
+ok 35 - image retries stop at three total attempts and keep completed page watermark unchanged
+  ---
+  duration_ms: 25.992917
+  type: 'test'
+  ...
+# Subtest: media has its own deadline after parent page deadline; image expiry never extends original evidence
+ok 36 - media has its own deadline after parent page deadline; image expiry never extends original evidence
+  ---
+  duration_ms: 26.487541
+  type: 'test'
+  ...
+# Subtest: shared source Retry-After prevents other jobs and lets remaining images queue without blocking complete pages
+ok 37 - shared source Retry-After prevents other jobs and lets remaining images queue without blocking complete pages
+  ---
+  duration_ms: 40.158917
+  type: 'test'
+  ...
+# Subtest: crashed image lease recovers conservative dispatch budget, preserves response index and rejects the old writer
+ok 38 - crashed image lease recovers conservative dispatch budget, preserves response index and rejects the old writer
+  ---
+  duration_ms: 29.583375
+  type: 'test'
+  ...
+# Subtest: retention expiry, changed evidence and revoked sources prevent every later image dispatch
+ok 39 - retention expiry, changed evidence and revoked sources prevent every later image dispatch
+  ---
+  duration_ms: 38.423625
+  type: 'test'
+  ...
+# Subtest: image retry authorization refusal opens the source circuit and stops all pending media
+ok 40 - image retry authorization refusal opens the source circuit and stops all pending media
+  ---
+  duration_ms: 17.178333
+  type: 'test'
+  ...
+# Subtest: collector health uses real enqueued denominator, pending and conservative byte facts, never fabricated cost
+ok 41 - collector health uses real enqueued denominator, pending and conservative byte facts, never fabricated cost
+  ---
+  duration_ms: 15.857916
+  type: 'test'
+  ...
+# Subtest: media-only CLI restarts with the same bound artifact and never fetches another page
+ok 42 - media-only CLI restarts with the same bound artifact and never fetches another page
+  ---
+  duration_ms: 134.839334
+  type: 'test'
+  ...
+# Subtest: media leases cannot re-open parent state, quarantine pages or publish page evidence
+ok 43 - media leases cannot re-open parent state, quarantine pages or publish page evidence
+  ---
+  duration_ms: 15.368208
+  type: 'test'
+  ...
+# Subtest: two provable pre-dispatch graceful shutdowns preserve image retry quota and release reservations
+ok 44 - two provable pre-dispatch graceful shutdowns preserve image retry quota and release reservations
+  ---
+  duration_ms: 38.310584
+  type: 'test'
+  ...
+# Subtest: local source rate cap moves pending photo to media queue without blocking the final page
+ok 45 - local source rate cap moves pending photo to media queue without blocking the final page
+  ---
+  duration_ms: 24.228583
+  type: 'test'
+  ...
+# Subtest: clearance withdrawal alone prevents collection and deferred photos without waiting for source epoch cleanup
+ok 46 - clearance withdrawal alone prevents collection and deferred photos without waiting for source epoch cleanup
+  ---
+  duration_ms: 12.857125
+  type: 'test'
+  ...
+# Subtest: abort after dispatch marker but before transport rolls back the media attempt exactly once
+ok 47 - abort after dispatch marker but before transport rolls back the media attempt exactly once
+  ---
+  duration_ms: 39.002291
+  type: 'test'
+  ...
+# Subtest: image publication and task completion roll back together; storage failure is retried without orphaning bytes
+ok 48 - image publication and task completion roll back together; storage failure is retried without orphaning bytes
+  ---
+  duration_ms: 39.778417
+  type: 'test'
+  ...
+# Subtest: current clearance withdrawal denies existing internal image and candidate reads and marks health stopped
+ok 49 - current clearance withdrawal denies existing internal image and candidate reads and marks health stopped
+  ---
+  duration_ms: 17.867917
+  type: 'test'
+  ...
+# Subtest: page workers and media workers share one source concurrency cap
+ok 50 - page workers and media workers share one source concurrency cap
+  ---
+  duration_ms: 14.79525
+  type: 'test'
+  ...
+# Subtest: an expired empty snapshot is denied rather than reused as a permitted zero-sample result
+ok 51 - an expired empty snapshot is denied rather than reused as a permitted zero-sample result
+  ---
+  duration_ms: 9.473042
+  type: 'test'
+  ...
+# Subtest: 50 deferred photos on an unfinished page job cannot starve a later completed parent
+ok 52 - 50 deferred photos on an unfinished page job cannot starve a later completed parent
+  ---
+  duration_ms: 272.494833
+  type: 'test'
+  ...
+# Subtest: clearance expiry bounds stored photo lifetime and maintenance denies then clears the private copy
+ok 53 - clearance expiry bounds stored photo lifetime and maintenance denies then clears the private copy
+  ---
+  duration_ms: 21.771125
+  type: 'test'
+  ...
+# Subtest: a clearance renewed between maintenance inspection and mutation is not revoked from stale state
+ok 54 - a clearance renewed between maintenance inspection and mutation is not revoked from stale state
+  ---
+  duration_ms: 3.255292
+  type: 'test'
+  ...
+# Subtest: the source report CLI persists a no-data report with null ratios, cost and schedule rather than invented success
+ok 55 - the source report CLI persists a no-data report with null ratios, cost and schedule rather than invented success
+  ---
+  duration_ms: 90.762292
+  type: 'test'
+  ...
+# Subtest: completed page work releases its original lease before an independent image worker takes over
+ok 56 - completed page work releases its original lease before an independent image worker takes over
+  ---
+  duration_ms: 14.935542
+  type: 'test'
+  ...
+1..56
+# tests 56
+# suites 0
+# pass 56
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2639.680625
+TAP version 13
+# Subtest: concurrent identical plans and occurrence dispatch create one frozen plan/job and consume job budget once
+ok 1 - concurrent identical plans and occurrence dispatch create one frozen plan/job and consume job budget once
+  ---
+  duration_ms: 176.910542
+  type: 'test'
+  ...
+# Subtest: frozen planned slots include missing/late cycles, bounded materialization never drops a slot and retirement preserves history
+ok 2 - frozen planned slots include missing/late cycles, bounded materialization never drops a slot and retirement preserves history
+  ---
+  duration_ms: 6.691417
+  type: 'test'
+  ...
+# Subtest: a committed job followed by lost connection is recovered after lease expiry without reusing budget
+ok 3 - a committed job followed by lost connection is recovered after lease expiry without reusing budget
+  ---
+  duration_ms: 6.312875
+  type: 'test'
+  ...
+# Subtest: unapproved config mutation without changing updated_at is rejected both by scheduled enqueue and existing lease
+ok 4 - unapproved config mutation without changing updated_at is rejected both by scheduled enqueue and existing lease
+  ---
+  duration_ms: 9.013292
+  type: 'test'
+  ...
+# Subtest: retirement or deadline crossed between planning claim and enqueue prevents new jobs
+ok 5 - retirement or deadline crossed between planning claim and enqueue prevents new jobs
+  ---
+  duration_ms: 7.37375
+  type: 'test'
+  ...
+# Subtest: source stop and daily job budget failures remain visible planned failures, with no collector bypass
+ok 6 - source stop and daily job budget failures remain visible planned failures, with no collector bypass
+  ---
+  duration_ms: 9.074084
+  type: 'test'
+  ...
+# Subtest: schedule health counts unmaterialized and failed slots and separates execution from on-time execution
+ok 7 - schedule health counts unmaterialized and failed slots and separates execution from on-time execution
+  ---
+  duration_ms: 20.620291
+  type: 'test'
+  ...
+# Subtest: independent refresh CLI creates, cycles, replays and retires without fetching or hiding missing cycles
+ok 8 - independent refresh CLI creates, cycles, replays and retires without fetching or hiding missing cycles
+  ---
+  duration_ms: 664.9645
+  type: 'test'
+  ...
+# Subtest: refresh lease cannot be reused for a different run key, TTL or source
+ok 9 - refresh lease cannot be reused for a different run key, TTL or source
+  ---
+  duration_ms: 11.169666
+  type: 'test'
+  ...
+# Subtest: future plan has no due slots and retirement cannot erase materialized history
+ok 10 - future plan has no due slots and retirement cannot erase materialized history
+  ---
+  duration_ms: 8.260583
+  type: 'test'
+  ...
+1..10
+# tests 10
+# suites 0
+# pass 10
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1015.102875
+TAP version 13
+# Subtest: two independent worker processes continue one bound artifact and status inspection does not refresh success time
+ok 1 - two independent worker processes continue one bound artifact and status inspection does not refresh success time
+  ---
+  duration_ms: 701.863292
+  type: 'test'
+  ...
+# Subtest: response attempt positions survive process restart after transient upstream failure
+ok 2 - response attempt positions survive process restart after transient upstream failure
+  ---
+  duration_ms: 251.292458
+  type: 'test'
+  ...
+# {"error":"fixture_artifact_changed","mode":"offline_fixture","onlineVerified":false}
+# Subtest: changing a bound artifact is rejected before another dispatch or evidence mutation
+ok 3 - changing a bound artifact is rejected before another dispatch or evidence mutation
+  ---
+  duration_ms: 263.994917
+  type: 'test'
+  ...
+# Subtest: targeted worker leaves earlier unrelated queued jobs alone
+ok 4 - targeted worker leaves earlier unrelated queued jobs alone
+  ---
+  duration_ms: 202.9565
+  type: 'test'
+  ...
+# Subtest: artifact validation rejects malformed inputs and cannot bind mismatched committed page evidence
+ok 5 - artifact validation rejects malformed inputs and cannot bind mismatched committed page evidence
+  ---
+  duration_ms: 14.633834
+  type: 'test'
+  ...
+# Subtest: SIGTERM yields after committed work and a new process resumes without restarting pages
+ok 6 - SIGTERM yields after committed work and a new process resumes without restarting pages
+  ---
+  duration_ms: 425.703042
+  type: 'test'
+  ...
+# Subtest: prepare-only demo creates a pending job that the independent worker can actually execute
+ok 7 - prepare-only demo creates a pending job that the independent worker can actually execute
+  ---
+  duration_ms: 326.39325
+  type: 'test'
+  ...
+# Subtest: known shutdown before transport dispatch releases budgets without advancing the replay sequence
+ok 8 - known shutdown before transport dispatch releases budgets without advancing the replay sequence
+  ---
+  duration_ms: 52.45625
+  type: 'test'
+  ...
+# Subtest: an unclaimed duplicate process cannot overwrite the lease holder instance heartbeat
+ok 9 - an unclaimed duplicate process cannot overwrite the lease holder instance heartbeat
+  ---
+  duration_ms: 107.134292
+  type: 'test'
+  ...
+1..9
+# tests 9
+# suites 0
+# pass 9
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2442.653958
+TAP version 13
+# Subtest: clearance preflight emits a versioned snapshot but never releases network access
+ok 1 - clearance preflight emits a versioned snapshot but never releases network access
+  ---
+  duration_ms: 0.668875
+  type: 'test'
+  ...
+# Subtest: missing, suspended, expired or mismatched clearance fails closed
+ok 2 - missing, suspended, expired or mismatched clearance fails closed
+  ---
+  duration_ms: 0.173125
+  type: 'test'
+  ...
+# Subtest: method, field, purpose, jurisdiction, entrypoint, source stop and budgets are enforced
+ok 3 - method, field, purpose, jurisdiction, entrypoint, source stop and budgets are enforced
+  ---
+  duration_ms: 0.159
+  type: 'test'
+  ...
+# Subtest: offline fixtures require explicit synthetic mode and never authorize network
+ok 4 - offline fixtures require explicit synthetic mode and never authorize network
+  ---
+  duration_ms: 0.075583
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 93.345042
+TAP version 13
+# Subtest: normalized query identity preserves model punctuation, ignores header locale and rejects ambiguous inputs
+ok 1 - normalized query identity preserves model punctuation, ignores header locale and rejects ambiguous inputs
+  ---
+  duration_ms: 6.919125
+  type: 'test'
+  ...
+# Subtest: shared core reproduces all golden fields and includes time, basis and versions in snapshot identity
+ok 2 - shared core reproduces all golden fields and includes time, basis and versions in snapshot identity
+  ---
+  duration_ms: 6.643583
+  type: 'test'
+  ...
+# Subtest: bilingual messages and parameters remain consistent and locale does not change currency
+ok 3 - bilingual messages and parameters remain consistent and locale does not change currency
+  ---
+  duration_ms: 5.535167
+  type: 'test'
+  ...
+1..3
+# tests 3
+# suites 0
+# pass 3
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 63.044833
+TAP version 13
+# Subtest: PG16 empty migration, old-version upgrade, restart idempotency and original relational constraints
+ok 1 - PG16 empty migration, old-version upgrade, restart idempotency and original relational constraints
+  ---
+  duration_ms: 430.386417
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 510.291541
+TAP version 13
+# Subtest: offline tools validate the PG-effective target, not the URL display host
+ok 1 - offline tools validate the PG-effective target, not the URL display host
+  ---
+  duration_ms: 1.815667
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 44.345416
+TAP version 13
+# Subtest: primary image belongs to the target listing and excludes gallery/ad/other listing images
+ok 1 - primary image belongs to the target listing and excludes gallery/ad/other listing images
+  ---
+  duration_ms: 0.455125
+  type: 'test'
+  ...
+# Subtest: source URL ciphertext is authenticated, versioned and bound to its database row
+ok 2 - source URL ciphertext is authenticated, versioned and bound to its database row
+  ---
+  duration_ms: 0.53275
+  type: 'test'
+  ...
+# Subtest: network image transport address policy rejects private, reserved and documentation ranges
+ok 3 - network image transport address policy rejects private, reserved and documentation ranges
+  ---
+  duration_ms: 2.908792
+  type: 'test'
+  ...
+# Subtest: real image bytes decode, metadata is removed and a private WebP derivative is returned
+ok 4 - real image bytes decode, metadata is removed and a private WebP derivative is returned
+  ---
+  duration_ms: 10.985791
+  type: 'test'
+  ...
+# Subtest: denied copy, revoked/expired permissions and malformed/oversized images fail closed
+ok 5 - denied copy, revoked/expired permissions and malformed/oversized images fail closed
+  ---
+  duration_ms: 6.648417
+  type: 'test'
+  ...
+# Subtest: upstream refusal and recognizable challenge trip the persistent source circuit hook
+ok 6 - upstream refusal and recognizable challenge trip the persistent source circuit hook
+  ---
+  duration_ms: 0.748375
+  type: 'test'
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 6
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 89.456667
+TAP version 13
+# Subtest: test process denies external HTTP, raw sockets and DNS with positive controls
+ok 1 - test process denies external HTTP, raw sockets and DNS with positive controls
+  ---
+  duration_ms: 0.976833
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 38.578875
+TAP version 13
+# Subtest: UTC monthly anniversaries preserve Jan 31 after February and do not drift
+ok 1 - UTC monthly anniversaries preserve Jan 31 after February and do not drift
+  ---
+  duration_ms: 161.100375
+  type: 'test'
+  ...
+# Subtest: golden complete snapshot 121/64/58, limit 50/200 same stats and full 58 calculation rows
+ok 2 - golden complete snapshot 121/64/58, limit 50/200 same stats and full 58 calculation rows
+  ---
+  duration_ms: 219.958208
+  type: 'test'
+  ...
+# Subtest: 100 concurrent submissions and claims settle once, reuse survives service restart, old key cannot charge
+ok 3 - 100 concurrent submissions and claims settle once, reuse survives service restart, old key cannot charge
+  ---
+  duration_ms: 882.725792
+  type: 'test'
+  ...
+# Subtest: 0/7/8/29/30 boundaries, no charging for low sample, stale explicit consent and retention independent
+ok 4 - 0/7/8/29/30 boundaries, no charging for low sample, stale explicit consent and retention independent
+  ---
+  duration_ms: 200.188333
+  type: 'test'
+  ...
+# Subtest: wallet priority, idempotent refund after expiry, cash refund recovery and no negative wallet
+ok 5 - wallet priority, idempotent refund after expiry, cash refund recovery and no negative wallet
+  ---
+  duration_ms: 53.770875
+  type: 'test'
+  ...
+# Subtest: owner isolation, exact collection scope, idempotency conflict, cancellation and permission revocation
+ok 6 - owner isolation, exact collection scope, idempotency conflict, cancellation and permission revocation
+  ---
+  duration_ms: 88.652125
+  type: 'test'
+  ...
+# Subtest: HTTP API search/worker/claim/GET/calculation/media uses one contract and owner-authenticated image
+ok 7 - HTTP API search/worker/claim/GET/calculation/media uses one contract and owner-authenticated image
+  ---
+  duration_ms: 614.948167
+  type: 'test'
+  ...
+# Subtest: same confirmed payment with 100 different notification references issues exactly one grant
+ok 8 - same confirmed payment with 100 different notification references issues exactly one grant
+  ---
+  duration_ms: 50.004459
+  type: 'test'
+  ...
+# Subtest: one remaining credit under 100 distinct ready queries permits one settlement and retries stay ready
+ok 9 - one remaining credit under 100 distinct ready queries permits one settlement and retries stay ready
+  ---
+  duration_ms: 412.869959
+  type: 'test'
+  ...
+# Subtest: cash/credit refunds in either order and expired compensation leave equal zero credit and no open recovery
+ok 10 - cash/credit refunds in either order and expired compensation leave equal zero credit and no open recovery
+  ---
+  duration_ms: 62.612125
+  type: 'test'
+  ...
+# Subtest: withdrawn versions do not get current labels, stopped source retains lawful history, FX unknown stays null
+ok 11 - withdrawn versions do not get current labels, stopped source retains lawful history, FX unknown stays null
+  ---
+  duration_ms: 57.607292
+  type: 'test'
+  ...
+# Subtest: inflight dedupe after 11 minutes, expired pending recovery and stale lease cannot duplicate publication
+ok 12 - inflight dedupe after 11 minutes, expired pending recovery and stale lease cannot duplicate publication
+  ---
+  duration_ms: 24.127875
+  type: 'test'
+  ...
+# Subtest: Free grants roll once per UTC period; only confirmed paid periods upgrade or reanchor
+ok 13 - Free grants roll once per UTC period; only confirmed paid periods upgrade or reanchor
+  ---
+  duration_ms: 22.2275
+  type: 'test'
+  ...
+# Subtest: HTTP Free owner rate shared across keys returns Retry-After and resets on the next UTC minute
+ok 14 - HTTP Free owner rate shared across keys returns Retry-After and resets on the next UTC minute
+  ---
+  duration_ms: 63.396917
+  type: 'test'
+  ...
+# Subtest: pagination is signed, owner scoped, stable for identical timestamps and independent of ledger cursors
+ok 15 - pagination is signed, owner scoped, stable for identical timestamps and independent of ledger cursors
+  ---
+  duration_ms: 39.107292
+  type: 'test'
+  ...
+# Subtest: current business lock rechecks administrator absolute TTL on an already obtained identity
+ok 16 - current business lock rechecks administrator absolute TTL on an already obtained identity
+  ---
+  duration_ms: 16.722875
+  type: 'test'
+  ...
+1..16
+# tests 16
+# suites 0
+# pass 16
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3095.792208
+TAP version 13
+# Subtest: price ranges validate exactly, participate in semantic identity, and include both endpoints
+ok 1 - price ranges validate exactly, participate in semantic identity, and include both endpoints
+  ---
+  duration_ms: 8.91625
+  type: 'test'
+  ...
+# Subtest: supplemental statistics obey 0/7/8/29/30/58 thresholds and ordinary mean is distinct from trim
+ok 2 - supplemental statistics obey 0/7/8/29/30/58 thresholds and ordinary mean is distinct from trim
+  ---
+  duration_ms: 3.427958
+  type: 'test'
+  ...
+# Subtest: shipping and seller summaries expose missing data and never merge destinations
+ok 3 - shipping and seller summaries expose missing data and never merge destinations
+  ---
+  duration_ms: 0.549083
+  type: 'test'
+  ...
+# Subtest: format groups exclude displayed offers and independently suppress low sample medians
+ok 4 - format groups exclude displayed offers and independently suppress low sample medians
+  ---
+  duration_ms: 0.208792
+  type: 'test'
+  ...
+# Subtest: recent comparisons require both complete periods, sufficient samples and a nonzero baseline
+ok 5 - recent comparisons require both complete periods, sufficient samples and a nonzero baseline
+  ---
+  duration_ms: 1.653167
+  type: 'test'
+  ...
+# Subtest: time buckets distinguish no records from coverage gaps and do not drop eligible UTC day records
+ok 6 - time buckets distinguish no records from coverage gaps and do not drop eligible UTC day records
+  ---
+  duration_ms: 11.114334
+  type: 'test'
+  ...
+# Subtest: presentation reorders the complete snapshot before limit without changing statistics or identity
+ok 7 - presentation reorders the complete snapshot before limit without changing statistics or identity
+  ---
+  duration_ms: 1.0215
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 7
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 70.780791
+Isolated test evidence retained at /var/folders/zf/l30tz2bd5xbgb8dh_4lhry780000gn/T/soldbench-product-test-A41tk2
+
+> soldbench@0.1.0 contracts
+> python3 docs/contracts/check_contracts.py
+
+PASS: Stripe/PayPal checkout choices, four inactive/unknown choices rejected, independent webhook schemes.
+PASS: 90 component schemas, 58 unique operations, 15 complete synthetic fixtures, 18 invalid shapes rejected.
+PASS: 50 displayed / 58 complete calculation inputs / original 121-record stats reconcile.
+Scope: JSON Schema + OpenAPI structure consistency; no HTTP implementation, live source, payment, or GO certification.

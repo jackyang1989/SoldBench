@@ -137,3 +137,5 @@ npm run collector:report -- --source=SOURCE_UUID
 collector1.5将临时图片失败、共享来源退避、预算/租约恢复和当前许可读检纳入持久化链路；媒体失败不会修改成交身份/统计。命令退出0不代表所有媒体完成，应核对mediaResults及健康报告。未测成本为null，未创建冻结计划时执行率为null；创建后按应发生数计算且含漏跑，真实eBay字段仍unverified；没有线上采集或连续稳定性结论。详细规则见[管线契约§12](docs/采集管线实施契约.md)。
 
 周期刷新计划：`npm run collector:refresh -- --action=create --source=UUID --config=UUID --query='q=Game+Boy+Color' --key=UNIQUE_ASCII_KEY_16_PLUS --interval=3600 --lag=300`；再运行`npm run collector:refresh -- --source=UUID`按固定计划补发生项/入队；停止用`--action=retire --source=UUID --plan=UUID`。仅offline_fixture，不执行来源请求。独立worker使用匹配job/profile的固定响应包执行；报告分母包含漏调度，排队不算执行。详见[管线契约§13](docs/采集管线实施契约.md)。
+
+HTTP获取联通演示：`npm run collector:http-demo`。它启动仅绑定127.0.0.1的本机样本服务，经真实HTTP获取2页合成HTML和8张生成主图，再走同一解析、PG证据、WebP私有存储与共享统计。输出`transport=loopback_fixture`、`localHttpRequests=10`、`externalNetworkRequests=0`及证据报告；不是eBay采集命令。请求有超时、正文上限、取消和断流处理，禁止跟随重定向、压缩正文和配置外部origin。获准真实来源及适配仍待完成。
