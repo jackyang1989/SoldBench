@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { setTimeout } from "node:timers/promises";
-import { AuthService, localAuthSecrets } from "@soldbench/auth";
+import { AccountPrivacy, AuthService, localAuthSecrets } from "@soldbench/auth";
 import { BillingService, localPaymentKeys, PaymentLifecycle } from "@soldbench/billing";
 import { assertLocalDatabaseUrl, database, migrate } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
@@ -31,9 +31,11 @@ try {
     query = new QueryService(db, auth, billing, new PrivateMediaStore(resolve(config.mediaRoot))),
     worker = `query-${randomUUID()}`,
     audit = new RequestAuditService(query),
-    publicResults = new PublicResults(query);
+    publicResults = new PublicResults(query),
+    privacy = new AccountPrivacy(auth);
   let nextMaintenance = 0,
-    nextPaymentAttempt = 0;
+    nextPaymentAttempt = 0,
+    nextPrivacyAttempt = 0;
   do {
     if (Date.now() >= nextMaintenance) {
       try {
@@ -56,8 +58,19 @@ try {
       }
     }
     if (event) console.log(JSON.stringify({ data_mode: "offline_fixture", payment_event: event }));
+    let deletion;
+    if (Date.now() >= nextPrivacyAttempt) {
+      try {
+        deletion = await privacy.workOnce();
+      } catch {
+        console.error("soldbench_account_privacy_processing_failed");
+        nextPrivacyAttempt = Date.now() + 1000;
+      }
+    }
+    if (deletion) console.log(JSON.stringify({ data_mode: "offline_fixture", deletion_job: deletion }));
     if (args[0] !== "--watch" || abort.signal.aborted) break;
-    if (!result && !event) await setTimeout(1000, undefined, { signal: abort.signal }).catch(() => {});
+    if (!result && !event && !deletion)
+      await setTimeout(1000, undefined, { signal: abort.signal }).catch(() => {});
   } while (!abort.signal.aborted);
 } finally {
   await db.end();

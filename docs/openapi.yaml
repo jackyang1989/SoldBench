@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.11.0
+  version: 1.12.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -6801,6 +6801,37 @@ paths:
       x-task: TASK-029
       x-roles:
       - owner
+      x-credit-policy: '0'
+  /account/deletion-requests/by-receipt:
+    get:
+      operationId: findDeletionByReceipt
+      summary: Read deletion status without a known request ID, including after an interrupted
+        submission.
+      security:
+      - DeletionReceipt: []
+      parameters:
+      - name: Accept-Language
+        in: header
+        required: false
+        schema:
+          type: string
+          maxLength: 256
+      responses:
+        '200':
+          description: Receipt-scoped deletion status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionResponse'
+        '404':
+          description: Unknown, malformed or expired receipt.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-task: TASK-039
+      x-roles:
+      - receipt_holder
       x-credit-policy: '0'
 components:
   securitySchemes:

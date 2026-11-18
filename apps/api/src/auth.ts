@@ -1,5 +1,5 @@
 import { getConnInfo } from "@hono/node-server/conninfo";
-import type { AuthService } from "@soldbench/auth";
+import { AccountPrivacy, type AuthService } from "@soldbench/auth";
 import { AppError, type Config, localeFrom } from "@soldbench/shared";
 import type { Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -95,6 +95,41 @@ export function mountAuth(app: Hono<Env>, config: Config, provided?: AuthService
       await next();
     });
   }
+  const privacy = provided ? new AccountPrivacy(provided, provided.clock) : undefined;
+  const privacyService = () => {
+    if (!privacy) throw new AppError("service_unavailable", 503, "Account service is not configured.");
+    return privacy;
+  };
+  app.use("/account/deletion-requests/*", async (c, next) => {
+    c.header("Cache-Control", "private, no-store");
+    c.header("Referrer-Policy", "no-referrer");
+    await next();
+  });
+  app.post("/account/deletion-requests", async (c) => {
+    const token = await secured(c),
+      input = await body(c, ["confirm", "receipt_token"]);
+    if (input.confirm !== true)
+      throw new AppError("invalid_parameter", 400, "Explicit account deletion confirmation is required.");
+    const result = await privacyService().request(
+      await service().sessionIdentity(token),
+      text(input.receipt_token),
+      c.get("requestId"),
+    );
+    deleteCookie(c, "soldbench_session", { path: "/" });
+    return c.json({ data: result, meta: meta(c) }, 202);
+  });
+  app.get("/account/deletion-requests/by-receipt", async (c) =>
+    c.json({
+      data: await privacyService().status(c.req.header("X-Deletion-Receipt"), undefined),
+      meta: meta(c),
+    }),
+  );
+  app.get("/account/deletion-requests/:id", async (c) => {
+    const receipt = c.req.header("X-Deletion-Receipt"),
+      requested = c.req.param("id");
+    const actor = receipt === undefined ? await service().sessionIdentity(sessionToken(c)) : undefined;
+    return c.json({ data: await privacyService().status(receipt, requested, actor), meta: meta(c) });
+  });
   app.post("/auth/register", async (c) => {
     const b = await body(c, ["email", "password", "terms_version"]);
     await service().register(

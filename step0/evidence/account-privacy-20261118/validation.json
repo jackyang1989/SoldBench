@@ -1,0 +1,56 @@
+{
+  "date": "2026-11-18",
+  "baseline_commit": "5937d44",
+  "evidence_type": "offline_product_integration",
+  "configuration": {
+    "db": "PG16 isolated origin and restored databases; 0020 migration with 70 tables",
+    "data_mode": "offline_fixture",
+    "collector_enabled": false,
+    "payments_mode": "offline",
+    "actors": "synthetic owner, pending user, separate owner, token-holder and local restore operator",
+    "clocks": "fixed case times and local system clock for pg_dump/pg_restore"
+  },
+  "checks": {
+    "npm_run_check": {
+      "exit_code": 0,
+      "node_tests": 213
+    },
+    "privacy_integration": {
+      "exit_code": 0,
+      "node_tests": 3
+    },
+    "formal_openapi": {
+      "exit_code": 0,
+      "schemas": 100,
+      "operations": 64
+    },
+    "step0": {
+      "exit_code": 0
+    },
+    "developer_assets": {
+      "exit_code": 0
+    }
+  },
+  "verified": [
+    "atomic withdrawal of access including cache and shares before worker",
+    "receipt-only status lookup after lost response, cross-owner denial and expiration",
+    "checkpoint, restart at 100-query batches and pending account delete",
+    "actual pg_dump/pg_restore into dedicated DB, forgery rejected, restored obsolete credentials revoked",
+    "old query正文 scrubbed and immutable financial ledger rows compare equal; repeated replay idempotent"
+  ],
+  "review": "Independent read-only code/security review found no reproducible high or medium issues. Reviewer did not run suites or sign a release gate.",
+  "not_verified": [
+    "source receipt/tombstone external protection and source whole-system replay",
+    "production backup storage/access, RPO/RTO, real retention requirements",
+    "professional browser flow and G5"
+  ],
+  "sha256": {
+    "packages/auth/src/privacy.ts": "0215231a49e3a84598a084d09a6a447291ed7859c06ab675cc10fc9390cc6a4d",
+    "packages/auth/src/service.ts": "ac87982d019385b08a86cc7f568741f74a2e55229b964032f6d3c39615ff45b6",
+    "apps/api/src/auth.ts": "bbb690c0b306d57368af35836542853d0e839d1f56231ee9e12ce86a457824fd",
+    "packages/db/migrations/0020_account_deletion_processing.sql": "2361d792366d68db10ee4347512c56c84198e55f5ee3eadaa836861280effdde",
+    "scripts/privacy-recovery.mjs": "3e7fdf457b9649cd647e6c738389f51bde1a8b4999f702c55e243b7da1714386",
+    "tests/privacy.test.mjs": "61386ebd95eab7c400019d05028fb97fee02f0f5078a56bce6ef447d4f0bd5e7",
+    "docs/openapi.yaml": "091c2afb392e13183406dac86a23d868919d37f68c3cc36f0cf059910b444d4d"
+  }
+}
