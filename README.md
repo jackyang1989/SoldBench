@@ -132,6 +132,8 @@ npm run collector:media -- --fixture=/absolute/path/to/collector-fixture-JOB_ID.
 npm run collector:run -- --fixture=/absolute/path/to/collector-fixture-JOB_ID.json --media-only=true
 # 按实际PG记录保存来源健康快照，source取采集命令的UUID
 npm run collector:report -- --source=SOURCE_UUID
+# 可选：在该来源实际的私有媒体根抽检至多12个合格对象
+MEDIA_ROOT=/absolute/path/to/media npm run collector:report -- --source=SOURCE_UUID --check-media=12
 ```
 
 collector1.5将临时图片失败、共享来源退避、预算/租约恢复和当前许可读检纳入持久化链路；媒体失败不会修改成交身份/统计。命令退出0不代表所有媒体完成，应核对mediaResults及健康报告。未测成本为null，未创建冻结计划时执行率为null；创建后按应发生数计算且含漏跑，真实eBay字段仍unverified；没有线上采集或连续稳定性结论。详细规则见[管线契约§12](docs/采集管线实施契约.md)。

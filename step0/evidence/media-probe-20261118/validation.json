@@ -1,0 +1,52 @@
+{
+  "date": "2026-11-18",
+  "baseline_commit": "40456bb",
+  "evidence_type": "offline_product_integration",
+  "config": {
+    "collector_enabled": false,
+    "data_mode": "offline_fixture",
+    "db": "isolated PostgreSQL 16",
+    "filesystem": "two independent private local roots",
+    "clock": "database clock for physical checks"
+  },
+  "checks": {
+    "npm_run_check": {
+      "exit_code": 0,
+      "node_tests": 235
+    },
+    "step0": {
+      "exit_code": 0,
+      "artifact": "step0/artifacts/20261118T110419310013Z/validation.json"
+    },
+    "formal_openapi": {
+      "exit_code": 0,
+      "schemas": 103,
+      "operations": 65
+    }
+  },
+  "observed": {
+    "retained_references": 3,
+    "deduped_eligible_objects": 2,
+    "limited_probe_checked": 1,
+    "full_probe_verified": 1,
+    "corrupt_objects_detected": 1,
+    "wrong_root_probed": false,
+    "expired_at_probe": 2,
+    "expired_opened": 0,
+    "revoked_event_before_cleanup": 1,
+    "pending_after_cleanup": 0,
+    "report_includes_object_key": false
+  },
+  "review": "Independent repro confirmed a historical clock could otherwise extend physical access. Final domain and CLI refuse that combination; database time is rechecked per file. No remaining high or medium review finding or stage signature.",
+  "pending": [
+    "production media retention and file storage",
+    "real source authorization and 14-day window",
+    "GitHub workflow startup"
+  ],
+  "sha256": {
+    "packages/collector/src/health.ts": "c81d1260d3bf06d1b7550d03fd0c98d181224de2d85e13f47661a1201c3cd40f",
+    "packages/collector/src/media-health.ts": "a555375b026794b39851eda2d0eb5d70ccbac167499d586b544807f191ebfdcc",
+    "scripts/collector-report.mjs": "134c538304ffedb413931d60890d4a7efaa620b1402ab66cb1c421b36397041a",
+    "tests/collector-pipeline.test.mjs": "ad63cc68fb3591dcd2d2b38a5a7ca34a6c7e42f929bdbf29172287990f9c6470"
+  }
+}

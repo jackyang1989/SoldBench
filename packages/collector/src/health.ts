@@ -1,16 +1,27 @@
 import { instant } from "@soldbench/core";
 import { type Database, transaction } from "@soldbench/db";
+import type { PrivateMediaStore } from "@soldbench/media";
 import { COLLECTOR_VERSION, PARSER_VERSION } from "./fixture.ts";
+import { mediaHealth } from "./media-health.ts";
 /** Internal aggregate facts, deliberately excludes item text, URLs, credentials and prices. */
 export async function collectorHealth(
   db: Database,
   sourceId: string,
-  options: { now?: string; from?: string; persist?: boolean } = {},
+  options: {
+    now?: string;
+    from?: string;
+    persist?: boolean;
+    mediaProbe?: { store: PrivateMediaStore; limit: number };
+  } = {},
 ) {
+  const probeLimit = options.mediaProbe?.limit;
+  if (options.mediaProbe && options.now !== undefined) throw new Error("media_probe_requires_database_clock");
+  if (probeLimit !== undefined && (!Number.isSafeInteger(probeLimit) || probeLimit < 1 || probeLimit > 20))
+    throw new Error("invalid_media_probe_limit");
   return transaction(db, async (c) => {
     const source = (
       await c.query(
-        "SELECT s.*,x.provider,x.status AS clearance_status,x.effective_at,x.expires_at FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id WHERE s.id=$1 FOR SHARE OF s,x",
+        "SELECT s.*,x.provider,x.status AS clearance_status,x.effective_at,x.expires_at,x.permitted_fields FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id WHERE s.id=$1 FOR SHARE OF s,x",
         [sourceId],
       )
     ).rows[0];
@@ -22,6 +33,23 @@ export async function collectorHealth(
       from = options.from ? new Date(instant(options.from)) : new Date(now.getTime() - 86400000);
     if (from > now || now.getTime() - from.getTime() > 366 * 86400000)
       throw new Error("invalid_health_window");
+    const sourceRights =
+      source.status === "active" &&
+      ["draft", "reviewed", "active"].includes(source.clearance_status) &&
+      (!source.effective_at || source.effective_at <= now) &&
+      (!source.expires_at || source.expires_at > now);
+    const media = await mediaHealth(
+      c,
+      sourceId,
+      now,
+      source.permission_epoch,
+      source.media_store_identity,
+      source.expires_at,
+      sourceRights &&
+        Array.isArray(source.permitted_fields?.research) &&
+        source.permitted_fields.research.includes("primary_image"),
+      options.mediaProbe,
+    );
     const counts = (
       await c.query(
         "SELECT count(*)::int enqueued,count(*) FILTER(WHERE status='completed')::int completed,count(*) FILTER(WHERE status='failed')::int failed,count(*) FILTER(WHERE status='expired')::int expired,count(*) FILTER(WHERE status='cancelled')::int cancelled,count(*) FILTER(WHERE status IN ('queued','retry','running'))::int pending,count(*) FILTER(WHERE status='running' AND lease_until<=$3)::int lost_leases,count(*) FILTER(WHERE status='completed' AND page_count>0 AND page_count=(SELECT count(*) FROM collector_dispatches d WHERE d.job_id=j.id AND d.kind='page' AND d.dispatched_at IS NOT NULL))::int first_pass_page_jobs FROM collector_jobs j WHERE source_id=$1 AND created_at>=$2 AND created_at<=$3",
@@ -142,13 +170,7 @@ export async function collectorHealth(
       sourceStatus: source.status,
       permissionEpoch: String(source.permission_epoch),
       circuit: circuit?.status ?? "closed",
-      sourceStopped:
-        policyUnavailable ||
-        source.status !== "active" ||
-        !["draft", "reviewed", "active"].includes(source.clearance_status) ||
-        Boolean(source.effective_at && source.effective_at > now) ||
-        Boolean(source.expires_at && source.expires_at <= now) ||
-        Boolean(circuit && circuit.status !== "closed"),
+      sourceStopped: policyUnavailable || !sourceRights || Boolean(circuit && circuit.status !== "closed"),
       lastSuccessAt: last?.toISOString() ?? null,
       jobs: counts,
       pageSemanticCompletion: fraction(counts.completed, counts.enqueued),
@@ -171,6 +193,7 @@ export async function collectorHealth(
       },
       dispatches: bytes,
       images,
+      media,
       retries,
       budget,
       quarantines,

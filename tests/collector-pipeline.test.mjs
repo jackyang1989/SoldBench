@@ -906,6 +906,114 @@ test("an unusable media directory can queue image repair while completing the sa
   assert.equal(repair.failure_reason, "image_storage_unavailable");
 });
 
+test("collector report distinguishes referenced, physically verified, missing and revoked photo data", async () => {
+  const current = (await db.query("SELECT clock_timestamp() AS now")).rows[0].now.toISOString();
+  const x = await setup({}, current),
+    otherRoot = await mkdtemp(join(tmpdir(), "soldbench-probe-other-")),
+    sharedUrl = "https://images.example.test/report-shared.png",
+    otherUrl = "https://images.example.test/report-other.png";
+  roots.push(otherRoot);
+  const generated = async (background) =>
+    await sharp({ create: { width: 2, height: 2, channels: 3, background } })
+      .png()
+      .toBuffer();
+  const raw = fixtureResponse(
+    page(
+      x,
+      [0, 1, 2].map((i) =>
+        listing(x, i, { primaryImage: { role: "primary", url: i === 2 ? otherUrl : sharedUrl } }),
+      ),
+    ),
+  );
+  const runner = worker(
+    x,
+    frames([
+      ["page:start", [raw]],
+      [`image:${sharedUrl}`, [{ status: 200, contentType: "image/png", bytes: await generated("red") }]],
+      [`image:${otherUrl}`, [{ status: 200, contentType: "image/png", bytes: await generated("blue") }]],
+    ]),
+  );
+  assert.equal((await runner.runOne(x.sourceId)).status, "completed");
+  const keys = (
+    await db.query("SELECT DISTINCT object_key FROM listing_images WHERE source_id=$1 ORDER BY object_key", [
+      x.sourceId,
+    ])
+  ).rows;
+  assert.equal(keys.length, 2);
+  const shell = (path, ...flags) => {
+    const stdout = execFileSync(
+      process.execPath,
+      ["scripts/collector-report.mjs", `--source=${x.sourceId}`, ...flags],
+      {
+        encoding: "utf8",
+        env: { ...process.env, MEDIA_ROOT: path },
+      },
+    );
+    assert.ok(!stdout.includes(path) && !stdout.includes(keys[0].object_key));
+    return JSON.parse(stdout);
+  };
+  const withoutProbe = shell(x.root);
+  assert.equal(withoutProbe.media.retainedReferences, 3);
+  assert.equal(withoutProbe.media.eligibleObjects, 2);
+  assert.equal(withoutProbe.media.probe.status, "not_requested");
+  assert.equal(withoutProbe.media.probe.checkedObjects, 0);
+  const bounded = shell(x.root, "--check-media=1").media.probe;
+  assert.deepEqual(bounded, {
+    status: "checked",
+    checkedObjects: 1,
+    verifiedObjects: 1,
+    failedObjects: 0,
+    uncheckedEligibleObjects: 1,
+    expiredDuringProbe: 0,
+  });
+  assert.equal(shell(otherRoot, "--check-media=2").media.probe.status, "store_mismatch");
+  writeFileSync(join(x.root, keys[0].object_key), "corrupt synthetic file");
+  assert.deepEqual(shell(x.root, "--check-media=2").media.probe, {
+    status: "checked",
+    checkedObjects: 2,
+    verifiedObjects: 1,
+    failedObjects: 1,
+    uncheckedEligibleObjects: 0,
+    expiredDuringProbe: 0,
+  });
+  await assert.rejects(
+    collectorHealth(db, x.sourceId, { now: clock, mediaProbe: { store: x.media, limit: 2 } }),
+    /media_probe_requires_database_clock/,
+  );
+  const expired = await db.query(
+    "UPDATE source_clearances SET expires_at=clock_timestamp()+interval '1 second' WHERE id=(SELECT source_clearance_id FROM sources WHERE id=$1) RETURNING expires_at",
+    [x.sourceId],
+  );
+  const delayed = new PrivateMediaStore(x.root),
+    realIdentity = delayed.storageIdentity.bind(delayed);
+  delayed.storageIdentity = async () => {
+    const ms = expired.rows[0].expires_at.getTime() - Date.now();
+    await new Promise((resolve) => setTimeout(resolve, Math.max(ms, 0) + 20));
+    return realIdentity();
+  };
+  const elapsed = (await collectorHealth(db, x.sourceId, { mediaProbe: { store: delayed, limit: 2 } })).media
+    .probe;
+  assert.equal(elapsed.expiredDuringProbe, 2);
+  assert.equal(elapsed.checkedObjects, 0);
+  assert.equal(shell(x.root, "--check-media=2").media.probe.status, "permission_unavailable");
+  await db.query(
+    "UPDATE source_clearances SET expires_at=NULL,permitted_fields=jsonb_set(permitted_fields,'{research}',(permitted_fields->'research') - 'primary_image') WHERE id=(SELECT source_clearance_id FROM sources WHERE id=$1)",
+    [x.sourceId],
+  );
+  const fieldWithheld = shell(x.root, "--check-media=2").media;
+  assert.equal(fieldWithheld.probe.status, "permission_unavailable");
+  assert.equal(fieldWithheld.probe.checkedObjects, 0);
+  assert.equal(fieldWithheld.eligibleObjects, 0);
+  await x.store.revokeSource(x.sourceId, "report_revoked");
+  const blocked = shell(x.root, "--check-media=2").media;
+  assert.equal(blocked.revocationCleanup.pendingEvents, 1);
+  assert.equal(blocked.excludedReferences, 3);
+  assert.equal((await runner.runMaintenance(x.sourceId)).cleanupProcessed, 1);
+  const cleaned = shell(x.root, "--check-media=2").media;
+  assert.equal(cleaned.revocationCleanup.pendingEvents, 0);
+  assert.equal(cleaned.retainedReferences, 0);
+});
+
 test("an invalid maintenance/read clock cannot extend image visibility or delete valid objects", async () => {
   const x = await setup(),
     url = "https://images.example.test/clock.png";
