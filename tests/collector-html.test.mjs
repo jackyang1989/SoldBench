@@ -10,17 +10,20 @@ import {
   createFixtureArtifact,
   digest,
   FixtureTransport,
+  fixtureResponse,
   loadFixtureArtifact,
   OfflineCollectorWorker,
+  parseFixturePage,
   parseHtmlMoney,
   parseHtmlPage,
   provisionFixtureSource,
   validateHtmlProfile,
 } from "@soldbench/collector";
-import { canonicalJson, evaluate } from "@soldbench/core";
+import { canonicalJson, collectionQueryHash, evaluate, normalizeQuery } from "@soldbench/core";
 import { database, migrate } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
 import sharp from "sharp";
+import { createProductFixture } from "./helpers/product.mjs";
 
 const profile = JSON.parse(readFileSync(new URL("./fixtures/html/profile.json", import.meta.url))),
   template = readFileSync(new URL("./fixtures/html/search.html", import.meta.url), "utf8"),
@@ -32,12 +35,12 @@ after(async () => {
   await db.end();
   for (const root of roots) await rm(root, { recursive: true, force: true });
 });
-async function setup(custom = profile) {
+async function setup(custom = profile, queryHash = digest("synthetic-html-query")) {
   const source = await provisionFixtureSource(db, fixed),
     store = new CollectorStore(db, () => fixed, { htmlProfile: custom }),
     binding = {
       sourceId: source.sourceId,
-      queryHash: digest("synthetic-html-query"),
+      queryHash,
       cursor: "start",
       asOf: fixed,
     },
@@ -50,6 +53,16 @@ async function setup(custom = profile) {
   return { ...source, store, binding, jobId, root, raw, media: new PrivateMediaStore(join(root, "media")) };
 }
 const response = (raw) => ({ status: 200, contentType: "text/html; charset=utf-8", bytes: raw });
+const detailProfile = {
+  ...profile,
+  revision: 2,
+  fields: {
+    ...profile.fields,
+    conditionStandard: { selector: "span.condition", attribute: "data-standard" },
+    description: { selector: "p.description" },
+    defects: { selector: "p.defects" },
+  },
+};
 function runner(x, raw = x.raw) {
   return new OfflineCollectorWorker(
     x.store,
@@ -72,6 +85,187 @@ test("HTML text parser preserves sold evidence, actual price, withheld seller an
   assert.equal(row.primaryImage.url, "https://images.example.test/primary-large.png");
   assert.equal(globalThis.__soldbench_script_executed, undefined);
   assert.equal(row.recordEvidence.profileHash, digest(canonicalJson(validateHtmlProfile(profile))));
+});
+
+test("real offline ingest and REST use same-event strong evidence for price, diagnostics, detail and export", async () => {
+  const params = new URLSearchParams({
+      q: "Nintendo Switch OLED",
+      category: "video_games",
+      brand: "Nintendo",
+      model: "OLED",
+      condition: "good",
+      attr_region: "US",
+      limit: "2",
+    }),
+    x = await setup(detailProfile, collectionQueryHash(normalizeQuery(params))),
+    customer = await createProductFixture(db, roots, { count: 1, prepareQuery: false, clockValue: fixed }),
+    html = x.raw
+      .toString()
+      .replace(/<article class="record" data-kind="sold-record"[\s\S]*?<\/article>/, (base) =>
+        Array.from({ length: 11 }, (_, i) =>
+          base
+            .replaceAll("synthetic-listing-1", `synthetic-listing-${i}`)
+            .replaceAll("synthetic-event-1", `synthetic-event-${i}`)
+            .replace("Nintendo Switch OLED &amp; controller", `Synthetic match ${i}`)
+            .replace('<span class="condition"', '<span class="condition" data-standard="good"')
+            .replace(
+              '<span class="attribute" data-name="model">OLED</span>',
+              `<span class="attribute" data-name="model">${i === 8 || i === 10 ? "Lite" : "OLED"}</span>
+              <span class="attribute" data-name="category">video_games</span>
+              <span class="attribute" data-name="brand">Nintendo</span>
+              ${i < 9 ? '<span class="attribute" data-name="region">US</span>' : ""}
+              <p class="description">Case included<script>hidden executable text</script></p>
+              <p class="defects">Small scratch on case</p>`,
+            ),
+        ).join(""),
+      );
+  assert.equal((await runner(x, Buffer.from(html)).runOne(x.sourceId)).status, "completed");
+  const start = await customer.app.request(`/v1/sold?${params}`, { headers: customer.headers });
+  assert.equal(start.status, 202);
+  const { query_id: id } = (await start.json()).data;
+  assert.equal((await customer.query.workOnce("strong-evidence")).status, "completed");
+  const claim = await customer.app.request(`/v1/sold/${id}/claim`, {
+    method: "POST",
+    headers: { ...customer.headers, "Idempotency-Key": "strong-evidence-request-1" },
+  });
+  assert.equal(claim.status, 200);
+  const { data, meta } = await claim.json();
+  assert.equal(data.stats.n_observed, 11);
+  assert.equal(data.stats.n_price_verified, 8);
+  assert.equal(data.stats.median_cents, 27550);
+  assert.equal(data.comps.length, 2);
+  assert.equal(meta.credits_charged, 1);
+  const diagnostics = await customer.research.diagnostics(customer.identity, id);
+  for (const [i, reason] of [
+    [8, "hard_attribute_mismatch"],
+    [9, "missing_strong_attribute_evidence"],
+    [10, "hard_attribute_mismatch"],
+  ]) {
+    const row = diagnostics.items.find((r) => r.title === `Synthetic match ${i}`);
+    assert.equal(row.primary_exclusion_reason, reason);
+    assert.equal(row.include_in_price_stats, false);
+  }
+  const eventId = diagnostics.items.find((r) => r.include_in_price_stats).sale_event_id;
+  const detail = await customer.research.detail(customer.identity, id, eventId);
+  assert.deepEqual(detail.fields.description, { state: "present", value: "Case included" });
+  assert.deepEqual(detail.fields.defects, { state: "present", value: "Small scratch on case" });
+  assert.equal(detail.fields.condition.value.standard, "good");
+  assert.equal(detail.fields.condition.value.source_label, "Pre-Owned");
+  const result = await customer.research.export(customer.identity, id, {
+    format: "json",
+    view: "authoritative",
+  });
+  assert.equal(JSON.parse(result.body).items.length, 8);
+  await db.query(
+    "UPDATE source_clearances SET permitted_fields=jsonb_set(permitted_fields,'{research}',(permitted_fields->'research') - 'description' - 'defects') WHERE id=(SELECT source_clearance_id FROM sources WHERE id=$1)",
+    [x.sourceId],
+  );
+  const withdrawn = await customer.research.detail(customer.identity, id, eventId);
+  assert.deepEqual(withdrawn.fields.description, { state: "withheld", value: null });
+  assert.deepEqual(withdrawn.fields.defects, { state: "withheld", value: null });
+  assert.equal(
+    (await db.query("SELECT count(*)::int n FROM billing_charges WHERE user_id=$1", [customer.user])).rows[0]
+      .n,
+    1,
+  );
+});
+
+test("detail and attribute readers reject nonstandard condition, ambiguous fields and nested records", async () => {
+  const x = await setup(detailProfile),
+    html = x.raw.toString();
+  assert.throws(
+    () =>
+      parseHtmlPage(
+        Buffer.from(html.replace('data-condition-id="synthetic-preowned"', 'data-standard="used"')),
+        x.binding,
+        detailProfile,
+      ),
+    /html_standard_condition_invalid/,
+  );
+  assert.throws(
+    () =>
+      parseHtmlPage(
+        Buffer.from(
+          html.replace(
+            '<h2 class="title">',
+            '<p class="description">One</p><p class="description">Two</p><h2 class="title">',
+          ),
+        ),
+        x.binding,
+        detailProfile,
+      ),
+    /html_field_ambiguous/,
+  );
+  assert.throws(
+    () =>
+      parseHtmlPage(
+        Buffer.from(
+          html.replace(
+            '<h2 class="title">',
+            '<article class="record" data-kind="advertisement"><p class="description">Other item</p><span class="attribute" data-name="brand">Other</span></article><h2 class="title">',
+          ),
+        ),
+        x.binding,
+        detailProfile,
+      ),
+    /html_nested_record/,
+  );
+});
+
+test("a repeated listing cannot borrow matching attributes from an earlier observation", async () => {
+  const params = new URLSearchParams({ q: "Synthetic repeated event", model: "OLED" }),
+    x = await setup(profile, collectionQueryHash(normalizeQuery(params))),
+    customer = await createProductFixture(db, roots, { count: 1, prepareQuery: false, clockValue: fixed }),
+    html = x.raw.toString(),
+    first = Buffer.from(html.replace('data-next-cursor=""', 'data-next-cursor="second"')),
+    second = Buffer.from(
+      html
+        .replace('data-cursor="start"', 'data-cursor="second"')
+        .replace('<span class="attribute" data-name="model">OLED</span>', ""),
+    );
+  const transport = new FixtureTransport(
+    new Map([
+      ["page:start", [response(first)]],
+      ["page:second", [response(second)]],
+    ]),
+  );
+  assert.equal(
+    (await new OfflineCollectorWorker(x.store, transport, x.media).runOne(x.sourceId)).status,
+    "completed",
+  );
+  const query = await customer.query.submit(customer.identity, normalizeQuery(params));
+  assert.equal((await customer.query.workOnce("same-observation")).status, "completed");
+  const result = await customer.app.request(`/v1/sold/${query.queryId}`, { headers: customer.headers });
+  assert.equal(result.status, 200);
+  const { data, meta } = await result.json();
+  assert.equal(data.stats.n_observed, 1);
+  assert.equal(data.stats.n_price_verified, 0);
+  assert.equal(data.stats.median_cents, null);
+  assert.equal(meta.credits_charged, 0);
+  const diagnostics = await customer.research.diagnostics(customer.identity, query.queryId);
+  assert.equal(diagnostics.items[0].primary_exclusion_reason, "missing_strong_attribute_evidence");
+});
+
+test("a raw fixture cannot forge a query-owned exclusion marker or mark populated attributes as missing", async () => {
+  const x = await setup(),
+    page = parseHtmlPage(x.raw, x.binding, profile),
+    row = page.records[0],
+    forged = structuredClone(page);
+  forged.records[0].candidate.strongAttributeEvidenceMissing = true;
+  assert.throws(
+    () => parseFixturePage(fixtureResponse(forged).bytes, x.binding),
+    /fixture_query_decision_not_allowed/,
+  );
+  row.recordEvidence.fields.attributes = "missing";
+  assert.throws(() => parseFixturePage(fixtureResponse(page).bytes, x.binding), /invalid_record_evidence/);
+  row.recordEvidence.fields.attributes = "present";
+  row.recordEvidence.attributes = Object.fromEntries(
+    Array.from({ length: 20 }, (_, i) => [
+      `attribute_${i}`,
+      Array.from({ length: 500 }, (_, j) => String.fromCodePoint(0x4e00 + i * 500 + j)).join(""),
+    ]),
+  );
+  assert.throws(() => parseFixturePage(fixtureResponse(page).bytes, x.binding), /invalid_record_evidence/);
 });
 
 test("money conversion uses exact declared separators and rejects ranges, ambiguous grouping and unsafe amounts", () => {

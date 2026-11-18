@@ -30,6 +30,7 @@ export async function createProductFixture(
     limit = 5,
     prepareQuery = true,
     keyword,
+    filters = {},
     clockValue = "2026-11-17T12:00:00.000Z",
   } = {},
 ) {
@@ -47,7 +48,11 @@ export async function createProductFixture(
     source = await provisionFixtureSource(db, now(), { retentionDays: 7 }),
     store = new CollectorStore(db, now),
     q = normalizeQuery(
-      new URLSearchParams({ q: keyword ?? `research fixture ${randomUUID()}`, limit: String(limit) }),
+      new URLSearchParams({
+        q: keyword ?? `research fixture ${randomUUID()}`,
+        limit: String(limit),
+        ...filters,
+      }),
     ),
     hash = collectionQueryHash(q),
     _job = await store.enqueue({ ...source, queryHash: hash, runKey: randomUUID(), asOf: now() }),

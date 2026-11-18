@@ -1,5 +1,9 @@
 # SoldBench engineering changelog
 
+## 2026-11-18 — explicit comparable filters
+
+OpenAPI 1.14 clarifies how explicit brand, model, category, condition and category attributes are checked. Missing and conflicting same-observation evidence exclude records from comparable prices. Detail can expose separately permitted plain-text description and defect notes. Resubmit legacy filtered searches that return a snapshot version conflict. Previously billed searches retain the ten-minute reuse guard.
+
 ## 2026-11-18 — offline payment lifecycle
 
 Opt-in Stripe and PayPal fixtures support durable checkout intents, signed receipts, confirmation, subscription cycles, cancellation, refund/recovery and owner billing. OpenAPI 1.10 adds synthetic checkout status and versioned subscription cancellation. Real provider accounts remain inactive.

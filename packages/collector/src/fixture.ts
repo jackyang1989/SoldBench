@@ -3,7 +3,7 @@ import { type Candidate, candidateFromJson, canonicalJson, instant } from "@sold
 import { type RecordEvidence, recordEvidenceFromJson } from "./record-evidence.ts";
 
 export const COLLECTOR_VERSION = "offline-pg-1.8.0";
-export const PARSER_VERSION = "offline-page-1.2.0";
+export const PARSER_VERSION = "offline-page-1.3.0";
 export type FixtureListing = {
   listingId: string;
   title: string;
@@ -128,6 +128,8 @@ export function parseFixturePage(
   page.records = page.records.map((row) => {
     if (!row || !text(row.listingId, 160) || !text(row.title)) throw new Error("fixture_listing_invalid");
     const candidate = candidateFromJson(row.candidate);
+    if (Object.hasOwn(candidate, "strongAttributeEvidenceMissing"))
+      throw new Error("fixture_query_decision_not_allowed");
     if (candidate.sourceId !== page.sourceId) throw new Error("fixture_candidate_source_mismatch");
     if (candidate.eventKey !== null && Buffer.byteLength(candidate.eventKey, "utf8") > 512)
       throw new Error("fixture_event_key_too_large");
@@ -166,6 +168,7 @@ export function parseFixturePage(
 export function eventFacts(row: FixtureListing): string {
   const {
     comparable: _comparable,
+    strongAttributeEvidenceMissing: _strongAttributeEvidenceMissing,
     title: _title,
     condition: _condition,
     sellerRef: _sellerRef,
@@ -181,7 +184,12 @@ export function eventFacts(row: FixtureListing): string {
  * This deduplicates uncertain candidates, never proves a real transaction identity. */
 export function uncertainCandidateKey(row: FixtureListing): string {
   if (row.candidate.observationKey) return row.candidate.observationKey;
-  const { primaryImage: _image, recordEvidence: _evidence, candidate, ...record } = row;
+  const { primaryImage: _image, recordEvidence, candidate, ...record } = row;
   const { observationKey: _key, ...body } = candidate;
+  if (recordEvidence?.schema === "soldbench.record-evidence.v2") {
+    // Keep the historical HTML fingerprint when the normalized display condition changes.
+    delete body.condition;
+    if (recordEvidence.conditionRaw) body.condition = recordEvidence.conditionRaw;
+  }
   return digest(canonicalJson({ record, candidate: body }));
 }

@@ -1,4 +1,4 @@
-import { type Candidate, canonicalJson, instant } from "@soldbench/core";
+import { type Candidate, canonicalJson, instant, isStandardCondition } from "@soldbench/core";
 import { approvedImageUrl } from "@soldbench/media";
 import { type CheerioAPI, load } from "cheerio/slim";
 import { digest, type FixtureListing, type FixturePage, parseFixturePage } from "./fixture.ts";
@@ -25,6 +25,8 @@ const fieldNames = [
   "link",
   "sellerRef",
 ] as const;
+const detailFields = ["conditionStandard", "description", "defects"] as const;
+type FieldName = (typeof fieldNames)[number] | (typeof detailFields)[number];
 export type HtmlProfile = {
   schema: "soldbench.synthetic-html-profile.v1";
   synthetic: true;
@@ -36,7 +38,7 @@ export type HtmlProfile = {
   primaryImages: string;
   accessBlocks: string[];
   attributes: string;
-  fields: Record<(typeof fieldNames)[number], Field>;
+  fields: Record<(typeof fieldNames)[number], Field> & Partial<Record<(typeof detailFields)[number], Field>>;
   listingHosts: string[];
   imageHosts: string[];
   allowSyntheticSeller: boolean;
@@ -70,7 +72,7 @@ export function validateHtmlProfile(input: unknown): HtmlProfile {
     ![".", ",", " "].includes(x.grouping) ||
     x.grouping === x.decimal ||
     !x.fields ||
-    Object.keys(x.fields).length !== fieldNames.length
+    Object.keys(x.fields).some((name) => ![...fieldNames, ...detailFields].includes(name as FieldName))
   )
     throw new Error("invalid_html_profile");
   const allowed = new Set([
@@ -92,12 +94,14 @@ export function validateHtmlProfile(input: unknown): HtmlProfile {
     "grouping",
   ]);
   if (Object.keys(x).some((key) => !allowed.has(key))) throw new Error("invalid_html_profile");
-  for (const name of fieldNames) {
+  for (const name of [...fieldNames, ...detailFields]) {
     const field = x.fields[name];
+    if (field === undefined && detailFields.includes(name as (typeof detailFields)[number])) continue;
     if (
       !field ||
       !selector(field.selector) ||
-      (field.attribute !== undefined && !/^[a-z][a-z0-9-]{0,63}$/.test(field.attribute))
+      (field.attribute !== undefined &&
+        (name === "description" || name === "defects" || !/^[a-z][a-z0-9-]{0,63}$/.test(field.attribute)))
     )
       throw new Error("invalid_html_profile");
   }
@@ -227,12 +231,17 @@ export function parseHtmlPage(
   const records: FixtureListing[] = [],
     nodes = root.find(profile.records);
   if (nodes.length > 1000) throw new Error("html_record_budget_exceeded");
+  if (nodes.toArray().some((node) => $(node).parents(profile.records).length))
+    throw new Error("html_nested_record");
   nodes.each((index, node) => {
     const row = $(node),
       kind = row.attr("data-kind");
     if (["advertisement", "recommendation"].includes(kind ?? "")) return;
     if (kind !== "sold-record") throw new Error("html_record_kind_unknown");
-    const read = (key: (typeof fieldNames)[number]) => value(row, profile.fields[key]);
+    const read = (key: FieldName) => {
+      const field = profile.fields[key];
+      return field ? value(row, field) : null;
+    };
     if (read("sold") !== "sold") throw new Error("html_sale_not_confirmed");
     const listingId = read("listingId"),
       title = read("title"),
@@ -288,7 +297,12 @@ export function parseHtmlPage(
     }
     const conditionRaw = read("condition"),
       conditionId = read("conditionId"),
+      conditionStandard = read("conditionStandard"),
+      description = read("description"),
+      defects = read("defects"),
       link = read("link");
+    if (conditionStandard !== null && !isStandardCondition(conditionStandard))
+      throw new Error("html_standard_condition_invalid");
     const images = row.find(profile.primaryImages),
       imageChoices: Array<{ url: string; width: number }> = [];
     if (images.length > 8) throw new Error("html_image_budget_exceeded");
@@ -333,29 +347,34 @@ export function parseHtmlPage(
       attributes[name] = text;
     });
     const sellerRef = profile.allowSyntheticSeller ? read("sellerRef") : null;
-    const evidence: RecordEvidence = {
-      schema: "soldbench.record-evidence.v1",
+    const evidence: Extract<RecordEvidence, { schema: "soldbench.record-evidence.v2" }> = {
+      schema: "soldbench.record-evidence.v2",
       profileHash,
       recordIndex: index,
       listingUrl: link ? safeUrl(link, profile.listingHosts, true) : null,
       conditionId,
       conditionRaw,
+      conditionStandard,
+      description,
+      defects,
       priceRaw,
       shippingRaw,
       soldDateRaw,
       sourceTimeZone: zone,
       attributes,
-      fields: Object.fromEntries(evidenceFields.map((key) => [key, "missing"])) as RecordEvidence["fields"],
+      fields: Object.fromEntries(evidenceFields.map((key) => [key, "missing"])) as typeof evidence.fields,
     };
     Object.assign(evidence.fields, {
       listingUrl: link ? "present" : "missing",
-      condition: conditionRaw ? "present" : "missing",
+      condition: conditionRaw || conditionId || conditionStandard ? "present" : "missing",
       price: priceRaw ? "present" : "missing",
       shipping: shippingRaw ? "present" : "missing",
       soldDate: time.precision !== "unknown" ? "present" : "missing",
       seller: profile.allowSyntheticSeller ? (sellerRef ? "present" : "missing") : "withheld",
       primaryImage: imageChoices.length ? "present" : "missing",
       attributes: attrNodes.length ? "present" : "missing",
+      description: description ? "present" : "missing",
+      defects: defects ? "present" : "missing",
     });
     records.push({
       listingId,
@@ -379,7 +398,7 @@ export function parseHtmlPage(
         shippingCents,
         shippingStatus,
         time,
-        ...(conditionRaw ? { condition: conditionRaw } : {}),
+        ...(conditionStandard ? { condition: conditionStandard } : {}),
         ...(sellerRef ? { sellerRef } : {}),
       },
       ...(imageChoices[0] ? { primaryImage: { role: "primary" as const, url: imageChoices[0].url } } : {}),

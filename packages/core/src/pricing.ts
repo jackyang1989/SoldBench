@@ -21,6 +21,7 @@ export type Candidate = {
   identityVerified: boolean;
   observationKey?: string;
   comparable: boolean;
+  strongAttributeEvidenceMissing?: true;
   priceStatus: "verified_actual" | "displayed_only" | "unknown";
   format: "fixed_price" | "best_offer" | "auction";
   currency: string;
@@ -222,7 +223,9 @@ function evaluateComplete(records: readonly Candidate[], query: Query) {
           : !inWindow(record.time, query.asOf, query.days)
             ? "outside_window"
             : !record.comparable
-              ? "hard_attribute_mismatch"
+              ? record.strongAttributeEvidenceMissing
+                ? "missing_strong_attribute_evidence"
+                : "hard_attribute_mismatch"
               : !comparableSet.has(record)
                 ? "query_filter"
                 : priceQualification(record, query.basis).reason;

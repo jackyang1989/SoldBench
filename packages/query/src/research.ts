@@ -1,5 +1,5 @@
 import type { Identity } from "@soldbench/auth";
-import { type Candidate, distribution, evaluateSnapshot } from "@soldbench/core";
+import { type Candidate, distribution, evaluateSnapshot, isStandardCondition } from "@soldbench/core";
 import type { Transaction } from "@soldbench/db";
 import { AppError, VERSIONS } from "@soldbench/shared";
 import type { QueryService } from "./index.ts";
@@ -200,7 +200,9 @@ export class ResearchService {
         allowed = (r ? policy.get(r.source_id) : undefined) ?? new Set<ResearchField>();
       if (!r || !allowed?.has("identity")) fail("not_found", 404, "Comparable not found.");
       const p = r.candidate as Candidate,
-        e = r.evidence;
+        e = r.evidence,
+        currentEvidence = e?.schema === "soldbench.record-evidence.v2" ? e : null,
+        conditionStandard = isStandardCondition(p.condition) ? p.condition : null;
       return {
         query_id: id,
         candidate_set_hash: q.candidate_set_hash,
@@ -222,9 +224,9 @@ export class ResearchService {
           identity: field({ listing_id: r.external_listing_id, sale_format: p.format }, true),
           title: field(p.title ?? null, allowed.has("title")),
           condition: field(
-            e?.conditionRaw || p.condition
+            e?.conditionRaw || e?.conditionId || conditionStandard
               ? {
-                  standard: p.condition ?? null,
+                  standard: conditionStandard,
                   source_condition_id: e?.conditionId ?? null,
                   source_label: e?.conditionRaw ?? null,
                 }
@@ -232,11 +234,13 @@ export class ResearchService {
             allowed.has("condition"),
           ),
           attributes: field(
-            e?.attributes && Object.keys(e.attributes).length ? e.attributes : null,
+            e?.fields?.attributes === "present" && Object.keys(e.attributes ?? {}).length
+              ? e.attributes
+              : null,
             allowed.has("attributes"),
           ),
-          description: field(null, allowed.has("description")),
-          defects: field(null, allowed.has("defects")),
+          description: field(currentEvidence?.description ?? null, allowed.has("description")),
+          defects: field(currentEvidence?.defects ?? null, allowed.has("defects")),
           price: field(
             p.itemCents === null
               ? null
@@ -317,7 +321,7 @@ export class ResearchService {
           return {
             sale_event_id: r.sale_event_id,
             title: a.has("title") ? (p.title ?? null) : null,
-            condition: a.has("condition") ? (p.condition ?? null) : null,
+            condition: a.has("condition") && isStandardCondition(p.condition) ? p.condition : null,
             item_price_cents: p.currency === "USD" ? p.itemCents : (p.usdConversion?.itemCents ?? null),
             observed_shipping_cents:
               p.currency === "USD" ? p.shippingCents : (p.usdConversion?.shippingCents ?? null),

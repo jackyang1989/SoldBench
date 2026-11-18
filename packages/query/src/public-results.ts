@@ -1,5 +1,5 @@
 import type { Identity } from "@soldbench/auth";
-import { availability, queryHash, type SoldQuery } from "@soldbench/core";
+import { availability, compatibleCleaner, queryHash, type SoldQuery } from "@soldbench/core";
 import { type Transaction, transaction } from "@soldbench/db";
 import { AppError, VERSIONS } from "@soldbench/shared";
 import type { QueryService } from "./index.ts";
@@ -8,6 +8,8 @@ import { publicSummary, type SummaryParts } from "./quality-report.ts";
 type Purpose = "public_share" | "public_cache";
 type Snapshot = SummaryParts & {
   id: string;
+  filters: SoldQuery;
+  cleaner_version: string;
   canonical_query_hash: string;
   data_as_of: Date;
   retention_until: Date | null;
@@ -50,11 +52,12 @@ export class PublicResults {
   private async snapshot(c: Transaction, owner: string, id: string, now: Date, purpose: Purpose) {
     const q = (
       await c.query<Snapshot>(
-        "SELECT q.id,q.canonical_query_hash,r.stats,r.quality,r.diagnostics,r.data_as_of,LEAST((SELECT min(x.expires_at) FROM query_result_sources z JOIN source_clearances x ON x.id=z.clearance_id WHERE z.query_id=q.id),(SELECT min(o.retention_until) FROM source_observations o WHERE o.collector_run_id=j.collector_run_id),(SELECT min(o.retention_until) FROM query_snapshot_records k JOIN source_observations o ON o.id=k.observation_id WHERE k.query_id=q.id)) retention_until FROM queries q JOIN query_results r ON r.query_id=q.id LEFT JOIN collector_jobs j ON j.id=q.collector_job_id WHERE q.id=$1 AND q.user_id=$2 AND q.compute_status='completed' AND q.result_state='available' AND q.settlement_status IN ('charged','refunded','not_required') AND q.normalizer_version=$3 AND r.engine_version=$4 AND r.cleaner_version=$5 AND q.billing_policy_version=$6 FOR SHARE OF q",
-        [id, owner, VERSIONS.normalizer, VERSIONS.engine, VERSIONS.cleaner, VERSIONS.billing],
+        "SELECT q.id,q.canonical_query_hash,q.filters,r.cleaner_version,r.stats,r.quality,r.diagnostics,r.data_as_of,LEAST((SELECT min(x.expires_at) FROM query_result_sources z JOIN source_clearances x ON x.id=z.clearance_id WHERE z.query_id=q.id),(SELECT min(o.retention_until) FROM source_observations o WHERE o.collector_run_id=j.collector_run_id),(SELECT min(o.retention_until) FROM query_snapshot_records k JOIN source_observations o ON o.id=k.observation_id WHERE k.query_id=q.id)) retention_until FROM queries q JOIN query_results r ON r.query_id=q.id LEFT JOIN collector_jobs j ON j.id=q.collector_job_id WHERE q.id=$1 AND q.user_id=$2 AND q.compute_status='completed' AND q.result_state='available' AND q.settlement_status IN ('charged','refunded','not_required') AND q.normalizer_version=$3 AND r.engine_version=$4 AND q.billing_policy_version=$5 FOR SHARE OF q",
+        [id, owner, VERSIONS.normalizer, VERSIONS.engine, VERSIONS.billing],
       )
     ).rows[0];
-    if (!q) throw new AppError("not_found", 404, "Delivered snapshot not found.");
+    if (!q || !compatibleCleaner(q.filters, q.cleaner_version))
+      throw new AppError("not_found", 404, "Delivered snapshot not found.");
     if (!q.data_as_of || !q.retention_until || q.retention_until <= now || q.data_as_of > now) throw denied();
     await this.service.assertSnapshotRights(c, id, now);
     const rights = (

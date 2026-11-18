@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { AppError, VERSIONS } from "@soldbench/shared";
-import { canonicalJson } from "./pricing.ts";
+import { type Candidate, canonicalJson } from "./pricing.ts";
 
 export type SoldQuery = {
   q: string;
@@ -26,7 +26,19 @@ const attributeSets: Record<string, readonly string[]> = {
   gpu_hardware: ["vram_gb", "chipset", "variant"],
   collectibles: ["series", "number", "variant", "completeness"],
 };
-const conditions = ["new_with_tags", "new_without_tags", "like_new", "good", "fair", "defective", "unknown"];
+const conditions = [
+  "new_with_tags",
+  "new_without_tags",
+  "like_new",
+  "good",
+  "fair",
+  "defective",
+  "unknown",
+] as const;
+type Condition = (typeof conditions)[number];
+export function isStandardCondition(value: unknown): value is Condition {
+  return typeof value === "string" && conditions.some((condition) => condition === value);
+}
 export function normalizeQuery(
   input: URLSearchParams,
   supportedWindows: readonly number[] = [30, 90],
@@ -125,7 +137,7 @@ export function normalizeQuery(
   for (const key of ["brand", "model", "condition"] as const) {
     const value = input.get(key)?.normalize("NFC").trim();
     if (value !== undefined) {
-      if (!value || value.length > 120 || (key === "condition" && !conditions.includes(value)))
+      if (!value || value.length > 120 || (key === "condition" && !isStandardCondition(value)))
         throw new AppError("invalid_parameter", 400, `Invalid ${key}`);
       query[key] = value;
     }
@@ -144,6 +156,51 @@ export function matchStrongAttributes(
   return Object.entries(required).flatMap(([key, value]) =>
     actual[key] !== value ? [{ attribute: key, expected: value, actual: actual[key] ?? null }] : [],
   );
+}
+
+export function hasStrongFilters(query: SoldQuery) {
+  return Boolean(
+    query.category ||
+      query.brand ||
+      query.model ||
+      query.condition ||
+      Object.keys(query.attributes ?? {}).length,
+  );
+}
+
+export function compatibleCleaner(query: SoldQuery, cleaner: string | null) {
+  return cleaner === VERSIONS.cleaner || (cleaner === "1.0.0" && !hasStrongFilters(query));
+}
+
+/** A tabular fixture may carry standard condition on the candidate; HTML must declare it explicitly. */
+export function applyStrongFilters(
+  query: SoldQuery,
+  candidate: Candidate,
+  evidence: { attributes?: Record<string, string>; conditionStandard?: string | null } | null,
+): Candidate {
+  if (!candidate.comparable || !hasStrongFilters(query)) return candidate;
+  const required = { ...query.attributes };
+  for (const key of ["category", "brand", "model", "condition"] as const) {
+    const value = query[key];
+    if (value !== undefined) required[key] = value;
+  }
+  const condition = evidence ? evidence.conditionStandard : candidate.condition;
+  const actual = Object.fromEntries(
+    Object.keys(required).map((key) => {
+      const value = key === "condition" ? condition : evidence?.attributes?.[key];
+      return [
+        key,
+        typeof value === "string" && (key !== "condition" || isStandardCondition(value))
+          ? value.normalize("NFC").trim() || null
+          : null,
+      ];
+    }),
+  );
+  const failures = matchStrongAttributes(required, actual);
+  if (!failures.length) return candidate;
+  return failures.every((failure) => failure.actual === null)
+    ? { ...candidate, comparable: false, strongAttributeEvidenceMissing: true }
+    : { ...candidate, comparable: false };
 }
 
 /** A collector watermark is scoped to every filter, but not presentation or stale consent. */

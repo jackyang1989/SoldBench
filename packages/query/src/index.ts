@@ -2,10 +2,14 @@ import { createHash, randomUUID } from "node:crypto";
 import type { AuthService, Identity } from "@soldbench/auth";
 import type { BillingService } from "@soldbench/billing";
 import {
+  applyStrongFilters,
   availability,
   type Candidate,
   collectionQueryHash,
+  compatibleCleaner,
   evaluateSnapshot,
+  hasStrongFilters,
+  isStandardCondition,
   queryHash,
   type SoldQuery,
 } from "@soldbench/core";
@@ -126,7 +130,20 @@ export class QueryService {
       }
       const old = (
         await c.query(
-          "SELECT q.*,j.id AS job_id,coalesce(rq.data_as_of,cj.min_page_as_of,cj.as_of) reuse_data_as_of FROM queries q JOIN query_jobs j ON j.query_id=q.id LEFT JOIN query_results rq ON rq.query_id=q.id LEFT JOIN collector_jobs cj ON cj.id=q.collector_job_id WHERE q.user_id=$1 AND q.canonical_query_hash=$2 AND (q.created_at>$3 OR q.compute_status IN ('queued','running')) AND q.compute_status IN ('queued','running','completed') AND q.normalizer_version=$5 AND q.billing_policy_version=$6 AND (q.compute_status<>'completed' OR EXISTS(SELECT 1 FROM query_results r WHERE r.query_id=q.id AND r.engine_version=$7 AND r.cleaner_version=$8)) AND (q.expires_at>$4 OR q.settlement_status IN ('charged','refunded')) ORDER BY q.created_at DESC LIMIT 1 FOR UPDATE OF q",
+          `SELECT q.*,j.id AS job_id,rq.engine_version,rq.cleaner_version,
+             coalesce(rq.data_as_of,cj.min_page_as_of,cj.as_of) reuse_data_as_of
+           FROM queries q JOIN query_jobs j ON j.query_id=q.id
+           LEFT JOIN query_results rq ON rq.query_id=q.id
+           LEFT JOIN collector_jobs cj ON cj.id=q.collector_job_id
+           WHERE q.user_id=$1 AND q.canonical_query_hash=$2
+             AND (q.created_at>$3 OR q.compute_status IN ('queued','running'))
+             AND q.compute_status IN ('queued','running','completed')
+             AND q.normalizer_version=$5 AND q.billing_policy_version=$6
+             AND (q.expires_at>$4 OR q.settlement_status IN ('charged','refunded'))
+           ORDER BY (q.settlement_status IN ('charged','refunded')) DESC,
+             (q.compute_status IN ('queued','running') OR (rq.engine_version=$7 AND rq.cleaner_version=$8)) DESC NULLS LAST,
+             q.created_at DESC,q.id DESC
+           LIMIT 1 FOR UPDATE OF q`,
           [
             identity.userId,
             hash,
@@ -156,7 +173,10 @@ export class QueryService {
           allowStale: query.allow_stale,
           verifiedSamples: 0,
         });
-        if (rightsAvailable && reuse.readable)
+        const compatible =
+          old.compute_status !== "completed" ||
+          (old.engine_version === VERSIONS.engine && compatibleCleaner(query, old.cleaner_version));
+        if (compatible && rightsAvailable && reuse.readable)
           return {
             queryId: old.id as string,
             jobId: old.job_id as string,
@@ -321,14 +341,46 @@ export class QueryService {
         )
           throw new Error("query_lease_lost");
         await this.assertSnapshotRights(c, q.id, now);
+        const p = q.filters as SoldQuery;
         const records = (
-          await c.query("SELECT * FROM query_snapshot_records WHERE query_id=$1 ORDER BY sale_event_id", [
-            q.id,
-          ])
+          await c.query(
+            `SELECT s.*,
+               CASE WHEN e.evidence #>> '{fields,attributes}'='present' THEN e.evidence->'attributes' END AS strong_attributes,
+               CASE WHEN e.evidence->>'schema'='soldbench.record-evidence.v2'
+                 AND e.evidence #>> '{fields,condition}'='present' THEN e.evidence->>'conditionStandard' END AS standard_condition,
+               e.sale_event_id IS NOT NULL AS has_record_evidence
+             FROM query_snapshot_records s LEFT JOIN listing_record_evidence e
+               ON (e.sale_event_id,e.listing_id,e.source_id,e.observation_id)=(s.sale_event_id,s.listing_id,s.source_id,s.observation_id)
+             WHERE s.query_id=$1 ORDER BY s.sale_event_id`,
+            [q.id],
+          )
         ).rows;
+        if (hasStrongFilters(p)) {
+          const changed: Array<{ sale_event_id: string; candidate: Candidate }> = [];
+          for (const r of records) {
+            const candidate = applyStrongFilters(
+              p,
+              r.candidate,
+              r.has_record_evidence
+                ? {
+                    ...(r.strong_attributes ? { attributes: r.strong_attributes } : {}),
+                    conditionStandard: r.standard_condition,
+                  }
+                : null,
+            );
+            if (candidate !== r.candidate) {
+              r.candidate = candidate;
+              changed.push({ sale_event_id: r.sale_event_id, candidate });
+            }
+          }
+          if (changed.length)
+            await c.query(
+              "UPDATE query_snapshot_records s SET candidate=v.candidate FROM jsonb_to_recordset($2::jsonb) AS v(sale_event_id uuid,candidate jsonb) WHERE s.query_id=$1 AND s.sale_event_id=v.sale_event_id",
+              [q.id, JSON.stringify(changed)],
+            );
+        }
         const source = (await c.query("SELECT source_id FROM query_result_sources WHERE query_id=$1", [q.id]))
           .rows[0].source_id;
-        const p = q.filters as SoldQuery;
         const result = evaluateSnapshot(
           records.map((r) => r.candidate as Candidate),
           {
@@ -405,7 +457,7 @@ export class QueryService {
             source_id: source,
             verification_evidence_type: "synthetic_test_marker",
             ...(input.record.title ? { title: input.record.title } : {}),
-            ...(input.record.condition ? { condition_std: input.record.condition } : {}),
+            ...(isStandardCondition(input.record.condition) ? { condition_std: input.record.condition } : {}),
           };
           if (position < p.limit)
             await c.query(
@@ -470,7 +522,7 @@ export class QueryService {
     if (q.compute_status !== "completed") fail("state_conflict", 409, "Query computation is not complete.");
     if (
       q.engine_version !== VERSIONS.engine ||
-      q.cleaner_version !== VERSIONS.cleaner ||
+      !compatibleCleaner(q.filters, q.cleaner_version) ||
       q.normalizer_version !== VERSIONS.normalizer ||
       q.billing_policy_version !== VERSIONS.billing
     )
@@ -542,7 +594,7 @@ export class QueryService {
       comps.push({
         ...visible,
         ...(allowed.has("title") && title ? { title } : {}),
-        ...(allowed.has("condition") && condition_std ? { condition_std } : {}),
+        ...(allowed.has("condition") && isStandardCondition(condition_std) ? { condition_std } : {}),
         primary_image: allowed.has("primary_image")
           ? await this.imageView(c, q.id, item.sale_event_id, now)
           : { state: "not_permitted", url: null, width: null, height: null },

@@ -1,0 +1,65 @@
+{
+  "date": "2026-11-18",
+  "baseline_commit": "d1acaec",
+  "evidence_type": "offline_product_integration",
+  "config": {
+    "db": "isolated PostgreSQL 16",
+    "clock": "fixed UTC with deliberate same-timestamp legacy replacement",
+    "collector_enabled": false,
+    "data_mode": "offline_fixture",
+    "roles": [
+      "signed synthetic customer",
+      "legacy delivered and unclaimed customers"
+    ]
+  },
+  "versions": {
+    "collector": "offline-pg-1.8.0",
+    "parser": "offline-page-1.3.0",
+    "engine": "1.2.0",
+    "cleaner": "1.1.0",
+    "openapi": "1.14.0"
+  },
+  "checks": {
+    "npm_run_check": {
+      "exit_code": 0,
+      "node_tests": 227
+    },
+    "formal_openapi": {
+      "exit_code": 0,
+      "schemas": 101,
+      "operations": 65
+    },
+    "step0": {
+      "exit_code": 0,
+      "artifact": "step0/artifacts/20261118T094227143669Z/validation.json"
+    }
+  },
+  "observed": {
+    "verified_from_11": 8,
+    "explicit_hard_conflicts": 2,
+    "missing_evidence": 1,
+    "returned_limit": 2,
+    "exported_inputs": 8,
+    "median_cents": 27550,
+    "charged_once": true,
+    "earlier_observation_cannot_supply_later_fields": true
+  },
+  "review": "Independent PG16 reproduced and reverified fixed legacy-upgrade double charge; same result reused, one charge total, replay zero. Nested selection, ingest-owned versus query-owned data, UTF-8 and condition projections checked by reviewer. No stage signature.",
+  "not_verified": [
+    "real eBay DOM or source capability fields",
+    "licensed production collection and CI startup",
+    "professional browser design and live acceptance"
+  ],
+  "sha256": {
+    "packages/collector/src/html.ts": "cbf467918b49419d2dfc3c7045ed86ceafa6295d14a33c4760d30ef261269698",
+    "packages/collector/src/record-evidence.ts": "64260a6003cba7acf8e4908f9f60d4ac663aa6c960bf4c1b9a3de6bf2cc035e8",
+    "packages/collector/src/fixture.ts": "1ba23b4ca06f32766b5121eeec2a7e16b83b66f66a3a97c65d8bc14b40a59d2e",
+    "packages/core/src/query.ts": "563a824eeb745f6659c82e6c0cc607e80b5ac76b34f38f67b455ace191eea6df",
+    "packages/query/src/index.ts": "3350d8c844e9dd949ec6cb58d5289770cec8b7f0bfcfe0295b9c49fa1246a905",
+    "packages/query/src/research.ts": "bc4b5cc2487889f79d8bf401e16dd73e49af7d21a7b61c98eda22d1b14bc32d0",
+    "packages/query/src/public-results.ts": "43dec41f13ee88b095ff56c8870bce0c9d22db22362212a0aa126651c382a4a8",
+    "tests/collector-html.test.mjs": "1eed057f8405fa6ea88ffe51e9c5b713ccf9289df1db93fee7f3f973c26cd305",
+    "tests/research.test.mjs": "a4a3e80f858fa74074e1ae821ff4d531be326da6427ca4a1458f53bd1b386e2e",
+    "docs/openapi.yaml": "f4ac2393e1246d446bc9e4c377907249a62b45b45aa2f9a18b83d832075ad258"
+  }
+}

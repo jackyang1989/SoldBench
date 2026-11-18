@@ -26,6 +26,53 @@ async function policy(x, fields) {
 const charges = async (x) =>
   (await db.query("SELECT count(*)::int n FROM billing_charges WHERE user_id=$1", [x.user])).rows[0].n;
 
+test("legacy filter results cannot claim or bypass reuse while valid unfiltered history remains readable", async () => {
+  const plain = await setup(),
+    filtered = await setup({ filters: { condition: "good" } }),
+    unclaimed = await setup({ claimed: false, filters: { condition: "good" } });
+  await db.query("UPDATE query_results SET cleaner_version='1.0.0' WHERE query_id=ANY($1::uuid[])", [
+    [plain.queryId, filtered.queryId, unclaimed.queryId],
+  ]);
+  assert.equal(
+    (await plain.query.result(plain.identity, plain.queryId, randomUUID())).meta.credits_charged,
+    0,
+  );
+  assert.equal((await plain.query.submit(plain.identity, plain.q)).queryId, plain.queryId);
+  await assert.rejects(
+    filtered.query.result(filtered.identity, filtered.queryId, randomUUID()),
+    (e) => e.code === "state_conflict",
+  );
+  await assert.rejects(
+    filtered.query.submit(filtered.identity, filtered.q),
+    (e) => e.code === "source_unavailable" && e.details.retry_after === 600,
+  );
+  assert.equal(await charges(filtered), 1);
+  await assert.rejects(
+    unclaimed.query.result(unclaimed.identity, unclaimed.queryId, randomUUID(), true, randomUUID()),
+    (e) => e.code === "state_conflict",
+  );
+  const rerun = await unclaimed.query.submit(unclaimed.identity, unclaimed.q);
+  assert.notEqual(rerun.queryId, unclaimed.queryId);
+  assert.equal((await unclaimed.query.submit(unclaimed.identity, unclaimed.q)).queryId, rerun.queryId);
+  assert.equal((await unclaimed.query.workOnce("after-cleaner-upgrade")).status, "completed");
+  const fresh = await unclaimed.query.result(
+    unclaimed.identity,
+    rerun.queryId,
+    randomUUID(),
+    true,
+    randomUUID(),
+  );
+  assert.equal(fresh.meta.credits_charged, 1);
+  const repeated = await unclaimed.query.submit(unclaimed.identity, unclaimed.q);
+  assert.equal(repeated.queryId, rerun.queryId);
+  assert.equal(
+    (await unclaimed.query.result(unclaimed.identity, repeated.queryId, randomUUID(), true, randomUUID()))
+      .meta.credits_charged,
+    0,
+  );
+  assert.equal(await charges(unclaimed), 1);
+});
+
 test("complete diagnostics persist all candidate decisions, paginate by owner/snapshot and flag rather than delete outliers", async () => {
   const x = await setup(),
     seen = [];
