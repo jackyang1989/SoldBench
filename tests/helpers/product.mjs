@@ -22,9 +22,18 @@ import sharp from "sharp";
 export async function createProductFixture(
   db,
   roots,
-  { claimed = true, count = 58, extra = true, port, limit = 5, prepareQuery = true } = {},
+  {
+    claimed = true,
+    count = 58,
+    extra = true,
+    port,
+    limit = 5,
+    prepareQuery = true,
+    keyword,
+    clockValue = "2026-11-17T12:00:00.000Z",
+  } = {},
 ) {
-  const clock = { value: "2026-11-17T12:00:00.000Z" },
+  const clock = { value: clockValue },
     now = () => clock.value,
     config = loadConfig(port ? { PORT: String(port) } : {}),
     auth = new AuthService(db, newAuthSecrets(), config.origin, now),
@@ -37,7 +46,9 @@ export async function createProductFixture(
     audit = new RequestAuditService(query),
     source = await provisionFixtureSource(db, now(), { retentionDays: 7 }),
     store = new CollectorStore(db, now),
-    q = normalizeQuery(new URLSearchParams({ q: `research fixture ${randomUUID()}`, limit: String(limit) })),
+    q = normalizeQuery(
+      new URLSearchParams({ q: keyword ?? `research fixture ${randomUUID()}`, limit: String(limit) }),
+    ),
     hash = collectionQueryHash(q),
     _job = await store.enqueue({ ...source, queryHash: hash, runKey: randomUUID(), asOf: now() }),
     rows = Array.from({ length: count }, (_, i) => ({

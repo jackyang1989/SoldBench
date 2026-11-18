@@ -1,0 +1,58 @@
+{
+  "date": "2026-11-18",
+  "baseline_commit": "9d02102",
+  "evidence_type": "offline_product_integration",
+  "config": {
+    "data_mode": "offline_fixture",
+    "collector_enabled": false,
+    "payments_mode": "offline",
+    "db": "isolated PG16",
+    "clock": "injected UTC, 0/24/48/72h and 1ms boundaries",
+    "roles": "synthetic account owner, API key and anonymous share reader"
+  },
+  "checks": {
+    "npm_run_check": {
+      "exit_code": 0,
+      "node_tests": 222
+    },
+    "npm_run_test_readiness": {
+      "exit_code": 0,
+      "node_tests": 10
+    },
+    "npm_run_test_step0": {
+      "exit_code": 0,
+      "evidence": "step0/artifacts/20261118T003341749509Z/validation.json"
+    }
+  },
+  "measurement": {
+    "measurement": "local_cached_share_http",
+    "instance": "loopback_hono_and_isolated_pg16",
+    "platform": "darwin",
+    "arch": "arm64",
+    "logical_parallelism": 10,
+    "host_memory_bytes": 17179869184,
+    "node": "22.23.3",
+    "requests": 150,
+    "concurrency": 50,
+    "http_200": 150,
+    "latency_ms": {
+      "p50": 16.76,
+      "p95": 31.09,
+      "p99": 31.91,
+      "max": 31.93
+    },
+    "commercial_slo_verified": false
+  },
+  "review": "Independent read-only review identified the revoked source blocking a replacement. Fix verified against the new watermark and the actually leased old job; ten-minute paid reuse guard verified. No stage signoff.",
+  "pending": [
+    "production infrastructure and commercial SLO",
+    "authorized source and production outage/recovery",
+    "Redis and browser 4G"
+  ],
+  "sha256": {
+    "apps/api/src/index.ts": "e13c7ee6b9fa936b39336ee05caed5880aae188311274215b032fd3e6f8a8562",
+    "packages/query/src/index.ts": "dbd2d30d4d8284bcdf23b01c5ba7479e63eee850d8b5a88d9cc0392d657243df",
+    "tests/readiness.test.mjs": "e4a183a54bc7ab428fb8416ffd0738b61fb0ec0f05552cb4070a9a4dcc3d6940",
+    "tests/helpers/product.mjs": "e2fc07ffd4a755f1aaf78bcd9c848321dfd136937b45081aaf6f15dad827acec"
+  }
+}

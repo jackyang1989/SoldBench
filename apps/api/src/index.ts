@@ -35,7 +35,16 @@ export function createApp(
   });
   app.onError((error, c) => {
     const known = error instanceof AppError;
-    if (known && error.status === 429) c.header("Retry-After", String(error.details?.retry_after ?? 900));
+    const retry = known ? error.details?.retry_after : undefined;
+    if (known && error.status === 429) c.header("Retry-After", String(retry ?? 900));
+    else if (
+      known &&
+      error.status === 503 &&
+      typeof retry === "number" &&
+      Number.isSafeInteger(retry) &&
+      retry > 0
+    )
+      c.header("Retry-After", String(retry));
     return c.json(
       {
         error: {

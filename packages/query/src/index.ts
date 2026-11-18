@@ -126,7 +126,7 @@ export class QueryService {
       }
       const old = (
         await c.query(
-          "SELECT q.*,j.id AS job_id FROM queries q JOIN query_jobs j ON j.query_id=q.id WHERE q.user_id=$1 AND q.canonical_query_hash=$2 AND (q.created_at>$3 OR q.compute_status IN ('queued','running')) AND q.compute_status IN ('queued','running','completed') AND q.normalizer_version=$5 AND q.billing_policy_version=$6 AND (q.compute_status<>'completed' OR EXISTS(SELECT 1 FROM query_results r WHERE r.query_id=q.id AND r.engine_version=$7 AND r.cleaner_version=$8)) AND (q.expires_at>$4 OR q.settlement_status IN ('charged','refunded')) ORDER BY q.created_at DESC LIMIT 1 FOR UPDATE OF q",
+          "SELECT q.*,j.id AS job_id,coalesce(rq.data_as_of,cj.min_page_as_of,cj.as_of) reuse_data_as_of FROM queries q JOIN query_jobs j ON j.query_id=q.id LEFT JOIN query_results rq ON rq.query_id=q.id LEFT JOIN collector_jobs cj ON cj.id=q.collector_job_id WHERE q.user_id=$1 AND q.canonical_query_hash=$2 AND (q.created_at>$3 OR q.compute_status IN ('queued','running')) AND q.compute_status IN ('queued','running','completed') AND q.normalizer_version=$5 AND q.billing_policy_version=$6 AND (q.compute_status<>'completed' OR EXISTS(SELECT 1 FROM query_results r WHERE r.query_id=q.id AND r.engine_version=$7 AND r.cleaner_version=$8)) AND (q.expires_at>$4 OR q.settlement_status IN ('charged','refunded')) ORDER BY q.created_at DESC LIMIT 1 FOR UPDATE OF q",
           [
             identity.userId,
             hash,
@@ -140,18 +140,58 @@ export class QueryService {
         )
       ).rows[0];
       if (old) {
-        await this.assertSnapshotRights(c, old.id, now);
-        return {
-          queryId: old.id as string,
-          jobId: old.job_id as string,
-          reused: true,
-          status: old.compute_status as "queued" | "running" | "completed",
-          expiresAt: iso(old.expires_at),
-        };
+        let rightsAvailable = true;
+        try {
+          await this.assertSnapshotRights(c, old.id, now);
+        } catch (error) {
+          if (!(error instanceof AppError) || !["forbidden", "source_unavailable"].includes(error.code))
+            throw error;
+          rightsAvailable = false;
+        }
+        const reuse = availability({
+          now: now.toISOString(),
+          dataAsOf: iso(old.reuse_data_as_of),
+          currentRights: "allowed",
+          snapshotExists: true,
+          allowStale: query.allow_stale,
+          verifiedSamples: 0,
+        });
+        if (rightsAvailable && reuse.readable)
+          return {
+            queryId: old.id as string,
+            jobId: old.job_id as string,
+            reused: true,
+            status: old.compute_status as "queued" | "running" | "completed",
+            expiresAt: iso(old.expires_at),
+          };
+        if (["charged", "refunded"].includes(old.settlement_status)) {
+          const retryAfter = Math.max(
+            1,
+            Math.ceil((old.created_at.getTime() + 600000 - now.getTime()) / 1000),
+          );
+          throw new AppError(
+            "source_unavailable",
+            503,
+            "The previously delivered result cannot serve as a current price.",
+            { retry_after: retryAfter },
+          );
+        }
+        if (["queued", "running"].includes(old.compute_status)) {
+          // The previous current request is pinned to an unusable watermark. Release its
+          // dedupe slot without allowing another worker to deliver through the old lease.
+          await c.query(
+            "UPDATE query_jobs SET status='expired',lease_owner=NULL,lease_until=NULL,error_code='result_expired',retryable=false,updated_at=$2,version=version+1 WHERE query_id=$1 AND status IN ('queued','running')",
+            [old.id, now],
+          );
+          await c.query(
+            "UPDATE queries SET compute_status='expired',result_state='expired',version=version+1 WHERE id=$1",
+            [old.id],
+          );
+        }
       }
       const covered = (
         await c.query(
-          "SELECT j.*,s.source_clearance_id FROM collector_watermarks w JOIN collector_jobs j ON j.collector_run_id=w.run_id JOIN sources s ON s.id=w.source_id WHERE w.query_hash=$1 AND j.status='completed' AND j.permission_epoch=s.permission_epoch AND s.status='active' AND w.data_as_of<=$2 ORDER BY w.data_as_of DESC,j.id LIMIT 1",
+          "SELECT j.*,s.source_clearance_id FROM collector_watermarks w JOIN collector_jobs j ON j.collector_run_id=w.run_id JOIN sources s ON s.id=w.source_id JOIN source_clearances x ON x.id=s.source_clearance_id WHERE w.query_hash=$1 AND j.status='completed' AND j.permission_epoch=s.permission_epoch AND s.status='active' AND s.access_method='offline_fixture' AND x.provider='synthetic_fixture' AND x.status IN ('draft','reviewed','active') AND (x.effective_at IS NULL OR x.effective_at<=$2) AND (x.expires_at IS NULL OR x.expires_at>$2) AND w.data_as_of<=$2 ORDER BY w.data_as_of DESC,j.id LIMIT 1",
           [collectionQueryHash(query), now],
         )
       ).rows[0];
