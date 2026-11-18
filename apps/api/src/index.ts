@@ -11,6 +11,7 @@ import { mountAuth } from "./auth.ts";
 import { mountDeveloper } from "./developer.ts";
 import { mountMcp } from "./mcp.ts";
 import { mountPayments } from "./payments.ts";
+import { mountPublicResults } from "./public-results.ts";
 import { mountQueries } from "./queries.ts";
 
 export function createApp(
@@ -57,6 +58,7 @@ export function createApp(
   mountQueries(app, config, services.auth, services.query);
   mountMcp(app, config, services.auth, services.query);
   mountDeveloper(app);
+  mountPublicResults(app, config, services.auth, services.query);
   mountPayments(app, config, services.auth, config.paymentFixtures ? services.payments : undefined);
   app.notFound((c) =>
     c.json(

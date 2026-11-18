@@ -784,11 +784,12 @@ export class AuthService {
     });
   }
   /** Recheck an already authenticated request inside the business owner lock. */
-  async assertIdentityLocked(c: Transaction, identity: Identity, scope: string, now: Date) {
+  async assertIdentityLocked(c: Transaction, identity: Identity, scope: string, now: Date, recent = false) {
     const user = await this.user(c, identity.userId);
     if (user.status !== "active" || !user.email_verified_at)
       deny("email_verification_required", 403, "Verify the account before querying.");
     if (identity.keyId) {
+      if (recent) deny("forbidden", 403, "A recently authenticated session is required.");
       const key = (
         await c.query("SELECT * FROM api_keys WHERE id=$1 AND user_id=$2 FOR SHARE", [
           identity.keyId,
@@ -821,6 +822,7 @@ export class AuthService {
           !(await c.query("SELECT 1 FROM user_mfa WHERE user_id=$1 AND state='enabled'", [user.id])).rowCount)
       )
         deny("forbidden", 403, "Administrator MFA is required.");
+      if (recent) await this.sensitive(c, user, row, now);
     } else deny();
     return user;
   }

@@ -1,0 +1,49 @@
+{
+  "date": "2026-11-18",
+  "baseline_commit": "9df63ea",
+  "evidence_type": "offline_product_integration",
+  "config": {
+    "database": "isolated PG16 empty and 0018 upgrade; 70 tables",
+    "data_mode": "offline_fixture",
+    "collector_enabled": false,
+    "clock": "fixed UTC clocks including midnight, freshness, expiry and purge",
+    "roles": "synthetic verified owner/session, different owner, anonymous visitor"
+  },
+  "checks": {
+    "npm_run_check": {
+      "exit_code": 0,
+      "node_tests": 210
+    },
+    "selected_public_and_research": {
+      "exit_code": 0,
+      "node_tests": 22
+    },
+    "formal_openapi": {
+      "exit_code": 0,
+      "operations": 63,
+      "schemas": 100
+    },
+    "step0": {
+      "exit_code": 0
+    },
+    "assets": {
+      "exit_code": 0
+    }
+  },
+  "review": "Independent read-only review covered current rights, public field projection, token hashing, recent authorization, limiter lock order and socket provenance. No reproducible high or medium issue reported. Reviewer did not run PG/full tests or sign G4.",
+  "remote_ci": "Previous two pushes 44201485742 and 44203759137 reported startup_failure/BuildFailed before job creation. Workflow passes actionlint 1.7.9 locally. No GitHub CI PASS claimed.",
+  "not_verified": [
+    "professional browser UI and G4",
+    "approved public source rights",
+    "production proxy handling and production traffic limits"
+  ],
+  "sha256": {
+    "packages/query/src/public-results.ts": "ef18fb085e023d364fdde420a1d080bed49cfea9918bf454ccd50b34ede5a7aa",
+    "packages/query/src/quality-report.ts": "e502aa9009846eea0e064cf4202156619a22f439b0bf0fde1cb5a2043879968f",
+    "apps/api/src/public-results.ts": "2391c21e3934771f3b655bee72b17e09c49aa1b1ad006e1170650d6eeff656eb",
+    "apps/api/src/queries.ts": "be7888605397a30e9d9126b062b2db0267732a84e0887dbc071059ed6ed1be0e",
+    "packages/db/migrations/0019_offline_public_results.sql": "172cf8b48619f842ac3d740ddf693523c6628275c499f202c03d3d97b8055b81",
+    "tests/public-results.test.mjs": "03fc62f145152f582953080d929de3bc4c2895491e51e7ee532f8665af7bb1a1",
+    "docs/openapi.yaml": "78beb17d1351e006527dfc8f4f234b9bfaa1a8145d463aad6a3d1067112f3e38"
+  }
+}

@@ -7,6 +7,7 @@ export async function provisionFixtureSource(
   db: Database,
   now: string,
   options: {
+    publicAggregates?: boolean;
     retentionDays?: number;
     rateCap?: number;
     concurrency?: number;
@@ -19,6 +20,7 @@ export async function provisionFixtureSource(
   } = {},
 ) {
   instant(now);
+  const { publicAggregates = false, ...limits } = options;
   const settings = {
     retentionDays: 1,
     rateCap: 100,
@@ -29,7 +31,7 @@ export async function provisionFixtureSource(
     dailyPages: 1000,
     dailyBytes: 128 * 1024 * 1024,
     budgetPolicyDays: 30,
-    ...options,
+    ...limits,
   };
   for (const value of Object.values(settings))
     if (!Number.isSafeInteger(value) || value < 1) throw new Error("invalid_fixture_budget");
@@ -40,8 +42,27 @@ export async function provisionFixtureSource(
       sourceId = randomUUID(),
       configId = randomUUID();
     await c.query(
-      'INSERT INTO source_clearances(id,provider,dataset,revision,status,retention_days,permitted_fields) VALUES($1,\'synthetic_fixture\',$2,1,\'draft\',$3,\'{"research":["identity","title","condition","attributes","description","defects","price","shipping","sold_date","primary_image"]}\')',
-      [clearance, sourceId, settings.retentionDays],
+      "INSERT INTO source_clearances(id,provider,dataset,revision,status,retention_days,permitted_fields) VALUES($1,'synthetic_fixture',$2,1,'draft',$3,$4)",
+      [
+        clearance,
+        sourceId,
+        settings.retentionDays,
+        {
+          research: [
+            "identity",
+            "title",
+            "condition",
+            "attributes",
+            "description",
+            "defects",
+            "price",
+            "shipping",
+            "sold_date",
+            "primary_image",
+          ],
+          ...(publicAggregates ? { public_share: ["aggregate"], public_cache: ["aggregate"] } : {}),
+        },
+      ],
     );
     await c.query(
       "INSERT INTO sources(id,source_clearance_id,marketplace,access_method,collector_version,entrypoint_id,status) VALUES($1,$2,'ebay_us','offline_fixture',$3,'in-memory-fixture','active')",

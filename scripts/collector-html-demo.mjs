@@ -35,7 +35,9 @@ let server,
 try {
   await migrate(db);
   const now = (await db.query("SELECT clock_timestamp() t")).rows[0].t.toISOString(),
-    source = await provisionFixtureSource(db, now),
+    source = await provisionFixtureSource(db, now, {
+      publicAggregates: process.env.PUBLIC_FIXTURE_AGGREGATES === "true",
+    }),
     profile = JSON.parse(readFileSync(new URL("../tests/fixtures/html/profile.json", import.meta.url))),
     template = readFileSync(new URL("../tests/fixtures/html/search.html", import.meta.url), "utf8"),
     store = new CollectorStore(db, undefined, { htmlProfile: profile }),

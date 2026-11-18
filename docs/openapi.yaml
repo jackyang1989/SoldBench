@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.10.0
+  version: 1.11.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -4730,6 +4730,7 @@ paths:
       security:
       - {}
       - Session: []
+      - ApiKey: []
       parameters:
       - name: Accept-Language
         in: header
@@ -4739,13 +4740,19 @@ paths:
           type: string
           maxLength: 256
       - *id003
+      - name: Origin
+        in: header
+        required: false
+        description: Must match the configured origin for anonymous or session requests.
+        schema:
+          type: string
       responses:
         '200':
           description: 成功；所有样例均为合成数据。
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SoldResult'
+                $ref: '#/components/schemas/AnonymousCacheResponse'
           headers:
             X-Request-ID:
               schema:
@@ -8509,7 +8516,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Comp'
-          maxItems: 200
+          maxItems: 0
+          description: Offline public results are aggregate-only.
         data_as_of:
           anyOf:
           - *id023
@@ -8518,6 +8526,9 @@ components:
         result_mode:
           type: string
           const: history
+        data_mode:
+          const: synthetic_fixture
+          description: Offline implementation serves explicit synthetic public aggregates.
       required:
       - stats
       - quality
@@ -8525,6 +8536,7 @@ components:
       - data_as_of
       - expires_at
       - result_mode
+      - data_mode
       additionalProperties: false
     ShareResponse:
       type: object
@@ -10410,6 +10422,62 @@ components:
           additionalProperties: false
         meta:
           $ref: '#/components/schemas/BasicMeta'
+      required:
+      - data
+      - meta
+      additionalProperties: false
+    AnonymousCacheResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            stats:
+              $ref: '#/components/schemas/SoldStats'
+            quality:
+              $ref: '#/components/schemas/QualityReport'
+            comps:
+              type: array
+              maxItems: 0
+            data_as_of:
+              type: string
+              format: date-time
+            expires_at:
+              type: string
+              format: date-time
+            result_mode:
+              const: current
+            data_mode:
+              const: synthetic_fixture
+          required:
+          - stats
+          - quality
+          - comps
+          - data_as_of
+          - expires_at
+          - result_mode
+          - data_mode
+          additionalProperties: false
+        meta:
+          type: object
+          properties:
+            request_id:
+              type: string
+              format: uuid
+            credits_charged:
+              const: 0
+            anonymous_remaining:
+              type: integer
+              minimum: 0
+              maximum: 5
+            reused:
+              type: boolean
+          required:
+          - request_id
+          - credits_charged
+          - anonymous_remaining
+          - reused
+          additionalProperties: false
       required:
       - data
       - meta

@@ -35,7 +35,8 @@
     "collector:refresh": "npm run build && node --env-file-if-exists=.env scripts/collector-refresh.mjs",
     "collector:http-demo": "npm run build && node --env-file-if-exists=.env scripts/collector-html-demo.mjs --http",
     "developer:demo": "npm run build && node --env-file-if-exists=.env scripts/developer-demo.mjs",
-    "payment:fixture": "npm run build && node --env-file-if-exists=.env scripts/payment-fixture.mjs"
+    "payment:fixture": "npm run build && node --env-file-if-exists=.env scripts/payment-fixture.mjs",
+    "public:fixture": "npm run build && node --env-file-if-exists=.env scripts/public-fixture.mjs"
   },
   "devDependencies": {
     "typescript": "7.0.2",

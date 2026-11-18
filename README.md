@@ -6,7 +6,7 @@
 
 ## 当前状态（2026-11-17）
 
-用户已允许完整离线工程，真实来源许可前只使用synthetic/fixtures，禁止网络采集、真实收款和生产部署。当前已有PG采集管线、HTML合成解析、主图私有存储、账户/密钥、异步查询账本、研究交付和MCP协议适配；这些均为离线工程，**没有真实eBay供数、完整产品网页、真实支付或MCP主流宿主验收，也未达到竞品生产功能对等**。OpenAPI1.10的63个操作是契约数量，不能当作实现数量。用户最新要求优先采集，已否决UI草稿被隔离，不在活动工程中继续沿用。实现和证据以[任务台账](docs/开发排期与任务台账.md)为准；[Agent接手指南](docs/Agent接手指南.md)说明交接，原始[v1.4规格](<SoldBench 开发规格书 v1.4.md>)和[黄金合成夹具](v14_gameboy_58_verified.json)保留。
+用户已允许完整离线工程，真实来源许可前只使用synthetic/fixtures，禁止网络采集、真实收款和生产部署。当前已有PG采集管线、HTML合成解析、主图私有存储、账户/密钥、异步查询账本、研究交付和MCP协议适配；这些均为离线工程，**没有真实eBay供数、完整产品网页、真实支付或MCP主流宿主验收，也未达到竞品生产功能对等**。OpenAPI1.11的63个操作是契约数量，不能当作实现数量。用户最新要求优先采集，已否决UI草稿被隔离，不在活动工程中继续沿用。实现和证据以[任务台账](docs/开发排期与任务台账.md)为准；[Agent接手指南](docs/Agent接手指南.md)说明交接，原始[v1.4规格](<SoldBench 开发规格书 v1.4.md>)和[黄金合成夹具](v14_gameboy_58_verified.json)保留。
 
 ## 阅读入口
 
@@ -168,3 +168,10 @@ sh developer/examples/sold.sh --claim
 默认关闭支付模拟。使用专用本机 PG16，执行 `PAYMENT_FIXTURES=true npm run payment:fixture -- init` 生成两份本机签名密钥，再以相同环境启动 `PAYMENT_FIXTURES=true npm run dev`。创建、查看和取消需本人会话，写入还需同源 Origin 和 CSRF。以 `offer_version=offline-v1` 创建本机支付意图，checkout URL 只显示状态。
 
 用 `PAYMENT_FIXTURES=true npm run payment:fixture -- deliver /path/to/fixture.json` 写入独立确认并投递合成通知。CLI、API 和 Worker 共享 `LOCAL_STATE_ROOT`。Webhook HTTP 200 表示已收妥，最终到账看本人支付、订阅和用量。完整格式、事件归属和限制见[支付接入规格](docs/Stripe与PayPal接入规格.md)。
+
+
+## 匿名查询与分享（后端）
+
+只发布明确选中的合成快照。先用 `PUBLIC_FIXTURE_AGGREGATES=true npm run developer:demo` 准备获准的本机聚合夹具。启动 API 和 Worker 后运行开发者示例并领取，取得 `query_id`，再在同一环境运行 `npm run public:fixture -- publish <query_id>`。匿名浏览器同源调用 `POST /web/search`，使用相同参数。缓存未命中返回注册或稍后再试提示，访客不会启动采集或创建计算作业。
+
+分享使用近期认证的本人会话和幂等键创建，首次返回一次性展示的链接。可从列表撤销，短期 token 仅存哈希。所有公开回复都带合成标记，只含聚合统计与质量，实时检查当前来源权利。专业页面、浏览器可见流程和线上代理隐私仍需验收。详见[公开结果实施契约](docs/公开结果离线实施契约.md)。

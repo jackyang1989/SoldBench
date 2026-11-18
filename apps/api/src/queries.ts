@@ -1,6 +1,9 @@
+import { isIP } from "node:net";
+import { getConnInfo } from "@hono/node-server/conninfo";
 import type { AuthService, Identity } from "@soldbench/auth";
 import { normalizeQuery, queryParameters } from "@soldbench/core";
 import {
+  PublicResults,
   type QueryService,
   type RequestAudit,
   RequestAuditService,
@@ -10,12 +13,13 @@ import {
 import { AppError, type Config } from "@soldbench/shared";
 import type { Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
-import { getCookie } from "hono/cookie";
+import { getCookie, setCookie } from "hono/cookie";
 
 type Env = { Variables: { requestId: string; queryTrace?: Partial<RequestAudit> & { actor?: Identity } } };
 export function mountQueries(app: Hono<Env>, config: Config, auth?: AuthService, query?: QueryService) {
   const audit = query ? new RequestAuditService(query) : null,
-    research = query ? new ResearchService(query) : null;
+    research = query ? new ResearchService(query) : null,
+    publicResults = query ? new PublicResults(query) : null;
   const routes: [string, RegExp, RequestOperation][] = [
     ["GET", /^\/v1\/sold$/, "sold_search"],
     ["POST", /^\/web\/search$/, "sold_search"],
@@ -156,7 +160,43 @@ export function mountQueries(app: Hono<Env>, config: Config, auth?: AuthService,
     } catch {
       throw new AppError("invalid_parameter", 400, "Invalid JSON.");
     }
-    return start(c, queryParameters(body));
+    const params = queryParameters(body);
+    if (c.req.header("Authorization") || getCookie(c, "soldbench_session")) return start(c, params);
+    if (!auth || !publicResults)
+      throw new AppError("service_unavailable", 503, "Anonymous cache is not configured.");
+    if (c.req.header("Origin") !== config.origin)
+      throw new AppError("forbidden", 403, "Request origin is not allowed.");
+    c.header("X-Robots-Tag", "noindex, nofollow, noarchive");
+    const normalized = normalizeQuery(params);
+    let peer = "fixture-in-process";
+    try {
+      const address = getConnInfo(c).remote.address;
+      if (!address || !isIP(address))
+        throw new AppError("service_unavailable", 503, "Client address is unavailable.");
+      peer = address;
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      // In-process offline tests have no HTTP socket. Never trust forwarding headers.
+    }
+    let visitor = getCookie(c, "soldbench_visitor");
+    if (!visitor || !/^sb_vis_[a-zA-Z0-9_-]{43}$/.test(visitor)) {
+      visitor = auth.crypto.token("sb_vis_");
+      setCookie(c, "soldbench_visitor", visitor, {
+        httpOnly: true,
+        sameSite: "Strict",
+        secure: config.origin.startsWith("https://"),
+        path: "/web/search",
+        maxAge: 86400,
+      });
+    }
+    const result = await publicResults.anonymous(normalized, visitor, peer);
+    return c.json(
+      {
+        data: result.view,
+        meta: { ...meta(c), anonymous_remaining: result.remaining, reused: result.reused },
+      },
+      200,
+    );
   });
   app.get("/v1/sold/:id", (c) => result(c));
   app.post("/v1/sold/:id/claim", (c) => result(c, true));

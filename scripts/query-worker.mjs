@@ -5,7 +5,7 @@ import { AuthService, localAuthSecrets } from "@soldbench/auth";
 import { BillingService, localPaymentKeys, PaymentLifecycle } from "@soldbench/billing";
 import { assertLocalDatabaseUrl, database, migrate } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
-import { QueryService, RequestAuditService } from "@soldbench/query";
+import { PublicResults, QueryService, RequestAuditService } from "@soldbench/query";
 import { loadConfig } from "@soldbench/shared";
 import { localDatabaseUrl } from "./local-db.mjs";
 
@@ -30,15 +30,17 @@ try {
       : null,
     query = new QueryService(db, auth, billing, new PrivateMediaStore(resolve(config.mediaRoot))),
     worker = `query-${randomUUID()}`,
-    audit = new RequestAuditService(query);
+    audit = new RequestAuditService(query),
+    publicResults = new PublicResults(query);
   let nextMaintenance = 0,
     nextPaymentAttempt = 0;
   do {
     if (Date.now() >= nextMaintenance) {
       try {
         await audit.purgeExpired();
+        await publicResults.prune();
       } catch {
-        console.error("soldbench_request_audit_cleanup_failed");
+        console.error("soldbench_query_retention_cleanup_failed");
       }
       nextMaintenance = Date.now() + 60000;
     }

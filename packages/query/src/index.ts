@@ -12,6 +12,7 @@ import {
 import { type Database, type Transaction, transaction } from "@soldbench/db";
 import type { PrivateMediaStore } from "@soldbench/media";
 import { AppError, VERSIONS } from "@soldbench/shared";
+import { qualityReport } from "./quality-report.ts";
 import { canPrice, csv, permissions, writeComparables } from "./research.ts";
 
 const fail = (code: string, status: number, message: string): never => {
@@ -56,7 +57,7 @@ export class QueryService {
       fail("forbidden", 403, "Source rights are unavailable.");
     return s;
   }
-  private async rights(c: Transaction, queryId: string, now: Date) {
+  async assertSnapshotRights(c: Transaction, queryId: string, now: Date) {
     const rows = (
       await c.query("SELECT * FROM query_result_sources WHERE query_id=$1 ORDER BY source_id", [queryId])
     ).rows;
@@ -139,7 +140,7 @@ export class QueryService {
         )
       ).rows[0];
       if (old) {
-        await this.rights(c, old.id, now);
+        await this.assertSnapshotRights(c, old.id, now);
         return {
           queryId: old.id as string,
           jobId: old.job_id as string,
@@ -208,7 +209,7 @@ export class QueryService {
         "INSERT INTO query_snapshot_records(query_id,source_id,sale_event_id,listing_id,observation_id,candidate) SELECT $1,x.source_id,x.sale_event_id,x.listing_id,x.observation_id,x.candidate FROM (SELECT DISTINCT ON(e.sale_event_id) e.* FROM sale_event_evidence e JOIN collector_pages p ON p.observation_id=e.observation_id AND p.source_id=e.source_id JOIN collector_jobs j ON j.id=p.job_id CROSS JOIN LATERAL jsonb_array_elements_text(j.visited_cursors) WITH ORDINALITY seq(cursor,position) WHERE p.job_id=$2 AND seq.cursor=p.cursor ORDER BY e.sale_event_id,seq.position DESC) x",
         [id, covered.id],
       );
-      await this.rights(c, id, now);
+      await this.assertSnapshotRights(c, id, now);
       await c.query(
         "INSERT INTO query_jobs(id,query_id,dedupe_key,status,available_at,expires_at,created_at,updated_at) VALUES($1,$2,$3,'queued',$4,$5,$4,$4)",
         [job, id, `${identity.userId}:${hash}`, now, expires],
@@ -279,7 +280,7 @@ export class QueryService {
           q.expires_at <= now
         )
           throw new Error("query_lease_lost");
-        await this.rights(c, q.id, now);
+        await this.assertSnapshotRights(c, q.id, now);
         const records = (
           await c.query("SELECT * FROM query_snapshot_records WHERE query_id=$1 ORDER BY sale_event_id", [
             q.id,
@@ -425,7 +426,7 @@ export class QueryService {
       )
     ).rows[0];
     if (!q) fail("not_found", 404, "Query not found.");
-    await this.rights(c, id, now);
+    await this.assertSnapshotRights(c, id, now);
     if (q.compute_status !== "completed") fail("state_conflict", 409, "Query computation is not complete.");
     if (
       q.engine_version !== VERSIONS.engine ||
@@ -515,35 +516,13 @@ export class QueryService {
         )
       ).rowCount,
     );
-    const stats = q.stats,
-      d = q.diagnostics;
+    const stats = q.stats;
     return {
       data: {
         query_id: q.id,
         query: q.filters,
         stats,
-        quality: {
-          data_insufficient: stats.n_price_verified < 8,
-          quality_status: q.quality.quality_status,
-          match: {
-            matched: stats.n_comparable,
-            excluded_hard_mismatch: d.hard_mismatch_events,
-            excluded_before_comparable: stats.n_observed - stats.n_comparable,
-            mean_rule_match_score: null,
-          },
-          price: {
-            verified_share: q.quality.verified_share,
-            unverified_best_offer_count: stats.best_offer_displayed_only_count,
-          },
-          sample: { verified_count: stats.n_price_verified, recent_30d_count: stats.sold_last_30d_observed },
-          freshness: { data_as_of: iso(q.data_as_of), stale: state.freshness !== "fresh" },
-          coverage: { status: "unknown", ratio: null, source_scope: null },
-          score: null,
-          warnings: [
-            { code: "synthetic_fixture", message: "Synthetic regression data, not real market sales." },
-            { code: "coverage_unknown", message: "Observed samples are not complete market sales." },
-          ],
-        },
+        quality: qualityReport(q, state.freshness !== "fresh"),
         comps,
         supplemental_stats: q.supplemental_stats,
       },
@@ -713,7 +692,7 @@ export class QueryService {
       ).rows;
       if (!links.length) fail("not_found", 404, "Image not found.");
       // A withdrawn linked query cannot be bypassed through another cached result.
-      for (const link of links) await this.rights(c, link.id, now);
+      for (const link of links) await this.assertSnapshotRights(c, link.id, now);
       const i = (await c.query("SELECT * FROM listing_images WHERE id=$1 FOR SHARE", [imageId])).rows[0];
       for (const link of links)
         if (
@@ -855,5 +834,7 @@ export class QueryService {
 export function safeCsvCell(value: unknown) {
   return csv(value);
 }
+
+export { PublicResults } from "./public-results.ts";
 export * from "./request-audit.ts";
 export * from "./research.ts";
