@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.15.0
+  version: 1.16.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -7326,6 +7326,7 @@ components:
         mean_cents: *search_analysis_id002
         sample_count: *search_analysis_id001
         shipping_summary:
+          description: Current shipping and shipping-context permissions required. Unknown or withheld rows stay in the separate denominator.
           type: object
           properties:
             groups:
@@ -7341,6 +7342,7 @@ components:
           - mixed_contexts
           additionalProperties: false
         seller_summary:
+          description: Current seller aggregate permission required. No seller identity is returned.
           type: object
           properties:
             distinct_count: *search_analysis_id002
@@ -7351,6 +7353,24 @@ components:
           - identified_count
           - unknown_or_withheld_count
           additionalProperties: false
+        source_reported_match_count:
+          description: Optional source-reported count for the first archived search page. This is an upstream search count whose scope differs from the verified price sample and the overall market.
+          anyOf:
+          - type: object
+            properties:
+              count: *search_analysis_id001
+              unit:
+                enum: [listings, items, events, unknown]
+              estimated:
+                type: boolean
+              as_of:
+                type: string
+                format: date-time
+              marketplace:
+                const: ebay_us
+            required: [count, unit, estimated, as_of, marketplace]
+            additionalProperties: false
+          - type: 'null'
         recent_30d:
           $ref: '#/components/schemas/SearchPeriod'
         previous_30d:

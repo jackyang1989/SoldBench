@@ -3,7 +3,7 @@ import { type Candidate, candidateFromJson, canonicalJson, instant } from "@sold
 import { type RecordEvidence, recordEvidenceFromJson } from "./record-evidence.ts";
 
 export const COLLECTOR_VERSION = "offline-pg-1.8.0";
-export const PARSER_VERSION = "offline-page-1.3.0";
+export const PARSER_VERSION = "offline-page-1.4.0";
 export type FixtureListing = {
   listingId: string;
   title: string;
@@ -81,6 +81,7 @@ function storedInstant(value: string): number {
 export function parseFixturePage(
   bytes: Uint8Array,
   binding: { sourceId: string; queryHash: string; cursor: string; asOf: string },
+  approvedShippingContexts: readonly string[] = [],
 ): FixturePage {
   if (bytes.byteLength > 1024 * 1024) throw new Error("fixture_page_too_large");
   const page = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as FixturePage;
@@ -130,6 +131,11 @@ export function parseFixturePage(
     const candidate = candidateFromJson(row.candidate);
     if (Object.hasOwn(candidate, "strongAttributeEvidenceMissing"))
       throw new Error("fixture_query_decision_not_allowed");
+    if (
+      candidate.shippingContextRef !== undefined &&
+      !approvedShippingContexts.includes(candidate.shippingContextRef)
+    )
+      throw new Error("fixture_shipping_context_not_approved");
     if (candidate.sourceId !== page.sourceId) throw new Error("fixture_candidate_source_mismatch");
     if (candidate.eventKey !== null && Buffer.byteLength(candidate.eventKey, "utf8") > 512)
       throw new Error("fixture_event_key_too_large");

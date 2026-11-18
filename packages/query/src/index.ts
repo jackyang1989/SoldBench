@@ -18,12 +18,16 @@ import { type Database, type Transaction, transaction } from "@soldbench/db";
 import type { PrivateMediaStore } from "@soldbench/media";
 import { AppError, VERSIONS } from "@soldbench/shared";
 import { qualityReport } from "./quality-report.ts";
-import { canPrice, canReadModelEvidence, csv, permissions, writeComparables } from "./research.ts";
+import { allSourcesAllow, canPrice, csv, permissions, writeComparables } from "./research.ts";
 
 const fail = (code: string, status: number, message: string): never => {
   throw new AppError(code, status, message);
 };
 const iso = (d: Date | null) => d?.toISOString() ?? null;
+function supportsVerifiedShippingContexts(versions: Record<string, string> | null) {
+  const parsers = Object.values(versions ?? {});
+  return parsers.length > 0 && parsers.every((parser) => parser === "offline-page-1.4.0");
+}
 export class QueryService {
   constructor(
     readonly db: Database,
@@ -407,10 +411,31 @@ export class QueryService {
         );
         const run = (
           await c.query(
-            "SELECT j.min_page_as_of,j.as_of,r.parser_version FROM collector_jobs j JOIN collector_runs r ON r.id=j.collector_run_id WHERE j.id=$1",
+            `SELECT j.min_page_as_of,j.as_of,r.parser_version,
+               p.payload->'sourceReported' AS source_report,p.page_as_of AS report_as_of
+             FROM collector_jobs j JOIN collector_runs r ON r.id=j.collector_run_id
+             LEFT JOIN collector_pages p ON p.job_id=j.id AND p.source_id=j.source_id
+               AND p.cursor=j.visited_cursors->>0
+             WHERE j.id=$1`,
             [q.collector_job_id],
           )
         ).rows[0];
+        const report = run.source_report;
+        const sourceReported =
+          run.report_as_of &&
+          report &&
+          Number.isSafeInteger(report.count) &&
+          report.count >= 0 &&
+          ["listings", "items", "events", "unknown"].includes(report.unit) &&
+          typeof report.estimated === "boolean"
+            ? {
+                count: report.count,
+                unit: report.unit,
+                estimated: report.estimated,
+                as_of: iso(run.report_as_of),
+                marketplace: p.marketplace,
+              }
+            : null;
         await c.query(
           "INSERT INTO query_results(query_id,stats,quality,snapshot_version,engine_version,cleaner_version,parser_versions,candidate_set_hash,source_scope,data_as_of,coverage_status,source_window_start,source_window_end,supplemental_stats,diagnostics,query_parameters,collector_job_id) VALUES($1,$2,$3,'1',$4,$5,$6,$7,$8,$9,'unknown',$10,$11,$12,$13,$14,$15)",
           [
@@ -425,7 +450,10 @@ export class QueryService {
             run.min_page_as_of ?? run.as_of,
             new Date(q.as_of.getTime() - p.window_days * 86400000),
             q.as_of,
-            JSON.stringify(result.supplemental_stats),
+            JSON.stringify({
+              ...result.supplemental_stats,
+              source_reported_match_count: sourceReported,
+            }),
             JSON.stringify({ ...result.diagnostics, comparison_scope: scope }),
             JSON.stringify(p),
             q.collector_job_id,
@@ -617,7 +645,8 @@ export class QueryService {
         )
       ).rowCount,
     );
-    const stats = q.stats;
+    const stats = q.stats,
+      supplemental = q.supplemental_stats;
     return {
       data: {
         query_id: q.id,
@@ -626,10 +655,29 @@ export class QueryService {
         quality: qualityReport(
           q,
           state.freshness !== "fresh",
-          canReadModelEvidence(policy) ? "details" : "hidden",
+          allSourcesAllow(policy, "attributes") ? "details" : "hidden",
         ),
         comps,
-        supplemental_stats: q.supplemental_stats,
+        supplemental_stats: supplemental
+          ? {
+              ...supplemental,
+              shipping_summary:
+                supportsVerifiedShippingContexts(q.parser_versions) &&
+                allSourcesAllow(policy, "shipping_context", "shipping")
+                  ? supplemental.shipping_summary
+                  : { groups: [], mixed_contexts: false, unknown_or_withheld_count: stats.n_price_verified },
+              seller_summary: allSourcesAllow(policy, "seller_aggregate")
+                ? supplemental.seller_summary
+                : {
+                    distinct_count: null,
+                    identified_count: 0,
+                    unknown_or_withheld_count: stats.n_price_verified,
+                  },
+              source_reported_match_count: allSourcesAllow(policy, "source_match_count")
+                ? (supplemental.source_reported_match_count ?? null)
+                : null,
+            }
+          : supplemental,
       },
       meta: {
         request_id: requestId,

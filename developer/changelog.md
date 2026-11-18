@@ -1,5 +1,9 @@
 # SoldBench engineering changelog
 
+## 2026-11-18 — observed search context
+
+OpenAPI 1.16 adds source-reported search counts with source timestamp, units and estimate status. Grouped observed shipping, seller aggregates and reported counts each require their own current field permission. Source-reported counts never contribute to verified samples or market coverage.
+
 ## 2026-11-18 — model scope on price samples
 
 OpenAPI 1.15 adds optional structured model coverage to private search quality and research exports. Public views can show a generic mixed-model warning without the underlying labels. Existing statistics and charges keep their original meaning.

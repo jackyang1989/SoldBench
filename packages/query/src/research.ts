@@ -22,6 +22,9 @@ export const researchFields = [
   "sold_date",
   "primary_image",
   "listing_url",
+  "shipping_context",
+  "seller_aggregate",
+  "source_match_count",
 ] as const;
 export type ResearchField = (typeof researchFields)[number];
 export async function permissions(c: Transaction, queryId: string) {
@@ -44,8 +47,8 @@ export async function permissions(c: Transaction, queryId: string) {
 }
 export const canPrice = (p: Set<ResearchField> | undefined) =>
   ["identity", "price", "shipping", "sold_date"].every((f) => p?.has(f as ResearchField));
-export const canReadModelEvidence = (policy: Map<string, Set<ResearchField>>) =>
-  policy.size > 0 && [...policy.values()].every((fields) => fields.has("attributes"));
+export const allSourcesAllow = (policy: Map<string, Set<ResearchField>>, ...required: ResearchField[]) =>
+  policy.size > 0 && [...policy.values()].every((fields) => required.every((field) => fields.has(field)));
 export async function writeComparables(
   c: Transaction,
   id: string,
@@ -379,7 +382,7 @@ export class ResearchService {
           n_price_verified: items.length,
           ...distribution(items.map((r) => r.price_usd_cents)),
         },
-        ...(canReadModelEvidence(policy)
+        ...(allSourcesAllow(policy, "attributes")
           ? { comparison_scope: comparisonScope(selected.map((r) => r.structured_model)) }
           : {}),
         original_stats: q.stats,

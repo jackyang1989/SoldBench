@@ -25,7 +25,7 @@ const fieldNames = [
   "link",
   "sellerRef",
 ] as const;
-const detailFields = ["conditionStandard", "description", "defects"] as const;
+const detailFields = ["conditionStandard", "description", "defects", "shippingContextRef"] as const;
 type FieldName = (typeof fieldNames)[number] | (typeof detailFields)[number];
 export type HtmlProfile = {
   schema: "soldbench.synthetic-html-profile.v1";
@@ -42,6 +42,7 @@ export type HtmlProfile = {
   listingHosts: string[];
   imageHosts: string[];
   allowSyntheticSeller: boolean;
+  shippingContexts?: string[];
   decimal: "." | ",";
   grouping: "." | "," | " ";
 };
@@ -90,6 +91,7 @@ export function validateHtmlProfile(input: unknown): HtmlProfile {
     "listingHosts",
     "imageHosts",
     "allowSyntheticSeller",
+    "shippingContexts",
     "decimal",
     "grouping",
   ]);
@@ -105,6 +107,18 @@ export function validateHtmlProfile(input: unknown): HtmlProfile {
     )
       throw new Error("invalid_html_profile");
   }
+  if (
+    (x.fields.shippingContextRef !== undefined || x.shippingContexts !== undefined) &&
+    (!x.fields.shippingContextRef ||
+      !Array.isArray(x.shippingContexts) ||
+      !x.shippingContexts.length ||
+      x.shippingContexts.length > 16 ||
+      new Set(x.shippingContexts).size !== x.shippingContexts.length ||
+      x.shippingContexts.some(
+        (context) => typeof context !== "string" || !/^[a-z][a-z0-9_-]{0,63}$/.test(context),
+      ))
+  )
+    throw new Error("invalid_html_profile");
   try {
     const $ = load("<main></main>");
     for (const rule of [
@@ -134,6 +148,7 @@ export function validateHtmlProfile(input: unknown): HtmlProfile {
   Object.freeze(copy.listingHosts);
   Object.freeze(copy.imageHosts);
   Object.freeze(copy.accessBlocks);
+  Object.freeze(copy.shippingContexts);
   return Object.freeze(copy);
 }
 /** Explicit profile markers only; product text, navigation and scripts are not access verdicts. */
@@ -284,6 +299,9 @@ export function parseHtmlPage(
       shippingStatus = "observed";
       shippingCents = parseHtmlMoney(shippingRaw, currency, profile.decimal, profile.grouping);
     }
+    const shippingContext = read("shippingContextRef");
+    if (shippingContext !== null && !profile.shippingContexts?.includes(shippingContext))
+      throw new Error("html_shipping_context_unknown");
     const soldDateRaw = read("date"),
       zone = read("timeZone");
     let time: Candidate["time"] = { precision: "unknown" };
@@ -347,6 +365,8 @@ export function parseHtmlPage(
       attributes[name] = text;
     });
     const sellerRef = profile.allowSyntheticSeller ? read("sellerRef") : null;
+    if (sellerRef !== null && !/^synthetic-[a-z0-9_-]{1,64}$/.test(sellerRef))
+      throw new Error("html_synthetic_seller_invalid");
     const evidence: Extract<RecordEvidence, { schema: "soldbench.record-evidence.v2" }> = {
       schema: "soldbench.record-evidence.v2",
       profileHash,
@@ -397,6 +417,7 @@ export function parseHtmlPage(
         itemCents,
         shippingCents,
         shippingStatus,
+        ...(shippingContext && shippingStatus !== "unknown" ? { shippingContextRef: shippingContext } : {}),
         time,
         ...(conditionStandard ? { condition: conditionStandard } : {}),
         ...(sellerRef ? { sellerRef } : {}),
@@ -436,5 +457,5 @@ export function parseHtmlPage(
       estimated: estimated === "true",
     };
   }
-  return parseFixturePage(Buffer.from(JSON.stringify(page)), binding);
+  return parseFixturePage(Buffer.from(JSON.stringify(page)), binding, profile.shippingContexts);
 }

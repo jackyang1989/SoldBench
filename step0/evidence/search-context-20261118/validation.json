@@ -1,0 +1,57 @@
+{
+  "date": "2026-11-18",
+  "baseline_commit": "c72100a",
+  "evidence_type": "offline_product_integration",
+  "config": {
+    "data_mode": "offline_fixture",
+    "collector_enabled": false,
+    "db": "isolated PostgreSQL 16",
+    "clock": "injected UTC",
+    "fixture": "two archived synthetic pages"
+  },
+  "checks": {
+    "npm_run_check": {
+      "exit_code": 0,
+      "node_tests": 230
+    },
+    "formal_openapi": {
+      "exit_code": 0,
+      "schemas": 103,
+      "operations": 65
+    },
+    "step0": {
+      "exit_code": 0
+    }
+  },
+  "observed": {
+    "first_page_report": 42000,
+    "later_page_report_ignored": 999,
+    "verified_samples": 10,
+    "coverage_ratio": null,
+    "shipping_context_known_counts": [
+      8,
+      1
+    ],
+    "unknown_context_count": 1,
+    "distinct_sellers": 2,
+    "identified_sellers": 9,
+    "raw_seller_identity_exposed": false,
+    "untrusted_shipping_label_exposed": false,
+    "credits_charged_for_reread": 0
+  },
+  "review": "Independent review reproduced unsafe JSON shipping text, verified HTML scope, JSON ingress and legacy masking correction. Rerunning work through the real collector also validated the stored-page image path with the frozen profile. No stage signoff.",
+  "pending": [
+    "real source permission and DOM/field evidence",
+    "real outbound stability and actual commercial operation",
+    "professional browser UI"
+  ],
+  "sha256": {
+    "packages/collector/src/fixture.ts": "15153a6b283d44d757b55d617e07c094ba589097497c9407761fd4433574dfbb",
+    "packages/collector/src/html.ts": "d49377bc22d8633a04c21638d2778e554ff2725891aff4d2c4c0ce12e01e2a39",
+    "packages/collector/src/worker.ts": "3efb48b3ca14b681659a1c3bf183117f8a9c35ea8d67da8a3cdc3fac7ef58d26",
+    "packages/query/src/index.ts": "ea79d8b003a3cee2f64597a57676b53aa479e365ef76f28f8b66378a4c4651cc",
+    "packages/query/src/research.ts": "d1df9569290adf70fff369eba4b819d7da98f807b4dd82213c923f69696a0dea",
+    "tests/collector-html.test.mjs": "00a7e237a78945cd36772d1f9e34451271d28fb35962a4fba97bef1ee18ed6d8",
+    "docs/openapi.yaml": "a941b665c3bb1609942c3123036762ec0e09314100205a85c91c7590b1365283"
+  }
+}

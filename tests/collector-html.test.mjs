@@ -267,6 +267,12 @@ test("a raw fixture cannot forge a query-owned exclusion marker or mark populate
     ]),
   );
   assert.throws(() => parseFixturePage(fixtureResponse(page).bytes, x.binding), /invalid_record_evidence/);
+  const untrusted = parseHtmlPage(x.raw, x.binding, profile);
+  untrusted.records[0].candidate.shippingContextRef = "123 Example Street Apartment 4";
+  assert.throws(
+    () => parseFixturePage(fixtureResponse(untrusted).bytes, x.binding),
+    /fixture_shipping_context_not_approved/,
+  );
 });
 
 test("mixed model scope uses all verified rows, follows export exclusions and never leaks facet labels on public reads", async () => {
@@ -344,6 +350,163 @@ test("mixed model scope uses all verified rows, follows export exclusions and ne
   assert.equal(history.meta.credits_charged, 0);
   const publicAfter = (await publicResults.anonymous(q, visitor, "127.0.0.1")).view;
   assert.ok(!publicAfter.quality.warnings.some((warning) => warning.code === "mixed_models"));
+});
+
+test("first-page match counts, observed shipping contexts and seller aggregates are bound and permissioned independently", async () => {
+  const params = new URLSearchParams({ q: "Synthetic grouped shipping", limit: "2" }),
+    q = normalizeQuery(params),
+    shippingProfile = {
+      ...profile,
+      revision: 3,
+      allowSyntheticSeller: true,
+      shippingContexts: ["us-domestic-a", "us-domestic-b"],
+      fields: {
+        ...profile.fields,
+        shippingContextRef: { selector: "span.shipping", attribute: "data-context-ref" },
+      },
+    },
+    x = await setup(shippingProfile, collectionQueryHash(q)),
+    customer = await createProductFixture(db, roots, { count: 1, prepareQuery: false, clockValue: fixed }),
+    html = x.raw.toString(),
+    first = html
+      .replace('data-next-cursor=""', 'data-next-cursor="second"')
+      .replace(
+        "data-as-of=",
+        'data-reported-count="42000" data-reported-unit="listings" data-reported-estimated="true" data-as-of=',
+      )
+      .replace(/<article class="record" data-kind="sold-record"[\s\S]*?<\/article>/, (base) =>
+        Array.from({ length: 10 }, (_, i) => {
+          const row = base
+            .replaceAll("synthetic-listing-1", `synthetic-listing-${i}`)
+            .replaceAll("synthetic-event-1", `synthetic-event-${i}`)
+            .replace("synthetic-seller-hidden", i < 8 ? "synthetic-seller-one" : "synthetic-seller-two");
+          if (i === 9) return row.replace(/data-ref="[^"]+"/, "");
+          const withContext = row.replace(
+            'class="shipping"',
+            `class="shipping" data-context-ref="us-domestic-${i < 8 ? "a" : "b"}"`,
+          );
+          return i < 8
+            ? withContext.replace(
+                'data-evidence="verified_free_shipping">Free shipping',
+                'data-evidence="observed">$10.00',
+              )
+            : withContext;
+        }).join(""),
+      ),
+    second = html
+      .replace('data-cursor="start"', 'data-cursor="second"')
+      .replace(
+        "data-as-of=",
+        'data-reported-count="999" data-reported-unit="events" data-reported-estimated="false" data-as-of=',
+      )
+      .replace(/<article[\s\S]*<\/article>/, '<p class="empty" data-confirmed="true"></p>');
+  const transport = new FixtureTransport(
+    new Map([
+      ["page:start", [response(Buffer.from(first))]],
+      ["page:second", [response(Buffer.from(second))]],
+    ]),
+  );
+  assert.equal(
+    (await new OfflineCollectorWorker(x.store, transport, x.media).runOne(x.sourceId)).status,
+    "completed",
+  );
+  const updatePolicy = (additional) =>
+    db.query(
+      "UPDATE source_clearances SET permitted_fields=jsonb_set(permitted_fields,'{research}',to_jsonb($2::text[])) WHERE id=(SELECT source_clearance_id FROM sources WHERE id=$1)",
+      [x.sourceId, ["identity", "price", ...additional]],
+    );
+  await updatePolicy(["shipping", "sold_date", "source_match_count", "shipping_context", "seller_aggregate"]);
+  const { queryId: id } = await customer.query.submit(customer.identity, q);
+  assert.equal((await customer.query.workOnce("shipping-context")).status, "completed");
+  const result = await customer.query.result(
+      customer.identity,
+      id,
+      "context-claim",
+      true,
+      "context-claim-key-1",
+    ),
+    stats = result.data.supplemental_stats;
+  assert.equal(stats.sample_count, 10);
+  assert.deepEqual(stats.source_reported_match_count, {
+    count: 42000,
+    unit: "listings",
+    estimated: true,
+    as_of: new Date(fixed).toISOString(),
+    marketplace: "ebay_us",
+  });
+  assert.deepEqual(stats.shipping_summary, {
+    groups: [
+      {
+        context_ref: "us-domestic-a",
+        known_count: 8,
+        mean_shipping_cents: 1000,
+        free_count: 0,
+        free_share: 0,
+      },
+      {
+        context_ref: "us-domestic-b",
+        known_count: 1,
+        mean_shipping_cents: null,
+        free_count: 1,
+        free_share: 1,
+      },
+    ],
+    unknown_or_withheld_count: 1,
+    mixed_contexts: true,
+  });
+  assert.deepEqual(stats.seller_summary, {
+    distinct_count: 2,
+    identified_count: 9,
+    unknown_or_withheld_count: 1,
+  });
+  assert.doesNotMatch(JSON.stringify(result), /synthetic-seller-(one|two)/);
+  assert.equal(result.data.quality.coverage.ratio, null);
+  assert.equal(result.meta.credits_charged, 1);
+  await updatePolicy(["shipping", "sold_date", "shipping_context", "seller_aggregate"]);
+  let reread = (await customer.query.result(customer.identity, id, "without-source-count")).data
+    .supplemental_stats;
+  assert.equal(reread.source_reported_match_count, null);
+  assert.equal(reread.shipping_summary.groups.length, 2);
+  assert.equal(reread.seller_summary.distinct_count, 2);
+  await db.query("UPDATE query_results SET parser_versions=$2 WHERE query_id=$1", [
+    id,
+    JSON.stringify({ [x.sourceId]: "offline-page-1.3.0" }),
+  ]);
+  const legacy = await customer.query.result(customer.identity, id, "legacy-shipping-snapshot");
+  assert.deepEqual(legacy.data.supplemental_stats.shipping_summary, {
+    groups: [],
+    mixed_contexts: false,
+    unknown_or_withheld_count: 10,
+  });
+  await db.query("UPDATE query_results SET parser_versions=$2 WHERE query_id=$1", [
+    id,
+    JSON.stringify(result.meta.parser_versions),
+  ]);
+  await updatePolicy(["sold_date", "shipping_context"]);
+  const withheld = await customer.query.result(customer.identity, id, "withdrawn-research");
+  reread = withheld.data.supplemental_stats;
+  assert.deepEqual(reread.shipping_summary, {
+    groups: [],
+    mixed_contexts: false,
+    unknown_or_withheld_count: 10,
+  });
+  assert.deepEqual(reread.seller_summary, {
+    distinct_count: null,
+    identified_count: 0,
+    unknown_or_withheld_count: 10,
+  });
+  assert.equal(withheld.meta.credits_charged, 0);
+  assert.throws(
+    () =>
+      parseHtmlPage(
+        Buffer.from(
+          first.replaceAll('data-context-ref="us-domestic-a"', 'data-context-ref="unknown-context"'),
+        ),
+        x.binding,
+        shippingProfile,
+      ),
+    /html_shipping_context_unknown/,
+  );
 });
 
 test("money conversion uses exact declared separators and rejects ranges, ambiguous grouping and unsafe amounts", () => {

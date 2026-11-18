@@ -112,12 +112,16 @@ export class OfflineCollectorWorker {
         }
         throw error;
       }
-      const page = parseFixturePage(Buffer.from(JSON.stringify(task.payload)), {
-        sourceId: lease.sourceId,
-        queryHash: task.payload.queryHash,
-        cursor: task.payload.cursor,
-        asOf: (await this.store.view(lease.jobId)).as_of.toISOString(),
-      });
+      const page = parseFixturePage(
+        Buffer.from(JSON.stringify(task.payload)),
+        {
+          sourceId: lease.sourceId,
+          queryHash: task.payload.queryHash,
+          cursor: task.payload.cursor,
+          asOf: (await this.store.view(lease.jobId)).as_of.toISOString(),
+        },
+        this.store.htmlProfile?.shippingContexts,
+      );
       const row = page.records.find(
         (r) =>
           r.listingId === task.external_listing_id &&
