@@ -144,7 +144,7 @@ HTTP获取联通演示：`npm run collector:http-demo`。它启动仅绑定127.0
 
 ## 开发者离线接入
 
-先运行 `npm run db:start`，再运行 `npm run developer:demo`。演示准备合成 HTML、8 条成交、8 张主图、不可登录的合成账号与私有 API key，只输出环境文件路径，不打印密钥。默认文件为 `.local/developer-demo.env`，权限0600；重跑撤销旧演示key。环境文件同时配置实际API和Worker使用的本机密钥目录、媒体目录和数据库。启动服务前，在私有终端：
+先运行 `npm run db:start`，再运行 `npm run developer:demo`。演示准备合成 HTML、8 条成交、8 张主图、不可登录的合成账号与私有 API key，只输出环境文件路径，不打印密钥。默认文件为 `.local/developer-demo.env`，权限0600；重跑仅轮换当前状态目录的演示密钥。环境文件同时配置实际API和Worker使用的本机密钥目录、媒体目录和数据库。启动服务前，在私有终端：
 
 ```sh
 set -a
@@ -162,6 +162,12 @@ sh developer/examples/sold.sh --claim
 本机 `/docs/en/quickstart` 和 `/docs/zh-CN/quickstart` 为双语Markdown，`/docs/search` 为本地搜索，不代表已完成专业文档前端。`/openapi.json`、`/llms.txt`、`/llms-full.txt`、`/.well-known/skills/index.json`、`/soldbench.postman.json` 由固定输入生成；`/docs/implementation-status.json` 区分本机路由存在与contract-only，不代替验收。`POST /mcp` 是官方SDK无状态适配，两主流宿主与生产TLS待实测。
 
 `.github/workflows/offline.yml` 固定官方Actions提交，安装PG16后运行同一套离线检查、step0及开发者资产检查。远端执行结果以GitHub实际记录为准。构建需Python3及契约依赖（含PyYAML）。`LOCAL_STATE_ROOT` 仅控制本机认证密钥目录，默认`.local`；演示自定义目录时先导入对应私有环境文件，再启动API/Worker。
+
+### 研究整包验收演示
+
+运行 `npm run developer:demo -- --research`。沿用上面的本地数据库和私有环境文件启动方式。该模式把 `SOLDBENCH_KEYWORD` 设为 `Nintendo Switch`，TypeScript、Python和curl示例会读取它。演示经两页本机HTTP采集18条纯合成记录和18张主图。16条有已核验示例价，2条仅有议价挂牌价。启用独立的研究字段许可，可核对混型号提示、两组已观察运费、卖家聚合、首存档页报告和成交详情。用示例的query_id取结果，再使用结果内的相对主图地址读取图片。显式领取一次，已交付结果可免费复取。默认无参数的8条快速开始仍可使用。
+
+验收命令 `npm run build && node scripts/test.mjs tests/developer.test.mjs`。实际启动演示程序，在临时PG16和本机HTTP中测试领取、详情和WebP主图。全流程使用合成数据，无需平台账户和支付。
 
 ## 支付离线演练
 

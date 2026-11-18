@@ -5,9 +5,15 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
-import { promisify } from "node:util";
+import { parseEnv, promisify } from "node:util";
 import { serve } from "@hono/node-server";
+import { createApp } from "@soldbench/api";
+import { AuthService, localAuthSecrets } from "@soldbench/auth";
+import { BillingService } from "@soldbench/billing";
 import { database, migrate } from "@soldbench/db";
+import { PrivateMediaStore } from "@soldbench/media";
+import { QueryService } from "@soldbench/query";
+import { loadConfig } from "@soldbench/shared";
 import { createProductFixture } from "./helpers/product.mjs";
 
 const run = promisify(execFile),
@@ -73,6 +79,99 @@ async function workerDuring(x, work) {
     await pending;
   }
 }
+function launchDemo(root, server, ...args) {
+  return run(
+    process.execPath,
+    ["--import", "./scripts/test-network.mjs", "scripts/developer-demo.mjs", ...args],
+    {
+      env: {
+        ...process.env,
+        COLLECTOR_DEMO_DIR: root,
+        PORT: String(server.port),
+        HOST: "127.0.0.1",
+        APP_ORIGIN: server.origin,
+      },
+      timeout: 30000,
+      maxBuffer: 1048576,
+    },
+  );
+}
+test("documented research demo drives actual HTTP, owner claims and main-image evidence from a fresh private environment", async () => {
+  const s = await http(),
+    root = await mkdtemp(join(tmpdir(), "soldbench-agent-handoff-")),
+    otherRoot = await mkdtemp(join(tmpdir(), "soldbench-agent-handoff-"));
+  roots.push(root, otherRoot);
+  const launched = await launchDemo(root, s, "--research");
+  const ready = JSON.parse(launched.stdout),
+    env = parseEnv(await readFile(ready.environment_file, "utf8")),
+    config = loadConfig(env),
+    auth = new AuthService(db, localAuthSecrets(root), config.origin),
+    billing = new BillingService(db),
+    query = new QueryService(db, auth, billing, new PrivateMediaStore(env.MEDIA_ROOT));
+  assert.equal((await stat(ready.environment_file)).mode & 0o777, 0o600);
+  assert.ok(env.SOLDBENCH_API_KEY.startsWith("sb_k_"));
+  assert.ok(
+    !launched.stdout.includes(env.SOLDBENCH_API_KEY) && !launched.stderr.includes(env.SOLDBENCH_API_KEY),
+  );
+  assert.equal(ready.scenario, "research");
+  assert.equal(ready.records, 18);
+  assert.equal(ready.images, 18);
+  s.bind(createApp(config, db, { auth, query }));
+  const headers = { Authorization: `Bearer ${env.SOLDBENCH_API_KEY}` },
+    search = await fetch(
+      `${env.SOLDBENCH_BASE_URL}/sold?q=${encodeURIComponent(env.SOLDBENCH_KEYWORD)}&limit=2`,
+      { headers },
+    );
+  assert.equal(search.status, 202);
+  const { query_id: id } = (await search.json()).data;
+  assert.equal((await query.workOnce("research-demo-test")).status, "completed");
+  const claim = await fetch(`${env.SOLDBENCH_BASE_URL}/sold/${id}/claim`, {
+    method: "POST",
+    headers: { ...headers, "Idempotency-Key": "agent-research-demo-key" },
+  });
+  assert.equal(claim.status, 200);
+  const { data, meta } = await claim.json();
+  assert.equal(data.stats.n_price_verified, 16);
+  assert.equal(data.stats.best_offer_displayed_only_count, 2);
+  assert.equal(data.quality.comparison_scope.status, "mixed_models");
+  assert.equal(data.supplemental_stats.source_reported_match_count.count, 42000);
+  assert.equal(data.supplemental_stats.shipping_summary.groups.length, 2);
+  assert.equal(data.supplemental_stats.seller_summary.distinct_count, 4);
+  assert.equal(data.comps.length, 2);
+  assert.equal(meta.credits_charged, 1);
+  const row = data.comps[0];
+  const detail = await fetch(`${env.SOLDBENCH_BASE_URL}/sold/${id}/comps/${row.sale_event_id}`, { headers });
+  assert.equal(detail.status, 200);
+  const evidence = (await detail.json()).data.fields;
+  assert.equal(evidence.description.state, "present");
+  assert.equal(evidence.defects.state, "present");
+  assert.equal(evidence.primary_image.value.state, "available");
+  const image = await fetch(s.origin + evidence.primary_image.value.url, { headers });
+  assert.equal(image.status, 200);
+  assert.equal(image.headers.get("Content-Type"), "image/webp");
+  assert.ok((await image.arrayBuffer()).byteLength > 0);
+  const history = await fetch(`${env.SOLDBENCH_BASE_URL}/sold/${id}`, { headers });
+  assert.equal((await history.json()).meta.credits_charged, 0);
+  const quickstart = JSON.parse((await launchDemo(otherRoot, s)).stdout);
+  assert.equal(quickstart.scenario, "quickstart");
+  assert.equal(quickstart.records, 8);
+  assert.equal((await fetch(`${env.SOLDBENCH_BASE_URL}/sold/${id}`, { headers })).status, 200);
+  // Emulate the legacy demo name and verify that migration only rotates this directory's exact key.
+  await db.query("UPDATE api_keys SET name='offline-developer-demo' WHERE key_hash=$1", [
+    auth.crypto.hash("auth.api-key", env.SOLDBENCH_API_KEY),
+  ]);
+  const otherEnv = parseEnv(await readFile(quickstart.environment_file, "utf8")),
+    otherAuth = new AuthService(db, localAuthSecrets(otherRoot), config.origin);
+  await db.query("UPDATE api_keys SET name='offline-developer-demo' WHERE key_hash=$1", [
+    otherAuth.crypto.hash("auth.api-key", otherEnv.SOLDBENCH_API_KEY),
+  ]);
+  await launchDemo(root, s, "--research");
+  const replacement = parseEnv(await readFile(ready.environment_file, "utf8"));
+  assert.notEqual(replacement.SOLDBENCH_API_KEY, env.SOLDBENCH_API_KEY);
+  await assert.rejects(auth.keyIdentity(env.SOLDBENCH_API_KEY, "sold:read"));
+  assert.ok(await auth.keyIdentity(replacement.SOLDBENCH_API_KEY, "sold:read"));
+  assert.ok(await otherAuth.keyIdentity(otherEnv.SOLDBENCH_API_KEY, "sold:read"));
+});
 test("public developer assets are bilingual, fixed-path, cacheable and distinguish contract-only operations", async () => {
   const s = await http(),
     x = await createProductFixture(db, roots, { port: s.port });

@@ -8,6 +8,7 @@ export async function provisionFixtureSource(
   now: string,
   options: {
     publicAggregates?: boolean;
+    searchSummaries?: boolean;
     retentionDays?: number;
     rateCap?: number;
     concurrency?: number;
@@ -20,7 +21,7 @@ export async function provisionFixtureSource(
   } = {},
 ) {
   instant(now);
-  const { publicAggregates = false, ...limits } = options;
+  const { publicAggregates = false, searchSummaries = false, ...limits } = options;
   const settings = {
     retentionDays: 1,
     rateCap: 100,
@@ -59,6 +60,7 @@ export async function provisionFixtureSource(
             "shipping",
             "sold_date",
             "primary_image",
+            ...(searchSummaries ? ["source_match_count", "shipping_context", "seller_aggregate"] : []),
           ],
           ...(publicAggregates ? { public_share: ["aggregate"], public_cache: ["aggregate"] } : {}),
         },

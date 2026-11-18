@@ -1,0 +1,55 @@
+{
+  "date": "2026-11-18",
+  "baseline_commit": "dc8584c",
+  "evidence_type": "offline_product_integration",
+  "config": {
+    "data_mode": "offline_fixture",
+    "collector_enabled": false,
+    "payments_mode": "offline",
+    "db": "isolated PG16",
+    "transport": "local loopback HTTP",
+    "roles": [
+      "two separate synthetic demo identities",
+      "offline query worker"
+    ]
+  },
+  "checks": {
+    "npm_run_check": {
+      "exit_code": 0,
+      "node_tests": 231
+    },
+    "npm_run_test_step0": {
+      "exit_code": 0
+    },
+    "developer_assets": {
+      "exit_code": 0
+    }
+  },
+  "observed": {
+    "research_records": 18,
+    "available_primary_images": 18,
+    "verified_price_inputs": 16,
+    "display_only_best_offers": 2,
+    "quickstart_records": 8,
+    "scope_status": "mixed_models",
+    "observed_shipping_contexts": 2,
+    "authorized_image_content_type": "image/webp",
+    "repeat_credit_charge": 0,
+    "separate_demo_directory_keys_isolated": true,
+    "published_demo_env_mode": "0600"
+  },
+  "review": "Independent read-only review found the root-scoped legacy key recovery window. The exact old hash is now retagged without revocation before publishing the replacement; reviewer rechecked. No stage signoff.",
+  "pending": [
+    "licensed eBay collection and actual data quality",
+    "production payments and deployment",
+    "professional browser interfaces and external CI startup"
+  ],
+  "sha256": {
+    "scripts/collector-html-demo.mjs": "f561748aceb0861b8e6152a9e0a63666d2e5da5e116a26512c00240461292375",
+    "scripts/developer-demo.mjs": "47f55d5c177090914e45c500a842aecbf4b3762dabd189043d750ee8f6070040",
+    "packages/collector/src/provision-fixture.ts": "7654cdc0cebea5360fe7711f0ddee296ae56f0fbaa715f3320fc4fdc8db12df4",
+    "tests/developer.test.mjs": "bfc575bbe22bbb261e04be2b035e8e32d97b4aaed2c62caae112c7a5ca878702",
+    "README.md": "bbe067e4eda9069467bfdfec5e312c754e9b0233c553726e036792d59a1ff524",
+    "step0/verdict.md": "6f3c52b59ececbd9874409ece171c34148c5f42e560cd8bcf2517cdd3f36629f"
+  }
+}
