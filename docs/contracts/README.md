@@ -1,11 +1,11 @@
 # 契约验证入口
 
-版本1.3，2026-11-16。这里是开发前的设计契约；正式产品迁移仍在G0后由TASK-012建立。原始SQL、OpenAPI、示例、文档必须同步变更。
+维护说明更新于 2026-11-18。这里保留初始 SQL 设计基线与关系测试。当前离线迁移以 `packages/db/migrations/0001_*` 至 `0022_*` 顺序应用为准，ADR-13 规定离线实施授权及实际 G0 约束。新变更须同步适用契约、示例和文档。历史版本更新段落按当时版本阅读。
 
-- [OpenAPI 3.1](../openapi.yaml)：离线实施契约v1.4；追加primary image状态和owner/current-rights受限媒体读取API；供应商webhook原文按各自协议验证，不伪造自家格式代替。
+- [OpenAPI 3.1](../openapi.yaml)：当前离线契约 1.16.0。主图读取检查 owner 与当前权利。支付 webhook 的签名和原文处理遵循各自通道设计，真实联调另行验收。
 - [SQL基线](schema.sql)：PG16空库结构，含身份/来源/观测/事件/查询/作业/钱包/支付/删除/审计。
 - [关系用例](verify.sql)：只在空的专用数据库或schema运行；全部合成数据，最终ROLLBACK。
-- [完整fixture清单](fixtures/manifest.json)：10份合成响应，包含50条展示、58条完整重算输入、低样本/空结果/stale/202/未领取/过期/禁止。
+- [完整fixture清单](fixtures/manifest.json)：15 份合成响应，包含50条展示、58条完整重算输入、低样本/空结果/stale/202/未领取/过期/禁止。
 - [静态检查](check_contracts.py)：JSON Schema2020-12、内部引用、操作映射、权限定义、完整fixture与错误输入拒绝；不执行HTTP。
 
 ## Python环境

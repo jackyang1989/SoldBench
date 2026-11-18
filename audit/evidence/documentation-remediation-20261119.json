@@ -1,0 +1,143 @@
+{
+  "date": "2026-11-19",
+  "timezone": "Asia/Singapore",
+  "baseline": "808b9875d0f5a0ff005ddb37b8fb1c579b7ec7cd",
+  "scope": "Document remediation, generated developer resources, and offline regression only",
+  "environment": {
+    "node": "22.23.3",
+    "postgres": "16.15 isolated temporary cluster",
+    "account": "synthetic owner/test key",
+    "data_mode": "offline_fixture",
+    "collector_enabled": false,
+    "payments_mode": "offline",
+    "clock": "system UTC with fixed/free-running test clocks per fixture"
+  },
+  "verification": [
+    {
+      "command": "python3 docs/check_docs.py && git diff --check",
+      "exit_code": 0,
+      "summary": "PASS: 24 competitive capability groups have scheduled TASK and AT references.\nPASS: 52 Markdown files, 360 local links, 56 tasks, E1–E319, 16 features, 29 pages, 75 acceptance cases, 47 API groups, 13 decisions; original S-01…S-27 mapped.\nScope: documentation consistency only; no product, live-data or GO certification."
+    },
+    {
+      "command": "npm run contracts",
+      "exit_code": 0,
+      "summary": "> soldbench@0.1.0 contracts\n> python3 docs/contracts/check_contracts.py\n\nPASS: Stripe/PayPal checkout choices, four inactive/unknown choices rejected, independent webhook schemes.\nPASS: 103 component schemas, 65 unique operations, 15 complete synthetic fixtures, 18 invalid shapes rejected.\nPASS: 50 displayed / 58 complete calculation inputs / original 121-record stats reconcile.\nScope: JSON Schema + OpenAPI structure consistency; no HTTP implementation, live source, payment, or GO certification."
+    },
+    {
+      "command": "python3 scripts/build-developer-assets.py && python3 scripts/check-developer-assets.py",
+      "exit_code": 0,
+      "summary": "{\"developer_assets\": 30, \"localized_pages\": 16, \"openapi_version\": \"1.16.0\"}\nPASS: bilingual links, Skill metadata/references, discovery, OpenAPI JSON and credential-free collection."
+    },
+    {
+      "command": "npm run test:step0",
+      "exit_code": 0,
+      "summary": "> soldbench@0.1.0 test:step0\n> python3 step0/tools/validate_offline.py\n\ntypecheck: PASS\npoc-tests: PASS\ncli-first: PASS\ncli-replay: PASS\nintegrated-study: PASS\nfault-campaign: PASS\ncorpus: PASS\npreparation-tests: PASS\nsource-preparation: PASS\nquality-empty: PASS\ndependency-inventory: PASS\neconomics-unmeasured: PASS\neconomics-scenarios: PASS\nstability-no-records: PASS\ngolden: PASS\ndocumentation: PASS\ncontracts: PASS\ncli-replay-invariants: PASS\nintegrated-study-invariants: PASS\nstep0/artifacts/20261118T232610725216Z/validation.json"
+    },
+    {
+      "command": "npm run build",
+      "exit_code": 0,
+      "summary": "TypeScript build and 30 generated developer assets; Python and Node clients use synthetic data."
+    },
+    {
+      "command": "node scripts/test.mjs tests/developer.test.mjs tests/mcp.test.mjs",
+      "exit_code": 0,
+      "summary": "7 developer and 8 MCP tests passed. Three clients executed one queued query, consent, claim and free reads. Transient 503 retained the original claim key. SDK bridges exercised two protocol versions; two desktop/CLI hosts remain pending.",
+      "initial_attempt": "The sandbox blocked PostgreSQL initdb shared-memory creation (exit 1). The authorized rerun used its own temporary cluster and completed."
+    },
+    {
+      "command": "One-off localhost HTTP probe invoking node developer/examples/sold.ts, python3 developer/examples/sold.py, and sh developer/examples/sold.sh",
+      "exit_code": 0,
+      "summary": "TypeScript: 429 retry when allowed, 31-second Retry-After stops without early retry\nPython: 429 retry when allowed, 31-second Retry-After stops without early retry\ncurl: 429 retry when allowed, 31-second Retry-After stops without early retry\nPASS six synthetic local HTTP assertions. No upstream calls.",
+      "assertions": "For each client: 429 Retry-After: 0 followed by 202, completed job, and delivered 0-credit result. Retry-After: 31 returned retry_later and used one request. Stub used a random synthetic ID and no upstream access."
+    },
+    {
+      "command": "Python cross-document assertions (CSV, local Markdown paths, issue and cost inputs, paired examples, frozen data)",
+      "exit_code": 0,
+      "summary": "PASS 114 audit/Skill local links, 7 public page groups, 7 paired fee examples and matched methodology numbers\nPASS 22 named P0/P1 issues mapped; 45 evidence-pending source fields; 17 measured-input sampling rows\nPASS frozen OpenAPI and source-clearance.csv byte-identical to 808b987"
+    },
+    {
+      "command": "python3 step0/tools/verify_fixture.py",
+      "exit_code": 0,
+      "summary": "Synthetic golden 121 observed, 64 comparable, 58 verified, P25/median/P75 4200/5800/7600 cents, trimmed mean 5930 cents. Excluding first verified event leaves 57, trimmed mean 5929 cents."
+    }
+  ],
+  "independent_review": {
+    "reviewer": "doc_second_pass",
+    "scope": "Read-only review of risks, AT, recovery, wire contracts, source rights, links and bilingual copy; independent fixture recomputation.",
+    "findings_addressed": [
+      "S1 API/worker/migration startup and target checking",
+      "S3 active-account key/session revocation after old-database restore",
+      "A1 cross-interface attributes, limits and conflicts",
+      "Distinct teaching examples, golden date and median, month-end anchor and purchased bucket policy"
+    ]
+  },
+  "open_validation": [
+    "Core bilingual browser flow on the accepted UI",
+    "A1–A5 and D3 HTTP engineering fixes",
+    "Operational S1–S4 and B3 implementation, private result capacity and production restore",
+    "VS Code Copilot and Claude Code real host runs",
+    "Signed source permission and continuous 14-day data/quality study plus separate G1 observation",
+    "Approved Stripe and PayPal sandbox and small live payout reconciliation",
+    "Actual mail/delivery, privacy/terms, commercial decision and G0–G5 signatures"
+  ],
+  "phase_evidence": {
+    "documentation": "PASS",
+    "offline": "SELECTED_SYNTHETIC_REGRESSIONS_PASS",
+    "live_integration": "NOT_VERIFIED",
+    "commercial_release": "RELEASE_BLOCKED",
+    "stage0": "NOT_ISSUED"
+  },
+  "sha256": {
+    "README.md": "4e4ef7b2f02cb4cb6ef63d86d8e3cccb13d632b6542ab24d0c9929dca95d3cd8",
+    "SoldBench 开发规格书 v1.4.md": "4ccc0c8fb5a5e1df2e12081f0696ff282d83bfc6879f44b952052c73afe23afa",
+    "audit/00_EXECUTIVE_AUDIT_SUMMARY.md": "fdc4a27dcb39cc0f12b15cd8b2c239ebc2e18dddfb7943b427a9bb7d7687cbef",
+    "audit/01_DOCUMENT_INVENTORY.md": "f7b70abf519dfd34ab64fce2c5c2cbd12d732fe3d2f1568d912770b8b81cdb5b",
+    "audit/02_DOCUMENT_GAP_MATRIX.md": "5b0a5201ee0fecf5d7a356f6b980f7232a4b3cdf2dce4059159a992fe35fe501",
+    "audit/03_REQUIREMENTS_TRACEABILITY.md": "fbf75236586c688d50248b29e4fac01eef0f6a0ba1cc989174cb69cdd5dd2f4e",
+    "audit/04_FEATURE_COMPLETENESS.md": "9b56e65ad3e604aa5f9fb9cc7cfdcfbc5173671955ab322eba65d34a909ca539",
+    "audit/05_WORKFLOW_REVIEW.md": "5f16392bd5fd6a6e0a19d418696523ef332044ca016d19d71c3676cae4b6db2f",
+    "audit/06_DATA_AND_PRICING_QUALITY.md": "0e8d62eaff423ea0ecd6350d9b7c0e6935ce0599ebc77893acd2837dbab0d80d",
+    "audit/07_API_MCP_SKILL_REVIEW.md": "bf991473064acaea009dcf8a68f13c6e8cb4e516fd199015ac537f2c3986c4bb",
+    "audit/08_UX_PAGE_BY_PAGE_AUDIT.md": "d7f9678bf799b180a2a9ed959eeccaac137405e46dbeea4f6eb17ce3d1c7031b",
+    "audit/09_ARCHITECTURE_SECURITY_REVIEW.md": "b844b795ea13663c7e68d384effc261a285afee3f16c0fc8db07eb76f8ce41bf",
+    "audit/10_BILLING_AND_UNIT_ECONOMICS.md": "542d344524b2abf9b8c188c3d61e608097d0dee8043e53a19513bfd058cce292",
+    "audit/11_E2E_ACCEPTANCE_MATRIX.md": "dca44edd0c4fd3262dbe6a120ccae9c8fa00a1df2d2590ed3ed5768edc205735",
+    "audit/12_RISK_AND_ISSUE_REGISTER.md": "2b6ddf6441d6c0c744e226453c4ad1c2c351e1308f3a60b797f62be426f9442c",
+    "audit/13_OPTIMIZATION_ROADMAP.md": "10e6120b1ae12cbe0f92166db590c225b9d486737e56077bf8488b251368343d",
+    "audit/14_DECISION_LOG.md": "c2d12aefbf13c547b44c27503ec04834fa9eb14d8787ac59a2af062d530fbfa5",
+    "audit/15_FINAL_VERIFICATION_REPORT.md": "334097b2373d779b1fa43a9275228cd080f6be0b652823e60abefc9c98112225",
+    "audit/16_MISSING_DOCUMENTS_AND_REVISIONS.md": "32bc5e9178edd242ef5e3a5bce68d9dce1ca923fd329c9cee1d115db1223b085",
+    "audit/evidence/run/browser-walkthrough.md": "67c0619a55f1207ecfd3dbad80710a7f1c952ef8bac2c5009253917fa3427564",
+    "audit/evidence/run/design-relations.log": "f2b642ff6c965a4e4995d19679a29a552d65cfa7c0a022b35fde88c49b8fb541",
+    "audit/evidence/run/developer-assets.log": "33a45beff0076724e1b2ae69bb4efc6e874f44ee9c979a9f07a0476af3f8bf3a",
+    "audit/evidence/run/documentation.log": "e673ab6b42bf6b980c232f073a19b39f408564d6543f452cac4477c560b926da",
+    "audit/evidence/run/engineering.log": "9f53a1471a95e30cfebd7c145427a8e87573c7e1c6d14dbf299a33ceb03169f6",
+    "audit/evidence/run/implementation-status.json": "cb7f061f15048970178cab808aa009d53d9d6e100c63f2a53fe3f5e984755526",
+    "audit/evidence/run/local-page-routes.json": "44dd82f0affaa0965f7f72f25e373c43ef5acbeb6ce306e8a65f9c51dee2b7cd",
+    "audit/evidence/run/openapi-formal.log": "ba2b87b39d80dd55c33b81b766412b1854d13c95cb68e67327142f3b48e490de",
+    "audit/evidence/run/step0.log": "62d195eb5138eca6fcaa849ffe3b1ff3cc35ffd72f2be4ed569bd7bb0054ea67",
+    "audit/evidence/sha256.json": "dd772f6a08d6dc835befa17311fc08ec1458f495a4f82d0e9df66c9be8415bd5",
+    "developer/skills/soldbench/references/api-reference.md": "7f8f0bd6b1f3f4d367feda336671ee8a94f889c9bd5fd5332448a88d6c4955cf",
+    "developer/skills/soldbench/references/examples.md": "bd15ffc563d7a0668c71d68a9575be1d3d933b73f9bff817197ae5800ea60485",
+    "docs/Agent接手指南.md": "1faf206b3c3b9ea393bd3175fab962626e438fd6643cd658fd26678cdc641bfd",
+    "docs/MCP与开发者交付契约.md": "bd9ea048513431c46abd13054414e8d7746fc4668c6cd865ff6ac24cddee938a",
+    "docs/Stripe与PayPal接入规格.md": "e00286350a4d18dd2444b6ad0e3ad4af10b7f40c4cc11a492608d368f0d9598c",
+    "docs/contracts/README.md": "9590ac84510043bc5bfe8b28238472a1d40f7e98a26d3be8c8243ee73b7c4a66",
+    "docs/功能与页面规格.md": "4767c482bc695f773bd79d9bc25d49d18cf05d70bba4660ad6ba78ad874c6a1b",
+    "docs/发布、回滚与撤权恢复手册.md": "c2853d7c7e09c4b55d6ea091207feb0ee8338e2060af3e987d630a772b7a7a7b",
+    "docs/工程实施规格.md": "53eedb86d0ae3b7e8195ff594d9669c076b087f4b70db1738b72bd6a1992e61e",
+    "docs/开发排期与任务台账.md": "a31fbed36694d7e452ced495d3040b13943d44bb1e76ed1bccd08f7f6f1cfdbd",
+    "docs/执行与交接模板.md": "77e0d71654fa82fcec5405fd8083e7fa70ab263569cf1c593b78eae6bcb8289a",
+    "docs/接口与数据契约.md": "04e32d15fdefff7aeed2651aec26e52f7f85d83593f807941e92152f19217f9a",
+    "docs/搜索页采集字段与统计契约.md": "b3b697c6160ae09ab79c10f6ab02d3b9e13a4aaf2ef19281eeeeb9466d7c3f4f",
+    "docs/查询账本与交付实施契约.md": "371565c2d655c350fe6525dbabd313ac736c400efec4d73ce546dcb6dc6c8505",
+    "docs/运营后端实施契约.md": "aa7cfe754be765fc801a3c98401924cb4803a539229143ba6a5591aa2b42b018",
+    "docs/首发公开页面双语内容稿.md": "0205b0422042473b9ab0c6df7254bf89439c1e00b8b55008db212f14753e7250",
+    "docs/验收矩阵.md": "dfefd7e5f055bf327305c4c82a616c1a2918afd1e93822ceecc8031758a35875",
+    "step0/access-rights.md": "2b755c75d5bb8756c4ea3fc468050234e988ae36f0e8d598b0dbaee51ea500f2",
+    "step0/payment-review.md": "284b3e2041a4c53b2a54fa34b07434161de035b40d187485dcb04a6958c33478",
+    "step0/quality-plan.md": "0a7ab456a9ee922a4ce80bb935bafbe88114e01a9b5008908dde6c75b7403d6f",
+    "step0/source-capabilities.csv": "a8d5ff9e12139a5d696b6a333f3e36a888124426b6cf31665417851ad77c0ac7",
+    "step0/unit-economics/README.md": "b6f3de61cdc0f06cbd4fe88dcf4332f80b0d89b5c16019facd34d65f0b7575f7"
+  }
+}

@@ -37,3 +37,46 @@ Skill只是产品客户端指南，不修改用户环境、发送消息、建立
 TS/Python/curl示例读取私有环境变量，--claim为明确允许，省略停在409；curl需同目录Python客户端做JSON与轮询，HTTP由curl执行，首参数--disable忽略用户curlrc，不跟重定向。最多3次暂时失败重试，Retry-After超过30秒返回retry_later，不提前重试；轮询40次有界。凭证不入argv/输出，UUID验证后只构造固定本源路径。MCP请求体流式128KiB，30秒请求信号、拒绝批量；stats-only返回comp计数0并注明stats_only。
 
 developer:demo仅专用本机PG、synthetic非登录身份与0600密钥文件，重跑撤销旧演示key。环境文件含LOCAL_STATE_ROOT、MEDIA_ROOT与本机数据库等一致配置；先导入，再启动实际API和query-worker，避免各自生成不同认证authority。真实来源、真实账号/邮件与实际支付审批不因演示解锁。CI固定官方Action提交运行离线脚本；未观察GitHub执行前不写远端通过。
+
+## A6 上手、费用恢复与版本验收（2026-11-19）
+
+| 证据字段 | 写入条件 | 808b987 基线 |
+|---|---|---|
+| contract_defined | 冻结 OpenAPI 或明确工具定义有此操作 | 65 个 REST 操作，MCP 工具有独立定义 |
+| route_registered | 构建的实际路由表可定位 | REST 63/65；categories、data-status 未挂载 |
+| fixture_runnable | 输入使用合成模式且操作可通过本机服务发起 | 查价、作业轮询、显式领取、已交付读取、日志、模拟支付各按环境准备 |
+| behavior_verified | 有同版正反例、请求响应、必要时账本和隔离证据 | 逐操作查证，A1–A5/D3 保留差异；发布验收另验 |
+
+从干净环境使用 [仓库示例及安装说明](../developer/skills/soldbench/references/examples.md)，创建专用本机 PG16 的 demo，使用其输出的私有环境文件。该文件须由两个 shell 及宿主进程读取一致的 API/worker 设置。不要将凭据写入共享配置、参数、截图或日志。上线目标地址待域名和 TLS 签收，以下入口均指已启动的本机实例。
+
+| 顺序 | 动作及断言 |
+|---|---|
+| 准备身份 | 演示 key 来自本机工具；网页验收另从空账户验证邮箱并用 Session 创建 key，保存一次显示的明文。查价、作业和日志分别服从操作 scope。撤销后再次请求须拒绝；已付结果仍可由有效 owner 身份取回。 |
+| 首次调用 | 保持默认 Nintendo Switch OLED，运行 `node developer/examples/sold.ts`、`python3 developer/examples/sold.py`、`sh developer/examples/sold.sh`。三个客户端使用同一 owner 与条件。让 worker 暂停或固定排队，记录 202、job_id、query_id；恢复 worker 后按 GET job 轮询，记录 completed 及首次 GET 的 409 result_not_claimed。 |
+| 领取与复取 | 明确同意最多 1 credit 后，沿原 query ID 显式 POST claim。执行现有客户端的 `--claim` 测试可在同一十分钟复用窗重新拿到原结果。脚本每次运行仅在本次进程内复用自己的键。集成应用要在发出前持久保存原 query_id、授权和幂等键；断线后先 GET 原结果，仍 409 时沿原键重试。再执行其余客户端应为同一原快照且费用 0。 |
+| 错误与账务 | 控制本机限额和来源水位，分别采 429（Retry-After、有界等待）与 503（供数不可用说明、request_id），确认等待/失败为 0。申请额度不足留下可领取状态。GET /v1/usage 核对账本且 GET /v1/requests 用 cursor、page_size、channel、operation、status 核对日志。error_code 来自响应字段。 |
+| 输出 | 记录 request_id、状态码、候选 hash、实际积分、是否复取。REST 默认 50、最多 200；MCP 同一计算身份仅展示最多 20 行，统计使用完整获准快照。UI 从已读结果调整显示行数属于本地呈现，改变新查询传入的 limit 遵当前查询规范并需明确提交。 |
+
+### 两个拟验收宿主
+
+选用 VS Code 的 Copilot harness 与 Claude Code 作为 TASK-037 两个目标，尚需以实际版本试跑。两者的工作区 `.mcp.json` 可用以下 HTTP 入口及环境变量引用。VS Code 也可用个人 Copilot 配置。将 URL 中端口替换为本机演示输出的实际端口，并由可信宿主继承私有进程环境。目标域名切换需要服务端部署证据。配置路径与格式应按实际宿主版本确认。[VS Code 配置](https://code.visualstudio.com/docs/agents/reference/mcp-configuration) · [Claude Code 配置](https://code.claude.com/docs/en/mcp#environment-variable-expansion-in-mcp-json)
+
+```json
+{
+  "mcpServers": {
+    "soldbench": {
+      "type": "http",
+      "url": "http://127.0.0.1:3000/mcp",
+      "headers": {
+        "Authorization": "Bearer ${SOLDBENCH_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+在每个宿主记录实际产品、客户端及协议版本、配置作用范围、服务端 SHA 和测试账号角色。按 `initialize → tools/list → sold_search(search) → status → result → 用户同意 → claim → result/sold_stats` 保存空账号、拒绝费用、同意领取和撤销 key 四类结果。确认在用户拒绝时无扣费，与 REST 用同一合成条件复取时不双扣。记录 20 行演示可在 58 价格输入夹具中进行。SDK/HTTP 探针证据另存，两个宿主目前均为待验收。
+
+### 发布与兼容
+
+发布记录按日期和版本列操作 ID、变更前后请求与响应、受影响 scope/身份/费用、旧客户端兼容窗口、迁移步骤和回退门。权限增加、查询规范变更、日期精度和历史语义先进入 DEC 及影响检查；冻结后同步 OpenAPI 及 fixtures、Web/REST/MCP、Skill 与中英文 changelog。A1–A5/D3 参考协议差异卡，当前错误字段说明按 A6 纠正。破坏性 REST 更新按原稿 §9.1 升到 /v2，发布弃用通知并保留 /v1 至少 6 个月。下线或更改已公布行为时须核对客户使用面并由负责人签出迁移期和兼容回归。操作清单由构建生成，行为证据由对应 TASK 记录。[协议差异](接口与数据契约.md) · [验收](验收矩阵.md)

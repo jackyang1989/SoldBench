@@ -1,0 +1,357 @@
+{
+  "scope": "Hono in-process GET page routes, no service fixtures or database, no browser",
+  "evidence": [
+    {
+      "path": "/",
+      "status": 200,
+      "content_type": "text/html; charset=UTF-8",
+      "location": null,
+      "title": "SoldBench — Research",
+      "error": null
+    },
+    {
+      "path": "/zh-CN",
+      "status": 200,
+      "content_type": "text/html; charset=UTF-8",
+      "location": null,
+      "title": "SoldBench — 成交研究",
+      "error": null
+    },
+    {
+      "path": "/research?q=Nintendo%20Switch%20OLED",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/zh-CN/research?q=Nintendo%20Switch%20OLED",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/results/sample",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/pricing",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/docs",
+      "status": 302,
+      "content_type": null,
+      "location": "/docs/en/quickstart",
+      "title": null,
+      "error": null
+    },
+    {
+      "path": "/docs/quickstart",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/docs/en/quickstart",
+      "status": 200,
+      "content_type": "text/markdown; charset=utf-8",
+      "location": null,
+      "title": null,
+      "error": null
+    },
+    {
+      "path": "/docs/zh-CN/quickstart",
+      "status": 200,
+      "content_type": "text/markdown; charset=utf-8",
+      "location": null,
+      "title": null,
+      "error": null
+    },
+    {
+      "path": "/methodology",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/status",
+      "status": 503,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "service_unavailable"
+    },
+    {
+      "path": "/categories",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/categories/trading-cards",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/markets",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/guides",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/guides/sample",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/compare/sample",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/alternatives",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/changelog",
+      "status": 200,
+      "content_type": "text/markdown; charset=utf-8",
+      "location": null,
+      "title": null,
+      "error": null
+    },
+    {
+      "path": "/agents",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/mcp",
+      "status": 503,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "service_unavailable"
+    },
+    {
+      "path": "/share/unissued",
+      "status": 503,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "service_unavailable"
+    },
+    {
+      "path": "/playground",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/account",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/zh-CN/account",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/register",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/login",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/verify-email",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/forgot-password",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/reset-password",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/account/usage",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/account/billing",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/account/keys",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/account/security",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/account/queries",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/admin/sources",
+      "status": 503,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "service_unavailable"
+    },
+    {
+      "path": "/admin/jobs",
+      "status": 503,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "service_unavailable"
+    },
+    {
+      "path": "/admin/billing",
+      "status": 503,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "service_unavailable"
+    },
+    {
+      "path": "/admin/audit",
+      "status": 503,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "service_unavailable"
+    },
+    {
+      "path": "/contact",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/support",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/terms",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    },
+    {
+      "path": "/privacy",
+      "status": 404,
+      "content_type": "application/json",
+      "location": null,
+      "title": null,
+      "error": "not_found"
+    }
+  ]
+}

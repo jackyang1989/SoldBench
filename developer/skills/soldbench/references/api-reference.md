@@ -8,18 +8,18 @@ Implemented local routes:
 |---|---|---|
 | GET | /sold?q=... | 202; data.query_id, job_id, status. No charge. limit 1–200, default 50. |
 | GET | /jobs/{id} | data.status queued/running/completed/failed/cancelled/expired; no result before claim. |
-| POST | /jobs/{id}/cancel | Cancel when allowed; no charge. |
-| GET | /sold/{id} | Delivered/free result, or 409 result_not_claimed. |
+| POST | /jobs/{id}/cancel | Send the current job version in JSON and a stable Idempotency-Key. The local handler returns 204 with no body. On a lost reply or 409, GET the same job; the frozen 200 JobResponse and same-key replay are pending. |
+| GET | /sold/{id} | Delivered/free result, or 409 result_not_claimed. The local adapter ignores the frozen sort parameter. |
 | POST | /sold/{id}/claim | Explicit settlement; Idempotency-Key required. At most 1 credit. |
-| GET | /sold/{id}/calculation-inputs | Complete permitted pricing input rows, independent of display limit. |
+| GET | /sold/{id}/calculation-inputs | Complete permitted pricing input rows, independent of display limit. A date-only sale can appear as a UTC midnight placeholder without its precision. Read permitted comparable detail for the original date and zone before time analysis. |
 | GET | /sold/{id}/diagnostics | Owner-only signed cursor pagination, size 1–100; decisions and withheld count. |
 | GET | /sold/{id}/comps/{event_id} | Current permitted detail fields, missing/withheld states, controlled primary image. |
 | POST | /sold/{id}/export | JSON body format=json/csv, view=authoritative/adjusted, optional excluded_sale_event_ids. Complete allowed inputs, 2000 rows/5 MiB maximum. |
 | GET | /usage | Current allowance and ledger-derived usage. |
-| GET | /requests | Owner logs, channel/operation/status/error filters and signed cursor; 30 days. |
+| GET | /requests | Owner logs, channel/operation/status filters, page_size and signed cursor. error_code is returned in rows. Readable for 30 days. |
 | GET | /media/{image_id} | Private controlled image; rechecks current rights. No upstream image URL. |
 
-Search supports q, marketplace=ebay_us, category, brand, model, condition, window_days, price_basis, limit, allow_stale, min_price_cents, max_price_cents, sale_format and attribute filters. Consult OpenAPI for exact enums and normalizer constraints. Do not mix countries, currencies, capacities or models into a comparable estimate.
+Search supports q, marketplace=ebay_us, category, brand, model, condition, window_days, price_basis, limit, allow_stale, min_price_cents, max_price_cents, sale_format and attribute filters. In this local build, use category=cards_graded with attr_grading_company and attr_grade as separate parameters. The corresponding JSON attributes are grading_company and grade. Some frozen OpenAPI aliases differ from the runtime allowlist. GET /categories and GET /data-status remain contract-only. Use an owner session for query history under the frozen contract. Do not mix countries, currencies, capacities or models into a comparable estimate.
 
 Result: data.stats.median_cents / p25_cents / p75_cents / n_price_verified; data.quality; data.supplemental_stats; data.comps. meta carries actual credits_charged, request_id, freshness, candidate hash and engine/parser/billing versions. Absence/null is not zero. A displayed reference price is not a verified accepted offer.
 

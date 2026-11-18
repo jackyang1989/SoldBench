@@ -1,0 +1,397 @@
+{
+  "schema_version": "1.16.0",
+  "data_mode": "synthetic_fixture",
+  "acceptance": "Local route presence is not functional, production or stage acceptance.",
+  "operations": [
+    {
+      "operation_id": "getPrimaryImage",
+      "method": "GET",
+      "path": "/v1/media/{image_id}",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "searchSold",
+      "method": "GET",
+      "path": "/v1/sold",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "getSoldResult",
+      "method": "GET",
+      "path": "/v1/sold/{id}",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "claimSoldResult",
+      "method": "POST",
+      "path": "/v1/sold/{id}/claim",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "getJob",
+      "method": "GET",
+      "path": "/v1/jobs/{id}",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "cancelJob",
+      "method": "POST",
+      "path": "/v1/jobs/{id}/cancel",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "listCategories",
+      "method": "GET",
+      "path": "/v1/categories",
+      "status": "contract_only"
+    },
+    {
+      "operation_id": "getDataStatus",
+      "method": "GET",
+      "path": "/v1/data-status",
+      "status": "contract_only"
+    },
+    {
+      "operation_id": "getUsage",
+      "method": "GET",
+      "path": "/v1/usage",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "listQueries",
+      "method": "GET",
+      "path": "/v1/queries",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "listKeys",
+      "method": "GET",
+      "path": "/v1/keys",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "createKey",
+      "method": "POST",
+      "path": "/v1/keys",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "revokeKey",
+      "method": "DELETE",
+      "path": "/v1/keys/{id}",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "getCalculationInputs",
+      "method": "GET",
+      "path": "/v1/sold/{id}/calculation-inputs",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "createShare",
+      "method": "POST",
+      "path": "/v1/shares",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "listShares",
+      "method": "GET",
+      "path": "/v1/shares",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "revokeShare",
+      "method": "DELETE",
+      "path": "/v1/shares/{id}",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "getShare",
+      "method": "GET",
+      "path": "/share/{token}",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "register",
+      "method": "POST",
+      "path": "/auth/register",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "verifyEmail",
+      "method": "POST",
+      "path": "/auth/verify-email",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "login",
+      "method": "POST",
+      "path": "/auth/login",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "logout",
+      "method": "POST",
+      "path": "/auth/logout",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "requestPasswordReset",
+      "method": "POST",
+      "path": "/auth/password-reset/request",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "confirmPasswordReset",
+      "method": "POST",
+      "path": "/auth/password-reset/confirm",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "resendVerification",
+      "method": "POST",
+      "path": "/auth/verification/resend",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "reauthenticate",
+      "method": "POST",
+      "path": "/auth/reauthenticate",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "changePassword",
+      "method": "POST",
+      "path": "/account/password",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "listSessions",
+      "method": "GET",
+      "path": "/account/sessions",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "revokeSession",
+      "method": "DELETE",
+      "path": "/account/sessions/{id}",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "requestDeletion",
+      "method": "POST",
+      "path": "/account/deletion-requests",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "getDeletion",
+      "method": "GET",
+      "path": "/account/deletion-requests/{id}",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "createCheckout",
+      "method": "POST",
+      "path": "/billing/checkout",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "cancelSubscription",
+      "method": "POST",
+      "path": "/billing/cancel",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "getSubscription",
+      "method": "GET",
+      "path": "/billing/subscription",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "createBillingPortal",
+      "method": "POST",
+      "path": "/billing/portal",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "webhookPaddle",
+      "method": "POST",
+      "path": "/webhooks/paddle",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "webhookDodo",
+      "method": "POST",
+      "path": "/webhooks/dodo",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "webhookStripe",
+      "method": "POST",
+      "path": "/webhooks/stripe",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "webhookPaypal",
+      "method": "POST",
+      "path": "/webhooks/paypal",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "webSearch",
+      "method": "POST",
+      "path": "/web/search",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "createSupportRequest",
+      "method": "POST",
+      "path": "/support/requests",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "listAdminSources",
+      "method": "GET",
+      "path": "/admin/sources",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "sourceCommand",
+      "method": "POST",
+      "path": "/admin/sources/{id}/commands",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "listAdminJobs",
+      "method": "GET",
+      "path": "/admin/jobs",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "retryAdminJob",
+      "method": "POST",
+      "path": "/admin/jobs/{id}/retry",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "listAdminBilling",
+      "method": "GET",
+      "path": "/admin/billing",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "refundQueryCredit",
+      "method": "POST",
+      "path": "/admin/charges/{id}/refund-credit",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "listAudit",
+      "method": "GET",
+      "path": "/admin/audit",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "getSoldDiagnostics",
+      "method": "GET",
+      "path": "/v1/sold/{id}/diagnostics",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "listPayments",
+      "method": "GET",
+      "path": "/billing/payments",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "currentSession",
+      "method": "GET",
+      "path": "/auth/me",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "verifyMfa",
+      "method": "POST",
+      "path": "/auth/mfa/verify",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "mfaStatus",
+      "method": "GET",
+      "path": "/account/mfa",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "disableMfa",
+      "method": "DELETE",
+      "path": "/account/mfa",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "setupMfa",
+      "method": "POST",
+      "path": "/account/mfa/setup",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "confirmMfa",
+      "method": "POST",
+      "path": "/account/mfa/confirm",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "regenerateRecoveryCodes",
+      "method": "POST",
+      "path": "/account/mfa/recovery-codes",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "rotateKey",
+      "method": "POST",
+      "path": "/v1/keys/{id}/rotate",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "getSoldCompDetail",
+      "method": "GET",
+      "path": "/v1/sold/{id}/comps/{event_id}",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "exportSoldResearch",
+      "method": "POST",
+      "path": "/v1/sold/{id}/export",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "listRequestAudit",
+      "method": "GET",
+      "path": "/v1/requests",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "callMcp",
+      "method": "POST",
+      "path": "/mcp",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "getOfflineCheckout",
+      "method": "GET",
+      "path": "/billing/checkout/{id}",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "findDeletionByReceipt",
+      "method": "GET",
+      "path": "/account/deletion-requests/by-receipt",
+      "status": "local_route_present"
+    },
+    {
+      "operation_id": "getPublicStatus",
+      "method": "GET",
+      "path": "/status",
+      "status": "local_route_present"
+    }
+  ]
+}

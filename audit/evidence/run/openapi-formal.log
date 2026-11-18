@@ -1,0 +1,7 @@
+/tmp/soldbench-contract-py/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+  warnings.warn(
+PASS: OpenAPI 3.1 specification validation (openapi-spec-validator 0.7.2).
+PASS: Stripe/PayPal checkout choices, four inactive/unknown choices rejected, independent webhook schemes.
+PASS: 103 component schemas, 65 unique operations, 15 complete synthetic fixtures, 18 invalid shapes rejected.
+PASS: 50 displayed / 58 complete calculation inputs / original 121-record stats reconcile.
+Scope: JSON Schema + OpenAPI structure consistency; no HTTP implementation, live source, payment, or GO certification.

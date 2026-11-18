@@ -34,3 +34,10 @@ human_adjudicated要求每行至少两个不同annotator_ids和adjudication_ref�
 工具对照候选manifest查缺失/重复标注，未知或缺失真值使该组Precision/Recall保留null。不完整候选快照的Recall保留null。TP/FP/FN/TN及样本数始终可诊断，Wilson区间按95%输出。Recall仅在已观察候选范围解释，市场覆盖继续独立披露。
 
 价格中位偏差按每个query分别计算，禁止混合不同商品价格。沿用既有黄金算例的整数/有理数算法，双方有价样本均至少8条才形成中心统计，金标中位为0时相对误差null。未知实际价的排除数量以人工价格字段和计数核对。报告提供类目、头尾和开发/留出分层，releaseApproved始终false，质量总分null。当前空输入模板输出零标注及null指标。
+
+## 每日分母与类目签收记录
+
+- **冻结前**。标注负责人导出 6 组 × 20 条，共 120 条查询。每组预定 10 条头部和 10 条长尾。每条记录规范属性、批准窗口、站点、query ID、版本和 hash。按来源稳定事件分组切 development/holdout，并登记所属快照，重复 listing 的观察不得扩增成交；身份无法确认的记录单独报告。未核验字段保持 unknown。
+- **每个获准自然日**。汇报 day × 类目 × 头尾的计划、未启动、停止、首试成功、最终语义成功、可收费资格及各失败原因。批准重试保留在原任务，缺页、空结果、挑战、HTTP 错误页、预算停止和未执行要分别记录。成功率和可收费率用固定计划分母。价格核验率、事件识别、运费/主图完整性分别列分子与分母；主图还列有效图片权利与实物可读。失败日不能从报告删去。
+- **盲测交付**。保存两份独立人工标注、分歧与仲裁、生效证据、候选与留出 hash。逐类目报告原门槛、头尾支持量、置信区间与 FAIL/INSUFFICIENT/READY_FOR_REVIEW。低覆盖、未知身份或无足量金标的类目保留限制，不向其他类目借样本。报告签收行填写 `category / source clearance / run window UTC / parser + cleaner / coverage / precision + recall / price deviation / missing fields / result / reviewer / founder / proof`。
+- **两个独立观察窗口**。TASK-007 连续 14 天受准入、冻结和独立原始证据约束。起止日、观察计划、停机/续跑在执行前签收。G1 继续按实际生产型部署观察 7 天，单独记录资源、隔离、后台恢复与告警。只有通过质量和准入的类目才可提交开放评审。[逐日执行](online-validation-plan.md) · [阶段签收](verdict.md)

@@ -1,46 +1,46 @@
-source_candidate,field,availability,evidence_ref,parser_version,missing_semantics
-ebay_us_candidate,listing_id,unverified,,,unknown; verify using permitted source sample
-ebay_us_candidate,sale_event_id,unverified,,,unknown; verify using permitted source sample
-ebay_us_candidate,event_identity_evidence,unverified,,,unknown; verify using permitted source sample
-ebay_us_candidate,sold_status,unverified,,,unknown; verify using permitted source sample
-ebay_us_candidate,sold_at,unverified,,,unknown; verify using permitted source sample
-ebay_us_candidate,source_time_zone,unverified,,,unknown; verify using permitted source sample
-ebay_us_candidate,sold_date_precision,unverified,,,unknown; verify using permitted source sample
-ebay_us_candidate,sale_price_status,unverified,,,unknown; verify using permitted source sample
-ebay_us_candidate,item_price,unverified,,,unknown; verify using permitted source sample
-ebay_us_candidate,currency,unverified,,,unknown; verify using permitted source sample
-ebay_us_candidate,observed_shipping,unverified,,,unknown; verify using permitted source sample
-ebay_us_candidate,shipping_destination,unverified,,,unknown; verify using permitted source sample
-ebay_us_candidate,sale_format,unverified,,,unknown; verify using permitted source sample
-ebay_us_candidate,condition,unverified,,,unknown; verify using permitted source sample
-ebay_us_candidate,category,unverified,,,unknown; verify using permitted source sample
-ebay_us_candidate,strong_attributes,unverified,,,unknown; verify using permitted source sample
-ebay_us_candidate,next_cursor,unverified,,,unknown; verify using permitted source sample
-ebay_us_candidate,sort_order,unverified,,,unknown; verify using permitted source sample
-ebay_us_candidate,source_as_of,unverified,,,unknown; verify using permitted source sample
-ebay_us_candidate,retention_until,unverified,,,unknown; verify using permitted source sample
-ebay_us_candidate,title,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required
-ebay_us_candidate,listing_url,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required
-ebay_us_candidate,condition_id,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required
-ebay_us_candidate,condition_raw,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required
-ebay_us_candidate,condition_mapping_context,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required
-ebay_us_candidate,displayed_price,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required
-ebay_us_candidate,accepted_offer_evidence,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required
-ebay_us_candidate,shipping_status,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required
-ebay_us_candidate,shipping_evidence,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required
-ebay_us_candidate,shipping_context,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required
-ebay_us_candidate,primary_image_candidate,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required
-ebay_us_candidate,primary_image_role,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required
-ebay_us_candidate,primary_image_evidence_binding,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required
-ebay_us_candidate,primary_image_dimensions,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required
-ebay_us_candidate,seller_source_identity,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required
-ebay_us_candidate,seller_public_handle,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required
-ebay_us_candidate,source_reported_match_count,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required
-ebay_us_candidate,source_reported_match_count_context,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required
-ebay_us_candidate,source_record_unit,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required
-ebay_us_candidate,query_capture_context,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required
-ebay_us_candidate,item_specifics,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required
-ebay_us_candidate,condition_description,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required
-ebay_us_candidate,description,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required
-ebay_us_candidate,gallery_images,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required
-ebay_us_candidate,field_visibility_permissions,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required
+source_candidate,field,availability,evidence_ref,parser_version,missing_semantics,approved_field_entrypoint,rights_evidence_ref,approved_uses,region,rights_effective_at,rights_expires_at,retention_days,revocation_trigger,cleanup_owner_role,approval_status
+ebay_us_candidate,listing_id,unverified,,,unknown; verify using permitted source sample,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,sale_event_id,unverified,,,unknown; verify using permitted source sample,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,event_identity_evidence,unverified,,,unknown; verify using permitted source sample,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,sold_status,unverified,,,unknown; verify using permitted source sample,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,sold_at,unverified,,,unknown; verify using permitted source sample,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,source_time_zone,unverified,,,unknown; verify using permitted source sample,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,sold_date_precision,unverified,,,unknown; verify using permitted source sample,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,sale_price_status,unverified,,,unknown; verify using permitted source sample,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,item_price,unverified,,,unknown; verify using permitted source sample,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,currency,unverified,,,unknown; verify using permitted source sample,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,observed_shipping,unverified,,,unknown; verify using permitted source sample,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,shipping_destination,unverified,,,unknown; verify using permitted source sample,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,sale_format,unverified,,,unknown; verify using permitted source sample,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,condition,unverified,,,unknown; verify using permitted source sample,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,category,unverified,,,unknown; verify using permitted source sample,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,strong_attributes,unverified,,,unknown; verify using permitted source sample,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,next_cursor,unverified,,,unknown; verify using permitted source sample,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,sort_order,unverified,,,unknown; verify using permitted source sample,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,source_as_of,unverified,,,unknown; verify using permitted source sample,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,retention_until,unverified,,,unknown; verify using permitted source sample,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,title,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,listing_url,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,condition_id,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,condition_raw,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,condition_mapping_context,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,displayed_price,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,accepted_offer_evidence,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,shipping_status,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,shipping_evidence,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,shipping_context,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,primary_image_candidate,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required,,,unknown,,,,,source_or_field_right_revoked_or_expired,media_operations,pending_evidence
+ebay_us_candidate,primary_image_role,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required,,,unknown,,,,,source_or_field_right_revoked_or_expired,media_operations,pending_evidence
+ebay_us_candidate,primary_image_evidence_binding,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required,,,unknown,,,,,source_or_field_right_revoked_or_expired,media_operations,pending_evidence
+ebay_us_candidate,primary_image_dimensions,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required,,,unknown,,,,,source_or_field_right_revoked_or_expired,media_operations,pending_evidence
+ebay_us_candidate,seller_source_identity,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,seller_public_handle,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,source_reported_match_count,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,source_reported_match_count_context,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,source_record_unit,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,query_capture_context,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,item_specifics,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,condition_description,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,description,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence
+ebay_us_candidate,gallery_images,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required,,,unknown,,,,,source_or_field_right_revoked_or_expired,media_operations,pending_evidence
+ebay_us_candidate,field_visibility_permissions,unverified,,,unknown; capture/store/display/aggregate rights and permitted source evidence required,,,unknown,,,,,source_or_field_right_revoked_or_expired,data_operations,pending_evidence

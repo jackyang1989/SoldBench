@@ -1,0 +1,235 @@
+Isolated Unix socket: /var/folders/zf/l30tz2bd5xbgb8dh_4lhry780000gn/T/soldbench-audit-relations-mPpsGL/socket
+psql -v ON_ERROR_STOP=1 -f docs/contracts/schema.sql -f docs/contracts/verify.sql
+  server_version  
+------------------
+ 16.15 (Homebrew)
+(1 row)
+
+BEGIN
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE INDEX
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE INDEX
+CREATE TABLE
+CREATE INDEX
+CREATE TABLE
+CREATE TABLE
+CREATE INDEX
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE FUNCTION
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE FUNCTION
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE FUNCTION
+CREATE TRIGGER
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+COMMIT
+BEGIN
+CREATE FUNCTION
+INSERT 0 2
+INSERT 0 1
+INSERT 0 1
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+INSERT 0 1
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+INSERT 0 1
+INSERT 0 1
+UPDATE 1
+INSERT 0 1
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+DO
+SET CONSTRAINTS
+SET CONSTRAINTS
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+INSERT 0 1
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+INSERT 0 1
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+INSERT 0 1
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+INSERT 0 2
+INSERT 0 1
+INSERT 0 1
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+INSERT 0 1
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+INSERT 0 1
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+INSERT 0 1
+ expect_rejection 
+------------------
+ 
+(1 row)
+
+                                             result                                             
+------------------------------------------------------------------------------------------------
+ PASS: 24 negative constraints plus owner/source consistency and deferred ledger reconciliation
+(1 row)
+
+ROLLBACK
+ count 
+-------
+    47
+(1 row)
+
+psql exit=0
+Isolated PostgreSQL stopped

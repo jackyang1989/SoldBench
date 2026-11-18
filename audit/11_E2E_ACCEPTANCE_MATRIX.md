@@ -1,0 +1,93 @@
+# E2E 验收矩阵
+
+基线 808b987；235 个工程离线测试覆盖 25 套件。以下映射给出可按 AT 重新执行的断言，见[本次执行报告](15_FINAL_VERIFICATION_REPORT.md)。实际验收仍使用文件中要求的真实环境和角色；本表不变更原矩阵状态。
+
+最小验收编排为匿名新浏览器 → 可见注册 → 错或过期验证后重发 → 正确验证 → 小样本查询 → 正常排队/断线 → 显式领 → 另一语言复取 → 行详情及原页 → 本地剔除/重算 → 下载中断重试 → 历史回访。用两个 owner、只读和撤销 key、0 credit、无活动记录、长期未活跃、独立 Worker 和许可版本。商业组增加渠道沙盒及真实授权小额。首轮页面止在研究与登录入口；余下可见动作留待 AT-035/055。
+
+| 场景组合 | 必查边缘用例 | 预期和证据要求 |
+|---|---|---|
+| 未登录／免费／长期未活跃 | 空输入/合法空集、未验证、失效 session、重发/账期翻转 | 可见恢复保留输入；账期按 UTC，旧 key 状态即时检查 |
+| 请求超时和重复 | 202 跨重启，claim 响应丢失，余额不足后补足，取消与完成竞争，高频 key 跨 key 预算 | 同身份同参数保持 job；最多一次扣费；终态不回退；429 有 Retry-After |
+| 证据部分缺失 | 强属性未知，未知币种或运费，原链接过期，单图错/无，导出中断、调后历史复取 | 不补零、不跳过关键信任信息；下载重试免扣；切换语言不创建 query |
+| 断源／撤销与恢复 | 0/24/48/72 小时与边界后；停止与撤权独立；缓存、分享、文件及旧备份 | 超期不再作为当前价；撤销先拒读后清理；恢复不双扣且不复活权利 |
+| 支付／运营／隐私 | 未入账、重复交易、取消/退款/争议、人工恢复、上次清单中断、删号后恢复 | 对账未处理差异明确标记；原账不可变；恢复后原身份/数据下架仍生效 |
+
+## 全量原 AT 映射
+
+| AT | 场景／操作 | 验收断言 | TASK | 本轮对应证据 | 状态 |
+|---|---|---|---|---|---|
+| AT-001 | 缺/过期/撤销准入；Collector 请求获准入口前校验所有维度 | 外网调用为0；不写原文；拒绝原因审计 | TASK-013 | collector.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-002 | 自研依赖与出口；扫描生产依赖、镜像和允许出口；停止/强杀Collector；有界启动器超时/父TERM | 第三方代抓取调用0；API进程仍启动，本机health/ready/未认证查询仍响应；租约接管不重复事件，未知预算保守结算；启动器等待子进程退出，不传应用凭证；本地测试不替代生产出口/RSS/CPU/cgroup和父SIGKILL验收；源码可自托管重建 | TASK-016、TASK-017 | collector-isolation.test.mjs、collector-http.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-003 | 访问拒绝与挑战；返回401/403/登录墙/挑战；同时排队多个任务 | 熔断后不再外发；无自动换账号/出口；必须经批准探针恢复 | TASK-014 | collector.test.mjs、collector-pipeline.test.mjs、collector-http.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-004 | 分页预算与熔断；重复页/空页/429/超页数/超字节/并发预算；200错误内容/结构/绑定/矛盾金额/运费/非法日期；隔离写入故障；旧parser续跑 | 有界停止；Retry-After按许可；预算无超额；重复观察不新增事件；坏页摘要+熔断+停止排队+outbox原子；不推进完整水位；跨job/旧lease/不符hash拒绝隔离；版本不符拒绝；合法缺FX原币记录保留但排除USD价格 | TASK-014、TASK-016 | collector.test.mjs、collector-pipeline.test.mjs、collector-html.test.mjs、collector-budget.test.mjs、collector-http.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-005 | 撤销权利传播；结果、分享、SEO、Redis都已有旧许可数据时撤销 | 读守卫立即阻断；后台清理全衍生路径；不得等缓存自然过期 | TASK-015 | collector-pipeline.test.mjs、readiness.test.mjs、public-results.test.mjs、privacy.test.mjs、research.test.mjs、media.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-006 | 真实14天证据；120条固定语料分六组头尾各半，连续获准运行 | 逐日日志/失败/成本/版本齐；断日或离线不可报告线上14天通过 | TASK-007 | 当前无对应真实执行 | EXPECTED_BLOCKED，外部证据待补 |
+| AT-007 | 成本与需求门；计入失败/免费/维护/许可费及访谈证据 | 真实输入与假设分列；需求/毛利未达保留未通过，不能自动GO | TASK-008 | step0/unit-economics/README.md | EXPECTED_BLOCKED，外部证据待补 |
+| AT-008 | 来源全断离线演练；第0步关闭模拟Collector，注入0/24/48/72h时钟 | 仅证明PoC隔离和状态逻辑；没有正式账户/支付验收声明 | TASK-006 | step0/collector-poc/tests/outage.test.ts | 有离线覆盖，AT 维持原状态 |
+| AT-009 | listing多次观察；同listing同事件多次抓取/同页重放 | 原始观测留痕，event去重；n不随抓取次数增加 | TASK-014 | collector.test.mjs、collector-pipeline.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-010 | 多次成交及身份未知；同listing两个独立事件键及未知键记录；同键不同成交事实；单新页内已知/未知键冲突 | 独立证据可分两笔；未知按DEC-04不伪造笔数；对账可解释；持久事实冲突隔离且含该事件的旧候选拒读，不覆写原金额；页内冲突不引用回滚临时ID，仍必须隔离暂停 | TASK-014 | collector.test.mjs、collector-pipeline.test.mjs、collector-html.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-011 | 强属性匹配；PSA9/10、不同机构、球鞋尺码、GPU容量、GameBoy型号 | 强不匹配排除；同listing查询匹配分独立；不全局删商品 | TASK-019 | collector-html.test.mjs、core.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-012 | Best Offer；54 fixed+4核验议价+6仅展示价 | 58进入价统计，6排除；sale_format不等于价格核验状态 | TASK-020 | collector-html.test.mjs、core.test.mjs、search-analysis.test.mjs、step0/tools/verify_fixture.py | 有离线覆盖，AT 维持原状态 |
+| AT-013 | 运费与换汇；unknown shipping、free shipping、缺FX证据、item口径 | 未知不填0；total排除缺费项；item可按自身资格统计；换汇可追溯 | TASK-020 | collector-html.test.mjs、core.test.mjs、search-analysis.test.mjs、media.test.mjs、step0/tools/verify_fixture.py | 有离线覆盖，AT 维持原状态 |
+| AT-014 | 黄金精确统计；完整121条固定as_of计算 | 所有expected字段完全一致，Type7/5%trim；58统计不受limit50影响 | TASK-020 | core.test.mjs、query-billing.test.mjs、step0/tools/verify_fixture.py | 有离线覆盖，AT 维持原状态 |
+| AT-015 | 小样本边界；n=0/1/7/8/29/30，零价和半分插值 | 0时min/max null；<8四项中心null；8-29 limited；>=30 sufficient；half-up | TASK-020 | core.test.mjs、search-analysis.test.mjs、query-billing.test.mjs、step0/tools/verify_fixture.py | 有离线覆盖，AT 维持原状态 |
+| AT-016 | 离群和多峰；极端真实高价、IQR=0、两价格峰 | 默认不删除已核验可比事件；另列诊断；无误杀提高质量分 | TASK-019 | core.test.mjs、research.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-017 | 日期与覆盖；30/90天边界、日精度时区、未知日期/分母 | 按DEC-03窗口处理；最近30天只计合资格；coverage未知null；总分null | TASK-020 | core.test.mjs、search-analysis.test.mjs、step0/tools/verify_fixture.py | 有离线覆盖，AT 维持原状态 |
+| AT-018 | 盲测与类目发布；独立人工gold set、头尾分层、保留分歧 | 每开放类目Precision/Recall/价格偏差/95%CI和样本数齐；六类平均不能掩盖失败 | TASK-021 | step0/tools/quality_report.py | EXPECTED_BLOCKED，外部证据待补 |
+| AT-019 | 查询校验与空结果；空q、未知attr/condition、limit0/201、无记录 | 非法400；无记录200/不收费；参数不偷偷忽略 | TASK-028 | query-billing.test.mjs、api.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-020 | 窗口/口径支持；请求未获许可180/365天和两price_basis | 不支持422；不暗降窗口；不同口径不混统计 | TASK-028 | search-analysis.test.mjs、query-billing.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-021 | freshness边界；age=24h、24h+1ms、48h、72h、72h+1ms | 24h fresh；到72h stale需同意且0credit；超过503；sold_at不作为水位 | TASK-027 | query-billing.test.mjs、readiness.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-022 | stale选择与无源；allow_stale=false/true；never_observed且无可恢复采集 | 不自动切stale；无采集能力503，不能无限202；许可撤销禁止旧缓存 | TASK-027 | query-billing.test.mjs、readiness.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-023 | 规范化和10分钟复用；同owner不同key/Web/MCP同时请求；边界599.999/600s | 同参数同窗口一个query/charge；不同limit/口径/owner隔离；不延长窗口 | TASK-027 | query-billing.test.mjs、mcp.test.mjs、developer.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-024 | 私有结果/复取；其他用户query/job/cursor；本人已购重复取 | 越权404/无数据；本人免费，meta本次0与历史总额分开 | TASK-028 | query-billing.test.mjs、mcp.test.mjs、research.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-025 | 完整集合本地重算；58价输入只显示50；剔除一条/全部/恢复 | 完整hash一致才称完整重算；子集明示；<8中心null；DB快照和charge不变，<1s | TASK-032 | query-billing.test.mjs、developer.test.mjs、research.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-026 | 异步交付与扣费；创建202后断线、无人轮询、首次领结果、重复领 | 按ADR-12验证completed/ready与POST claim原子交付，GET轮询免费；未领取到期/失败无charge | TASK-027 | query-billing.test.mjs、readiness.test.mjs、mcp.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-027 | 作业租约/取消/过期；worker崩溃、重复消息、24h到期、取消与完成竞争 | CAS防迟到提交；终态不回退；outbox恢复无双扣；不存在无限running | TASK-027 | query-billing.test.mjs、operations.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-028 | 钱包优先与跨期；同到期订阅/promo、较早promo、purchased、期末竞争 | 最早有限期先，同期订阅先，永久购买最后；到期和扣费原子；余额准确 | TASK-026 | query-billing.test.mjs、payments.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-029 | 100并发与幂等；余额1同时100个不同query，再重复相同query100次 | 不同query最多一次消费，其他402；同query最多一charge；无负数、账本平 | TASK-026 | query-billing.test.mjs、payments.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-030 | 补偿与现金退款；原桶未过期/过期、重复退款、超过原金额 | 按ADR-12处理；credit与cash分开；不改旧ledger、不超退、不重复补偿 | TASK-026 | query-billing.test.mjs、payments.test.mjs、operations.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-031 | 空账号注册验证；真正空账号按可见步骤注册；错/过期/重复token | 邮件真实送达另验；验证一次grant；不泄漏邮箱存在；测试夹具不能冒充真实邮件 | TASK-023 | auth-access.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-032 | 密码与会话安全；重置token重放、CSRF、外部return_to、删除会话 | 单次token；旧session撤销；无开放重定向；账户删除/停用使key拒绝 | TASK-023 | auth-access.test.mjs、privacy.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-033 | key生命周期；创建复制、刷新、列表、scope、撤销与旋转 | 仅创建显示明文；日志不含key；<=60s失效；轮换不覆盖其他key | TASK-024 | auth-access.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-034 | 匿名配额与缓存；空cookie、新访客、5次/第6次、100并发、未命中 | 只缓存；精确限额/隐私；无源请求；不能通过简单刷新补配额；恢复提示明确 | TASK-031 | public-results.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-035 | 可见UI与错误恢复；390/768/1440px，键盘，真实输入，400/402/429/503；卖家/交易商/商家及研究者网页路径 | 无API key/无代码完成查询、研究明细及历史回看；字段定位/焦点/保留输入；3步合法查价；无隐藏预填替代；无整页溢出 | TASK-032 | api.test.mjs | 观察到流程阻断；整个 AT 尚未签收 |
+| AT-036 | 用量/历史一致；API收费后打开空账户到新增流水，再退款/到期 | 查询ID、桶、金额/credit、时间一致；0与未加载区分；已购复取不锁死 | TASK-033 | query-billing.test.mjs、research.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-037 | 付款回跳与webhook；回跳先到、伪签名、重复和乱序事件、失败重投 | 回跳不发grant；持久化再ack；最终状态对账；每周期/支付唯一权益 | TASK-029 | payments.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-038 | 订阅/购买生命周期；Free→升级、续订、降级、取消、拒付、退款 | 按ADR-12冻结规则；购买桶不被月末清零；渠道真实钱与本地账独立对账 | TASK-029 | payments.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-039 | schema和关系约束；空PG16迁移+上一版升级；错误owner/source/FK/负余额 | 失败在正确层；已应用迁移不改写；无声丢数据不得PASS | TASK-012 | collector-pipeline.test.mjs、database.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-040 | 事务崩溃注入；charge/ledger/result/outbox之间逐点失败，重复投消息 | 整个事务回滚或完整提交；恢复后恰好一业务效果；无有charge无result | TASK-027 | collector-pipeline.test.mjs、query-billing.test.mjs、payments.test.mjs、database.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-041 | 性能基线；记录DEC-11硬件/数据量/50并发/真实延迟分位 | 缓存P95<=800ms，允许实时<=15s否则202；4G LCP<=2.5s；不可只报均值 | TASK-038 | readiness.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-042 | Redis失效与预算；清缓存/Redis停机/队列重连/预算耗尽 | 从PG恢复合法历史；新耗费请求安全限制；账单/key功能不依赖Collector | TASK-038 | collector-isolation.test.mjs、collector-budget.test.mjs、readiness.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-043 | SEO与内容权利；低样本、过期、许可撤销、10-20页内容审核 | noindex/sitemap随状态一致；无假实时/合成市场数据/批量换词；出处日期可查 | TASK-034 | public-results.test.mjs | NOT RUN，已有的局部验证见证据栏 |
+| AT-044 | 分享权限和秘密；到期/撤销/猜token/来源撤销/第三方分析日志 | 原权威快照不含owner/账务；即时拒绝；no-store/referrer；无token泄漏 | TASK-036 | public-results.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-045 | MCP入口一致；两个主流宿主分别新查/复取/排队/余额不足/撤销key；离线另测官方SDK当前/legacy及独立HTTP探针 | REST同权限/参数/计费；sold_stats不隐形新查；显式claim使用同key重试；跨REST/MCP复用；20行不改完整统计；校验Host/Origin/Cookie及请求上限；不重复扣费 | TASK-037 | mcp.test.mjs、developer.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-046 | 用户删除；实名/身份/查询/key/share/法定账务不同保留 | 立即撤销访问；按保留策略删/脱敏；请求状态可追踪，不删资金审计事实 | TASK-039 | privacy.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-047 | 备份恢复与删除不反弹；恢复旧备份含已撤销来源/已删除用户/旧ledger | 对外开放前重放tombstone/权限；wallet-ledger-charge一致；记录RPO/RTO | TASK-039 | privacy.test.mjs | NOT RUN，已有的局部验证见证据栏 |
+| AT-048 | 完整断源0/24/48/72h；预发布隔离Collector主机，Redis冷缓存，随后受控恢复 | Web/账户/key/账单可用；freshness/收费准确；恢复无重复event/charge | TASK-040 | readiness.test.mjs | NOT RUN，已有的局部验证见证据栏 |
+| AT-049 | 满额毛利压力；最终签收套餐满额（原Pro10000仅候选）/缓存<=30%/长尾/免费失败/维护许可费/支付及出款成本 | 真实完整成本支撑签收门；不足公开调套餐并复测；不隐加comp费 | TASK-041 | collector-budget.test.mjs、step0/unit-economics/README.md | NOT RUN，已有的局部验证见证据栏 |
+| AT-050 | 契约和示例同源；curl/TS/Python/OpenAPI/Postman或Bruno/MCP跑完整响应 | 成功与负例schema一致；完整50条，文档节选字段不进生产；无占位链接假成交；客户端拒绝重定向、忽略curlrc、密钥不进输出、未授权不claim | TASK-028、TASK-037 | mcp.test.mjs、developer.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-051 | 投诉与反馈闭环；方法页提交反馈，关联request_id，处理下架请求 | 有受理编号/责任人/状态；防滥用；秘密不在公开记录 | TASK-034 | operations.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-052 | 运营权限与审计；support尝试写；admin近期MFA/过期MFA；禁用源重排 | support拒绝；敏感操作MFA；reason/version/audit齐；重排不绕准入 | TASK-035 | operations.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-053 | 阶段独立复核；检查实现者/复核者、原始命令与抽样证据 | 缺独立复核不通过阶段门；模拟/测试/生产证据分开 | TASK-042 | collector-isolation.test.mjs | NOT RUN，已有的局部验证见证据栏 |
+| AT-054 | 真实小额付费试点；授权后真实支付/查询/取消或退款/渠道对账 | 真实交易与本地权益一致；无生产授权不运行也不报通过 | TASK-043 | 当前无对应真实执行 | EXPECTED_BLOCKED，外部证据待补 |
+| AT-055 | 双语完整流程与数据不变；en/zh-CN空用户、核心页面所有状态、验证/找回邮件、SSR刷新及切换、错误/表单/SEO/金额时间 | 翻译键参数一致；无API key网页闭环；语言正确且不闪回；USD和日期精度不变；切换不重查/claim/双扣；邮件入队语言固定，未知code安全回退；双语商业/法律文案有审核证据 | TASK-011、TASK-023、TASK-031、TASK-032、TASK-033、TASK-034、TASK-036、TASK-037、TASK-042 | auth-access.test.mjs、api.test.mjs、public-results.test.mjs、developer.test.mjs | NOT RUN，已有的局部验证见证据栏 |
+| AT-056 | 成交主图采集、归属与权利撤销；合成页面含目标主图/画廊/广告/跨listing图；缺图/错图/redirect/403/超时/超字节/畸形和超像素；权利与epoch在抓取、存储、owner读取前后变化 | 只绑定正确listing primary；bounded fetch失败可解释且不阻塞研究；未许可0请求/不显示源URL；格式规范化去EXIF；当前存储/展示权均允许才返回受控url；撤销读立即拒绝并清理对象；不改变sale_event、统计hash、额度或收费；Web/API/MCP/分享均遵守各自字段许可 | TASK-011、TASK-012、TASK-013、TASK-014、TASK-015、TASK-028、TASK-032、TASK-036、TASK-037 | collector-pipeline.test.mjs、collector-html.test.mjs、collector-http.test.mjs、query-billing.test.mjs、research.test.mjs、media.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-057 | Playground与发布变更记录；用账号key成功/参数错误/异步claim/限额拒绝各执行一次；比对OpenAPI、代码片段、文档示例和对应changelog条目 | 浏览器不持久化或泄漏key；请求/响应/headers/request_id/费用元数据一致；示例由契约或fixture生成；每次公开契约变更有日期、兼容性说明、升级示例；弃用有窗口；在线调试不绕真实来源准入 | TASK-028、TASK-037、TASK-042 | mcp.test.mjs、developer.test.mjs | 观察到流程阻断；整个 AT 尚未签收 |
+| AT-058 | 六类客户与竞品同口径流程；六类空账号/固定语料，已获准真实来源与独立金标；同日同市场参数对照 | 网页用户不建key即可研究；API/SaaS恢复和费用可对账；专业用户可复算；匹配/核验/主图分母与证据齐，无证据不宣称更好 | TASK-021、TASK-032、TASK-042 | 当前无对应真实执行 | 观察到流程阻断；整个 AT 尚未签收 |
+| AT-059 | 完整详情与单结果安全导出；同owner/他人/撤销结果、未采到属性、多图无许可；权威和人工剔除结果导出 | 跨owner404；无权字段不泄露；打开详情/下载不重复收费；CSV公式不执行；带完整性/版本/口径/调整标志；未知不填0 | TASK-028、TASK-032、TASK-042 | collector-html.test.mjs、developer.test.mjs、research.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-060 | 用户TOTP及恢复码；空账户绑定TOTP/错码/时间重放/恢复码重用/解绑；管理员强制MFA | 近期认证与激活确认；密钥加密；恢复码哈希且仅展示一次/消费一次；审计/会话撤销；找回不能绕过 | TASK-023、TASK-033、TASK-042 | auth-access.test.mjs | 有离线覆盖，AT 维持原状态 |
+| AT-061 | OAuth与Passkey；两MCP客户端、PKCE/state/重定向攻击、token重放和撤销、丢失认证器 | 明确同意scope；错误callback拒绝；token绑定客户端/owner；撤销后不可查；Passkey恢复不可降低原权限 | TASK-044 | 当前无对应真实执行 | NOT RUN，后续发布范围 |
+| AT-062 | 批量与CSV；20项上限、重复输入、并发重试、部分失败/取消/claim断线、恶意CSV | 复用单查询幂等/收费；失败不扣/重复领取不双扣；进度逐项可追踪；防公式注入/跨owner；预算有界 | TASK-045 | 当前无对应真实执行 | NOT RUN，后续发布范围 |
+| AT-063 | 历史真实覆盖；有缺口档案、multi-unit listing级行、旧图缺失、超留存窗口/撤销 | 不捏造三年；请求超支持窗口明确拒绝或声明partial；listing/均价不充作逐笔；曲线不填补未知段；撤销后不分发 | TASK-046 | 当前无对应真实执行 | NOT RUN，后续发布范围 |
+| AT-064 | Best Offer后查；pending到核验/到期不可得、重复补证、源拒绝 | 未知价仍排除默认统计；仅核验实际价更新新版本；原快照不重写；重试/预算/费用有界；403熔断 | TASK-047 | 当前无对应真实执行 | NOT RUN，后续发布范围 |
+| AT-065 | 收藏提醒与Webhook；订阅保存查询/撤销、投递失败/重放、超预算、来源撤销 | 费用需明确同意；签名/幂等/重试/退订有效；不发送失权数据；查询语言变化不产生新费用 | TASK-048 | 当前无对应真实执行 | NOT RUN，后续发布范围 |
+| AT-066 | UK/DE站点与本地化；两站分别有权限/真实样本/币种时区和译文 | 站点选择不靠界面语言猜测；英国英语/德语、邮件/法务和金额日期通过；跨币种不混算；逐站稳定成本质量签收 | TASK-049 | 当前无对应真实执行 | NOT RUN，后续发布范围 |
+| AT-067 | 图片/条码识别查价；安全图片/像素炸弹/EXIF/错误型号/多版本/删除 | 上传与识别受限；展示候选供确认后新查；置信不足回退文本；失败与费用分开；按期限删除 | TASK-050 | 当前无对应真实执行 | NOT RUN，后续发布范围 |
+| AT-068 | 库存估值；空库存/重复行/不同币种/缺型号/低样本/取消 | 逐商品证据与as_of可见；未知估值不写零；汇总分母解释；费用预览/幂等与owner隔离 | TASK-051 | 当前无对应真实执行 | NOT RUN，后续发布范围 |
+| AT-069 | 第二平台纵向闭环；首个获准平台原始语义/主图/重复事件/币种和撤销 | 只允许已售进入成交统计；在售单列；独立来源签收；Web/REST/MCP/文档同字段与权利 | TASK-052 | 当前无对应真实执行 | NOT RUN，后续发布范围 |
+| AT-070 | 卡牌评级语义；产品ID/套系卡号/版本/评级机构/品相不同的正反例 | 不把eBay标题当产品身份；评级资料不当成交；错版本/机构强排除；未获权源0网络 | TASK-053 | 当前无对应真实执行 | NOT RUN，后续发布范围 |
+| AT-071 | 拍卖价格口径；含佣/落槌/未知佣金/多币种/税费拍品 | 金额口径分别存储可追溯；未知不写零；混口径统计拒绝；来源/图片权独立通过 | TASK-054 | 当前无对应真实执行 | NOT RUN，后续发布范围 |
+| AT-072 | 其余国家站点；FR/IT/ES/CA/AU逐站用真实来源和地区语言 | 法/意/西/加英法/澳英、时区成色税费均验证；缺语言不能发布对应站；不继承旧站许可 | TASK-055 | 当前无对应真实执行 | NOT RUN，后续发布范围 |
+| AT-073 | 运费报价和分发渠道决策；用户需求、US ZIP/承运商来源、RapidAPI渠道条件与成本 | 分别有采纳或拒绝依据；若采纳另增实现任务/工期/接口/AT，不把5日决策包当可用服务；历史运费不当实时运价 | TASK-056 | 当前无对应真实执行 | NOT RUN，后续发布范围 |
+| AT-074 | 搜索采集字段完整性；标题/链接/主图/成色ID/格式/运费上下文/日期/卖家/源匹配数，缺失/撤销/重复及跨listing输入；合成HTML正负页/原文hash/profile变更/非法选择器/两进程续跑 | 源能力表含45项且有逐项证据状态；HTML记录证据按event/listing/source/observation绑定；profile冻结且坏配置先拒绝；图像身份正确；卖家无权不提取/公开；Open Box/Parts不误映；源匹配数不当市场销量/覆盖分母；未验手机/Mac属性不放行；合成HTML通过不代替真实源验收 | TASK-001、TASK-012、TASK-014、TASK-015、TASK-019、TASK-032、TASK-042 | collector-pipeline.test.mjs、collector-html.test.mjs、collector-http.test.mjs、research.test.mjs | NOT RUN，已有的局部验证见证据栏 |
+| AT-075 | 搜索过滤及补充统计；全候选与limit50/200、边界价、Format/展示排序、运费未知、组/桶0/7/8、前期0、断日/缺口、两目的地、未知Best Offer | 范围含端点并入query hash；展示排序/切视图免费且hash不变；普通mean不混trim；运费有已知分母；组/桶小样本median null；前期0/覆盖不足无环比；缺口不补0/连线；挂牌议价不入实际价；JSON/CSV同口径 | TASK-020、TASK-028、TASK-032、TASK-037、TASK-042 | collector-html.test.mjs、search-analysis.test.mjs、research.test.mjs | NOT RUN，已有的局部验证见证据栏 |
