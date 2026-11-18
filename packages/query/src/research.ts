@@ -1,5 +1,11 @@
 import type { Identity } from "@soldbench/auth";
-import { type Candidate, distribution, evaluateSnapshot, isStandardCondition } from "@soldbench/core";
+import {
+  type Candidate,
+  comparisonScope,
+  distribution,
+  evaluateSnapshot,
+  isStandardCondition,
+} from "@soldbench/core";
 import type { Transaction } from "@soldbench/db";
 import { AppError, VERSIONS } from "@soldbench/shared";
 import type { QueryService } from "./index.ts";
@@ -38,6 +44,8 @@ export async function permissions(c: Transaction, queryId: string) {
 }
 export const canPrice = (p: Set<ResearchField> | undefined) =>
   ["identity", "price", "shipping", "sold_date"].every((f) => p?.has(f as ResearchField));
+export const canReadModelEvidence = (policy: Map<string, Set<ResearchField>>) =>
+  policy.size > 0 && [...policy.values()].every((fields) => fields.has("attributes"));
 export async function writeComparables(
   c: Transaction,
   id: string,
@@ -303,7 +311,14 @@ export class ResearchService {
       const policy = await permissions(c, id),
         rows = (
           await c.query(
-            "SELECT i.*,s.source_id,s.candidate FROM query_calculation_inputs i JOIN query_snapshot_records s ON s.query_id=i.query_id AND s.sale_event_id=i.sale_event_id WHERE i.query_id=$1 ORDER BY i.sale_event_id",
+            `SELECT i.*,s.source_id,s.candidate,
+               CASE WHEN e.evidence #>> '{fields,attributes}'='present'
+                 THEN e.evidence #>> '{attributes,model}' END AS structured_model
+             FROM query_calculation_inputs i JOIN query_snapshot_records s
+               ON s.query_id=i.query_id AND s.sale_event_id=i.sale_event_id
+             LEFT JOIN listing_record_evidence e
+               ON (e.sale_event_id,e.listing_id,e.source_id,e.observation_id)=(s.sale_event_id,s.listing_id,s.source_id,s.observation_id)
+             WHERE i.query_id=$1 ORDER BY i.sale_event_id`,
             [id],
           )
         ).rows;
@@ -364,6 +379,9 @@ export class ResearchService {
           n_price_verified: items.length,
           ...distribution(items.map((r) => r.price_usd_cents)),
         },
+        ...(canReadModelEvidence(policy)
+          ? { comparison_scope: comparisonScope(selected.map((r) => r.structured_model)) }
+          : {}),
         original_stats: q.stats,
         columns: {
           price_usd_cents: "USD integer cents at the selected price_basis",

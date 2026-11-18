@@ -126,9 +126,13 @@ test("official SDK legacy client runs queued search/status/explicit claim and fr
   assert.equal(stats.meta.returned_comp_count, 0);
   assert.ok(stats.meta.truncation_reasons.includes("stats_only"));
   assert.equal(stats.meta.credits_charged, 0);
+  assert.equal(stats.data.quality.comparison_scope.status, "unresolved");
+  assert.deepEqual(stats.data.quality.comparison_scope, claimed.data.quality.comparison_scope);
   const rest = await x.query.submit(x.identity, x.q);
   assert.equal(rest.queryId, queryId);
-  assert.equal((await x.query.result(x.identity, queryId, randomUUID())).data.comps.length, 50);
+  const restored = await x.query.result(x.identity, queryId, randomUUID());
+  assert.equal(restored.data.comps.length, 50);
+  assert.deepEqual(restored.data.quality.comparison_scope, stats.data.quality.comparison_scope);
   const logs = await x.audit.list(x.identity, { channel: "mcp", size: 100 });
   assert.equal(logs.items.filter((r) => r.credits_charged === 1).length, 1);
   assert.ok(logs.items.some((r) => r.operation === "sold_stats"));

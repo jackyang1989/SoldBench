@@ -22,6 +22,7 @@ import {
 import { canonicalJson, collectionQueryHash, evaluate, normalizeQuery } from "@soldbench/core";
 import { database, migrate } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
+import { PublicResults } from "@soldbench/query";
 import sharp from "sharp";
 import { createProductFixture } from "./helpers/product.mjs";
 
@@ -35,8 +36,8 @@ after(async () => {
   await db.end();
   for (const root of roots) await rm(root, { recursive: true, force: true });
 });
-async function setup(custom = profile, queryHash = digest("synthetic-html-query")) {
-  const source = await provisionFixtureSource(db, fixed),
+async function setup(custom = profile, queryHash = digest("synthetic-html-query"), publicAggregates = false) {
+  const source = await provisionFixtureSource(db, fixed, { publicAggregates }),
     store = new CollectorStore(db, () => fixed, { htmlProfile: custom }),
     binding = {
       sourceId: source.sourceId,
@@ -266,6 +267,83 @@ test("a raw fixture cannot forge a query-owned exclusion marker or mark populate
     ]),
   );
   assert.throws(() => parseFixturePage(fixtureResponse(page).bytes, x.binding), /invalid_record_evidence/);
+});
+
+test("mixed model scope uses all verified rows, follows export exclusions and never leaks facet labels on public reads", async () => {
+  const params = new URLSearchParams({ q: "Synthetic mixed model query", limit: "2" }),
+    q = normalizeQuery(params),
+    x = await setup(profile, collectionQueryHash(q), true),
+    customer = await createProductFixture(db, roots, { count: 1, prepareQuery: false, clockValue: fixed }),
+    html = x.raw
+      .toString()
+      .replace(/<article class="record" data-kind="sold-record"[\s\S]*?<\/article>/, (base) =>
+        Array.from({ length: 9 }, (_, i) => {
+          const row = base
+            .replaceAll("synthetic-listing-1", `synthetic-listing-${i}`)
+            .replaceAll("synthetic-event-1", `synthetic-event-${i}`)
+            .replace("Nintendo Switch OLED &amp; controller", `Synthetic record ${i}`)
+            .replace(
+              'data-name="model">OLED',
+              `data-name="model">${i < 7 ? "Synthetic A" : i === 7 ? "Synthetic B" : "Synthetic C"}`,
+            );
+          return i === 8
+            ? row.replace("fixed_price", "best_offer").replace("actual_paid", "displayed_only")
+            : row;
+        }).join(""),
+      );
+  assert.equal((await runner(x, Buffer.from(html)).runOne(x.sourceId)).status, "completed");
+  const { queryId: id } = await customer.query.submit(customer.identity, q);
+  assert.equal((await customer.query.workOnce("mixed-model-sample")).status, "completed");
+  const result = await customer.app.request(`/v1/sold/${id}/claim`, {
+    method: "POST",
+    headers: { ...customer.headers, "Idempotency-Key": "mixed-model-fixture-claim" },
+  });
+  assert.equal(result.status, 200);
+  const { data, meta } = await result.json(),
+    scope = data.quality.comparison_scope;
+  assert.equal(data.comps.length, 2);
+  assert.equal(data.stats.n_price_verified, 8);
+  assert.equal(meta.credits_charged, 1);
+  assert.equal(scope.status, "mixed_models");
+  assert.deepEqual(scope.model_options, [
+    { model: "Synthetic A", price_input_count: 7 },
+    { model: "Synthetic B", price_input_count: 1 },
+  ]);
+  assert.ok(data.quality.warnings.some((warning) => warning.code === "mixed_models"));
+  const authoritative = await customer.research.export(customer.identity, id, {
+    format: "json",
+    view: "authoritative",
+  });
+  assert.deepEqual(JSON.parse(authoritative.body).comparison_scope, scope);
+  const diagnostics = await customer.research.diagnostics(customer.identity, id),
+    selected = diagnostics.items.find((r) => r.title === "Synthetic record 7").sale_event_id;
+  const narrowed = await customer.research.export(customer.identity, id, {
+    format: "json",
+    view: "adjusted",
+    excluded_sale_event_ids: [selected],
+  });
+  assert.equal(JSON.parse(narrowed.body).comparison_scope.status, "single_model_label_observed");
+  assert.equal(JSON.parse(narrowed.body).price_summary.median_cents, null);
+  const csv = await customer.research.export(customer.identity, id, { format: "csv", view: "authoritative" });
+  assert.match(csv.body, /comparison_scope.*mixed_models/);
+  const publicResults = new PublicResults(customer.query),
+    visitor = customer.auth.crypto.token("sb_vis_");
+  await publicResults.publishFixture(id);
+  const publicView = (await publicResults.anonymous(q, visitor, "127.0.0.1")).view;
+  assert.equal(publicView.quality.comparison_scope, undefined);
+  assert.ok(publicView.quality.warnings.some((warning) => warning.code === "mixed_models"));
+  assert.doesNotMatch(JSON.stringify(publicView), /Synthetic [ABC]/);
+  await db.query(
+    "UPDATE source_clearances SET permitted_fields=jsonb_set(permitted_fields,'{research}',(permitted_fields->'research') - 'attributes') WHERE id=(SELECT source_clearance_id FROM sources WHERE id=$1)",
+    [x.sourceId],
+  );
+  const reread = await customer.app.request(`/v1/sold/${id}`, { headers: customer.headers });
+  const history = await reread.json();
+  assert.equal(history.data.quality.comparison_scope, undefined);
+  assert.ok(!history.data.quality.warnings.some((warning) => warning.code === "mixed_models"));
+  assert.equal(history.meta.credits_charged, 0);
+  const publicAfter = (await publicResults.anonymous(q, visitor, "127.0.0.1")).view;
+  assert.ok(!publicAfter.quality.warnings.some((warning) => warning.code === "mixed_models"));
 });
 
 test("money conversion uses exact declared separators and rejects ranges, ambiguous grouping and unsafe amounts", () => {

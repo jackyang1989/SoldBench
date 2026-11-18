@@ -6,6 +6,7 @@ import {
   availability,
   type Candidate,
   collectionQueryHash,
+  comparisonScope,
   compatibleCleaner,
   evaluateSnapshot,
   hasStrongFilters,
@@ -17,7 +18,7 @@ import { type Database, type Transaction, transaction } from "@soldbench/db";
 import type { PrivateMediaStore } from "@soldbench/media";
 import { AppError, VERSIONS } from "@soldbench/shared";
 import { qualityReport } from "./quality-report.ts";
-import { canPrice, csv, permissions, writeComparables } from "./research.ts";
+import { canPrice, canReadModelEvidence, csv, permissions, writeComparables } from "./research.ts";
 
 const fail = (code: string, status: number, message: string): never => {
   throw new AppError(code, status, message);
@@ -394,6 +395,16 @@ export class QueryService {
             ...(p.sale_format === undefined ? {} : { saleFormat: p.sale_format }),
           },
         );
+        const byEvent = new Map<string, (typeof records)[number]>(
+          records.flatMap((r) =>
+            r.candidate.identityVerified && r.candidate.eventKey ? [[r.candidate.eventKey, r]] : [],
+          ),
+        );
+        const scope = comparisonScope(
+          result.calculation_inputs.map(({ record }) =>
+            record.eventKey ? byEvent.get(record.eventKey)?.strong_attributes?.model : null,
+          ),
+        );
         const run = (
           await c.query(
             "SELECT j.min_page_as_of,j.as_of,r.parser_version FROM collector_jobs j JOIN collector_runs r ON r.id=j.collector_run_id WHERE j.id=$1",
@@ -415,16 +426,14 @@ export class QueryService {
             new Date(q.as_of.getTime() - p.window_days * 86400000),
             q.as_of,
             JSON.stringify(result.supplemental_stats),
-            JSON.stringify(result.diagnostics),
+            JSON.stringify({ ...result.diagnostics, comparison_scope: scope }),
             JSON.stringify(p),
             q.collector_job_id,
           ],
         );
         await writeComparables(c, q.id, result.candidate_set_hash, records, result.record_decisions);
         for (const [position, input] of result.calculation_inputs.entries()) {
-          const r = records.find(
-            (r) => r.candidate.identityVerified && r.candidate.eventKey === input.record.eventKey,
-          );
+          const r = input.record.eventKey ? byEvent.get(input.record.eventKey) : undefined;
           if (!r) throw new Error("snapshot_event_missing");
           // Day precision is preserved verbatim in the canonical candidate and returned DTO.
           const soldAt =
@@ -614,7 +623,11 @@ export class QueryService {
         query_id: q.id,
         query: q.filters,
         stats,
-        quality: qualityReport(q, state.freshness !== "fresh"),
+        quality: qualityReport(
+          q,
+          state.freshness !== "fresh",
+          canReadModelEvidence(policy) ? "details" : "hidden",
+        ),
         comps,
         supplemental_stats: q.supplemental_stats,
       },

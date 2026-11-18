@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.14.0
+  version: 1.15.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -7494,6 +7494,46 @@ components:
       - observed_min_cents
       - observed_max_cents
       additionalProperties: false
+    ComparisonScope:
+      type: object
+      description: Structured model evidence in the complete verified price sample. A shared label can refer to different brands or configurations.
+      properties:
+        status:
+          enum: [mixed_models, single_model_label_observed, unresolved]
+        modeled_price_input_count:
+          type: integer
+          minimum: 0
+        unknown_model_price_input_count:
+          type: integer
+          minimum: 0
+        distinct_model_labels:
+          type: integer
+          minimum: 0
+        model_options:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            properties:
+              model:
+                type: string
+                minLength: 1
+                maxLength: 120
+              price_input_count:
+                type: integer
+                minimum: 1
+            required: [model, price_input_count]
+            additionalProperties: false
+        model_options_truncated:
+          type: boolean
+      required:
+      - status
+      - modeled_price_input_count
+      - unknown_model_price_input_count
+      - distinct_model_labels
+      - model_options
+      - model_options_truncated
+      additionalProperties: false
     QualityReport:
       type: object
       properties:
@@ -7605,6 +7645,8 @@ components:
           additionalProperties: false
         score:
           type: 'null'
+        comparison_scope:
+          $ref: '#/components/schemas/ComparisonScope'
         warnings:
           type: array
           items:
@@ -8567,13 +8609,18 @@ components:
       - data
       - meta
       additionalProperties: false
+    PublicQualityReport:
+      allOf:
+      - $ref: '#/components/schemas/QualityReport'
+      - not:
+          required: [comparison_scope]
     ShareView:
       type: object
       properties:
         stats:
           $ref: '#/components/schemas/SoldStats'
         quality:
-          $ref: '#/components/schemas/QualityReport'
+          $ref: '#/components/schemas/PublicQualityReport'
         comps:
           type: array
           items:
@@ -10057,6 +10104,8 @@ components:
           - presentation_limit
           - market_coverage
           additionalProperties: false
+        comparison_scope:
+          $ref: '#/components/schemas/ComparisonScope'
         price_summary:
           type: object
           properties:
@@ -10512,7 +10561,7 @@ components:
             stats:
               $ref: '#/components/schemas/SoldStats'
             quality:
-              $ref: '#/components/schemas/QualityReport'
+              $ref: '#/components/schemas/PublicQualityReport'
             comps:
               type: array
               maxItems: 0

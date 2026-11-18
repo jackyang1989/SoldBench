@@ -14,6 +14,7 @@ type Snapshot = SummaryParts & {
   data_as_of: Date;
   retention_until: Date | null;
 };
+type PublishableSnapshot = Snapshot & { model_aggregate_allowed: boolean };
 type Share = {
   id: string;
   query_id: string;
@@ -62,7 +63,7 @@ export class PublicResults {
     await this.service.assertSnapshotRights(c, id, now);
     const rights = (
       await c.query(
-        "SELECT x.permitted_fields->$2 AS permission FROM query_result_sources z JOIN source_clearances x ON x.id=z.clearance_id WHERE z.query_id=$1",
+        "SELECT x.permitted_fields->$2 AS permission,x.permitted_fields->'research' AS research FROM query_result_sources z JOIN source_clearances x ON x.id=z.clearance_id WHERE z.query_id=$1",
         [id, purpose],
       )
     ).rows;
@@ -71,12 +72,17 @@ export class PublicResults {
       rights.some((row) => !Array.isArray(row.permission) || !row.permission.includes("aggregate"))
     )
       throw denied();
-    return q;
+    return {
+      ...q,
+      model_aggregate_allowed: rights.every(
+        (row) => Array.isArray(row.research) && row.research.includes("attributes"),
+      ),
+    };
   }
 
-  private view(q: Snapshot, expires: Date, mode: "history" | "current", now: Date) {
+  private view(q: PublishableSnapshot, expires: Date, mode: "history" | "current", now: Date) {
     return {
-      ...publicSummary(q, now.getTime() - q.data_as_of.getTime() > dayMs),
+      ...publicSummary(q, now.getTime() - q.data_as_of.getTime() > dayMs, q.model_aggregate_allowed),
       comps: [],
       data_as_of: q.data_as_of.toISOString(),
       expires_at: expires.toISOString(),
@@ -315,7 +321,7 @@ export class PublicResults {
           )
         ).rows[0];
       if (!publication) throw missingCache();
-      let q: Snapshot;
+      let q: PublishableSnapshot;
       try {
         await this.assertPublisher(c, publication.user_id);
         q = await this.snapshot(c, publication.user_id, publication.query_id, now, "public_cache");

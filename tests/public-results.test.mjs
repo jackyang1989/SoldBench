@@ -83,6 +83,18 @@ for name,value in json.load(sys.stdin):
     { input: JSON.stringify(values), stdio: ["pipe", "pipe", "pipe"] },
   );
 }
+function rejectsPrivateScope(schema, payload) {
+  const polluted = structuredClone(payload);
+  polluted.data.quality.comparison_scope = {
+    status: "unresolved",
+    modeled_price_input_count: 0,
+    unknown_model_price_input_count: 58,
+    distinct_model_labels: 0,
+    model_options: [],
+    model_options_truncated: false,
+  };
+  assert.throws(() => validated([[schema, polluted]]));
+}
 
 test("a share stores only a token hash, replays without a token, and hides owner and per-listing data", async () => {
   const x = await setup(),
@@ -134,6 +146,7 @@ test("a share stores only a token hash, replays without a token, and hides owner
     ["ShareCreatedReplay", here],
     ["SharesResponse", listed],
   ]);
+  rejectsPrivateScope("ShareResponse", body);
   assert.equal(
     (await x.app.request(`/v1/shares/${created.data.share_id}`, { method: "DELETE", headers: actor.headers }))
       .status,
@@ -221,6 +234,7 @@ test("visitor consumes only fresh published cache delivery, reuses the same iden
   assert.equal(data.meta.credits_charged, 0);
   assert.equal(data.meta.reused, false);
   validated([["AnonymousCacheResponse", data]]);
+  rejectsPrivateScope("AnonymousCacheResponse", data);
   const replay = await publicLookup(x, x.q, {
     Cookie: cookie,
     "Accept-Language": "zh-CN",

@@ -1,8 +1,33 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { distribution, evaluate, matchStrongAttributes, normalizeQuery, queryHash } from "@soldbench/core";
+import {
+  comparisonScope,
+  distribution,
+  evaluate,
+  matchStrongAttributes,
+  normalizeQuery,
+  queryHash,
+} from "@soldbench/core";
 import { en, loadConfig, localeFrom, message, money, zhCN } from "@soldbench/shared";
+
+test("model scope reconciles unknown inputs, normalizes NFC, and bounds options without claiming SKU equivalence", () => {
+  const labels = Array.from({ length: 12 }, (_, i) => `Model ${String(i).padStart(2, "0")}`);
+  const mixed = comparisonScope([...labels.reverse(), " Model 11 ", "unknown", null]);
+  assert.equal(mixed.status, "mixed_models");
+  assert.equal(mixed.modeled_price_input_count, 13);
+  assert.equal(mixed.unknown_model_price_input_count, 2);
+  assert.equal(mixed.distinct_model_labels, 12);
+  assert.equal(mixed.model_options.length, 10);
+  assert.equal(mixed.model_options_truncated, true);
+  assert.deepEqual(mixed.model_options.slice(0, 2), [
+    { model: "Model 11", price_input_count: 2 },
+    { model: "Model 00", price_input_count: 1 },
+  ]);
+  assert.equal(comparisonScope(["Café", "Cafe\u0301"]).status, "single_model_label_observed");
+  assert.equal(comparisonScope(["Café", "n/a"]).status, "unresolved");
+  assert.equal(comparisonScope([]).status, "unresolved");
+});
 
 test("normalized query identity preserves model punctuation, ignores header locale and rejects ambiguous inputs", () => {
   const a = normalizeQuery(new URLSearchParams("q=%20RTX++4070+Ti-Super%20&limit=50"));

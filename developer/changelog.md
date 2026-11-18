@@ -1,5 +1,9 @@
 # SoldBench engineering changelog
 
+## 2026-11-18 — model scope on price samples
+
+OpenAPI 1.15 adds optional structured model coverage to private search quality and research exports. Public views can show a generic mixed-model warning without the underlying labels. Existing statistics and charges keep their original meaning.
+
 ## 2026-11-18 — explicit comparable filters
 
 OpenAPI 1.14 clarifies how explicit brand, model, category, condition and category attributes are checked. Missing and conflicting same-observation evidence exclude records from comparable prices. Detail can expose separately permitted plain-text description and defect notes. Resubmit legacy filtered searches that return a snapshot version conflict. Previously billed searches retain the ten-minute reuse guard.

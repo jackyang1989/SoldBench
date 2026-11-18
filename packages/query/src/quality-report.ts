@@ -1,11 +1,17 @@
-import type { evaluate } from "@soldbench/core";
+import type { ComparisonScope, evaluate } from "@soldbench/core";
 
 type Evaluation = ReturnType<typeof evaluate>;
-export type SummaryParts = Pick<Evaluation, "stats" | "quality" | "diagnostics"> & {
+export type SummaryParts = Pick<Evaluation, "stats" | "quality"> & {
+  diagnostics: Evaluation["diagnostics"] & { comparison_scope?: ComparisonScope };
   data_as_of: Date | null;
 };
-export function qualityReport(snapshot: SummaryParts, stale: boolean) {
+export function qualityReport(
+  snapshot: SummaryParts,
+  stale: boolean,
+  modelVisibility: "details" | "aggregate" | "hidden",
+) {
   const { stats, quality, diagnostics } = snapshot;
+  const scope = diagnostics.comparison_scope;
   return {
     data_insufficient: stats.n_price_verified < 8,
     quality_status: quality.quality_status,
@@ -23,9 +29,19 @@ export function qualityReport(snapshot: SummaryParts, stale: boolean) {
     freshness: { data_as_of: snapshot.data_as_of?.toISOString() ?? null, stale },
     coverage: { status: "unknown", ratio: null, source_scope: null },
     score: null,
+    ...(modelVisibility === "details" && scope ? { comparison_scope: scope } : {}),
     warnings: [
       { code: "synthetic_fixture", message: "Synthetic regression data, not real market sales." },
       { code: "coverage_unknown", message: "Observed samples are not complete market sales." },
+      ...(modelVisibility !== "hidden" && scope?.status === "mixed_models"
+        ? [
+            {
+              code: "mixed_models",
+              message:
+                "The price summary spans multiple observed models. Select a model for a more specific comparison.",
+            },
+          ]
+        : []),
     ],
   };
 }
@@ -49,7 +65,7 @@ const priceFields = [
   "observed_max_cents",
 ] as const;
 /** Project only the public aggregate contract; never spread extensible persisted JSON into a public response. */
-export function publicSummary(snapshot: SummaryParts, stale: boolean) {
+export function publicSummary(snapshot: SummaryParts, stale: boolean, allowModelAggregate: boolean) {
   const stats = Object.fromEntries(
     [...countFields, ...priceFields].map((key) => [key, snapshot.stats[key]]),
   ) as Evaluation["stats"];
@@ -67,5 +83,8 @@ export function publicSummary(snapshot: SummaryParts, stale: boolean) {
         verified_share > 1))
   )
     throw new Error("invalid_public_summary");
-  return { stats, quality: qualityReport({ ...snapshot, stats }, stale) };
+  return {
+    stats,
+    quality: qualityReport({ ...snapshot, stats }, stale, allowModelAggregate ? "aggregate" : "hidden"),
+  };
 }

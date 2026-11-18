@@ -1,0 +1,59 @@
+{
+  "date": "2026-11-18",
+  "baseline_commit": "91cac6a",
+  "evidence_type": "offline_product_integration",
+  "config": {
+    "fixture": "synthetic HTML",
+    "live_collection": false,
+    "db": "isolated PostgreSQL 16",
+    "roles": [
+      "customer with API key",
+      "anonymous reader"
+    ]
+  },
+  "checks": {
+    "npm_run_check": {
+      "exit_code": 0,
+      "node_tests": 229
+    },
+    "public_contract_recheck": {
+      "exit_code": 0,
+      "node_tests": 6
+    },
+    "formal_openapi": {
+      "exit_code": 0,
+      "schemas": 103,
+      "operations": 65
+    },
+    "step0": {
+      "exit_code": 0
+    }
+  },
+  "observed": {
+    "verified_price_inputs": 8,
+    "returned_listings": 2,
+    "mixed_model_labels": 2,
+    "excluded_display_only_model": true,
+    "adjusted_inputs": 7,
+    "adjusted_median_cents": null,
+    "private_label_on_public_view": false,
+    "attribute_withdrawal_removes_model_scope": true,
+    "charges": 1
+  },
+  "review": "Independent read-only review identified a public schema gap and ambiguous single-model semantics. Public schemas now reject private scope, and labeled observation is explicit. Reviewer checked corrections, no remaining blocker, no stage signoff.",
+  "pending": [
+    "licensed source coverage",
+    "actual category labels and gold validation",
+    "professional browser UI and release review"
+  ],
+  "sha256": {
+    "packages/core/src/comparison-scope.ts": "2abbad8c3457a2683e881f7a196715cfdd77867c9399e3dd62a280a11e45aa2f",
+    "packages/query/src/index.ts": "99ba77e094c0afb41878c75ccdd53515769983ba6345250bf261aa8f5d40de8d",
+    "packages/query/src/quality-report.ts": "0502a92783201b81887c4e0c35b8591e86ddc72a84d5595a2a45c59605326982",
+    "packages/query/src/public-results.ts": "1a0469e5cf441f085ed91f606a55434579f3a22bd6d6a8222c49f22f225f6103",
+    "packages/query/src/research.ts": "763dea218a08db5ebc8a27e9bfd476cbfecd58180f940634ce32fa25850e3d35",
+    "tests/collector-html.test.mjs": "189cf57065b2fbf2c4fa0be722ebffe12ab008fafcef542cc0b008cad2690982",
+    "tests/public-results.test.mjs": "231fd365afb8fc2c6bb1e98f6319e27ccfec4231f2ea9f027ac4b19e4a2f0f71",
+    "docs/openapi.yaml": "8ce4e34ce658965fe081ca2cf2bcd2b514fedecc0e70bfc72a38661502ba95c4"
+  }
+}
