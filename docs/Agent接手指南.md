@@ -113,3 +113,5 @@ SoldBench 是一个面向**个人卖家、收藏品交易商、二手商家、�
 2026-11-18新增执行基线见台账§53–54。断源复用先校验权限及数据时限；显式品牌、型号、成色和属性须用同观察结构化证据，旧筛选结果重算且避免双扣。合成HTML详情经字段授权返回纯文本。后续仍需混型号提示、真实源及专业原型/browser验收。
 
 研究后端快速接手见台账§57和README“研究整包验收演示”。最小quickstart与`developer:demo -- --research`都走本机采集、真实PG证据、查询worker与本人领取。研究场景覆盖18条记录和主图、16个价格输入、混型号、详情及摘要许可。执行顺序、当前版本和真实上线门分别看任务台账、OpenAPI和step0 verdict。
+
+主图稳定性与来源准入接手见台账§58–60。维护与API使用同一已绑定MEDIA_ROOT，按目录单独运行 `collector:maintain`；`collector:report -- --source=UUID --check-media=12` 用PG当前时钟校验获准实物。外部材料用step0/tools/readiness.py所列主图专项和45字段清单，GO状态独立签署。

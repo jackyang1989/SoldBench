@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 from unit_economics import calculate
-from readiness import prepare_report
+from readiness import MEDIA_RIGHTS, PRIMARY_FIELDS, RIGHTS, prepare_report
 
 
 class PreparationTests(unittest.TestCase):
@@ -84,6 +84,56 @@ class PreparationTests(unittest.TestCase):
         self.assertEqual(report['stageVerdict'], 'NOT_ISSUED')
         self.assertIn('automatic_access', report['gaps'][0]['missingRightsOrTerms'])
         self.assertIn('sale_event_id', report['gaps'][0]['unverifiedFields'])
+        images = report['gaps'][0]['primaryImages']
+        self.assertTrue(set(MEDIA_RIGHTS).issubset(images['missingRightsOrTerms']))
+        self.assertEqual(images['missingFields'], [])
+        self.assertEqual(set(images['unverifiedFields']), set(PRIMARY_FIELDS))
+
+    def test_media_permission_and_primary_evidence_are_independent(self):
+        def read(name):
+            with (ROOT / name).open(newline='') as handle:
+                reader = csv.DictReader(handle)
+                return reader.fieldnames, list(reader)
+
+        def write(root, name, columns, rows):
+            with (root / name).open('w', newline='') as handle:
+                writer = csv.DictWriter(handle, fieldnames=columns)
+                writer.writeheader()
+                writer.writerows(rows)
+
+        with tempfile.TemporaryDirectory(prefix='soldbench-media-readiness-') as directory:
+            root = Path(directory)
+            sc, sources = read('source-clearance.csv')
+            fc, fields = read('source-capabilities.csv')
+            source = sources[0]
+            source.update({right: 'allowed' for right in RIGHTS})
+            source.update({right: 'allowed' for right in MEDIA_RIGHTS if right != 'media_redistribution'})
+            source.update(media_retention_days='0', media_evidence_ref='  ')
+            write(root, 'source-clearance.csv', sc, sources)
+            for field in fields:
+                if field['field'] in PRIMARY_FIELDS:
+                    field.update(availability='available_verified', evidence_ref='mock-signed-terms')
+            incomplete = [field for field in fields if field['field'] != 'primary_image_dimensions']
+            write(root, 'source-capabilities.csv', fc, incomplete)
+            initial = prepare_report(root)['gaps'][0]['primaryImages']
+            self.assertEqual(initial['missingRightsOrTerms'],
+                             ['media_redistribution', 'media_retention_days', 'media_evidence_ref'])
+            self.assertEqual(initial['missingFields'], ['primary_image_dimensions'])
+            self.assertIn('primary_image_evidence_binding', initial['unverifiedFields'])
+
+            source.update(media_redistribution='allowed', media_retention_days='7',
+                          media_evidence_ref='mock-signed-terms')
+            write(root, 'source-clearance.csv', sc, sources)
+            for field in fields:
+                if field['field'] in PRIMARY_FIELDS:
+                    field['parser_version'] = 'synthetic-review-v1'
+            write(root, 'source-capabilities.csv', fc, fields)
+            report = prepare_report(root)
+            self.assertEqual(report['gaps'][0]['primaryImages'],
+                             {'missingRightsOrTerms': [], 'missingFields': [], 'unverifiedFields': []})
+            self.assertFalse(report['approvalEvidenceValidated'])
+            self.assertFalse(report['collectorEnabled'])
+            self.assertEqual(report['stageVerdict'], 'NOT_ISSUED')
 
     def test_preparation_rejects_network_enabled(self):
         with tempfile.TemporaryDirectory(prefix='soldbench-readiness-') as directory:

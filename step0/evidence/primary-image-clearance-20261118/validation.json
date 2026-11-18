@@ -1,0 +1,45 @@
+{
+  "date": "2026-11-18",
+  "baseline_commit": "6260802",
+  "evidence_type": "offline_preparation",
+  "checks": {
+    "stdlib_python_tests": {
+      "exit_code": 0,
+      "count": 21
+    },
+    "step0": {
+      "exit_code": 0
+    }
+  },
+  "real_candidate": {
+    "unverified_fields": 45,
+    "primary_images": {
+      "missingRightsOrTerms": [
+        "media_capture",
+        "media_store",
+        "media_process",
+        "media_display",
+        "media_redistribution",
+        "media_retention_days",
+        "media_evidence_ref"
+      ],
+      "missingFields": [],
+      "unverifiedFields": [
+        "primary_image_candidate",
+        "primary_image_role",
+        "primary_image_evidence_binding",
+        "primary_image_dimensions"
+      ]
+    },
+    "collector_enabled": false,
+    "stage_verdict": "NOT_ISSUED",
+    "approval_evidence_validated": false
+  },
+  "review": "Independent read-only review ran 9 preparation tests and verified separation of source rights and primary-image permissions. No stage signoff.",
+  "sha256": {
+    "step0/source-clearance.csv": "9ed6a54d4e07b7e42631cb4386be0166fbdb897c312b66114dd8109db8dc9ecc",
+    "step0/source-capabilities.csv": "0831b8487250ac29338e16ba904e5f1d0ad8fea4a467c68d02768895d2366b8f",
+    "step0/tools/readiness.py": "1d460e027f79b70b6b09b5a56034bed9f1e0c673b7cc5a44857e9a22d0e8a4fc",
+    "step0/tests/test_preparation.py": "65fd1ac8f53e073b8bc242261bcdf3244cbb004e9bca95839f9781a1468cc632"
+  }
+}
