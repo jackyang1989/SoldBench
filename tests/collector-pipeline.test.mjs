@@ -762,7 +762,11 @@ test("retention maintenance preserves a shared valid object, expires old referen
     ])
   ).rows[0];
   assert.equal(first.object_key, other.object_key);
-  clock = "2026-11-17T12:00:01Z";
+  clock = "2026-11-16T12:31:00Z";
+  await db.query("UPDATE source_observations SET retention_until=$2 WHERE id=$1", [
+    first.observation_id,
+    clock,
+  ]);
   assert.equal((await runner.runMaintenance(x.sourceId)).expired, 1);
   await assert.rejects(runner.readImageInternal(first.id));
   assert.ok((await runner.readImageInternal(other.id)).length > 0);
@@ -775,6 +779,131 @@ test("retention maintenance preserves a shared valid object, expires old referen
   clock = "2026-11-18T12:00:00Z";
   assert.equal((await runner.runMaintenance(x.sourceId)).orphans, 1);
   await assert.rejects(x.media.get(orphan.key));
+});
+
+test("wrong-root maintenance leaves private bytes and the revoke event intact, while the bound root retries cleanup", async () => {
+  const x = await setup(),
+    unrelatedRoot = await mkdtemp(join(tmpdir(), "soldbench-unrelated-media-")),
+    url = "https://images.example.test/private-root.png";
+  roots.push(unrelatedRoot);
+  const png = await sharp({ create: { width: 2, height: 2, channels: 3, background: "red" } })
+    .png()
+    .toBuffer();
+  const runner = worker(
+    x,
+    frames([
+      ["page:start", [fixtureResponse(page(x, [listing(x, 0, { primaryImage: { role: "primary", url } })]))]],
+      [`image:${url}`, [{ status: 200, contentType: "image/png", bytes: png }]],
+    ]),
+  );
+  assert.equal((await runner.runOne(x.sourceId)).status, "completed");
+  const photo = await mediaRow(x);
+  assert.ok(photo.object_key);
+  await assert.rejects(
+    db.query("UPDATE sources SET media_store_identity=NULL WHERE id=$1", [x.sourceId]),
+    /source media store binding/,
+  );
+  await x.store.revokeSource(x.sourceId, "media_root_test");
+  await assert.rejects(runner.readImageInternal(photo.id), /image_unavailable/);
+  const readEvent = async () =>
+    (
+      await db.query(
+        "SELECT processed_at FROM outbox WHERE kind='collector.media_cleanup' AND payload->>'sourceId'=$1",
+        [x.sourceId],
+      )
+    ).rows[0];
+  const wrong = JSON.parse(
+    execFileSync(process.execPath, ["scripts/collector-maintenance.mjs"], {
+      encoding: "utf8",
+      env: { ...process.env, MEDIA_ROOT: unrelatedRoot, COLLECTOR_DEMO_DIR: x.root },
+    }),
+  );
+  assert.ok(wrong.cleanupPending >= 1);
+  assert.ok(wrong.unmatchedMediaStores >= 1);
+  assert.equal((await readEvent()).processed_at, null);
+  assert.equal((await mediaRow(x)).object_key, photo.object_key);
+  assert.ok((await x.media.get(photo.object_key)).length > 0);
+  const deleteNamespace = x.media.purgeNamespace.bind(x.media);
+  x.media.purgeNamespace = async () => {
+    throw new Error("injected_filesystem_failure");
+  };
+  await assert.rejects(runner.runMaintenance(x.sourceId), /injected_filesystem_failure/);
+  assert.equal((await readEvent()).processed_at, null);
+  assert.equal((await mediaRow(x)).object_key, photo.object_key);
+  x.media.purgeNamespace = deleteNamespace;
+  const duplicate = await Promise.all([runner.runMaintenance(x.sourceId), runner.runMaintenance(x.sourceId)]);
+  assert.equal(
+    duplicate.map((result) => result.cleanupProcessed).reduce((a, b) => a + b),
+    1,
+  );
+  assert.ok((await readEvent()).processed_at instanceof Date);
+  assert.equal((await mediaRow(x)).object_key, null);
+  await assert.rejects(x.media.get(photo.object_key));
+});
+
+test("legacy media ownership survives a partial filesystem delete and allows the remaining bytes to be cleaned", async () => {
+  const x = await setup(),
+    url = "https://images.example.test/legacy.png",
+    p = page(
+      x,
+      [0, 1].map((i) => listing(x, i, { primaryImage: { role: "primary", url } })),
+    ),
+    raw = fixtureResponse(p).bytes,
+    lease = await x.store.claim(x.sourceId),
+    dispatch = await x.store.reserve(lease, "page", 1024 * 1024);
+  await x.store.settle(lease, dispatch, raw.length, digest(raw));
+  const images = await x.store.commitPage(lease, p, raw, dispatch);
+  const objects = [];
+  for (const [i, image] of images.entries()) {
+    const bytes = await sharp({
+      create: { width: 2, height: 2, channels: 3, background: i ? "blue" : "red" },
+    })
+      .webp()
+      .toBuffer();
+    const object = await x.media.put(x.sourceId, bytes);
+    objects.push(object);
+    await db.query(
+      "UPDATE listing_images SET state='available',object_key=$2,content_hash=$3,mime_type='image/webp',width=2,height=2,byte_size=$4,retention_until='2026-11-17T12:00:00Z' WHERE id=$1",
+      [image.imageId, object.key, object.hash, bytes.length],
+    );
+  }
+  assert.equal(objects.length, 2);
+  await x.store.finish(lease);
+  await x.store.revokeSource(x.sourceId, "legacy_media_revoked");
+  const runner = worker(x, frames([])),
+    purge = x.media.purgeNamespace.bind(x.media);
+  x.media.purgeNamespace = async (_, identity) => {
+    await x.media.remove(objects[0].key, identity);
+    throw new Error("injected_partial_delete");
+  };
+  await assert.rejects(runner.runMaintenance(x.sourceId), /injected_partial_delete/);
+  assert.ok(
+    (await db.query("SELECT media_store_identity FROM sources WHERE id=$1", [x.sourceId])).rows[0]
+      .media_store_identity,
+  );
+  assert.ok((await x.media.get(objects[1].key)).length > 0);
+  x.media.purgeNamespace = purge;
+  assert.equal((await runner.runMaintenance(x.sourceId)).cleanupProcessed, 1);
+  await assert.rejects(x.media.get(objects[1].key));
+});
+
+test("an unusable media directory can queue image repair while completing the sale evidence", async () => {
+  const x = await setup(),
+    blocked = join(x.root, "not-a-directory"),
+    url = "https://images.example.test/recover-later.png";
+  writeFileSync(blocked, "fixture obstruction", { mode: 0o600 });
+  const transport = frames([
+    ["page:start", [fixtureResponse(page(x, [listing(x, 0, { primaryImage: { role: "primary", url } })]))]],
+  ]);
+  const runner = new OfflineCollectorWorker(x.store, transport, new PrivateMediaStore(blocked));
+  assert.equal((await runner.runOne(x.sourceId)).status, "completed");
+  assert.deepEqual(transport.calls, ["page:start"]);
+  assert.equal((await x.store.candidates(x.jobId)).length, 1);
+  const repair = (
+    await db.query("SELECT status,failure_reason FROM collector_image_jobs WHERE source_id=$1", [x.sourceId])
+  ).rows[0];
+  assert.equal(repair.status, "retry");
+  assert.equal(repair.failure_reason, "image_storage_unavailable");
 });
 
 test("an invalid maintenance/read clock cannot extend image visibility or delete valid objects", async () => {

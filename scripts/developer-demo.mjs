@@ -24,7 +24,7 @@ const directory = resolve(process.env.COLLECTOR_DEMO_DIR ?? process.env.LOCAL_ST
   config = loadConfig({
     ...process.env,
     LOCAL_STATE_ROOT: directory,
-    MEDIA_ROOT: join(directory, "collector-media"),
+    MEDIA_ROOT: resolve(process.env.MEDIA_ROOT ?? join(directory, "collector-media")),
   }),
   url = process.env.DATABASE_URL ?? localDatabaseUrl();
 const research = process.argv.length === 3 && process.argv[2] === "--research";
@@ -65,7 +65,7 @@ function legacyDemoKeyHash(auth) {
 try {
   const args = ["scripts/collector-html-demo.mjs", "--http", ...(research ? ["--research"] : [])];
   const run = await promisify(execFile)(process.execPath, args, {
-    env: { ...process.env, DATABASE_URL: url, COLLECTOR_DEMO_DIR: directory },
+    env: { ...process.env, DATABASE_URL: url, COLLECTOR_DEMO_DIR: directory, MEDIA_ROOT: config.mediaRoot },
     timeout: 60000,
     maxBuffer: 1048576,
   });

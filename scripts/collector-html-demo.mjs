@@ -27,7 +27,7 @@ if (
 const research = flags.has("--research"),
   keyword = research ? "Nintendo Switch" : "Nintendo Switch OLED",
   rowsPerPage = research ? 9 : 4;
-loadConfig(process.env);
+const config = loadConfig(process.env);
 const url = process.env.DATABASE_URL ?? localDatabaseUrl();
 assertLocalDatabaseUrl(url, [
   resolve(".local/postgres/socket"),
@@ -177,7 +177,7 @@ try {
     await new OfflineCollectorWorker(
       store,
       transport,
-      new PrivateMediaStore(join(directory, "collector-media")),
+      new PrivateMediaStore(resolve(config.mediaRoot)),
     ).runOne(source.sourceId, { jobId });
   const job = await store.view(jobId),
     counts = (

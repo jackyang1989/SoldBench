@@ -36,6 +36,6 @@ export function loadConfig(env: Record<string, string | undefined>) {
     collectorEnabled: false as const,
     databaseUrl: env.DATABASE_URL ?? null,
     localStateRoot: env.LOCAL_STATE_ROOT ?? ".local",
-    mediaRoot: env.MEDIA_ROOT ?? ".local/collector-media",
+    mediaRoot: env.MEDIA_ROOT ?? `${env.COLLECTOR_DEMO_DIR ?? ".local"}/collector-media`,
   };
 }

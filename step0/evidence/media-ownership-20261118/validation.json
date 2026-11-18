@@ -1,0 +1,50 @@
+{
+  "date": "2026-11-18",
+  "baseline_commit": "d068aea",
+  "evidence_type": "offline_product_integration",
+  "config": {
+    "db": "isolated PostgreSQL 16",
+    "mode": "offline_fixture",
+    "collector_enabled": false,
+    "roots": "multiple isolated filesystem directories",
+    "clock": "injected source/photo deadlines"
+  },
+  "checks": {
+    "npm_run_check": {
+      "exit_code": 0,
+      "node_tests": 234
+    },
+    "step0": {
+      "exit_code": 0
+    },
+    "pg_upgrade": {
+      "migration": "0022_media_store_ownership.sql",
+      "exit_code": 0
+    }
+  },
+  "observed": {
+    "wrong_root_acknowledged": false,
+    "bytes_preserved_until_correct_root": true,
+    "concurrent_acks": 1,
+    "legacy_partial_delete_recoverable": true,
+    "bad_media_root_page_job": "completed",
+    "bad_media_root_photo_job": "retry",
+    "bad_media_root_image_transport_requests": 0
+  },
+  "review": "Independent PG16 reproduced and reran legacy partial deletion after durable binding fix; second pass cleaned all remaining bytes and acknowledged one event. No stage signoff.",
+  "pending": [
+    "real source and production media storage",
+    "historical orphan-only roots without independent proof",
+    "remote CI and production expiry scheduling"
+  ],
+  "sha256": {
+    "packages/db/migrations/0022_media_store_ownership.sql": "0f3d7d4709cb452cb8ec5f9bbd2f9589abf3aa177efea167fe53dddbb1e6f2a2",
+    "packages/media/src/private-store.ts": "7bde31b228e1f12f171173588af7a926adb4a4798d4b65f05109c3fd80ba6b80",
+    "packages/collector/src/store.ts": "7eef909ee67b289e9eb9580e343614f68a96e976b2ee782771843daf9efc4986",
+    "packages/collector/src/worker.ts": "4a4cf3dba423c31594cacc291f4434edd3b838ccefbb731efaf93382be991cb7",
+    "packages/query/src/index.ts": "062cc6970ddf6a005485be9b811dd59b848b4c9280269748ba794ae3cca29452",
+    "scripts/collector-maintenance.mjs": "9bce662d4751568f20e314c73d0b2bfb3394a736f40045d04b1a1501b1107e44",
+    "tests/collector-pipeline.test.mjs": "745f2b30ab259eb0af2135fe56fd9aacfe613b85cbcc0fdf421466763a561538",
+    "tests/database.test.mjs": "9cad8bd59dad4c4624f6638b6597ada3921ffab038c6b1db3dd2c82e4a7c707c"
+  }
+}

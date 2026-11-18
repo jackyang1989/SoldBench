@@ -19,7 +19,7 @@ import { localDatabaseUrl } from "./local-db.mjs";
 
 if (process.argv.slice(2).some((arg) => arg !== "--prepare-only") || process.argv.slice(2).length > 1)
   throw new Error("invalid_collector_demo_argument");
-loadConfig(process.env);
+const config = loadConfig(process.env);
 const url = process.env.DATABASE_URL ?? localDatabaseUrl();
 assertLocalDatabaseUrl(url, [
   resolve(".local/postgres/socket"),
@@ -37,7 +37,7 @@ try {
   const fixture = JSON.parse(raw);
   const source = await provisionFixtureSource(db, new Date().toISOString());
   const store = new CollectorStore(db),
-    media = new PrivateMediaStore(resolve(demoDir, "collector-media"));
+    media = new PrivateMediaStore(resolve(config.mediaRoot));
   const hash = collectionQueryHash(normalizeQuery(new URLSearchParams({ q: "Game Boy Color" })));
   const jobId = await store.enqueue({
     ...source,

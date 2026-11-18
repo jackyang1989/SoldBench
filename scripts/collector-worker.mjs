@@ -25,7 +25,7 @@ if (
   (!/^\d+$/.test(args.get("max-pages")) || !Number.isSafeInteger(maxPages) || maxPages < 1 || maxPages > 1000)
 )
   throw new Error("invalid_worker_page_limit");
-loadConfig(process.env);
+const config = loadConfig(process.env);
 if (args.has("clock")) instant(args.get("clock"));
 const path = resolve(args.get("fixture"));
 if (!lstatSync(path).isFile() || lstatSync(path).size > 16 * 1024 * 1024)
@@ -99,7 +99,7 @@ try {
     const runner = new OfflineCollectorWorker(
       store,
       loaded.transport,
-      new PrivateMediaStore(join(directory, "collector-media")),
+      new PrivateMediaStore(resolve(config.mediaRoot)),
     );
     if (args.has("media-only")) {
       mediaResults = await runner.retryImages(artifact.sourceId, {

@@ -101,6 +101,7 @@ export class OfflineCollectorWorker {
       "SELECT i.id AS image_id,i.listing_id,i.sale_event_id,i.observation_id,e.external_listing_id,e.candidate AS evidence_candidate,p.raw_hash,p.payload FROM listing_images i JOIN collector_pages p ON p.observation_id=i.observation_id AND p.source_id=i.source_id JOIN sale_event_evidence e ON e.sale_event_id=i.sale_event_id AND e.listing_id=i.listing_id AND e.source_id=i.source_id AND e.observation_id=i.observation_id WHERE p.job_id=$1 AND i.state='pending' AND (($2::uuid IS NULL AND NOT EXISTS(SELECT 1 FROM collector_image_jobs q WHERE q.image_id=i.id)) OR EXISTS(SELECT 1 FROM collector_image_jobs q WHERE q.id=$2 AND q.image_id=i.id AND q.status='running'))",
       [lease.jobId, lease.imageTaskId ?? null],
     );
+    let mediaBound = false;
     for (const task of tasks.rows) {
       let current: Awaited<ReturnType<CollectorStore["check"]>>;
       try {
@@ -137,6 +138,12 @@ export class OfflineCollectorWorker {
       }
       let phase: "fetch" | "decode" | "publish" = "fetch";
       try {
+        if (!mediaBound) {
+          phase = "publish";
+          await this.store.bindImageStore(lease, this.media);
+          mediaBound = true;
+          phase = "fetch";
+        }
         const response = await this.response(
           lease,
           `image:${row.primaryImage.url}`,
@@ -263,7 +270,8 @@ export class OfflineCollectorWorker {
     )
       throw new Error("invalid_worker_page_limit");
     if (options.signal?.aborted) return null;
-    await this.runMaintenance(sourceId);
+    // Rights checks precede acquisition, but photo maintenance is an independent operation.
+    await this.store.revokeInvalidClearance(sourceId);
     const lease = await this.store.claim(sourceId, 60, options.jobId);
     if (!lease) return null;
     let processed = 0;
@@ -394,7 +402,7 @@ export class OfflineCollectorWorker {
         !row.quarantined &&
         row.object_key;
       if (!valid(first.now)) throw new Error("image_unavailable");
-      const bytes = await this.media.get(row.object_key),
+      const bytes = await this.media.get(row.object_key, first.source.media_store_identity ?? undefined),
         after = await this.store.readScope(c, ref.source_id);
       if (!valid(after.now)) throw new Error("image_unavailable");
       return bytes;
@@ -405,46 +413,62 @@ export class OfflineCollectorWorker {
     });
   }
 
-  async purgeStoppedImages(sourceId: string) {
-    const source = (
-      await this.store.db.query(
-        "SELECT s.*,(c.status<>'closed') AS circuit_open FROM sources s LEFT JOIN collector_circuits c ON c.source_id=s.id AND c.category_key='*' WHERE s.id=$1",
-        [sourceId],
-      )
-    ).rows[0];
-    if (!source || source.status === "active") throw new Error("source_not_stopped");
-    const rows = await this.store.db.query(
-      "UPDATE listing_images SET state='revoked' WHERE source_id=$1 RETURNING id,object_key",
-      [sourceId],
-    );
-    for (const row of rows.rows)
-      if (row.object_key) {
-        await this.media.remove(row.object_key);
-        await this.store.db.query(
-          "UPDATE listing_images SET object_key=NULL WHERE id=$1 AND state='revoked'",
-          [row.id],
-        );
+  private async purgeStoppedImages(sourceId: string) {
+    // Persist proven legacy ownership before touching bytes. A partial delete must not undo the proof.
+    await transaction(this.store.db, (c) => this.store.matchMediaStore(c, sourceId, this.media));
+    return transaction(this.store.db, async (c) => {
+      const source = (
+        await c.query("SELECT status,media_store_identity FROM sources WHERE id=$1 FOR UPDATE", [sourceId])
+      ).rows[0];
+      if (source?.status !== "revoked") return null;
+      const identity = await this.media.storageIdentity();
+      if (source.media_store_identity) {
+        if (source.media_store_identity !== identity) return null;
+      } else {
+        const history = (
+          await c.query(
+            `SELECT EXISTS(SELECT 1 FROM listing_images WHERE source_id=$1 AND object_key IS NOT NULL) AS has_references,
+             EXISTS(SELECT 1 FROM collector_dispatches WHERE source_id=$1 AND kind='image') AS may_have_written`,
+            [sourceId],
+          )
+        ).rows[0];
+        if (history.has_references) return null;
+        if (history.may_have_written) {
+          // Remove any local orphans without declaring all former roots empty.
+          if (identity) await this.media.purgeNamespace(sourceId, identity);
+          return null;
+        }
       }
-    await this.media.purgeNamespace(sourceId);
-    return rows.rowCount;
+      if (identity) {
+        await this.media.purgeNamespace(sourceId, identity);
+        if (identity !== (await this.media.storageIdentity())) throw new Error("media_store_mismatch");
+      }
+      await c.query("UPDATE listing_images SET state='revoked',object_key=NULL WHERE source_id=$1", [
+        sourceId,
+      ]);
+      const processed = await c.query(
+        "UPDATE outbox SET processed_at=clock_timestamp() WHERE kind='collector.media_cleanup' AND processed_at IS NULL AND payload->>'sourceId'=$1",
+        [sourceId],
+      );
+      return processed.rowCount ?? 0;
+    });
   }
   async drainMediaCleanup() {
-    const events = await this.store.db.query(
-      "SELECT id,payload FROM outbox WHERE kind='collector.media_cleanup' AND processed_at IS NULL ORDER BY created_at LIMIT 100",
+    const identity = await this.media.storageIdentity();
+    if (!identity) return 0;
+    const sources = await this.store.db.query(
+      `SELECT s.id FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id
+       WHERE s.access_method='offline_fixture' AND x.provider='synthetic_fixture'
+         AND s.status='revoked' AND (s.media_store_identity=$1 OR s.media_store_identity IS NULL)
+         AND EXISTS(SELECT 1 FROM outbox WHERE kind='collector.media_cleanup' AND processed_at IS NULL AND payload->>'sourceId'=s.id::text)
+       ORDER BY s.media_store_identity NULLS LAST,s.id LIMIT 100`,
+      [identity],
     );
-    for (const event of events.rows) {
-      await this.purgeStoppedImages(event.payload.sourceId);
-      await this.store.db.query("UPDATE outbox SET processed_at=now() WHERE id=$1 AND processed_at IS NULL", [
-        event.id,
-      ]);
-    }
-    return events.rowCount;
+    let processed = 0;
+    for (const source of sources.rows) processed += (await this.purgeStoppedImages(source.id)) ?? 0;
+    return processed;
   }
   async runMaintenance(sourceId: string) {
-    const pending = await this.store.db.query(
-      "SELECT id FROM outbox WHERE kind='collector.media_cleanup' AND processed_at IS NULL AND payload->>'sourceId'=$1",
-      [sourceId],
-    );
     const state = (
       await this.store.db.query(
         "SELECT s.status,s.access_method,x.provider,x.status AS clearance_status,x.effective_at,x.expires_at FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id WHERE s.id=$1",
@@ -464,35 +488,49 @@ export class OfflineCollectorWorker {
     ) {
       if (await this.store.revokeInvalidClearance(sourceId)) state.status = "revoked";
     }
-    if (pending.rowCount || state.status !== "active") {
-      await this.purgeStoppedImages(sourceId);
-      await this.store.db.query(
-        "UPDATE outbox SET processed_at=now() WHERE kind='collector.media_cleanup' AND processed_at IS NULL AND payload->>'sourceId'=$1",
-        [sourceId],
-      );
+    if (state.status === "revoked") {
+      const processed = await this.purgeStoppedImages(sourceId);
+      return {
+        expired: 0,
+        orphans: 0,
+        cleanupProcessed: processed ?? 0,
+        mediaStoreMatched: processed !== null,
+      };
     }
+    if (
+      state.status !== "active" ||
+      !(await transaction(this.store.db, (c) => this.store.matchMediaStore(c, sourceId, this.media)))
+    )
+      return { expired: 0, orphans: 0, cleanupProcessed: 0, mediaStoreMatched: false };
     return transaction(this.store.db, async (c) => {
       const source = (
         await c.query(
-          "SELECT s.*,x.retention_days FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id WHERE s.id=$1 FOR UPDATE OF s",
+          "SELECT s.status,s.media_store_identity,x.retention_days FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id WHERE s.id=$1 FOR UPDATE OF s",
           [sourceId],
         )
       ).rows[0];
-      if (source?.access_method !== "offline_fixture") throw new Error("network_collector_not_enabled");
+      const identity = source?.media_store_identity;
+      if (source?.status !== "active" || !identity || identity !== (await this.media.storageIdentity()))
+        return { expired: 0, orphans: 0, cleanupProcessed: 0, mediaStoreMatched: false };
       const now = this.store.clock
         ? new Date(instant(this.store.clock()))
         : (await c.query("SELECT clock_timestamp() t")).rows[0].t;
       const expired = await c.query(
-        "UPDATE listing_images SET state='expired' WHERE source_id=$1 AND retention_until<=$2 AND state='available' RETURNING id,object_key",
+        `UPDATE listing_images i SET state='expired' FROM source_observations o
+           WHERE i.source_id=$1 AND i.source_id=o.source_id AND i.observation_id=o.id AND i.state='available'
+             AND (i.retention_until<=$2 OR o.retention_until IS NULL OR o.retention_until<=$2)`,
         [sourceId, now],
       );
-      const keys = new Set(expired.rows.map((row) => row.object_key).filter(Boolean));
-      for (const key of keys) {
+      const keys = await c.query(
+        "SELECT DISTINCT object_key FROM listing_images WHERE source_id=$1 AND state='expired' AND object_key IS NOT NULL",
+        [sourceId],
+      );
+      for (const { object_key: key } of keys.rows) {
         const valid = await c.query(
           "SELECT id FROM listing_images WHERE source_id=$1 AND object_key=$2 AND state='available' AND retention_until>$3",
           [sourceId, key, now],
         );
-        if (!valid.rowCount) await this.media.remove(key);
+        if (!valid.rowCount) await this.media.remove(key, identity);
         await c.query(
           "UPDATE listing_images SET object_key=NULL WHERE source_id=$1 AND object_key=$2 AND state='expired'",
           [sourceId, key],
@@ -508,9 +546,11 @@ export class OfflineCollectorWorker {
             sourceId,
             referenceKeys,
             new Date(now.getTime() - source.retention_days * 86400000),
+            identity,
           )
         : 0;
-      return { expired: expired.rowCount ?? 0, orphans };
+      if (identity !== (await this.media.storageIdentity())) throw new Error("media_store_mismatch");
+      return { expired: expired.rowCount ?? 0, orphans, cleanupProcessed: 0, mediaStoreMatched: true };
     });
   }
 }

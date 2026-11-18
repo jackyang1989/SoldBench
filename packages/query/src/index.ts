@@ -853,8 +853,9 @@ export class QueryService {
           !(await permissions(c, link.id)).get(i.source_id)?.has("identity")
         )
           fail("not_found", 404, "Image unavailable.");
-      const source = (await c.query("SELECT permission_epoch FROM sources WHERE id=$1", [i.source_id]))
-        .rows[0];
+      const source = (
+        await c.query("SELECT permission_epoch,media_store_identity FROM sources WHERE id=$1", [i.source_id])
+      ).rows[0];
       if (
         i.state !== "available" ||
         !i.retention_until ||
@@ -863,7 +864,7 @@ export class QueryService {
         !i.object_key
       )
         fail("not_found", 404, "Image unavailable.");
-      return this.media.get(i.object_key);
+      return this.media.get(i.object_key, source.media_store_identity ?? undefined);
     });
   }
   makeCursor(owner: string, kind: string, row: { id: string; cursor_at: string }) {

@@ -41,7 +41,7 @@ export type Job = {
   min_page_as_of: Date | null;
   error_code: string | null;
 };
-type Source = SourceSnapshot;
+type Source = SourceSnapshot & { media_store_identity: string | null };
 type Config = ConfigSnapshot;
 export type CollectorEnqueueInput = {
   sourceId: string;
@@ -1196,12 +1196,57 @@ export class CollectorStore {
       );
     });
   }
+  /** Called under a source lock. Legacy media is adopted only with evidence in this store. */
+  async matchMediaStore(c: Transaction, sourceId: string, media: PrivateMediaStore, writing = false) {
+    const source = (
+      await c.query(
+        "SELECT s.media_store_identity,s.access_method,x.provider FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id WHERE s.id=$1 FOR UPDATE OF s",
+        [sourceId],
+      )
+    ).rows[0];
+    if (source?.access_method !== "offline_fixture" || source.provider !== "synthetic_fixture")
+      throw new Error("network_collector_not_enabled");
+    const identity = await media.storageIdentity(writing && !source.media_store_identity);
+    if (!identity) return false;
+    if (source.media_store_identity) return source.media_store_identity === identity;
+    const references = await c.query(
+      "SELECT DISTINCT object_key FROM listing_images WHERE source_id=$1 AND object_key IS NOT NULL",
+      [sourceId],
+    );
+    if (!references.rowCount) {
+      if (!writing) return false;
+      const dispatched = await c.query(
+        "SELECT 1 FROM collector_dispatches WHERE source_id=$1 AND kind='image' LIMIT 1",
+        [sourceId],
+      );
+      if (dispatched.rowCount) return false;
+    }
+    for (const row of references.rows)
+      try {
+        if (!row.object_key.startsWith(`${sourceId}/`)) return false;
+        await media.get(row.object_key, identity);
+      } catch {
+        return false;
+      }
+    if (identity !== (await media.storageIdentity())) return false;
+    await c.query("UPDATE sources SET media_store_identity=$2 WHERE id=$1", [sourceId, identity]);
+    return true;
+  }
+  async bindImageStore(lease: Lease, media: PrivateMediaStore) {
+    await transaction(this.db, async (c) => {
+      await this.locked(c, lease, true);
+      if (!(await this.matchMediaStore(c, lease.sourceId, media, true)))
+        throw new Error("image_storage_unavailable");
+    });
+  }
   async persistImage(lease: Lease, id: string, image: PrimaryImage, media: PrivateMediaStore) {
     await transaction(this.db, async (c) => {
       const { job, source, imageTask, now, clearanceExpiresAt } = await this.locked(c, lease, true);
       if (imageTask && imageTask.image_id !== id) throw new Error("image_task_target_mismatch");
       if (image.sourceId !== source.id || image.permissionEpoch !== Number(source.permission_epoch))
         throw new Error("image_permission_changed");
+      if (!source.media_store_identity || source.media_store_identity !== (await media.storageIdentity()))
+        throw new Error("image_storage_unavailable");
       const target = (
         await c.query(
           "SELECT i.id,o.retention_until AS evidence_expires FROM listing_images i JOIN source_observations o ON o.id=i.observation_id WHERE i.id=$1 AND i.listing_id=$2 AND i.observation_id=$3 AND i.sale_event_id=$4 AND i.source_id=$5 AND i.permission_epoch=$6 FOR UPDATE OF i",
@@ -1223,8 +1268,10 @@ export class CollectorStore {
       await c.query("SAVEPOINT image_publication");
       let key: string | null = null;
       try {
-        const object = await media.put(lease.sourceId, image.bytes);
+        const object = await media.put(lease.sourceId, image.bytes, source.media_store_identity);
         key = object.key;
+        if (source.media_store_identity !== (await media.storageIdentity()))
+          throw new Error("media_store_mismatch");
         await this.locked(c, lease, true);
         await c.query(
           "UPDATE listing_images SET state='available',object_key=$2,content_hash=$3,mime_type=$4,width=$5,height=$6,byte_size=$7,retention_until=$8,failure_reason=NULL WHERE id=$1",
@@ -1256,7 +1303,7 @@ export class CollectorStore {
             )
           ).rowCount
         )
-          await media.remove(key);
+          await media.remove(key, source.media_store_identity);
         throw error;
       }
     });
