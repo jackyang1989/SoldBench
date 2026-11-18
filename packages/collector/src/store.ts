@@ -749,7 +749,8 @@ export class CollectorStore {
       );
     });
   }
-  private async stopLocked(c: Transaction, sourceId: string, reason: string, revoke: boolean) {
+  /** Trusted operational transaction. Caller authorizes the command and records audit. */
+  async stopLocked(c: Transaction, sourceId: string, reason: string, revoke: boolean) {
     const source = (await c.query("SELECT id FROM sources WHERE id=$1 FOR UPDATE", [sourceId])).rows[0];
     if (!source) throw new Error("source_missing");
     const now = await this.now(c);
@@ -793,6 +794,7 @@ export class CollectorStore {
       "UPDATE collector_image_jobs SET status='failed',lease_owner=NULL,lease_until=NULL,failure_reason=$2,finished_at=$3 WHERE source_id=$1 AND status IN ('retry','running')",
       [sourceId, reason, now],
     );
+    await c.query("UPDATE sources SET ops_version=ops_version+1 WHERE id=$1", [sourceId]);
     if (revoke) {
       const row = (
         await c.query(

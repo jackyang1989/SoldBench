@@ -162,6 +162,23 @@ export class AccountPrivacy {
       return view(row);
     });
   }
+  async prune() {
+    return transaction(this.auth.db, async (c) => {
+      const now = await this.now(c);
+      await c.query(
+        "DELETE FROM support_requests WHERE id IN (SELECT id FROM support_requests WHERE retention_until<=$1 ORDER BY retention_until,id LIMIT 1000 FOR UPDATE SKIP LOCKED)",
+        [now],
+      );
+      await c.query(
+        "DELETE FROM auth_rate_windows WHERE ctid IN (SELECT ctid FROM auth_rate_windows WHERE window_start<$1 ORDER BY window_start LIMIT 1000 FOR UPDATE SKIP LOCKED)",
+        [new Date(now.getTime() - 2 * days)],
+      );
+      await c.query(
+        "DELETE FROM idempotency_records WHERE ctid IN (SELECT ctid FROM idempotency_records WHERE operation='support.submit' AND expires_at<=$1 ORDER BY expires_at LIMIT 1000 FOR UPDATE SKIP LOCKED)",
+        [now],
+      );
+    });
+  }
   async workOnce() {
     return transaction(this.auth.db, async (c) => {
       const selected = (

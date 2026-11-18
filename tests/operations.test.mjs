@@ -1,0 +1,262 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { rm } from "node:fs/promises";
+import { after, before, test } from "node:test";
+import { AccountPrivacy } from "@soldbench/auth";
+import { database, migrate } from "@soldbench/db";
+import { createProductFixture } from "./helpers/product.mjs";
+
+const db = database(process.env.DATABASE_URL),
+  roots = [],
+  origin = "http://127.0.0.1:3000";
+before(() => migrate(db));
+after(async () => {
+  await Promise.all(roots.map((dir) => rm(dir, { recursive: true, force: true })));
+  await db.end();
+});
+async function actor(x, role, options = {}) {
+  const now = x.now(),
+    token = x.auth.crypto.token("sb_s_"),
+    csrf = x.auth.crypto.hash("auth.csrf", token),
+    email = `${role}-${randomUUID()}@example.test`;
+  const owner = (
+    await db.query(
+      "INSERT INTO users(email,password_hash,status,email_verified_at) VALUES($1,'fixture','active',$2) RETURNING id",
+      [email, now],
+    )
+  ).rows[0].id;
+  if (role !== "customer")
+    await db.query("INSERT INTO admin_roles(user_id,role) VALUES($1,$2)", [owner, role]);
+  if (role === "admin" && !options.withoutMfa)
+    await db.query(
+      "INSERT INTO user_mfa(user_id,encrypted_secret,state,enabled_at,updated_at) VALUES($1,$2,'enabled',$3,$3)",
+      [owner, x.auth.crypto.seal("TEST_ONLY", owner), now],
+    );
+  const session = (
+    await db.query(
+      "INSERT INTO sessions(user_id,token_hash,csrf_hash,created_at,authenticated_at,expires_at,mfa_at) VALUES($1,$2,$3,$4,$4,$5,$6) RETURNING id",
+      [
+        owner,
+        x.auth.crypto.hash("auth.session", token),
+        x.auth.crypto.hash("auth.csrf-store", csrf),
+        now,
+        "2027-01-01",
+        role === "admin" && !options.withoutMfa ? now : null,
+      ],
+    )
+  ).rows[0].id;
+  return {
+    owner,
+    session,
+    email,
+    headers: {
+      Cookie: `soldbench_session=${token}`,
+      "X-CSRF-Token": csrf,
+      Origin: origin,
+      "Content-Type": "application/json",
+    },
+  };
+}
+const post = (x, path, who, value, key = randomUUID()) =>
+  x.app.request(path, {
+    method: "POST",
+    headers: { Origin: origin, "Content-Type": "application/json", ...who?.headers, "Idempotency-Key": key },
+    body: JSON.stringify(value),
+  });
+const read = (x, path, who) => x.app.request(path, { headers: who?.headers });
+const scope = (source) => `/admin/sources/${source}/commands`;
+const billingCount = async (userId) =>
+  (await db.query("SELECT count(*)::int n FROM credit_ledger WHERE user_id=$1 AND kind='refund'", [userId]))
+    .rows[0].n;
+
+test("support intake is private, idempotent, rate limited and prunes expired original messages", async () => {
+  const x = await createProductFixture(db, roots),
+    key = randomUUID(),
+    userMessage = "private support fixture";
+  const payload = { category: "data_quality", message: userMessage, request_id: randomUUID() };
+  for (const message of [String.fromCharCode(0), String.fromCharCode(0xd800)]) {
+    assert.equal((await post(x, "/support/requests", null, { ...payload, message }, key)).status, 400);
+  }
+  assert.equal(
+    (await db.query("SELECT count(*)::int n FROM idempotency_records WHERE operation='support.submit'"))
+      .rows[0].n,
+    0,
+  );
+  const initial = await post(x, "/support/requests", null, payload, key),
+    data = (await initial.json()).data;
+  assert.equal(initial.status, 202);
+  assert.equal(data.status, "accepted");
+  assert.ok(!JSON.stringify(data).includes(userMessage));
+  assert.equal(
+    (await (await post(x, "/support/requests", null, payload, key)).json()).data.request_id,
+    data.request_id,
+  );
+  assert.equal(
+    (await post(x, "/support/requests", null, { ...payload, message: "different" }, key)).status,
+    409,
+  );
+  assert.equal(
+    (await post(x, "/support/requests", { headers: { Origin: "https://elsewhere.example" } }, payload))
+      .status,
+    403,
+  );
+  for (let i = 0; i < 7; i++)
+    assert.equal(
+      (await post(x, "/support/requests", null, { ...payload, message: `valid fixture ${i}` })).status,
+      202,
+    );
+  assert.equal(
+    (await post(x, "/support/requests", { headers: { "X-Forwarded-For": "203.0.113.9" } }, payload)).status,
+    429,
+  );
+  assert.equal(
+    (await (await post(x, "/support/requests", null, payload, key)).json()).data.request_id,
+    data.request_id,
+  );
+  const saved = (
+    await db.query("SELECT user_id,message,request_ref FROM support_requests WHERE id=$1", [data.request_id])
+  ).rows[0];
+  assert.deepEqual(saved, { user_id: null, message: userMessage, request_ref: payload.request_id });
+  x.clock.value = "2026-12-18T00:00:00.000Z";
+  await new AccountPrivacy(x.auth, x.now).prune();
+  assert.equal(
+    (await db.query("SELECT count(*)::int n FROM support_requests WHERE id=$1", [data.request_id])).rows[0].n,
+    0,
+  );
+});
+
+test("operator roles, recent MFA, and source CAS protect stop, readiness check and immediate evidence withdrawal", async () => {
+  const x = await createProductFixture(db, roots),
+    admin = await actor(x, "admin"),
+    support = await actor(x, "support"),
+    customer = await actor(x, "customer"),
+    noMfa = await actor(x, "admin", { withoutMfa: true }),
+    source = x.source.sourceId,
+    path = scope(source);
+  const input = {
+    command: "suspend",
+    reason: "private operational reason",
+    evidence_ref: "fixture-private-ref",
+    version: 1,
+  };
+  assert.equal((await read(x, "/admin/sources", support)).status, 403);
+  assert.equal((await read(x, "/admin/jobs", support)).status, 200);
+  assert.equal((await read(x, "/admin/jobs", customer)).status, 403);
+  assert.equal((await post(x, path, support, input)).status, 403);
+  assert.equal((await post(x, path, noMfa, input)).status, 403);
+  assert.equal((await post(x, path, admin, input, "too-short")).status, 400);
+  assert.equal(
+    (await post(x, path, { headers: { ...admin.headers, "X-CSRF-Token": "bad" } }, input)).status,
+    403,
+  );
+  const firstKey = randomUUID(),
+    first = await post(x, path, admin, input, firstKey),
+    applied = (await first.json()).data;
+  assert.equal(first.status, 202);
+  assert.deepEqual((await (await post(x, path, admin, input, firstKey)).json()).data, applied);
+  assert.equal((await post(x, path, admin, { ...input, reason: "different" }, firstKey)).status, 409);
+  assert.equal((await post(x, path, admin, input)).status, 409);
+  const before = (await db.query("SELECT count(*)::int n FROM collector_jobs")).rows[0].n;
+  const probeKey = randomUUID(),
+    probeBody = { ...input, command: "probe", version: 2 };
+  const probe = await post(x, path, admin, probeBody, probeKey),
+    probeResult = (await probe.json()).data;
+  assert.equal(probe.status, 202);
+  assert.equal(probeResult.probe_status, "ready_for_offline_probe");
+  assert.deepEqual((await (await post(x, path, admin, probeBody, probeKey)).json()).data, probeResult);
+  assert.equal((await db.query("SELECT count(*)::int n FROM collector_jobs")).rows[0].n, before);
+  assert.equal((await (await read(x, "/status")).json()).data.collector, "paused");
+  const delivered = await x.query.result(x.identity, x.queryId, randomUUID());
+  assert.equal(delivered.meta.source_status, "stopped");
+  assert.equal((await post(x, path, admin, { ...input, command: "revoke", version: 3 })).status, 202);
+  await assert.rejects(x.query.result(x.identity, x.queryId, randomUUID()), (e) => e.code === "forbidden");
+  const latest = (await (await read(x, "/admin/sources", admin)).json()).data.find(
+    (r) => r.source_id === source,
+  );
+  assert.equal(latest.clearance_status, "revoked");
+  assert.equal(latest.permission_epoch, 2);
+  assert.equal(latest.version, 4);
+  assert.equal(
+    (await db.query("SELECT count(*)::int n FROM outbox WHERE event_key=$1", [`source-revoke:${source}:2`]))
+      .rows[0].n,
+    1,
+  );
+  const history = await (await read(x, "/admin/audit", support)).text();
+  for (const secret of [admin.email, admin.owner, input.reason, input.evidence_ref])
+    assert.ok(!history.includes(secret), secret);
+  x.clock.value = "2026-11-17T12:11:00.000Z";
+  assert.equal(
+    (await (await read(x, "/admin/sources", admin)).json()).error.code,
+    "reauthentication_required",
+  );
+});
+
+test("a temporary failed query can be recovered safely; repeat requests do not start new collection or charge", async () => {
+  const x = await createProductFixture(db, roots, { prepareQuery: false }),
+    admin = await actor(x, "admin"),
+    support = await actor(x, "support");
+  const queued = await x.query.submit(x.identity, x.q);
+  await db.query("UPDATE queries SET compute_status='failed' WHERE id=$1", [queued.queryId]);
+  await db.query(
+    "UPDATE query_jobs SET status='failed',attempt_count=1,error_code='service_unavailable',version=2 WHERE id=$1",
+    [queued.jobId],
+  );
+  const prev = (await db.query("SELECT count(*)::int n FROM collector_jobs")).rows[0].n;
+  const path = `/admin/jobs/${queued.jobId}/retry`,
+    key = randomUUID(),
+    body = { reason: "retry fixture", version: 2 };
+  assert.equal((await post(x, path, support, body)).status, 403);
+  assert.equal((await post(x, path, admin, { ...body, version: 1 })).status, 409);
+  const result = await post(x, path, admin, body, key),
+    payload = (await result.json()).data;
+  assert.equal(result.status, 202, JSON.stringify(payload));
+  assert.deepEqual((await (await post(x, path, admin, body, key)).json()).data, payload);
+  assert.equal((await x.query.workOnce("recovered-fixture")).status, "completed");
+  assert.equal((await x.query.job(x.identity, queued.jobId)).settlement_status, "pending");
+  assert.equal((await db.query("SELECT count(*)::int n FROM collector_jobs")).rows[0].n, prev);
+  assert.equal(
+    (await db.query("SELECT count(*)::int n FROM billing_charges WHERE query_id=$1", [queued.queryId]))
+      .rows[0].n,
+    0,
+  );
+  assert.equal((await post(x, path, admin, { ...body, version: 4 })).status, 409);
+  const page = (await (await read(x, "/admin/jobs?page_size=1", support)).json()).data;
+  assert.equal(page.items.length, 1);
+  assert.ok(!JSON.stringify(page).includes(x.q.q));
+  assert.equal((await read(x, `/admin/jobs?cursor=${page.next_cursor}`, admin)).status, 400);
+});
+
+test("administrator compensation commits once and support sees only an opaque billing summary", async () => {
+  const x = await createProductFixture(db, roots),
+    admin = await actor(x, "admin"),
+    support = await actor(x, "support");
+  const charge = (await db.query("SELECT id FROM billing_charges WHERE query_id=$1", [x.queryId])).rows[0].id,
+    path = `/admin/charges/${charge}/refund-credit`,
+    key = randomUUID(),
+    reason = "operator review fixture";
+  assert.equal((await post(x, path, support, { reason })).status, 403);
+  const results = await Promise.all(Array.from({ length: 10 }, () => post(x, path, admin, { reason }, key)));
+  assert.ok(
+    results.every((r) => r.status === 200),
+    results.map((r) => r.status).join(","),
+  );
+  const ids = await Promise.all(results.map(async (r) => (await r.json()).data.audit_id));
+  assert.equal(new Set(ids).size, 1);
+  assert.equal(await billingCount(x.user), 1);
+  assert.equal(
+    (await db.query("SELECT state FROM billing_charges WHERE id=$1", [charge])).rows[0].state,
+    "refunded",
+  );
+  assert.deepEqual(await x.billing.reconcile(x.user), []);
+  const view = (await (await read(x, "/admin/billing?page_size=100", support)).json()).data.items.find(
+    (r) => r.charge_id === charge,
+  );
+  assert.equal(view.state, "refunded");
+  assert.equal(view.reconciliation_status, "balanced");
+  assert.notEqual(view.user_ref, x.user);
+  assert.equal((await post(x, path, admin, { reason: "other" }, key)).status, 409);
+  assert.equal(
+    (await db.query("SELECT count(*)::int n FROM payments WHERE user_id=$1", [x.user])).rows[0].n,
+    0,
+  );
+});

@@ -41,6 +41,7 @@ try {
       try {
         await audit.purgeExpired();
         await publicResults.prune();
+        await privacy.prune();
       } catch {
         console.error("soldbench_query_retention_cleanup_failed");
       }

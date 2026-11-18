@@ -10,6 +10,7 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { mountAuth } from "./auth.ts";
 import { mountDeveloper } from "./developer.ts";
 import { mountMcp } from "./mcp.ts";
+import { mountOperations } from "./operations.ts";
 import { mountPayments } from "./payments.ts";
 import { mountPublicResults } from "./public-results.ts";
 import { mountQueries } from "./queries.ts";
@@ -59,6 +60,7 @@ export function createApp(
   mountMcp(app, config, services.auth, services.query);
   mountDeveloper(app);
   mountPublicResults(app, config, services.auth, services.query);
+  mountOperations(app, config, services.auth, services.query);
   mountPayments(app, config, services.auth, config.paymentFixtures ? services.payments : undefined);
   app.notFound((c) =>
     c.json(

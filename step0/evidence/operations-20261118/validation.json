@@ -1,0 +1,47 @@
+{
+  "date": "2026-11-18",
+  "baseline_commit": "29ec29e",
+  "evidence_type": "offline_product_integration",
+  "config": {
+    "db": "isolated PG16, empty and prior-version upgrade; 70 tables",
+    "collector_enabled": false,
+    "data_mode": "offline_fixture",
+    "payments_mode": "offline",
+    "roles": "synthetic customer, anonymous client, support, admin with recent MFA, admin without MFA",
+    "clock": "fixed UTC and receipt expiry"
+  },
+  "checks": {
+    "npm_run_check": {
+      "exit_code": 0,
+      "node_tests": 217
+    },
+    "targeted_after_unicode_guard": {
+      "exit_code": 0,
+      "node_tests": 4
+    },
+    "formal_openapi": {
+      "exit_code": 0,
+      "operations": 65,
+      "schemas": 101
+    },
+    "step0": {
+      "exit_code": 0
+    },
+    "assets": {
+      "exit_code": 0
+    }
+  },
+  "review": "Independent read-only review found malformed support text handling. Fix rejected NUL and lone surrogates; reviewer verified normal Chinese and emoji; no remaining reproducible high or medium reported. No stage signoff.",
+  "not_verified": [
+    "hosted support workflow and communications",
+    "actual authorized source probe, production recovery and alerting",
+    "administration pages and G4/G5"
+  ],
+  "sha256": {
+    "apps/api/src/operations-domain.ts": "40a8fa2abbfe67ca1c9346587ce8e2819b405877b65b3a8930cd721cce8eb178",
+    "apps/api/src/operations.ts": "ed645472f77e16edf96ab2bae69aabc2ecabfce2bdb1e4774f7c1a0088cfccd0",
+    "packages/db/migrations/0021_offline_operations.sql": "49c67edd4d4c156c73487daa73615d0a5d5dfc69bfe74937834456d6e9947d05",
+    "tests/operations.test.mjs": "c33d2dd0c7e1b89efe6f44f6eb66598571cdd163c047961b273be2df8d4a649c",
+    "docs/openapi.yaml": "d66267eedd49907ec13f7341e975b362ae3f0127dde3aeee3427fb6a7665f459"
+  }
+}

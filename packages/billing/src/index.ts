@@ -286,68 +286,68 @@ export class BillingService {
       const actor = users.find((u) => u.id === actorId);
       if (!actor?.is_admin || actor.status !== "active")
         reject("forbidden", 403, "Operator authorization required.");
-      const q = (
-        await c.query("SELECT * FROM queries WHERE id=$1 AND user_id=$2 FOR UPDATE", [queryId, userId])
-      ).rows[0];
-      if (!q) reject("not_found", 404, "Query not found.");
-      const charge = (await c.query("SELECT * FROM billing_charges WHERE query_id=$1 FOR UPDATE", [queryId]))
-        .rows[0];
-      if (!charge) throw new Error("query_not_charged");
-      if (charge.state === "refunded") return false;
-      const now = await this.now(c);
-      await this.expireLocked(c, userId, now);
-      const entry = (
-        await c.query(
-          "SELECT l.*,w.status,w.expires_at,w.balance FROM credit_ledger l JOIN credit_wallets w ON w.id=l.wallet_id WHERE l.charge_id=$1 AND l.kind='consume' FOR UPDATE OF w",
-          [charge.id],
-        )
-      ).rows[0];
-      let wallet = entry.wallet_id,
-        balance = entry.balance;
-      if (entry.status !== "active" || (entry.expires_at && entry.expires_at <= now)) {
-        wallet = randomUUID();
-        balance = 0;
-        await c.query(
-          "INSERT INTO credit_wallets(id,user_id,bucket_identity,bucket_type,expires_at,balance,status) VALUES($1,$2,$3,'promo',$4,0,'active')",
-          [wallet, userId, `refund:${charge.id}`, new Date(now.getTime() + 30 * 86400000)],
-        );
-      }
-      await c.query("UPDATE credit_wallets SET balance=balance+1,version=version+1 WHERE id=$1", [wallet]);
-      await c.query(
-        "INSERT INTO credit_ledger(wallet_id,user_id,delta,balance_after,kind,charge_id,refund_of,ref_type,ref_id,idempotency_key,actor_id,reason,created_at) VALUES($1,$2,1,$3,'refund',$4,$5,'query',$6,$7,$8,$9,$10)",
-        [
-          wallet,
-          userId,
-          balance + 1,
-          charge.id,
-          entry.id,
-          queryId,
-          `refund:${charge.id}`,
-          actorId,
-          reason,
-          now,
-        ],
-      );
-      await c.query("UPDATE billing_charges SET state='refunded',refunded_at=$2 WHERE id=$1", [
-        charge.id,
-        now,
-      ]);
-      await c.query("UPDATE queries SET settlement_status='refunded',version=version+1 WHERE id=$1", [
-        queryId,
-      ]);
-      await c.query(
-        "INSERT INTO audit_events(actor_id,action,object_type,object_id,reason,safe_diff,request_id) VALUES($1,'credit.refund','query',$2,$3,$4,$5)",
-        [actorId, queryId, reason, JSON.stringify({ charge_id: charge.id }), randomUUID()],
-      );
-      const refunds = (
-        await c.query(
-          "SELECT id FROM payments WHERE user_id=$1 AND state='refunded' AND refunded_cents=amount_cents ORDER BY id",
-          [userId],
-        )
-      ).rows;
-      for (const payment of refunds) await this.revokePaymentLocked(c, userId, payment.id, now);
-      return true;
+      return this.refundCreditLocked(c, userId, queryId, actorId, reason);
     });
+  }
+  /** Trusted operator context. Owner and authorized operator must already be locked. */
+  async refundCreditLocked(c: Transaction, userId: string, queryId: string, actorId: string, reason: string) {
+    if (!reason.trim()) throw new Error("refund_reason_required");
+    const q = (
+      await c.query("SELECT * FROM queries WHERE id=$1 AND user_id=$2 FOR UPDATE", [queryId, userId])
+    ).rows[0];
+    if (!q) reject("not_found", 404, "Query not found.");
+    const charge = (await c.query("SELECT * FROM billing_charges WHERE query_id=$1 FOR UPDATE", [queryId]))
+      .rows[0];
+    if (!charge) throw new Error("query_not_charged");
+    if (charge.state === "refunded") return false;
+    const now = await this.now(c);
+    await this.expireLocked(c, userId, now);
+    const entry = (
+      await c.query(
+        "SELECT l.*,w.status,w.expires_at,w.balance FROM credit_ledger l JOIN credit_wallets w ON w.id=l.wallet_id WHERE l.charge_id=$1 AND l.kind='consume' FOR UPDATE OF w",
+        [charge.id],
+      )
+    ).rows[0];
+    let wallet = entry.wallet_id,
+      balance = entry.balance;
+    if (entry.status !== "active" || (entry.expires_at && entry.expires_at <= now)) {
+      wallet = randomUUID();
+      balance = 0;
+      await c.query(
+        "INSERT INTO credit_wallets(id,user_id,bucket_identity,bucket_type,expires_at,balance,status) VALUES($1,$2,$3,'promo',$4,0,'active')",
+        [wallet, userId, `refund:${charge.id}`, new Date(now.getTime() + 30 * 86400000)],
+      );
+    }
+    await c.query("UPDATE credit_wallets SET balance=balance+1,version=version+1 WHERE id=$1", [wallet]);
+    await c.query(
+      "INSERT INTO credit_ledger(wallet_id,user_id,delta,balance_after,kind,charge_id,refund_of,ref_type,ref_id,idempotency_key,actor_id,reason,created_at) VALUES($1,$2,1,$3,'refund',$4,$5,'query',$6,$7,$8,$9,$10)",
+      [
+        wallet,
+        userId,
+        balance + 1,
+        charge.id,
+        entry.id,
+        queryId,
+        `refund:${charge.id}`,
+        actorId,
+        reason,
+        now,
+      ],
+    );
+    await c.query("UPDATE billing_charges SET state='refunded',refunded_at=$2 WHERE id=$1", [charge.id, now]);
+    await c.query("UPDATE queries SET settlement_status='refunded',version=version+1 WHERE id=$1", [queryId]);
+    await c.query(
+      "INSERT INTO audit_events(actor_id,action,object_type,object_id,reason,safe_diff,request_id) VALUES($1,'credit.refund','query',$2,$3,$4,$5)",
+      [actorId, queryId, reason, JSON.stringify({ charge_id: charge.id }), randomUUID()],
+    );
+    const refunds = (
+      await c.query(
+        "SELECT id FROM payments WHERE user_id=$1 AND state='refunded' AND refunded_cents=amount_cents ORDER BY id",
+        [userId],
+      )
+    ).rows;
+    for (const payment of refunds) await this.revokePaymentLocked(c, userId, payment.id, now);
+    return true;
   }
   /** Caller holds the owner lock and has verified and persisted a full refund in this transaction. */
   async revokePaymentLocked(c: Transaction, userId: string, paymentId: string, now: Date) {

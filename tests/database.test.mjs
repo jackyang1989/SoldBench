@@ -134,7 +134,10 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
     assert.deepEqual(await migrate(db, "0019_offline_public_results.sql"), [
       "0019_offline_public_results.sql",
     ]);
-    assert.deepEqual(await migrate(db), ["0020_account_deletion_processing.sql"]);
+    assert.deepEqual(await migrate(db, "0020_account_deletion_processing.sql"), [
+      "0020_account_deletion_processing.sql",
+    ]);
+    assert.deepEqual(await migrate(db), ["0021_offline_operations.sql"]);
     assert.deepEqual(await migrate(db), []);
     const mediaColumns = await db.query(
       "SELECT column_name FROM information_schema.columns WHERE table_name='listing_images'",

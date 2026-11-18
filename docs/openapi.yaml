@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.12.0
+  version: 1.13.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -6833,6 +6833,36 @@ paths:
       x-roles:
       - receipt_holder
       x-credit-policy: '0'
+  /status:
+    get:
+      operationId: getPublicStatus
+      summary: Minimal service status for the local offline environment.
+      security:
+      - {}
+      parameters:
+      - name: Accept-Language
+        in: header
+        required: false
+        schema:
+          type: string
+          maxLength: 256
+      responses:
+        '200':
+          description: Service is reachable and can read PostgreSQL.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OfflineStatusResponse'
+        '503':
+          description: Service unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-task: TASK-035
+      x-roles:
+      - public
+      x-credit-policy: '0'
 components:
   securitySchemes:
     OfflinePayPalFixtureSignature:
@@ -8973,7 +9003,7 @@ components:
           maxLength: 4000
         request_id:
           type: string
-          maxLength: 160
+          format: uuid
       required:
       - category
       - message
@@ -9081,6 +9111,9 @@ components:
               - accepted
               - completed
             audit_id: *id002
+            probe_status:
+              enum: [ready_for_offline_probe, blocked]
+              description: Local readiness assessment; no source request was dispatched.
           required:
           - command_id
           - status
@@ -10509,6 +10542,34 @@ components:
           - anonymous_remaining
           - reused
           additionalProperties: false
+      required:
+      - data
+      - meta
+      additionalProperties: false
+    OfflineStatusResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            service:
+              const: available
+            data_mode:
+              const: offline_fixture
+            collector:
+              enum:
+              - offline_only
+              - paused
+            payments:
+              const: offline
+          required:
+          - service
+          - data_mode
+          - collector
+          - payments
+          additionalProperties: false
+        meta:
+          $ref: '#/components/schemas/BasicMeta'
       required:
       - data
       - meta
