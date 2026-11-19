@@ -20,7 +20,7 @@
 
 本次开工判定见 [开发就绪检查](docs/开发就绪检查.md)，区分已经冻结的规则与必须取得的实测/外部证据。
 
-竞品补齐开发基线见[竞品能力实施规格与路线图](docs/竞品能力实施规格与路线图.md)：24组能力进入56个任务，首发203人日、后续116人日（总工作量，非剩余工期）。所有状态仅以任务台账为准。
+竞品 24 组能力与[原型补齐](docs/原型功能追踪与补齐规格.md)已纳入统一排期。现行 62 项任务，首发 234 人日，扩展 122 人日，均为含已做部分的总工作量。实际状态和前置以[开发排期与任务台账](docs/开发排期与任务台账.md)为准。
 
 新Agent建议先阅读 [Agent接手指南](docs/Agent接手指南.md)，了解六类客户、权威文件、当前代码与下一包入口；状态只以台账为准。
 
@@ -172,7 +172,7 @@ sh developer/examples/sold.sh --claim
 
 `--claim` 明确允许最多1个合成credit；省略时停在未领取状态。curl版需要同目录sold.py与Python3；三者使用真实本机HTTP、拒绝重定向、同幂等key有界重试，不打印密钥。金额与样本量不是实时市场证据。详见[开发者契约](docs/MCP与开发者交付契约.md)。
 
-本机 `/docs/en/quickstart` 和 `/docs/zh-CN/quickstart` 为双语Markdown，`/docs/search` 为本地搜索，不代表已完成专业文档前端。`/openapi.json`、`/llms.txt`、`/llms-full.txt`、`/.well-known/skills/index.json`、`/soldbench.postman.json` 由固定输入生成；`/docs/implementation-status.json` 区分本机路由存在与contract-only，不代替验收。`POST /mcp` 是官方SDK无状态适配，两主流宿主与生产TLS待实测。
+本机 `/docs/en/quickstart` 和 `/docs/zh-CN/quickstart` 为双语Markdown，`/docs/search` 为本地搜索，不代表已完成专业文档前端。`/openapi.json`、`/llms.txt`、`/llms-full.txt`、`/.well-known/skills/index.json`、`/soldbench.postman.json` 由固定输入生成；`/docs/implementation-status.json` 对照 Hono 当前注册路由和 OpenAPI，区分本机路由存在与 contract-only；配置启用和实际验收按产品状态查看。`POST /mcp` 是官方SDK无状态适配，两主流宿主与生产TLS待实测。
 
 `.github/workflows/offline.yml` 固定官方Actions提交，安装PG16后运行同一套离线检查、step0及开发者资产检查。远端执行结果以GitHub实际记录为准。构建需Python3及契约依赖（含PyYAML）。`LOCAL_STATE_ROOT` 仅控制本机认证密钥目录，默认`.local`；演示自定义目录时先导入对应私有环境文件，再启动API/Worker。
 

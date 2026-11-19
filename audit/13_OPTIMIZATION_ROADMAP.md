@@ -1,6 +1,6 @@
 # 整改路线图
 
-估算为审计建议的人日区间，按一条工程实施线粗估。与台账 203/116 人日的全量估算有重叠，外部审批和固定观察期单列。状态与任务依赖仍在台账。
+估算为审计建议的人日区间，按一条工程实施线粗估。与台账现行 234/122 人日的全量估算有重叠，外部审批和固定观察期单列。状态与任务依赖仍在台账。
 
 | 阶段 | 工作量与负责角色 | 执行与依赖 | 完成定义 |
 |---|---|---|---|
@@ -80,3 +80,7 @@
 - 每包默认 Node 22、独立 PG16 和合成数据。准备本机环境时 `COLLECTOR_ENABLED=false`、`DATA_MODE=offline_fixture`、`PAYMENTS_MODE=offline`。基线检查执行 `npm run lint`、`npm run typecheck`、`npm run build`、`npm run contracts`、`npm test`。开发者资产增加 `python3 scripts/check-developer-assets.py`。文档执行 `python3 docs/check_docs.py`。正式 OpenAPI 校验使用仓库说明的 `python3 docs/contracts/check_contracts.py --formal` 环境。
 - 包一和二先复验 `node scripts/test.mjs tests/auth-access.test.mjs tests/query-billing.test.mjs tests/research.test.mjs tests/public-results.test.mjs`，价格追加 `python3 step0/tools/verify_fixture.py`。包三使用 `tests/api.test.mjs`、`tests/operations.test.mjs`、`tests/developer.test.mjs` 和 `tests/mcp.test.mjs`。包四使用 `tests/local-database.test.mjs`、`tests/database.test.mjs`、`tests/payments.test.mjs`、`tests/privacy.test.mjs` 及 `npm run test:readiness`。前述测试文件均通过同一 `node scripts/test.mjs` 入口，构建后运行。新增的产品行为仍需对应针对性断言与浏览器或故障演练。
 - 记录 commit 或文件 hash、隔离环境与角色、实际命令和退出码、夹具/时钟、失败前后对照、回退和恢复条件。每层证据分别签收。工程接手从包一开始，外部证据责任按上表准备；每包验收后按原台账切换下一可执行包。[交接模板](../docs/执行与交接模板.md)
+
+## 现行原型补包（2026-11-19）
+
+以 `d85fb27` 为盘点提交，当前定价开发继续走原任务。首发新增五个正式任务：内容底座 TASK-057 后接公开页 TASK-058；独立的已交付快照比较 TASK-059；运营审批 TASK-060 后接监控/数据/经营 TASK-061。前置满足且不冲突时可交错展开；G4 汇总时全部纳入，G5 复核证据。添加范围、每包验证和费用共 31 人日。TASK-062 的 6 人日随专项审批安排；原批量、历史和其他扩展各走原 TASK。[详细排期](../docs/开发排期与任务台账.md#621-原型功能审计与排期补齐2026-11-19) · [原型全量映射](../docs/原型功能追踪与补齐规格.md)

@@ -39,11 +39,19 @@ for line in board.splitlines():
     require(start == total + 1 and end >= start, f'Gap/overlap at {task}')
     require(end - start + 1 == int(cells[4]), f'Effort mismatch at {task}')
     deps = re.findall(r'TASK-\d{3}', cells[3])
-    require(all(d in tasks and tasks[d]['end'] < start for d in deps), f'Invalid dependency for {task}')
     require(cells[6] and cells[7] and cells[8], f'Missing owner/status/evidence for {task}')
-    tasks[task] = {'end': end, 'ats': re.findall(r'AT-\d{3}', cells[5])}
+    tasks[task] = {'deps': set(deps), 'ats': re.findall(r'AT-\d{3}', cells[5])}
     mapped_stories.update(re.findall(r'(?<![A-Za-z0-9])S-\d{2}(?!\d)', cells[1]))
     total = end
+
+# E windows account for effort. Explicit dependencies determine execution order.
+for task, row in tasks.items():
+    require(row['deps'] <= tasks.keys(), f'Unknown dependency at {task}')
+resolved = set()
+while len(resolved) < len(tasks):
+    ready = {task for task, row in tasks.items() if task not in resolved and row['deps'] <= resolved}
+    require(ready, f'Task dependency cycle: {sorted(tasks.keys() - resolved)}')
+    resolved.update(ready)
 
 ats = defined_ids(r'^\| (AT-\d{3}) \|', text('验收矩阵.md'))
 pages = defined_ids(r'^\| (PAGE-[WCA]\d{2}) \|', text('功能与页面规格.md'))
@@ -51,7 +59,7 @@ features = defined_ids(r'^\| (F-\d{2}) \|', text('功能与页面规格.md'))
 decisions = defined_ids(r'^\| (DEC-\d{2}) \|', text('决策登记.md'))
 apis = defined_ids(r'^\| (API-\d{2}) \|', text('接口与数据契约.md'))
 require(mapped_stories == {f'S-{i:02}' for i in range(1, 28)}, 'Original S story omitted or invented in task mappings')
-require(len(tasks) == 56 and total == 319, 'Unexpected task count or estimate')
+require(len(tasks) == 62 and total == 356, 'Unexpected task count or estimate')
 require(len(features) == 16, 'Missing original F feature')
 require(all(t['ats'] and set(t['ats']) <= ats for t in tasks.values()), 'Missing/undefined task tests')
 require(set().union(*(set(t['ats']) for t in tasks.values())) == ats, 'Unscheduled acceptance case')
