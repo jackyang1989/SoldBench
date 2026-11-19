@@ -57,6 +57,17 @@ assertLocalDatabaseUrl(url, [
 const db = database(url),
   controller = new AbortController();
 const stop = () => controller.abort();
+let parentDeadline;
+const onParentLost = () => {
+  stop();
+  // The launcher cannot enforce its deadline after an abrupt exit.
+  parentDeadline ??= setTimeout(() => process.exit(1), 2000);
+  parentDeadline.unref();
+};
+if (typeof process.send === "function") {
+  process.once("disconnect", onParentLost);
+  if (!process.connected) onParentLost();
+}
 process.once("SIGTERM", stop);
 process.once("SIGINT", stop);
 const root = resolve(process.env.COLLECTOR_DEMO_DIR ?? ".local");
@@ -107,6 +118,7 @@ try {
   let claimed = false,
     mediaResults = [];
   if (
+    !controller.signal.aborted &&
     !args.has("status") &&
     (args.has("media-only") || !["completed", "failed", "cancelled", "expired"].includes(job.status))
   ) {
@@ -209,5 +221,11 @@ try {
 } finally {
   process.removeListener("SIGTERM", stop);
   process.removeListener("SIGINT", stop);
-  await db.end();
+  try {
+    await db.end();
+  } finally {
+    clearTimeout(parentDeadline);
+    process.removeListener("disconnect", onParentLost);
+    if (process.connected) process.disconnect();
+  }
 }

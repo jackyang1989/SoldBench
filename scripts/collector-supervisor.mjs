@@ -2,7 +2,7 @@ import { lstat, opendir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { CollectorStore, FixtureTransport, OfflineCollectorWorker } from "@soldbench/collector";
-import { assertLocalDatabaseUrl, database, migrate } from "@soldbench/db";
+import { assertLocalDatabaseUrl, database, isDatabaseConnectionError, migrate } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
 import { loadConfig } from "@soldbench/shared";
 import { launchCollector } from "./collector-launcher.mjs";
@@ -112,11 +112,29 @@ async function run(args) {
     stop = () => abort.abort();
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
-  try {
+  const wait = (milliseconds, signal = abort.signal) =>
+    delay(milliseconds, undefined, { signal }).catch((error) => {
+      if (error.name !== "AbortError") throw error;
+    });
+  const env = { ...process.env, DATABASE_URL: url, COLLECTOR_DEMO_DIR: spool };
+  const maintenanceWorker = new OfflineCollectorWorker(
+    new CollectorStore(db),
+    new FixtureTransport(new Map()),
+    new PrivateMediaStore(resolve(config.mediaRoot)),
+  );
+  let retryDelay = 0;
+  async function supervise() {
     await migrate(db);
+    if (abort.signal.aborted) return;
     await sourceState(db, sourceId);
+    if (abort.signal.aborted) return;
     const lock = await db.connect();
-    lock.on("error", stop);
+    const ownership = new AbortController();
+    const signal = AbortSignal.any([abort.signal, ownership.signal]);
+    const onLockError = (error) => ownership.abort(error);
+    const onLockEnd = () => ownership.abort(new Error("Connection terminated unexpectedly"));
+    lock.on("error", onLockError);
+    lock.on("end", onLockEnd);
     try {
       const bound = await lock.query("SELECT pg_try_advisory_lock(hashtext($1),hashtext($2)) locked", [
         lockNamespace,
@@ -126,15 +144,13 @@ async function run(args) {
         console.log(JSON.stringify({ ...envelope(sourceId), state: "already_supervised" }));
         return;
       }
-      const env = { ...process.env, DATABASE_URL: url, COLLECTOR_DEMO_DIR: spool };
-      const maintenanceWorker = new OfflineCollectorWorker(
-        new CollectorStore(db),
-        new FixtureTransport(new Map()),
-        new PrivateMediaStore(resolve(config.mediaRoot)),
-      );
+      if (retryDelay) {
+        console.info("soldbench_collector_supervisor_database_recovered");
+        retryDelay = 0;
+      }
       const deferred = new Map();
       let nextMaintenance = 0;
-      while (!abort.signal.aborted) {
+      while (!signal.aborted) {
         const paths = await availableArtifacts(spool);
         const now = performance.now();
         for (const [id, until] of deferred) if (until <= now || !paths.has(id)) deferred.delete(id);
@@ -142,7 +158,8 @@ async function run(args) {
         if (Date.now() >= nextMaintenance) {
           try {
             maintenance = await maintenanceWorker.runMaintenance(sourceId);
-          } catch {
+          } catch (error) {
+            if (isDatabaseConnectionError(error)) throw error;
             maintenance = { error: "media_maintenance_failed" };
           }
           nextMaintenance = Date.now() + 60000;
@@ -152,7 +169,7 @@ async function run(args) {
         const cycles = [];
         for (const lane of rows) {
           for (const jobId of lane.jobs) {
-            if (state !== "ready" || abort.signal.aborted) break;
+            if (state !== "ready" || signal.aborted) break;
             const result = await launchCollector(
               [
                 `--fixture=${paths.get(jobId)}`,
@@ -161,7 +178,21 @@ async function run(args) {
                 ...(lane.lane === "images" ? ["--media-only=true"] : []),
               ],
               env,
+              signal,
             );
+            if (signal.aborted) {
+              if (ownership.signal.aborted)
+                console.error(
+                  JSON.stringify({
+                    kind: "collector_supervised_child_stopped",
+                    sourceId,
+                    jobId,
+                    workerPid: result.report.workerPid,
+                    workerExited: result.report.workerExited,
+                  }),
+                );
+              break;
+            }
             const cycle = result.report.cycle;
             if (!cycle?.claimed) deferred.set(jobId, performance.now() + (cycle ? 5000 : 30000));
             cycles.push({
@@ -176,6 +207,7 @@ async function run(args) {
             state = await sourceState(db, sourceId);
           }
         }
+        if (signal.aborted) break;
         const queues = {};
         for (const lane of ["pages", "images"]) {
           const counts = rows.find((row) => row.lane === lane);
@@ -198,14 +230,28 @@ async function run(args) {
           }),
         );
         if (!watch) break;
-        await delay(interval, undefined, { signal: abort.signal }).catch((error) => {
-          if (error.name !== "AbortError") throw error;
-        });
+        await wait(interval, signal);
       }
+      if (!abort.signal.aborted) ownership.signal.throwIfAborted();
     } finally {
       // End ownership with the dedicated connection, including on a broken session.
-      lock.removeListener("error", stop);
       lock.release(true);
+      lock.removeListener("error", onLockError);
+      lock.removeListener("end", onLockEnd);
+    }
+  }
+  try {
+    while (!abort.signal.aborted) {
+      try {
+        await supervise();
+        break;
+      } catch (error) {
+        if (abort.signal.aborted) break;
+        if (!watch || !isDatabaseConnectionError(error)) throw error;
+        if (!retryDelay) console.error("soldbench_collector_supervisor_database_unavailable");
+        retryDelay = retryDelay ? Math.min(10000, retryDelay * 2) : 1000;
+        await wait(retryDelay);
+      }
     }
   } finally {
     process.removeListener("SIGINT", stop);

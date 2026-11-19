@@ -21,7 +21,8 @@ export function workerEnvironment(input) {
     if (input[key] !== undefined) result[key] = input[key];
   return result;
 }
-export async function launchCollector(args, input = process.env) {
+export async function launchCollector(args, input = process.env, signal) {
+  signal?.throwIfAborted();
   loadConfig(input);
   const options = new Map();
   for (const raw of args) {
@@ -60,7 +61,7 @@ export async function launchCollector(args, input = process.env) {
     {
       env: workerEnvironment(input),
       detached,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["ignore", "pipe", "pipe", "ipc"],
     },
   );
   let timedOut = false,
@@ -90,6 +91,11 @@ export async function launchCollector(args, input = process.env) {
       interrupted ??= "SIGINT";
       stop();
     };
+  const onAbort = () => {
+    interrupted ??= "aborted";
+    stop();
+  };
+  signal?.addEventListener("abort", onAbort, { once: true });
   process.on("SIGTERM", onTerm);
   process.on("SIGINT", onInt);
   const deadline = setTimeout(() => {
@@ -152,6 +158,7 @@ export async function launchCollector(args, input = process.env) {
     finished = true;
     clearTimeout(deadline);
     clearTimeout(killTimer);
+    signal?.removeEventListener("abort", onAbort);
     process.removeListener("SIGTERM", onTerm);
     process.removeListener("SIGINT", onInt);
   }

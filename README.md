@@ -153,6 +153,8 @@ npm run collector:supervise -- --source=SOURCE_UUID --spool=.local --watch=true
 
 省略 `--watch=true` 时只执行一轮。请让 API、页面采集、主图补采与维护使用同一 `MEDIA_ROOT`。输出区分缺包、暂缓、实际领取和媒体结果。按一次任务成功判断时，读取对应 PG 状态、主图及清理证据。响应包由各作业单独准备，周期刷新生成的缺包作业保留在队列。详见[采集管线契约](docs/采集管线实施契约.md#18-单来源离线自动运行)。
 
+监听中 PG 连接中断时，运行器停止已派子进程并等待重连，恢复后重查来源及所有权。值班核对 `soldbench_collector_supervisor_database_unavailable`、`soldbench_collector_supervisor_database_recovered`，再核对相同作业的检查点和主图结果。
+
 研究后端已提供owner详情`/v1/sold/{id}/comps/{event_id}`、分页`/diagnostics`、`POST /v1/sold/{id}/export`（JSON/CSV、权威/调整）及`/v1/requests`请求审计；共用已领取快照/当前字段权限，免费复取，不重抓。需要现有已核验session或对应scope的API key。字段许可缺失会裁剪逐条数据，不能以旧DTO绕过；说明/属性未采到会返回明确missing。见[研究交付契约](docs/查询账本与交付实施契约.md)。网页与真实供数未验收。
 
 ## 开发者离线接入

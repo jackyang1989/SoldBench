@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
@@ -14,6 +14,7 @@ import {
 } from "@soldbench/collector";
 import { database, migrate } from "@soldbench/db";
 import { workerEnvironment } from "../scripts/collector-launcher.mjs";
+import { initializeCluster, startCluster, stopCluster, urlFor } from "../scripts/local-db.mjs";
 
 const db = database(process.env.DATABASE_URL),
   roots = [],
@@ -60,12 +61,12 @@ async function root() {
   roots.push(value);
   return value;
 }
-async function preparedDemo(directory) {
+async function preparedDemo(directory, env = {}) {
   return JSON.parse(
     execFileSync(
       process.execPath,
       ["--import", "./scripts/test-network.mjs", "scripts/collector-html-demo.mjs", "--prepare-only"],
-      { encoding: "utf8", env: { ...process.env, COLLECTOR_DEMO_DIR: directory } },
+      { encoding: "utf8", env: { ...process.env, ...env, COLLECTOR_DEMO_DIR: directory } },
     ),
   );
 }
@@ -230,6 +231,117 @@ test("offline supervisor serves the available queue, resumes primary images, and
   );
 });
 
+test("supervisor stops an active child on ownership loss and recovers the same queue after PostgreSQL restarts", async () => {
+  const directory = await root();
+  const spool = join(directory, "spool");
+  await mkdir(spool);
+  const cluster = initializeCluster(directory);
+  const url = urlFor(cluster, "postgres");
+  const testSocket = process.env.SOLDBENCH_TEST_SOCKET;
+  process.env.SOLDBENCH_TEST_SOCKET = cluster.socket;
+  const env = {
+    DATABASE_URL: url,
+    SOLDBENCH_TEST_SOCKET: cluster.socket,
+    MEDIA_ROOT: join(directory, "media"),
+  };
+  const target = database(url);
+  const store = new CollectorStore(target);
+  let running = false;
+  let blocker;
+  let supervisor;
+  let phase = "starting";
+  try {
+    startCluster(cluster);
+    running = true;
+    const prepared = await preparedDemo(directory, env);
+    const job = await store.view(prepared.jobId);
+    supervisor = start(
+      "scripts/collector-supervisor.mjs",
+      [
+        `--source=${job.source_id}`,
+        `--spool=${spool}`,
+        "--watch=true",
+        "--interval-ms=250",
+        "--max-ms=30000",
+      ],
+      env,
+    );
+    await waitFor(() => supervisor.output.includes('"artifactUnavailable":1'));
+    phase = "waiting for blocked child";
+    const owner = (
+      await target.query(
+        `SELECT pid FROM pg_locks WHERE locktype='advisory' AND granted AND objsubid=2
+          AND classid = (hashtext('soldbench.offline-collector-supervisor')::bigint & 4294967295)::oid
+          AND objid = (hashtext($1)::bigint & 4294967295)::oid`,
+        [job.source_id],
+      )
+    ).rows[0];
+    assert.ok(owner);
+    blocker = await target.connect();
+    await blocker.query("SELECT pg_advisory_lock(hashtext('soldbench:migrations'))");
+    await rename(prepared.artifactPath, join(spool, `collector-html-fixture-${job.id}.json`));
+    await waitFor(
+      async () =>
+        (
+          await target.query(
+            `SELECT pid FROM pg_stat_activity WHERE wait_event='advisory'
+          AND query='SELECT pg_advisory_lock(hashtext(''soldbench:migrations''))'`,
+          )
+        ).rows[0],
+    );
+    assert.equal(
+      (await target.query("SELECT pg_terminate_backend($1) stopped", [owner.pid])).rows[0].stopped,
+      true,
+    );
+    phase = "waiting for child exit after ownership loss";
+    const stopped = await waitFor(() =>
+      supervisor.errors
+        .split("\n")
+        .find((line) => line.includes('"kind":"collector_supervised_child_stopped"')),
+    );
+    const stoppedChild = JSON.parse(stopped);
+    assert.equal(stoppedChild.workerExited, true);
+    assert.throws(() => process.kill(stoppedChild.workerPid, 0), /ESRCH/);
+    await waitFor(() => supervisor.errors.includes("soldbench_collector_supervisor_database_unavailable"));
+    assert.equal((await store.view(job.id)).request_count, 0);
+    blocker.release(true);
+    blocker = undefined;
+    stopCluster(cluster);
+    running = false;
+    assert.equal(supervisor.child.exitCode, null);
+    startCluster(cluster);
+    running = true;
+    phase = "waiting for original supervisor to recover";
+    await waitFor(
+      () => supervisor.output.includes("soldbench_collector_supervisor_database_recovered"),
+      12000,
+    );
+    await waitFor(async () => (await store.view(job.id)).status === "completed", 8000);
+    const persisted = (
+      await target.query(
+        `SELECT (SELECT count(*) FROM collector_pages WHERE job_id=$1)::int pages,
+                (SELECT count(*) FROM listing_images WHERE source_id=$2 AND state='available')::int images`,
+        [job.id, job.source_id],
+      )
+    ).rows[0];
+    assert.deepEqual(persisted, { pages: 2, images: 8 });
+    assert.equal(supervisor.child.kill("SIGTERM"), true);
+    assert.deepEqual(await supervisor.exited, { code: 0, signal: null });
+  } catch (error) {
+    throw new Error(`${phase}: ${supervisor?.errors}\n${supervisor?.output.slice(-2000)}`, { cause: error });
+  } finally {
+    if (supervisor?.child.exitCode === null && supervisor.child.signalCode === null) {
+      supervisor.child.kill("SIGKILL");
+      await supervisor.exited;
+    }
+    if (running) stopCluster(cluster);
+    blocker?.release();
+    await target.end();
+    if (testSocket === undefined) delete process.env.SOLDBENCH_TEST_SOCKET;
+    else process.env.SOLDBENCH_TEST_SOCKET = testSocket;
+  }
+});
+
 test("watchdog kills a stalled child after a bounded grace interval without consuming a queued job", async () => {
   const directory = await root(),
     prepared = await preparedDemo(directory),
@@ -280,6 +392,46 @@ test("parent termination propagates to a stalled child and waits for child exit"
     assert.equal(report.interrupted, "SIGTERM");
     assert.equal(report.workerExited, true);
     assert.throws(() => process.kill(report.workerPid, 0), /ESRCH/);
+  } finally {
+    await blocker.query("SELECT pg_advisory_unlock(hashtext('soldbench:migrations'))");
+    blocker.release();
+  }
+});
+
+test("abrupt launcher exit stops a detached child without advancing its queued job", async () => {
+  const directory = await root();
+  const prepared = await preparedDemo(directory);
+  const blocker = await db.connect();
+  await blocker.query("SELECT pg_advisory_lock(hashtext('soldbench:migrations'))");
+  try {
+    const run = start(
+      "scripts/collector-launcher.mjs",
+      [`--fixture=${prepared.artifactPath}`, "--max-ms=30000"],
+      { COLLECTOR_DEMO_DIR: directory },
+    );
+    await waitFor(
+      async () =>
+        (
+          await db.query(
+            "SELECT 1 FROM pg_stat_activity WHERE wait_event='advisory' AND datname=current_database() AND query LIKE '%soldbench:migrations%'",
+          )
+        ).rowCount,
+    );
+    const processTable = () =>
+      execFileSync("ps", ["-ax", "-o", "pid=,ppid=,stat="], { encoding: "utf8" })
+        .trim()
+        .split("\n")
+        .map((line) => line.trim().split(/\s+/));
+    const [workerPid] = processTable().find(([, parent]) => parent === String(run.child.pid));
+    assert.equal(run.child.kill("SIGKILL"), true);
+    assert.deepEqual(await run.exited, { code: null, signal: "SIGKILL" });
+    await waitFor(() => {
+      const row = processTable().find(([pid]) => pid === workerPid);
+      return !row || row[2].startsWith("Z");
+    });
+    const current = await new CollectorStore(db).view(prepared.jobId);
+    assert.equal(current.status, "queued");
+    assert.equal(current.request_count, 0);
   } finally {
     await blocker.query("SELECT pg_advisory_unlock(hashtext('soldbench:migrations'))");
     blocker.release();
