@@ -10,6 +10,7 @@ import { bodyLimit } from "hono/body-limit";
 import { getCookie } from "hono/cookie";
 import * as z from "zod";
 import { OperationsService } from "./operations-domain.ts";
+import { telemetryViews } from "./ops-telemetry.ts";
 import { siteContentCommand } from "./site-content.ts";
 
 type Env = { Variables: { requestId: string } };
@@ -67,6 +68,15 @@ const plainText = (maximum: number) =>
     .min(1)
     .max(maximum)
     .refine((entry) => !/[\p{Cc}\p{Cs}]/u.test(entry));
+const telemetryView = z.enum(telemetryViews);
+const telemetryIdentity = z.uuid().transform((value) => value.toLowerCase());
+const alertSettings = z.strictObject({
+  heartbeat_stale_seconds: z.int().min(5).max(1800),
+  query_delay_seconds: z.int().min(5).max(600),
+  collector_failure_percent: z.int().min(1).max(100),
+  version,
+  reason,
+});
 const requestApproval = z.strictObject({
   action: z.enum(["suspend", "restore"]),
   credential_version: z.int().nonnegative(),
@@ -302,6 +312,46 @@ export function mountOperations(
   );
   app.get("/admin/overview", async (c) =>
     c.json({ data: await service().overview(await identity(c)), meta: meta(c) }),
+  );
+  app.get("/admin/telemetry/:view", async (c) => {
+    const selected = telemetryView.safeParse(c.req.param("view"));
+    if (!selected.success) throw invalid();
+    const view = selected.data,
+      params = new URL(c.req.url).searchParams;
+    const accepted = ["days", "limit"];
+    if (["collector", "records", "rules", "coverage", "quality", "costs"].includes(view))
+      accepted.push("source");
+    if (view === "records") accepted.push("record");
+    if ([...params.keys()].some((key) => !accepted.includes(key) || params.getAll(key).length !== 1))
+      throw invalid();
+    const scale = z
+      .string()
+      .regex(/^[1-9][0-9]*$/)
+      .transform(Number);
+    const validated = z
+      .strictObject({
+        days: scale.pipe(z.int().min(1).max(30)),
+        limit: scale.pipe(z.int().min(1).max(100)),
+        source: telemetryIdentity.optional(),
+        record: telemetryIdentity.optional(),
+      })
+      .safeParse({ days: "1", limit: "50", ...Object.fromEntries(params) });
+    if (!validated.success) throw invalid();
+    return c.json({ data: await service().report(await identity(c), view, validated.data), meta: meta(c) });
+  });
+  app.post("/admin/alerts/commands", async (c) =>
+    c.json(
+      {
+        data: await service().alertSettings(
+          await identity(c, true),
+          await body(c, alertSettings),
+          key(c),
+          c.get("requestId"),
+        ),
+        meta: meta(c),
+      },
+      202,
+    ),
   );
   app.get("/admin/settings", async (c) => {
     const state = await service().overview(await identity(c));

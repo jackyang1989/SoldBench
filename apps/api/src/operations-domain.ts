@@ -5,6 +5,7 @@ import { CollectorStore } from "@soldbench/collector";
 import { type Transaction, transaction } from "@soldbench/db";
 import type { QueryService } from "@soldbench/query";
 import { AppError } from "@soldbench/shared";
+import { type AlertSettings, type TelemetryInput, type TelemetryView, telemetry } from "./ops-telemetry.ts";
 import { publishContentRevision, requiresPolicyRelease, type SiteContentCommand } from "./site-content.ts";
 
 const fail = (code: string, status: number, message: string): never => {
@@ -888,6 +889,57 @@ export class OperationsService {
         open_incidents: row.open_incidents,
         pending_approvals: role === "admin" ? row.pending_approvals : null,
       };
+    });
+  }
+  async report(actor: Identity, view: TelemetryView, filters: TelemetryInput) {
+    return transaction(this.service.db, async (c) => {
+      const now = await this.service.now(c);
+      await this.role(c, actor, true, now);
+      return telemetry(c, now, view, filters);
+    });
+  }
+  async alertSettings(
+    actor: Identity,
+    input: AlertSettings & { reason: string },
+    rawKey: string | undefined,
+    requestId: string,
+  ) {
+    const op = "ops.alert_settings.update",
+      key = this.commandKey(rawKey);
+    const shape = this.crypto.hash("ops.command", JSON.stringify(input));
+    return transaction(this.service.db, async (c) => {
+      const now = await this.service.now(c);
+      await this.role(c, actor, true, now);
+      const replay = await this.previous(c, actor.userId, op, key, shape);
+      if (replay) return this.commandView(replay);
+      const result = await c.query(
+        `UPDATE operator_alert_settings SET heartbeat_stale_seconds=$2,query_delay_seconds=$3,
+         collector_failure_percent=$4,updated_at=$5,version=version+1 WHERE singleton AND version=$1`,
+        [
+          input.version,
+          input.heartbeat_stale_seconds,
+          input.query_delay_seconds,
+          input.collector_failure_percent,
+          now,
+        ],
+      );
+      if (!result.rowCount) return fail("state_conflict", 409, "Alert settings changed.");
+      const { reason, ...thresholds } = input;
+      return this.commandView(
+        await this.record(
+          c,
+          actor.userId,
+          op,
+          "operator_settings",
+          "alerts",
+          key,
+          shape,
+          reason,
+          requestId,
+          now,
+          { ...thresholds, new_version: input.version + 1 },
+        ),
+      );
     });
   }
   private userSummary(row: {

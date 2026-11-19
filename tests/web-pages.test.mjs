@@ -839,6 +839,16 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await editor.getByRole("button", { name: "系统设置", exact: true }).click();
     await editor.getByRole("cell", { name: "真实采集", exact: true }).waitFor();
     assert.equal(new URL(editor.url()).pathname, "/zh-CN/operations/settings");
+    await editor.getByRole("button", { name: "监控", exact: true }).click();
+    await editor.getByRole("heading", { name: "本机告警", exact: true }).waitFor();
+    await editor.getByRole("spinbutton", { name: "心跳告警秒数", exact: true }).fill("45");
+    await editor.getByRole("textbox", { name: "原因", exact: true }).fill("本机告警界面验收");
+    await editor.getByRole("button", { name: "保存告警阈值", exact: true }).click();
+    await editor.getByText(/告警阈值已记录/).waitFor();
+    await editor.getByRole("button", { name: "采集运行", exact: true }).click();
+    await editor.getByRole("columnheader", { name: "解析器版本", exact: true }).waitFor();
+    await editor.getByRole("link", { name: x.source.sourceId, exact: true }).first().click();
+    await editor.getByRole("columnheader", { name: "商品主图", exact: true }).waitFor();
     await reviewer.context.close();
     await author.context.close();
     await page.getByRole("button", { name: "Refresh order" }).click();

@@ -821,6 +821,108 @@ test("operations workbench binds account changes to independent approval, protec
   });
 });
 
+test("telemetry uses real offline runs, current evidence rights and versioned local alert thresholds", async () => {
+  const x = await createProductFixture(db, roots);
+  const admin = await actor(x, "admin");
+  const support = await actor(x, "support");
+  const end = x.now();
+  const start = new Date(Date.parse(end) - 40_000).toISOString();
+  const base = "/admin/telemetry/";
+  let operator = admin;
+  const get = async (view) => {
+    const response = await read(x, base + view, operator);
+    const result = await response.json();
+    assert.equal(response.status, 200, JSON.stringify(result));
+    return result;
+  };
+  const rows = (data, section = 0) => {
+    const item = data.sections[section];
+    return item.rows.map((row) => Object.fromEntries(item.columns.map((name, i) => [name, row[i]])));
+  };
+  const source = x.source.sourceId;
+  await db.query(
+    "INSERT INTO worker_heartbeats(worker_kind,last_cycle_at) VALUES('query',$1) ON CONFLICT(worker_kind) DO UPDATE SET last_cycle_at=$1",
+    [start],
+  );
+  await db.query(
+    `INSERT INTO data_availability(source_id,category_path,last_successful_observation_at,freshness_state,collector_status,last_transition_at)
+     VALUES($1,'video_games',$2,'fresh','running',$2) ON CONFLICT(source_id,category_path) DO UPDATE
+       SET last_successful_observation_at=$2,freshness_state='fresh',collector_status='running',last_transition_at=$2`,
+    [source, end],
+  );
+  const result = await x.app.request(`/v1/sold/${x.queryId}`, { headers: x.headers });
+  assert.equal(result.status, 200);
+  assert.equal((await read(x, `${base}records`, support)).status, 403);
+  assert.equal((await read(x, `${base}growth?source=${source}`, admin)).status, 400);
+  assert.equal((await read(x, `${base}collector?days=31`, admin)).status, 400);
+
+  const views = Object.fromEntries(
+    await Promise.all(
+      ["monitoring", "api", "collector", "records", "rules", "coverage", "quality", "growth", "costs"].map(
+        async (view) => [view, (await get(view)).data],
+      ),
+    ),
+  );
+  assert.equal(rows(views.monitoring).find((row) => row.signal === "worker_heartbeat_age").state, "alert");
+  assert.ok(rows(views.api).some((row) => row.operation === "sold_result" && row.requests >= 1));
+  assert.ok(rows(views.collector).some((row) => row.source_id === source && row.outcome === "completed"));
+  const photo = (
+    await db.query(
+      "SELECT sale_event_id FROM listing_images WHERE source_id=$1 AND state='available' LIMIT 1",
+      [source],
+    )
+  ).rows[0];
+  await db.query(
+    "UPDATE sold_listings SET title='Later listing revision' WHERE id=(SELECT listing_id FROM sale_events WHERE id=$1)",
+    [photo.sale_event_id],
+  );
+  const selected = (await get(`records?source=${source}&record=${photo.sale_event_id}`)).data;
+  assert.equal(rows(selected).length, 1);
+  assert.equal(rows(selected)[0].primary_image, true);
+  assert.equal(typeof rows(selected)[0].title, "string");
+  assert.notEqual(rows(selected)[0].title, "Later listing revision");
+  assert.doesNotMatch(JSON.stringify(selected), /images\.example\.test|object_key|source_url/);
+  assert.ok(rows(views.rules).some((row) => row.rule === "engine"));
+  assert.ok(rows(views.rules, 1).some((row) => row.source_id === source));
+  assert.equal(rows(views.coverage).find((row) => row.source_id === source).market_coverage, null);
+  assert.ok(rows(views.quality).some((row) => row.snapshots >= 1 && Number(row.verified_prices) >= 8));
+  assert.equal(rows(views.growth)[0].paid_conversion, null);
+  assert.ok(rows(views.costs).some((row) => row.source_id === source && Number(row.used) > 0));
+  assert.equal(rows(views.costs, 1)[0].network_cost, null);
+
+  const input = {
+    ...views.monitoring.alert_settings,
+    heartbeat_stale_seconds: 60,
+    reason: "Change a local observation threshold",
+  };
+  const key = randomUUID();
+  const updated = await post(x, "/admin/alerts/commands", admin, input, key);
+  assert.equal(updated.status, 202);
+  assert.deepEqual(
+    (await updated.json()).data,
+    (await (await post(x, "/admin/alerts/commands", admin, input, key)).json()).data,
+  );
+  assert.equal((await post(x, "/admin/alerts/commands", admin, input)).status, 409);
+  const current = await get("monitoring");
+  assert.equal(
+    rows(current.data).find((row) => row.signal === "worker_heartbeat_age").state,
+    "within_budget",
+  );
+  execFileSync("python3", ["tests/validate-response.py"], {
+    input: JSON.stringify([["OperationsTelemetryResponse", current]]),
+  });
+
+  x.clock.value = new Date(Date.parse(end) + 25 * 3600000).toISOString();
+  operator = await actor(x, "admin");
+  assert.equal(rows((await get(`coverage?source=${source}`)).data)[0].freshness, "stale_acceptable");
+  await x.store.revokeSource(source, "Exercise telemetry revocation");
+  assert.equal(rows((await get(`records?source=${source}&days=7`)).data).length, 0);
+  const blocked = rows((await get(`coverage?source=${source}`)).data)[0];
+  assert.equal(blocked.data_as_of, null);
+  assert.equal(blocked.freshness, "forbidden");
+  assert.equal(rows((await get(`quality?source=${source}&days=7`)).data).length, 0);
+});
+
 test("administrator compensation commits once and support sees only an opaque billing summary", async () => {
   const x = await createProductFixture(db, roots),
     admin = await actor(x, "admin"),

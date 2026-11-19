@@ -22,6 +22,15 @@ export const operationsPanels = [
   "support",
   "audit",
   "settings",
+  "monitoring",
+  "api",
+  "collector",
+  "records",
+  "rules",
+  "coverage",
+  "quality",
+  "growth",
+  "costs",
 ] as const;
 
 const filters = [
@@ -121,10 +130,12 @@ export function renderPage(
   const resume = (path: string) => link(path) + query;
   const operationParams = new URLSearchParams();
   if (page === "/operations") {
-    for (const key of ["account", "charge", "incident"]) {
+    for (const key of ["account", "charge", "incident", "source", "record"]) {
       const value = url.searchParams.get(key);
       if (value && uuid.test(value)) operationParams.set(key, value);
     }
+    const days = url.searchParams.get("days");
+    if (days && /^[1-9][0-9]?$/.test(days) && Number(days) <= 30) operationParams.set("days", days);
   }
   const other =
     page === "/operations"
@@ -587,13 +598,22 @@ export function renderPage(
               ["support", t("Support queue", "支持工单")],
               ["audit", t("Audit log", "审计日志")],
               ["settings", t("Settings", "系统设置")],
+              ["monitoring", t("Monitoring", "监控")],
+              ["api", t("API metrics", "API 指标")],
+              ["collector", t("Collection runs", "采集运行")],
+              ["records", t("Sale evidence", "成交证据")],
+              ["rules", t("Rule versions", "规则版本")],
+              ["coverage", t("Coverage", "覆盖")],
+              ["quality", t("Quality", "质量")],
+              ["growth", t("Activity", "活动")],
+              ["costs", t("Budget and costs", "预算与成本")],
             ].map(([view, label]) => (
               <button
                 key={view}
                 className="btn ghost"
                 data-ops-view={view}
                 type="button"
-                hidden={["recovery", "users", "approvals", "incidents", "settings"].includes(view ?? "")}
+                hidden={!["overview", "sources", "jobs", "billing", "support", "audit"].includes(view ?? "")}
               >
                 {label}
               </button>

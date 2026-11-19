@@ -1746,12 +1746,23 @@ function accountTable(heading, columns, rows) {
 
 if (page === "/operations") {
   const operatorTabs = [...document.querySelectorAll("[data-ops-view]")];
+  const reports = [
+    "monitoring",
+    "api",
+    "collector",
+    "records",
+    "rules",
+    "coverage",
+    "quality",
+    "growth",
+    "costs",
+  ];
   const recoveryTab = operatorTabs.find((item) => item.dataset.opsView === "recovery");
   const recoveryAccess = api("/admin/recovery", { method: "GET" })
     .then(({ data }) => {
       recoveryTab.hidden = !data.payment_fixtures_enabled;
       for (const tab of operatorTabs.filter((item) =>
-        ["users", "approvals", "incidents", "settings"].includes(item.dataset.opsView),
+        ["users", "approvals", "incidents", "settings", ...reports].includes(item.dataset.opsView),
       ))
         tab.hidden = false;
       return true;
@@ -2014,10 +2025,10 @@ if (page === "/operations") {
       );
     return tools;
   }
-  function operatorForm(path, title, fields, after) {
+  function operatorForm(path, title, fields, after, values = {}) {
     const form = element("form", undefined, "key-form security-form");
     form.append(element("h2", title));
-    for (const [name, labelText, maximum] of fields) {
+    for (const [name, labelText, maximum, currentValue] of fields) {
       const label = element("label", labelText);
       const input = element(Array.isArray(maximum) ? "select" : "input");
       if (Array.isArray(maximum)) {
@@ -2026,6 +2037,11 @@ if (page === "/operations") {
           option.value = value;
           input.append(option);
         }
+      } else if (typeof maximum === "object") {
+        input.type = "number";
+        input.min = maximum.min;
+        input.max = maximum.max;
+        input.value = currentValue;
       } else input.maxLength = maximum;
       input.name = name;
       input.required = true;
@@ -2042,7 +2058,9 @@ if (page === "/operations") {
         if (submit.disabled) return;
         submit.disabled = true;
         try {
-          const input = Object.fromEntries(new FormData(form));
+          const input = { ...Object.fromEntries(new FormData(form)), ...values };
+          for (const number of form.querySelectorAll("input[type=number]"))
+            input[number.name] = number.valueAsNumber;
           const shape = JSON.stringify(input);
           if (attempt?.shape !== shape) attempt = { shape, key: crypto.randomUUID() };
           const { data } = await post(path, input, (await session())?.csrf_token, attempt.key);
@@ -2053,6 +2071,181 @@ if (page === "/operations") {
       });
     });
     return form;
+  }
+  const reportLabels = {
+    alerts: t("Local alerts", "本机告警"),
+    requests: t("Requests", "请求"),
+    collection_runs: t("Collection runs", "采集运行"),
+    sale_evidence: t("Sale evidence", "成交证据"),
+    effective_versions: t("Effective versions", "生效版本"),
+    observed_parsers: t("Observed parsers", "观测到的解析器"),
+    source_coverage: t("Source watermarks", "来源水位"),
+    snapshot_quality: t("Snapshot quality", "快照质量"),
+    fixture_activity: t("Fixture activity", "合成活动"),
+    budget_usage: t("Local budget usage", "本机预算用量"),
+    commercial_costs: t("Commercial costs", "实际经营成本"),
+    signal: t("Signal", "信号"),
+    value: t("Value", "数值"),
+    denominator: t("Denominator", "分母"),
+    state: t("State", "状态"),
+    channel: t("Channel", "渠道"),
+    operation: t("Operation", "操作"),
+    errors: t("Errors", "错误数"),
+    credits: t("Credits", "额度"),
+    p95_ms: t("p95 (ms)", "p95（毫秒）"),
+    run_id: t("Run ID", "运行 ID"),
+    source_id: t("Source ID", "来源 ID"),
+    started_at: t("Started", "开始时间"),
+    completed_at: t("Completed", "完成时间"),
+    outcome: t("Outcome", "结果"),
+    stop_reason: t("Stop reason", "停止原因"),
+    pages: t("Pages", "页数"),
+    bytes: t("Bytes", "字节"),
+    unconfirmed_bytes: t("Unconfirmed bytes", "未确认字节"),
+    parser_version: t("Parser version", "解析器版本"),
+    event_id: t("Event ID", "成交事件 ID"),
+    observation_id: t("Observation ID", "观测 ID"),
+    captured_at: t("Captured", "观测时间"),
+    kind: t("Format", "成交方式"),
+    identity_status: t("Identity", "身份核验"),
+    price_status: t("Price status", "价格核验"),
+    title: t("Title", "标题"),
+    primary_image: t("Primary image", "商品主图"),
+    rule: t("Rule", "规则"),
+    version: t("Version", "版本"),
+    runs: t("Runs", "运行数"),
+    last_seen: t("Last seen", "最近观测"),
+    category: t("Category", "类目"),
+    data_as_of: t("Data as of", "数据时点"),
+    freshness: t("Freshness", "时效"),
+    market_coverage: t("Market coverage", "市场覆盖"),
+    collector_status: t("Collector state", "采集状态"),
+    engine_version: t("Engine version", "统计版本"),
+    cleaner_version: t("Cleaner version", "匹配版本"),
+    snapshots: t("Snapshots", "快照"),
+    observations: t("Observations", "观测"),
+    comparables: t("Comparable samples", "可比样本"),
+    verified_prices: t("Verified prices", "核验价格"),
+    verified_accounts: t("Verified accounts", "已核验账户"),
+    distinct_query_owners: t("Distinct query owners", "去重查询账户"),
+    delivered_queries: t("Delivered queries", "已交付查询"),
+    paid_conversion: t("Paid conversion", "付费转化"),
+    retention: t("Retention", "留存"),
+    day: t("UTC day", "UTC 日期"),
+    unit: t("Unit", "单位"),
+    cap: t("Limit", "上限"),
+    used: t("Used", "已用"),
+    reserved: t("Reserved", "已预留"),
+    compute_cost: t("Compute cost", "计算成本"),
+    network_cost: t("Network cost", "网络成本"),
+    cost_per_usable_query: t("Cost per usable query", "单次有效查询成本"),
+    overdue_query_jobs: t("Overdue query jobs", "超时排队作业"),
+    worker_heartbeat_age: t("Worker heartbeat age (s)", "Worker 心跳年龄（秒）"),
+    collector_failure_percent: t("Unsuccessful collection runs (%)", "未成功采集运行（%）"),
+    alert: t("Alert", "触发告警"),
+    within_budget: t("Within threshold", "阈值以内"),
+    unknown: t("Unknown", "未知"),
+  };
+  const reportLabel = (key) => (Object.hasOwn(reportLabels, key) ? reportLabels[key] : key);
+  const reportFilters = (view) => {
+    const scope = current().searchParams,
+      out = new URLSearchParams();
+    const days = scope.get("days") ?? "";
+    if (/^[1-9][0-9]?$/.test(days) && Number(days) <= 30) out.set("days", days);
+    if (
+      ["collector", "records", "rules", "coverage", "quality", "costs"].includes(view) &&
+      safeId(scope.get("source"))
+    )
+      out.set("source", scope.get("source"));
+    if (view === "records" && safeId(scope.get("record"))) out.set("record", scope.get("record"));
+    return out;
+  };
+  function renderReport(view, data) {
+    const filters = reportFilters(view);
+    const form = element("form", undefined, "actions");
+    form.method = "GET";
+    form.action = `${prefix}/operations/${view}`;
+    const field = (name, text, type, value) => {
+      const label = element("label", text);
+      const input = element("input");
+      input.name = name;
+      input.type = type;
+      input.value = value;
+      if (type === "number") {
+        input.min = 1;
+        input.max = 30;
+      } else {
+        input.maxLength = 36;
+        input.pattern = "[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}";
+      }
+      label.append(input);
+      form.append(label);
+    };
+    field("days", t("Window in days", "窗口天数"), "number", filters.get("days") ?? "1");
+    if (["collector", "records", "rules", "coverage", "quality", "costs"].includes(view))
+      field("source", t("Filter by source ID", "按来源 ID 筛选"), "text", filters.get("source") ?? "");
+    if (view === "records")
+      field("record", t("Find event ID", "查找成交事件 ID"), "text", filters.get("record") ?? "");
+    const apply = element("button", t("Apply filters", "应用筛选"), "btn ghost");
+    apply.type = "submit";
+    form.append(apply);
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const scope = Object.fromEntries([...new FormData(form)].filter(([, value]) => value.trim()));
+      location.assign(`${form.action}?${new URLSearchParams(scope)}`);
+    });
+    const card = element("section", undefined, "card result-card");
+    card.append(
+      element(
+        "p",
+        t(
+          `Offline fixtures · ${data.range_start} to ${data.as_of}`,
+          `离线合成数据 · ${data.range_start} 至 ${data.as_of}`,
+        ),
+      ),
+    );
+    card.append(form);
+    output.append(card);
+    const entries = Object.entries(data.alert_settings ?? {}).filter(([name]) => name !== "version");
+    for (const group of data.sections) {
+      const rows = group.rows.map((row) =>
+        row.map((value, index) => {
+          const column = group.columns[index];
+          if (value === null) return reportLabel("unknown");
+          if (column === "source_id" && safeId(value) && view !== "records")
+            return link(value, operatorLink("records", "source", value));
+          if (typeof value === "boolean") return value ? t("Yes", "有") : t("No", "无");
+          return typeof value === "string" ? reportLabel(value) : value;
+        }),
+      );
+      output.append(accountTable(reportLabel(group.key), group.columns.map(reportLabel), rows));
+    }
+    if (entries.length) {
+      const settings = {
+        heartbeat_stale_seconds: [t("Heartbeat alert after seconds", "心跳告警秒数"), 5, 1800],
+        query_delay_seconds: [t("Query delay alert after seconds", "查询延迟告警秒数"), 5, 600],
+        collector_failure_percent: [t("Collection failure alert percent", "采集失败比例告警阈值"), 1, 100],
+      };
+      const fields = entries.map(([name, current]) => {
+        const [label, min, max] = settings[name];
+        return [name, label, { min, max }, current];
+      });
+      fields.push(["reason", t("Reason", "原因"), 1000]);
+      output.append(
+        operatorForm(
+          "/admin/alerts/commands",
+          t("Save alert thresholds", "保存告警阈值"),
+          fields,
+          (audit) =>
+            showView(
+              "monitoring",
+              undefined,
+              `${t("Alert thresholds recorded", "告警阈值已记录")} · ${audit}`,
+            ),
+          { version: data.alert_settings.version },
+        ),
+      );
+    }
   }
   function operatorDetail(view, data) {
     const card = element("section", undefined, "card result-card");
@@ -2391,6 +2584,14 @@ if (page === "/operations") {
         control.setAttribute("aria-pressed", String(control.dataset.opsView === view));
     }
     try {
+      if (reports.includes(view)) {
+        const { data } = await api(`/admin/telemetry/${view}?${reportFilters(view)}`);
+        if (request === generation) {
+          message(notice);
+          renderReport(view, data);
+        }
+        return;
+      }
       const params = cursor ? `?${new URLSearchParams({ cursor })}` : "";
       const caseKey = { users: "account", incidents: "incident", billing: "charge" }[view];
       const caseId = caseKey ? safeId(current().searchParams.get(caseKey)) : null;

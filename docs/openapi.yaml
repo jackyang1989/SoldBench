@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.26.0
+  version: 1.27.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -7471,6 +7471,60 @@ paths:
       x-task: TASK-060
       x-credit-policy: '0'
       x-roles: [admin]
+  /admin/telemetry/{view}:
+    get:
+      operationId: readOperationsTelemetry
+      summary: Read a bounded report of observed offline operational facts
+      description: Source filtering applies to collector, records, rules, coverage, quality and costs. An event ID applies only to records. Coverage is a current projection. Other dated facts respect the selected window. Unmeasured commercial facts are null.
+      security: *id009
+      parameters:
+      - *content_language
+      - name: view
+        in: path
+        required: true
+        schema: &operations_telemetry_view
+          enum: [monitoring, api, collector, records, rules, coverage, quality, growth, costs]
+      - {name: days, in: query, schema: {type: integer, minimum: 1, maximum: 30, default: 1}}
+      - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+      - {name: source, in: query, schema: *id002}
+      - {name: record, in: query, schema: *id002}
+      responses:
+        '200':
+          description: Private offline report with explicit time and column keys.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OperationsTelemetryResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+      x-task: TASK-061
+      x-credit-policy: '0'
+      x-roles: [admin]
+  /admin/alerts/commands:
+    post:
+      operationId: changeOperationsAlertThresholds
+      summary: Update the versioned local telemetry thresholds with an audit receipt
+      security: *id009
+      parameters: [*content_language, *id003, *id008]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/OperationsAlertCommand'}
+      responses:
+        '202':
+          description: Settings recorded and used by the next report.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CommandResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '409': *content_error
+      x-task: TASK-061
+      x-credit-policy: '0'
+      x-roles: [admin]
+
   /admin/recovery:
     get:
       operationId: listOfflineRecoveryReceipts
@@ -10521,6 +10575,59 @@ components:
             required: [action, request_id, created_at, state]
             additionalProperties: false
       required: [incident, timeline]
+      additionalProperties: false
+
+    OperationsAlertThresholds:
+      type: object
+      properties:
+        heartbeat_stale_seconds: &operator_heartbeat_limit {type: integer, minimum: 5, maximum: 1800}
+        query_delay_seconds: &operator_delay_limit {type: integer, minimum: 5, maximum: 600}
+        collector_failure_percent: &operator_failure_limit {type: integer, minimum: 1, maximum: 100}
+        version: *operator_version
+      required: [heartbeat_stale_seconds, query_delay_seconds, collector_failure_percent, version]
+      additionalProperties: false
+    OperationsAlertCommand:
+      type: object
+      properties:
+        heartbeat_stale_seconds: *operator_heartbeat_limit
+        query_delay_seconds: *operator_delay_limit
+        collector_failure_percent: *operator_failure_limit
+        version: *operator_version
+        reason: *operator_reason
+      required: [heartbeat_stale_seconds, query_delay_seconds, collector_failure_percent, version, reason]
+      additionalProperties: false
+    OperationsTelemetryResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            view: *operations_telemetry_view
+            data_mode: {const: offline_fixture}
+            range_start: *operator_date
+            as_of: *operator_date
+            sections:
+              type: array
+              maxItems: 2
+              items:
+                type: object
+                properties:
+                  key: {type: string}
+                  columns: {type: array, uniqueItems: true, items: {type: string}}
+                  rows:
+                    type: array
+                    maxItems: 100
+                    items:
+                      type: array
+                      items: {type: [string, number, boolean, 'null']}
+                required: [key, columns, rows]
+                additionalProperties: false
+            alert_settings:
+              anyOf: [{$ref: '#/components/schemas/OperationsAlertThresholds'}, {type: 'null'}]
+          required: [view, data_mode, range_start, as_of, sections, alert_settings]
+          additionalProperties: false
+        meta: {$ref: '#/components/schemas/BasicMeta'}
+      required: [data, meta]
       additionalProperties: false
 
     CommandResponse:
