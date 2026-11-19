@@ -14,11 +14,12 @@ for target in re.findall(r'\]\((references/[^)]+)\)',text):
     assert (skill.parent/target).is_file(),target
 registry=json.loads((ROOT/'apps/api/dist/developer/assets.json').read_text())
 assets=registry['assets']
+runtime_pages={'/docs/implementation-status.json','/status','/playground','/zh-CN/playground','/account/security','/zh-CN/account/security'}
 for p in registry['pages']:
     other='zh-CN' if p['locale']=='en' else 'en'
     assert p['path'].replace('/'+p['locale']+'/', '/'+other+'/') in assets
     for link in re.findall(r'\]\((/[^)]+)\)',p['text']):
-        assert link in assets,link
+        assert link in assets or link in runtime_pages,link
 spec=yaml.safe_load((ROOT/'docs/openapi.yaml').read_text())
 assert json.loads(assets['/openapi.json']['body'])==spec
 assert json.loads(assets['/soldbench.postman.json']['body'])['variable'][1]['value']==''

@@ -22,6 +22,18 @@ function inline(text: string) {
 
 export function Documentation({ view, locale }: { view: DocsView; locale: Locale }) {
   const zh = locale === "zh-CN";
+  const groups = [
+    { label: zh ? "开始使用" : "Get started", pages: ["quickstart", "authentication", "integration-tools"] },
+    {
+      label: zh ? "成交研究" : "Sold-price research",
+      pages: ["sold-search", "pricing-evidence", "async-jobs", "billing-and-credits"],
+    },
+    {
+      label: zh ? "开发与运维" : "API and operations",
+      pages: ["api-reference", "rate-limits-and-headers", "errors-and-retries", "mcp"],
+    },
+  ];
+  const bySlug = new Map(view.pages.map((page) => [page.path.split("/").at(-1), page]));
   const blocks = view.current.text
     .trim()
     .split(/\n\s*\n/)
@@ -30,15 +42,38 @@ export function Documentation({ view, locale }: { view: DocsView; locale: Locale
     <div className="wrap docs-layout">
       <aside className="docs-sidebar">
         <nav aria-label={zh ? "开发者文档" : "Developer documentation"}>
-          {view.pages.map((page) => (
-            <a
-              key={page.path}
-              aria-current={page.path === view.current.path ? "page" : undefined}
-              href={page.path}
-            >
-              {page.title}
-            </a>
+          {groups.map((group) => (
+            <section className="docs-nav-group" key={group.label} aria-label={group.label}>
+              <h2>{group.label}</h2>
+              {group.pages.map((slug) => {
+                const page = bySlug.get(slug);
+                return (
+                  page && (
+                    <a
+                      key={slug}
+                      aria-current={page.path === view.current.path ? "page" : undefined}
+                      href={page.path}
+                    >
+                      {page.title}
+                    </a>
+                  )
+                );
+              })}
+            </section>
           ))}
+          {view.pages
+            .filter(
+              (page) => !groups.some((group) => group.pages.some((slug) => page.path.endsWith(`/${slug}`))),
+            )
+            .map((page) => (
+              <a
+                key={page.path}
+                aria-current={page.path === view.current.path ? "page" : undefined}
+                href={page.path}
+              >
+                {page.title}
+              </a>
+            ))}
         </nav>
       </aside>
       <article className="docs-article">
@@ -89,6 +124,9 @@ export function Documentation({ view, locale }: { view: DocsView; locale: Locale
           <a href="/examples/sold.ts">TypeScript</a>
           <a href="/examples/sold.py">Python</a>
           <a href="/examples/sold.sh">cURL</a>
+          <a href="/changelog">{zh ? "更新记录" : "Changelog"}</a>
+          <a href="/status">{zh ? "服务状态" : "Service status"}</a>
+          <a href="/docs/implementation-status.json">{zh ? "接口实现状态" : "API implementation status"}</a>
         </nav>
       </aside>
     </div>

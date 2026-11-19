@@ -6,27 +6,66 @@ import pg from "pg";
 
 export type Database = pg.Pool;
 export type Transaction = pg.PoolClient;
+const connectionCodes = new Set([
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "EPIPE",
+  "ETIMEDOUT",
+  "57P01",
+  "57P02",
+  "57P03",
+  "53300",
+  "08000",
+  "08001",
+  "08003",
+  "08006",
+  "08007",
+]);
+const driverConnectionMessages = new Set([
+  "Connection terminated unexpectedly",
+  "Connection terminated due to connection timeout",
+  "timeout exceeded when trying to connect",
+  "Client has encountered a connection error and is not queryable",
+]);
+
+export function isDatabaseConnectionError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (("code" in error && typeof error.code === "string" && connectionCodes.has(error.code)) ||
+      ("code" in error && error.code === "ENOENT" && "syscall" in error && error.syscall === "connect") ||
+      driverConnectionMessages.has(error.message))
+  );
+}
+
 export function database(url: string): Database {
-  return new pg.Pool({
+  const pool = new pg.Pool({
     connectionString: url,
     max: 20,
     connectionTimeoutMillis: 5000,
     statement_timeout: 10000,
     application_name: "soldbench",
   });
+  // pg removes the failed idle client before emitting this event.
+  pool.on("error", () => console.error("soldbench_database_idle_client_error"));
+  return pool;
 }
 export async function transaction<T>(db: Database, work: (client: Transaction) => Promise<T>): Promise<T> {
   const client = await db.connect();
+  let discard = false;
   try {
     await client.query("BEGIN");
     const result = await work(client);
     await client.query("COMMIT");
     return result;
   } catch (error) {
-    await client.query("ROLLBACK");
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      discard = true;
+    }
     throw error;
   } finally {
-    client.release();
+    client.release(discard);
   }
 }
 export async function migrate(db: Database, through?: string): Promise<string[]> {

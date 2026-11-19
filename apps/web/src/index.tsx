@@ -35,6 +35,7 @@ export const webPages = [
   "/account/keys",
   "/account/security",
   "/account/billing",
+  "/pricing",
   "/deletion-receipt",
   "/playground",
   "/support",
@@ -84,6 +85,8 @@ export function renderPage(
   if (page === "/account/billing") {
     const checkout = url.searchParams.get("checkout");
     if (checkout && uuid.test(checkout)) draft.set("checkout", checkout);
+    const plan = url.searchParams.get("plan");
+    if (plan && /^[a-z][a-z0-9_]{0,39}$/.test(plan)) draft.set("plan", plan);
   }
   if (resultId) draft.set("result", resultId);
   const query = draft.size ? `?${draft}` : "";
@@ -113,6 +116,7 @@ export function renderPage(
     "/account/keys": ["API keys", "API 密钥"],
     "/account/security": ["Account security", "账户安全"],
     "/account/billing": ["Billing", "账单"],
+    "/pricing": ["Pricing and credits", "定价与额度"],
     "/deletion-receipt": ["Deletion receipt", "删除回执"],
     "/playground": ["API Playground", "API 调试台"],
     "/categories": ["Research categories", "研究类目"],
@@ -131,6 +135,7 @@ export function renderPage(
     <>
       <a href={link("/search")}>{t("Search", "查价")}</a>
       <a href={link("/categories")}>{t("Categories", "类目")}</a>
+      <a href={link("/pricing")}>{t("Pricing", "定价")}</a>
       <a href={zh ? "/docs/zh-CN/quickstart" : "/docs/en/quickstart"}>{t("Docs", "文档")}</a>
       <a href={link("/agents")}>{t("Agents", "Agent")}</a>
       <a href={link("/account")}>{t("Dashboard", "账户")}</a>
@@ -568,6 +573,64 @@ export function renderPage(
           </form>
           {status}
         </div>
+      </section>
+    );
+  } else if (page === "/pricing") {
+    content = (
+      <section className="wrap workbench pricing-page">
+        <h1>{title}</h1>
+        <p className="lede">
+          {t(
+            "An eligible standard search costs up to one credit when you claim the result.",
+            "符合条件的标准查价，在领取结果时最多扣 1 个额度。",
+          )}
+        </p>
+        {status}
+        <section aria-labelledby="pricing-offer-title">
+          <h2 id="pricing-offer-title">{t("Plans and credit packs", "套餐与额度包")}</h2>
+          <p data-pricing-state="">{t("Commercial pricing is pending approval.", "正式定价有待审批。")}</p>
+          <div className="grid3" data-pricing-offers="" />
+          <div className="actions" data-pricing-actions="">
+            <a className="btn brand" href={link("/search")}>
+              {t("Try a lookup", "试用查价")}
+            </a>
+            <a className="btn ghost" href={link("/login")}>
+              {t("Sign in to view account billing", "登录查看账单")}
+            </a>
+          </div>
+        </section>
+        <section className="pricing-questions" aria-labelledby="pricing-questions-title">
+          <h2 id="pricing-questions-title">{t("How credits work", "额度如何使用")}</h2>
+          <dl>
+            <div>
+              <dt>{t("What can I do for free?", "哪些操作免费？")}</dt>
+              <dd>
+                {t(
+                  "Waiting for a result, failed searches, low-sample results, and eligible older results are free. Reopening or exporting an authorized result adds no charge.",
+                  "等待、失败、低样本结果和获准查看的陈旧结果均免费。复取或导出获准的已交付结果不会再次扣费。",
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt>{t("Where can I verify a charge?", "在哪里核对扣费？")}</dt>
+              <dd>
+                {t(
+                  "Usage lists your credit buckets, expiry dates, and ledger entries. Billing shows the current order and payment status.",
+                  "用量页列出额度桶、到期时间与流水。账单页可查看当前订单和付款状态。",
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt>{t("What happens when I stop a subscription?", "取消续订后会怎样？")}</dt>
+              <dd>
+                {t(
+                  "Period-end cancellation stops the next renewal. The current subscription remains available until the end of its period.",
+                  "在期末取消将停止下次续费，本期权益可使用至当前周期结束。",
+                )}
+              </dd>
+            </div>
+          </dl>
+        </section>
       </section>
     );
   } else if (page === "/support") {

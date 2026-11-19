@@ -2106,6 +2106,54 @@ async function showUsage() {
   );
 }
 
+function billingPlanName(plan) {
+  return { starter: "Starter", pro: "Pro", purchased_1500: t("Credit pack", "额度包") }[plan] ?? plan;
+}
+
+if (page === "/pricing") {
+  const state = document.querySelector("[data-pricing-state]");
+  const offers = document.querySelector("[data-pricing-offers]");
+  const actions = document.querySelector("[data-pricing-actions]");
+  run(async () => {
+    const user = await session();
+    if (!user) return;
+    actions.lastElementChild.replaceWith(
+      link(t("View account billing", "查看账单"), `${prefix}/account/billing`),
+    );
+    if (!user.email_verified || user.mfa_required) return;
+    let preview;
+    try {
+      preview = (await api("/billing/offers")).data;
+    } catch (error) {
+      if (error.status === 503 || error.status === 401 || error.status === 403) return;
+      throw error;
+    }
+    if (preview.data_mode !== "offline_fixture" || !preview.offers.length) return;
+    state.textContent = t("Sandbox preview. Amounts are for testing.", "沙盒预览，金额仅用于测试。");
+    const credits = new Intl.NumberFormat(document.documentElement.lang);
+    for (const offer of preview.offers) {
+      const card = element("article", undefined, "card result-card pricing-offer");
+      card.dataset.plan = offer.plan_code;
+      card.append(
+        element("h3", billingPlanName(offer.plan_code)),
+        element("p", amount(offer.amount_cents), "price-amount"),
+        element(
+          "p",
+          offer.kind === "subscription"
+            ? t("Monthly test subscription", "按月测试订阅")
+            : t("One-time test purchase", "一次性测试购买"),
+        ),
+        element("p", `${credits.format(offer.credits)} ${t("credits", "额度")}`),
+        link(
+          t("Open test checkout", "打开测试结账"),
+          `${prefix}/account/billing?${new URLSearchParams({ plan: offer.plan_code })}`,
+        ),
+      );
+      offers.append(card);
+    }
+  });
+}
+
 async function showBilling() {
   let data, prices, transactions;
   try {
@@ -2140,14 +2188,10 @@ async function showBilling() {
     awaiting_reconciliation: t("Awaiting reconciliation", "等待对账"),
     confirmed: t("Confirmed", "已确认"),
   };
-  const labelsForPlan = { starter: "Starter", pro: "Pro", purchased_1500: t("Credit pack", "额度包") };
   const subscriptionCard = element("section", undefined, "card result-card");
   subscriptionCard.append(element("h2", t("Subscription", "订阅")));
   subscriptionCard.append(
-    element(
-      "p",
-      `${labelsForPlan[data.plan_code] ?? data.plan_code} · ${labels[data.status] ?? data.status}`,
-    ),
+    element("p", `${billingPlanName(data.plan_code)} · ${labels[data.status] ?? data.status}`),
   );
   if (data.current_period_end)
     subscriptionCard.append(
@@ -2210,8 +2254,25 @@ async function showBilling() {
   }
   const actions = element("div", undefined, "actions");
   const keys = new Map();
+  const selected = element("p", undefined, "summary-note");
+  selected.hidden = true;
+  checkout.append(selected);
+  function selectOffer(offer) {
+    if (!offer) return;
+    selected.hidden = false;
+    selected.textContent = `${t("Selected test offer", "选中的测试报价")} · ${billingPlanName(offer.plan_code)} · ${amount(offer.amount_cents)}`;
+    const url = current();
+    const params = new URLSearchParams({ plan: offer.plan_code });
+    const existing = safeId(url.searchParams.get("checkout"));
+    if (existing) params.set("checkout", existing);
+    url.search = params.toString();
+    history.replaceState(null, "", url);
+    const alternate = document.querySelector("[data-language]");
+    alternate.href = `${zh ? "" : "/zh-CN"}/account/billing${url.search}`;
+  }
+  selectOffer(prices.offers.find((offer) => offer.plan_code === current().searchParams.get("plan")));
   for (const offer of prices.offers) {
-    const buttonLabel = `${labelsForPlan[offer.plan_code] ?? offer.plan_code} · ${amount(offer.amount_cents)} · ${offer.credits} ${t("credits", "额度")}`;
+    const buttonLabel = `${billingPlanName(offer.plan_code)} · ${amount(offer.amount_cents)} · ${offer.credits} ${t("credits", "额度")}`;
     const start = button(buttonLabel, () =>
       run(async () => {
         const channel = provider.value;
@@ -2224,6 +2285,7 @@ async function showBilling() {
           )
         )
           return;
+        selectOffer(offer);
         start.disabled = true;
         const request = {
           plan_code: offer.plan_code,
@@ -2246,7 +2308,7 @@ async function showBilling() {
           url.searchParams.set("checkout", id);
           history.replaceState(null, "", url);
           const alternate = document.querySelector("[data-language]");
-          alternate.href = `${zh ? "" : "/zh-CN"}/account/billing?checkout=${id}`;
+          alternate.href = `${zh ? "" : "/zh-CN"}/account/billing${url.search}`;
           await checkOrder(id);
         } finally {
           start.disabled = false;

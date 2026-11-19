@@ -16,7 +16,7 @@ import {
   type SoldQuery,
   sortComparables,
 } from "@soldbench/core";
-import { type Database, type Transaction, transaction } from "@soldbench/db";
+import { type Database, isDatabaseConnectionError, type Transaction, transaction } from "@soldbench/db";
 import type { PrivateMediaStore } from "@soldbench/media";
 import { AppError, VERSIONS } from "@soldbench/shared";
 import { qualityReport } from "./quality-report.ts";
@@ -528,6 +528,8 @@ export class QueryService {
       });
       return { jobId: lease.jobId, status: "completed" };
     } catch (error) {
+      // Keep the DB lease for normal recovery after the transaction outcome becomes readable again.
+      if (isDatabaseConnectionError(error)) throw error;
       const code = error instanceof AppError ? error.code : "service_unavailable";
       await transaction(this.db, async (c) => {
         const q = (await c.query("SELECT user_id FROM queries WHERE id=$1", [lease.queryId])).rows[0];

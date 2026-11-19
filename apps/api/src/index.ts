@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { AuthService } from "@soldbench/auth";
 import type { PaymentLifecycle } from "@soldbench/billing";
-import type { Database } from "@soldbench/db";
+import { type Database, isDatabaseConnectionError } from "@soldbench/db";
 import type { QueryService } from "@soldbench/query";
 import { AppError, type Config } from "@soldbench/shared";
 import { renderPage, webClient, webCss, webPages } from "@soldbench/web";
@@ -41,6 +41,7 @@ export function createApp(
     const known = error instanceof AppError;
     const retry = known ? error.details?.retry_after : undefined;
     if (known && error.status === 429) c.header("Retry-After", String(retry ?? 900));
+    else if (!known && isDatabaseConnectionError(error)) c.header("Retry-After", "2");
     else if (
       known &&
       error.status === 503 &&

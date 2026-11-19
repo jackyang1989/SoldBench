@@ -6,13 +6,37 @@ import type { Hono } from "hono";
 type Env = { Variables: { requestId: string } };
 type Page = { path: string; locale: string; title: string; text: string };
 type Asset = { body: string; contentType: string; etag: string };
-let registry: { assets: Record<string, Asset>; pages: Page[] } | undefined;
+type Operation = { operation_id: string; method: string; path: string };
+let registry:
+  | { assets: Record<string, Asset>; pages: Page[]; operations: Operation[]; schemaVersion: string }
+  | undefined;
 export function mountDeveloper(app: Hono<Env>) {
   // Built from fixed repository inputs. No request path is ever used for filesystem reads.
   registry ??= JSON.parse(readFileSync(new URL("./developer/assets.json", import.meta.url), "utf8"));
   const data = registry;
   if (!data) throw new Error("developer_assets_missing");
   app.get("/docs", (c) => c.redirect("/docs/en/quickstart", 302));
+  app.get("/zh-CN/docs", (c) => c.redirect("/docs/zh-CN/quickstart", 302));
+  app.get("/docs/implementation-status.json", (c) => {
+    const routes = new Set(
+      app.routes.map(({ method, path }) => `${method} ${path.replace(/:[a-z_]+/g, "{}")}`),
+    );
+    return c.json({
+      schema_version: data.schemaVersion,
+      data_mode: "synthetic_fixture",
+      acceptance: "Local route presence is not functional, production or stage acceptance.",
+      operations: data.operations.map((op) => {
+        const path = op.path.replace(/\{[^}]+\}/g, "{}");
+        return {
+          ...op,
+          status:
+            routes.has(`${op.method} ${path}`) || routes.has(`ALL ${path}`)
+              ? "local_route_present"
+              : "contract_only",
+        };
+      }),
+    });
+  });
   app.get("/docs/search", (c) => {
     const params = new URL(c.req.url).searchParams,
       q = params.get("q")?.trim().normalize("NFKC").toLocaleLowerCase() ?? "",

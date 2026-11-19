@@ -39,6 +39,7 @@ test("prototype-based pages serve both languages, valid private deep links and s
       "/account/keys",
       "/account/security",
       "/account/billing",
+      "/pricing",
       "/deletion-receipt",
       "/playground",
       "/methodology",
@@ -143,6 +144,10 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.locator("[data-docs-results] a").first().waitFor();
     await page.goto(`${origin}/categories`);
     await page.getByText("No categories have a public availability record yet.").waitFor();
+    await page.goto(`${origin}/pricing`);
+    await page.getByRole("heading", { name: "Pricing and credits", exact: true }).waitFor();
+    await page.getByText("Commercial pricing is pending approval.").waitFor();
+    assert.equal(await page.locator("[data-pricing-offers] article").count(), 0);
     await page.goto(`${origin}/support`);
     await page.getByRole("textbox", { name: "What happened?" }).fill("Synthetic request to verify the form.");
     const intake = () => page.waitForResponse((response) => response.url().endsWith("/support/requests"));
@@ -571,15 +576,70 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByText("The fixture review is complete.", { exact: true }).waitFor();
     assert.ok(!page.url().includes(supportReceipt));
     await reviewer.context.close();
-    await page.goto(`${origin}/account/billing`);
+    const onlineApp = app;
+    app = createApp(loadConfig({ PORT: String(port) }), db, { auth: x.auth, query: x.query });
+    try {
+      const disabledOffers = page.waitForResponse((response) => response.url().endsWith("/billing/offers"));
+      await page.goto(`${origin}/zh-CN/pricing`);
+      assert.equal((await disabledOffers).status(), 503);
+      await page.getByText("正式定价有待审批。", { exact: true }).waitFor();
+      assert.equal(await page.locator("[data-pricing-offers] article").count(), 0);
+    } finally {
+      app = onlineApp;
+    }
+    const beforePreview = requests.length;
+    const previewResponse = page.waitForResponse((response) => response.url().endsWith("/billing/offers"));
+    await page.goto(`${origin}/pricing`);
+    const preview = (await (await previewResponse).json()).data;
+    await page.getByText("Sandbox preview. Amounts are for testing.").waitFor();
+    const cards = page.locator("[data-pricing-offers] article");
+    assert.equal(await cards.count(), preview.offers.length);
+    const currency = new Intl.NumberFormat("en", {
+      style: "currency",
+      currency: "USD",
+      currencyDisplay: "code",
+    });
+    for (const offer of preview.offers) {
+      const card = page.locator(`[data-pricing-offers] [data-plan=${offer.plan_code}]`);
+      assert.equal(
+        await card.locator(".price-amount").textContent(),
+        currency.format(offer.amount_cents / 100),
+      );
+    }
+    const pack = page.locator("[data-pricing-offers] [data-plan=purchased_1500]");
+    await pack.getByRole("link", { name: "Open test checkout", exact: true }).click();
     await page.getByRole("heading", { name: "Test checkout" }).waitFor();
+    await page.getByText(/Selected test offer · Credit pack/).waitFor();
+    assert.equal(new URL(page.url()).searchParams.get("plan"), "purchased_1500");
+    await page.getByRole("link", { name: "简体中文" }).click();
+    await page.getByText(/选中的测试报价 · 额度包/).waitFor();
+    await page.getByRole("link", { name: "English", exact: true }).click();
+    await page.getByText(/Selected test offer · Credit pack/).waitFor();
+    assert.equal(requests.length, beforePreview);
     const provider = page.getByRole("combobox", { name: "Payment provider" });
     assert.equal(await provider.inputValue(), "stripe");
     await provider.selectOption("paypal");
+    let lostCheckout;
+    await page.route(
+      "**/billing/checkout",
+      async (route) => {
+        const response = await route.fetch();
+        assert.equal(response.status(), 200);
+        lostCheckout = new URL((await response.json()).data.checkout_url, origin).pathname.split("/").at(-1);
+        await route.abort();
+      },
+      { times: 1 },
+    );
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("button", { name: /Credit pack.*1,?500/ }).click();
+    await page.getByText("The request failed. Check your inputs or try again.", { exact: true }).waitFor();
+    assert.equal(await provider.inputValue(), "paypal");
+    assert.equal(new URL(page.url()).searchParams.get("plan"), "purchased_1500");
     page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: /Credit pack.*1,?500/ }).click();
     await page.getByText(/paypal.*Awaiting confirmation/).waitFor();
     const checkoutId = new URL(page.url()).searchParams.get("checkout");
+    assert.equal(checkoutId, lostCheckout);
     const fact = {
       provider: "paypal",
       merchant: merchant("paypal"),

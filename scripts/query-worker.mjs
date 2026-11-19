@@ -4,7 +4,7 @@ import { setTimeout } from "node:timers/promises";
 import { publishNextScheduledContent } from "@soldbench/api";
 import { AccountPrivacy, AuthService, localAuthSecrets } from "@soldbench/auth";
 import { BillingService, localPaymentKeys, PaymentLifecycle } from "@soldbench/billing";
-import { assertLocalDatabaseUrl, database, migrate } from "@soldbench/db";
+import { assertLocalDatabaseUrl, database, isDatabaseConnectionError, migrate } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
 import { PublicResults, QueryService, RequestAuditService } from "@soldbench/query";
 import { loadConfig } from "@soldbench/shared";
@@ -21,6 +21,8 @@ assertLocalDatabaseUrl(url, [
 ]);
 const db = database(url),
   abort = new AbortController();
+const watch = args[0] === "--watch";
+const wait = (milliseconds) => setTimeout(milliseconds, undefined, { signal: abort.signal }).catch(() => {});
 for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => abort.abort());
 try {
   await migrate(db);
@@ -38,14 +40,16 @@ try {
     nextHeartbeat = 0,
     nextPublicationCheck = 0,
     nextPaymentAttempt = 0,
-    nextPrivacyAttempt = 0;
-  do {
+    nextPrivacyAttempt = 0,
+    retryDelay = 0;
+  async function runCycle() {
     if (Date.now() >= nextMaintenance) {
       try {
         await audit.purgeExpired();
         await publicResults.prune();
         await privacy.prune();
-      } catch {
+      } catch (error) {
+        if (isDatabaseConnectionError(error)) throw error;
         console.error("soldbench_query_retention_cleanup_failed");
       }
       nextMaintenance = Date.now() + 60000;
@@ -56,7 +60,8 @@ try {
     if (payments && Date.now() >= nextPaymentAttempt) {
       try {
         event = await payments.workOnce();
-      } catch {
+      } catch (error) {
+        if (isDatabaseConnectionError(error)) throw error;
         console.error("soldbench_payment_fixture_processing_failed");
         nextPaymentAttempt = Date.now() + 1000;
       }
@@ -66,7 +71,8 @@ try {
     if (Date.now() >= nextPrivacyAttempt) {
       try {
         deletion = await privacy.workOnce();
-      } catch {
+      } catch (error) {
+        if (isDatabaseConnectionError(error)) throw error;
         console.error("soldbench_account_privacy_processing_failed");
         nextPrivacyAttempt = Date.now() + 1000;
       }
@@ -77,7 +83,8 @@ try {
         const publication = await publishNextScheduledContent(db);
         if (publication) console.log(JSON.stringify({ data_mode: "offline_fixture", publication }));
         nextPublicationCheck = Date.now() + (publication ? 0 : 1000);
-      } catch {
+      } catch (error) {
+        if (isDatabaseConnectionError(error)) throw error;
         console.error("soldbench_scheduled_content_processing_failed");
         nextPublicationCheck = Date.now() + 1000;
       }
@@ -89,10 +96,25 @@ try {
       );
       nextHeartbeat = Date.now() + 5000;
     }
-    if (args[0] !== "--watch" || abort.signal.aborted) break;
-    if (!result && !event && !deletion)
-      await setTimeout(1000, undefined, { signal: abort.signal }).catch(() => {});
-  } while (!abort.signal.aborted);
+    return Boolean(result || event || deletion);
+  }
+  while (!abort.signal.aborted) {
+    let busy;
+    try {
+      busy = await runCycle();
+      if (retryDelay) console.info("soldbench_query_worker_database_recovered");
+      retryDelay = 0;
+    } catch (error) {
+      if (!watch || !isDatabaseConnectionError(error)) throw error;
+      if (!retryDelay) console.error("soldbench_query_worker_database_unavailable");
+      retryDelay = retryDelay ? Math.min(10000, retryDelay * 2) : 1000;
+      nextHeartbeat = 0;
+      await wait(retryDelay);
+      continue;
+    }
+    if (!watch) break;
+    if (!busy) await wait(1000);
+  }
 } finally {
   await db.end();
 }

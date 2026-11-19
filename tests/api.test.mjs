@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createApp } from "@soldbench/api";
+import { database as createDatabase, isDatabaseConnectionError, transaction } from "@soldbench/db";
 import { loadConfig } from "@soldbench/shared";
 
 const config = loadConfig({});
@@ -34,6 +35,61 @@ test("health and readiness disclose fixture mode without claiming collector avai
   assert.equal((await disconnected.request("/ready")).status, 503);
 });
 
+test("database connection failure leaves liveness and static pricing available and rechecks readiness", async () => {
+  let available = true;
+  const temporary = createApp(config, {
+    query: async () => {
+      if (!available) throw Object.assign(new Error("fixture endpoint details"), { code: "57P01" });
+      return { rows: [{ query_worker: "recent", query_queue: "within_budget" }] };
+    },
+  });
+  assert.equal((await temporary.request("/ready")).status, 200);
+  available = false;
+  const unavailable = await temporary.request("/ready");
+  assert.equal(unavailable.status, 503);
+  assert.equal(unavailable.headers.get("Retry-After"), "2");
+  assert.doesNotMatch(await unavailable.text(), /fixture endpoint details/);
+  assert.equal((await temporary.request("/health")).status, 200);
+  assert.equal((await temporary.request("/zh-CN/pricing")).status, 200);
+  available = true;
+  assert.equal((await temporary.request("/ready")).status, 200);
+});
+
+test("an uncertain commit preserves the original error and discards a broken client without replaying work", async () => {
+  const failure = Object.assign(new Error("commit connection lost"), { code: "ECONNRESET" });
+  const calls = [];
+  const db = {
+    connect: async () => ({
+      query: async (sql) => {
+        calls.push(sql);
+        if (sql === "COMMIT") throw failure;
+        if (sql === "ROLLBACK") throw new Error("socket is closed");
+      },
+      release: (discard) => calls.push(discard),
+    }),
+  };
+  await assert.rejects(
+    transaction(db, async (c) => c.query("WRITE")),
+    (error) => error === failure,
+  );
+  assert.deepEqual(calls, ["BEGIN", "WRITE", "COMMIT", "ROLLBACK", true]);
+  assert.equal(isDatabaseConnectionError(failure), true);
+  assert.equal(
+    isDatabaseConnectionError(Object.assign(new Error("relation missing"), { code: "42P01" })),
+    false,
+  );
+  assert.equal(
+    isDatabaseConnectionError(Object.assign(new Error("file missing"), { code: "ENOENT", syscall: "open" })),
+    false,
+  );
+  const pool = createDatabase("postgresql://localhost/soldbench_fixture");
+  try {
+    assert.equal(pool.listenerCount("error"), 1);
+  } finally {
+    await pool.end();
+  }
+});
+
 test("SSR home stays bilingual, synthetic-data disclosed and protected by response headers", async () => {
   for (const [path, locale, requiredText] of [
     ["/", "en", "Sample results use synthetic records."],
@@ -51,6 +107,21 @@ test("SSR home stays bilingual, synthetic-data disclosed and protected by respon
   }
 });
 
+test("public pricing serves both languages without embedding account or sandbox quote data", async () => {
+  for (const [path, heading, state] of [
+    ["/pricing", "Pricing and credits", "Commercial pricing is pending approval."],
+    ["/zh-CN/pricing", "定价与额度", "正式定价有待审批。"],
+  ]) {
+    const response = await app.request(path);
+    assert.equal(response.status, 200);
+    const html = await response.text();
+    assert.ok(html.includes(`<h1>${heading}</h1>`));
+    assert.ok(html.includes(state));
+    assert.ok(html.includes('data-pricing-offers=""'));
+    assert.doesNotMatch(html, /purchased_1500|offline-v1|／月|pro_monthly/);
+  }
+});
+
 test("sold search validates inputs but does not return fake data or bypass authentication", async () => {
   const response = await app.request("/v1/sold?q=Game+Boy+Color");
   assert.equal(response.status, 401);
@@ -58,4 +129,39 @@ test("sold search validates inputs but does not return fake data or bypass authe
   assert.match(response.headers.get("x-request-id"), /^[0-9a-f-]{36}$/);
   const invalid = await app.request("/v1/sold?q=x&unknown=y");
   assert.equal(invalid.status, 400);
+});
+
+test("developer resource groups navigate to both official local language variants and report mounted routes", async () => {
+  for (const [locale, reference] of [
+    ["en", "API reference"],
+    ["zh-CN", "接口参考"],
+  ]) {
+    const intro = await app.request(`/docs/${locale}/quickstart`, { headers: { Accept: "text/html" } });
+    assert.equal(intro.status, 200);
+    const html = await intro.text();
+    for (const slug of ["api-reference", "rate-limits-and-headers", "integration-tools"]) {
+      const path = `/docs/${locale}/${slug}`;
+      assert.ok(html.includes(`href="${path}"`));
+      const markdown = await app.request(path);
+      assert.equal(markdown.status, 200);
+      assert.match(markdown.headers.get("Content-Type"), /text\/markdown/);
+    }
+    assert.ok(html.includes(reference));
+  }
+  assert.equal((await app.request("/zh-CN/docs")).headers.get("Location"), "/docs/zh-CN/quickstart");
+  const response = await app.request("/docs/implementation-status.json");
+  const inventory = await response.json();
+  const spec = await (await app.request("/openapi.json")).json();
+  assert.equal(inventory.schema_version, spec.info.version);
+  assert.equal(inventory.operations.length, Object.values(spec.paths).flatMap(Object.keys).length);
+  for (const path of ["/mcp", "/admin/recovery", "/admin/support", "/v1/categories", "/billing/offers"]) {
+    assert.ok(
+      inventory.operations.some((op) => op.path === path && op.status === "local_route_present"),
+      path,
+    );
+  }
+  const reserve = inventory.operations.find((op) => op.path === "/webhooks/paddle");
+  assert.equal(reserve?.status, "local_route_present");
+  assert.equal((await app.request("/webhooks/paddle", { method: "POST" })).status, 503);
+  assert.match(inventory.acceptance, /not functional, production or stage acceptance/);
 });

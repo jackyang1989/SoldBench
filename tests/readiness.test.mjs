@@ -16,6 +16,7 @@ import { PaymentLifecycle } from "@soldbench/billing";
 import { database, migrate } from "@soldbench/db";
 import { PublicResults } from "@soldbench/query";
 import { loadConfig } from "@soldbench/shared";
+import { initializeCluster, startCluster, stopCluster, urlFor } from "../scripts/local-db.mjs";
 import { createProductFixture } from "./helpers/product.mjs";
 
 const db = database(process.env.DATABASE_URL),
@@ -212,6 +213,79 @@ test("the live API serves delivered results through a stalled and killed query w
     if (stopped) process.kill(stopped, "SIGCONT");
     dev.kill("SIGTERM");
     await exited;
+  }
+});
+
+test("the same API and query worker recover after a dedicated PostgreSQL process stops and restarts", async () => {
+  const root = await mkdtemp(join(tmpdir(), "soldbench-db-reconnect-"));
+  roots.push(root);
+  const cluster = initializeCluster(root);
+  let databaseRunning = false;
+  let dev, exited;
+  const socket = createServer();
+  socket.listen(0, "127.0.0.1");
+  await once(socket, "listening");
+  const port = socket.address().port;
+  await new Promise((done) => socket.close(done));
+  const origin = `http://127.0.0.1:${port}`;
+  let logs = "";
+  const waitFor = async (label, check) => {
+    for (let i = 0; i < 180; i++) {
+      if (await check()) return;
+      await wait(50);
+    }
+    assert.fail(`${label}\n${logs}`);
+  };
+  const call = (path) => fetch(origin + path, { signal: AbortSignal.timeout(8000) });
+  try {
+    startCluster(cluster);
+    databaseRunning = true;
+    dev = spawn(process.execPath, ["scripts/dev.mjs"], {
+      env: {
+        ...process.env,
+        HOST: "127.0.0.1",
+        PORT: String(port),
+        APP_ORIGIN: origin,
+        DATABASE_URL: urlFor(cluster, "postgres"),
+        SOLDBENCH_TEST_SOCKET: cluster.socket,
+        LOCAL_STATE_ROOT: join(root, "app"),
+        MEDIA_ROOT: join(root, "media"),
+        PAYMENT_FIXTURES: "false",
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    exited = once(dev, "close");
+    for (const stream of [dev.stdout, dev.stderr])
+      stream.on("data", (bytes) => {
+        logs += bytes;
+      });
+    await waitFor("API started", () => logs.includes("SoldBench local server listening"));
+    await waitFor(
+      "initial worker heartbeat",
+      async () => (await (await call("/ready")).json()).query_worker === "recent",
+    );
+    stopCluster(cluster);
+    databaseRunning = false;
+    await waitFor("worker observed the PostgreSQL disconnect", () =>
+      logs.includes("soldbench_query_worker_database_unavailable"),
+    );
+    assert.equal((await call("/health")).status, 200);
+    const offline = await call("/ready");
+    assert.equal(offline.status, 503);
+    assert.equal(offline.headers.get("Retry-After"), "2");
+    startCluster(cluster);
+    databaseRunning = true;
+    await waitFor("worker recovered its original loop", () =>
+      logs.includes("soldbench_query_worker_database_recovered"),
+    );
+    assert.equal((await (await call("/ready")).json()).query_worker, "recent");
+    assert.equal(logs.match(/"event":"query_worker_started"/g)?.length, 1);
+  } finally {
+    if (dev) {
+      dev.kill("SIGTERM");
+      await exited;
+    }
+    if (databaseRunning) stopCluster(cluster);
   }
 });
 
