@@ -4,7 +4,9 @@ import { createApp } from "@soldbench/api";
 import { loadConfig } from "@soldbench/shared";
 
 const config = loadConfig({});
-const database = { query: async () => ({ rows: [{ ok: 1 }] }) };
+const database = {
+  query: async () => ({ rows: [{ query_worker: "unobserved", query_queue: "within_budget" }] }),
+};
 const app = createApp(config, database);
 
 test("health and readiness disclose fixture mode without claiming collector availability", async () => {
@@ -17,7 +19,19 @@ test("health and readiness disclose fixture mode without claiming collector avai
   });
   const ready = await app.request("/ready");
   assert.equal(ready.status, 200);
-  assert.deepEqual(await ready.json(), { status: "ready", data_mode: "offline_fixture" });
+  assert.deepEqual(await ready.json(), {
+    status: "ready",
+    data_mode: "offline_fixture",
+    query_worker: "unobserved",
+    query_queue: "within_budget",
+  });
+  const disconnected = createApp(config, {
+    query: async () => {
+      throw new Error("fixture_db_offline");
+    },
+  });
+  assert.equal((await disconnected.request("/health")).status, 200);
+  assert.equal((await disconnected.request("/ready")).status, 503);
 });
 
 test("SSR home stays bilingual, synthetic-data disclosed and protected by response headers", async () => {

@@ -63,8 +63,13 @@ export function createApp(
   mountCatalog(app, db, services.query);
   app.get("/health", (c) => c.json({ status: "ok", data_mode: config.dataMode, collector_enabled: false }));
   app.get("/ready", async (c) => {
-    await db.query("SELECT 1");
-    return c.json({ status: "ready", data_mode: config.dataMode });
+    const { rows } = await db.query<{ query_worker: string; query_queue: string }>(
+      `SELECT coalesce((SELECT CASE WHEN last_cycle_at >= now() - interval '30 seconds' THEN 'recent'
+          ELSE 'stale' END FROM worker_heartbeats WHERE worker_kind='query'), 'unobserved') AS query_worker,
+        CASE WHEN EXISTS (SELECT 1 FROM query_jobs WHERE status='queued' AND expires_at>now()
+          AND available_at<=now() - interval '15 seconds') THEN 'delayed' ELSE 'within_budget' END AS query_queue`,
+    );
+    return c.json({ status: "ready", data_mode: config.dataMode, ...rows[0] });
   });
   app.get("/assets/soldbench.css", (c) => c.body(webCss, 200, { "Content-Type": "text/css; charset=utf-8" }));
   app.get("/assets/soldbench.js", (c) =>

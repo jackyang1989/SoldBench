@@ -34,6 +34,7 @@ try {
     publicResults = new PublicResults(query),
     privacy = new AccountPrivacy(auth);
   let nextMaintenance = 0,
+    nextHeartbeat = 0,
     nextPaymentAttempt = 0,
     nextPrivacyAttempt = 0;
   do {
@@ -69,6 +70,13 @@ try {
       }
     }
     if (deletion) console.log(JSON.stringify({ data_mode: "offline_fixture", deletion_job: deletion }));
+    if (Date.now() >= nextHeartbeat) {
+      await db.query(
+        `INSERT INTO worker_heartbeats(worker_kind,last_cycle_at) VALUES('query',clock_timestamp())
+         ON CONFLICT(worker_kind) DO UPDATE SET last_cycle_at=greatest(worker_heartbeats.last_cycle_at,excluded.last_cycle_at)`,
+      );
+      nextHeartbeat = Date.now() + 5000;
+    }
     if (args[0] !== "--watch" || abort.signal.aborted) break;
     if (!result && !event && !deletion)
       await setTimeout(1000, undefined, { signal: abort.signal }).catch(() => {});

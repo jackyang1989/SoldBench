@@ -33,12 +33,13 @@ export async function createProductFixture(
     filters = {},
     saleTimes = {},
     clockValue = "2026-11-17T12:00:00.000Z",
+    authSecrets = newAuthSecrets(),
   } = {},
 ) {
   const clock = { value: clockValue },
     now = () => clock.value,
     config = loadConfig(port ? { PORT: String(port) } : {}),
-    auth = new AuthService(db, newAuthSecrets(), config.origin, now),
+    auth = new AuthService(db, authSecrets, config.origin, now),
     billing = new BillingService(db, now),
     root = await mkdtemp(join(tmpdir(), "soldbench-research-"));
   roots.push(root);

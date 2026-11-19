@@ -1,11 +1,17 @@
 import assert from "node:assert/strict";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { spawn } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { rm } from "node:fs/promises";
-import { arch, availableParallelism, platform, totalmem } from "node:os";
+import { once } from "node:events";
+import { mkdtemp, rm } from "node:fs/promises";
+import { createServer } from "node:net";
+import { arch, availableParallelism, platform, tmpdir, totalmem } from "node:os";
+import { join } from "node:path";
 import { after, before, test } from "node:test";
+import { setTimeout as wait } from "node:timers/promises";
 import { serve } from "@hono/node-server";
 import { createApp } from "@soldbench/api";
+import { localAuthSecrets } from "@soldbench/auth";
 import { PaymentLifecycle } from "@soldbench/billing";
 import { database, migrate } from "@soldbench/db";
 import { PublicResults } from "@soldbench/query";
@@ -93,6 +99,121 @@ async function current(x, options) {
     assert.equal((await x.query.workOnce("readiness-query")).status, "completed");
   return body.data.query_id;
 }
+
+test("the live API serves delivered results through a stalled and killed query worker and its replacement", async () => {
+  const state = await mkdtemp(join(tmpdir(), "soldbench-worker-supervision-"));
+  roots.push(state);
+  const socket = createServer();
+  socket.listen(0, "127.0.0.1");
+  await once(socket, "listening");
+  const port = socket.address().port;
+  await new Promise((done) => socket.close(done));
+  const origin = `http://127.0.0.1:${port}`,
+    x = await createProductFixture(db, roots, {
+      port,
+      count: 8,
+      clockValue: new Date().toISOString(),
+      authSecrets: localAuthSecrets(state),
+    });
+  const dev = spawn(process.execPath, ["scripts/dev.mjs"], {
+    env: {
+      ...process.env,
+      PORT: String(port),
+      HOST: "127.0.0.1",
+      APP_ORIGIN: origin,
+      LOCAL_STATE_ROOT: state,
+      MEDIA_ROOT: roots.at(-1),
+      PAYMENT_FIXTURES: "false",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const exited = once(dev, "close");
+  let logs = "";
+  dev.stdout.on("data", (bytes) => {
+    logs += bytes;
+  });
+  dev.stderr.on("data", (bytes) => {
+    logs += bytes;
+  });
+  const poll = async (label, check) => {
+    for (let i = 0; i < 120; i++) {
+      try {
+        const value = await check();
+        if (value) return value;
+      } catch (error) {
+        if (!(error instanceof TypeError) || !error.cause) throw error;
+      }
+      await wait(50);
+    }
+    assert.fail(`${label}\n${logs}`);
+  };
+  const live = { ...x, origin };
+  const readiness = async () => {
+    const response = await read(live, "/ready");
+    assert.equal(response.status, 200);
+    return response.json();
+  };
+  let stopped;
+  try {
+    const initial = await poll(
+      "query worker started",
+      () => logs.match(/"event":"query_worker_started","pid":(\d+)/)?.[1],
+    );
+    await poll("query worker heartbeat", async () => (await readiness()).query_worker === "recent");
+    const original = await counts(x);
+    process.kill(Number(initial), "SIGSTOP");
+    stopped = Number(initial);
+    await db.query("UPDATE worker_heartbeats SET last_cycle_at=now()-interval '31 seconds'");
+    const response = await start(live, { limit: 1 });
+    assert.equal(response.status, 202);
+    const request = (await response.json()).data;
+    await db.query("UPDATE query_jobs SET available_at=now()-interval '16 seconds' WHERE id=$1", [
+      request.job_id,
+    ]);
+    assert.deepEqual(await readiness(), {
+      status: "ready",
+      data_mode: "offline_fixture",
+      query_worker: "stale",
+      query_queue: "delayed",
+    });
+    for (const path of ["/health", `/v1/sold/${x.queryId}`, "/v1/usage"])
+      assert.equal((await read(live, path)).status, 200, path);
+    process.kill(stopped, "SIGKILL");
+    stopped = undefined;
+    await poll("query worker isolated crash recorded", () =>
+      logs.includes('"signal":"SIGKILL","restart_ms":1000'),
+    );
+    assert.equal((await read(live, `/v1/sold/${x.queryId}`)).status, 200);
+    await poll("replacement completed the queued query", async () => {
+      const job = await read(live, `/v1/jobs/${request.job_id}`);
+      assert.equal(job.status, 200);
+      return (await job.json()).data.status === "completed";
+    });
+    await poll("replacement heartbeat", async () => (await readiness()).query_worker === "recent");
+    assert.equal((await readiness()).query_queue, "within_budget");
+    assert.deepEqual(await counts(x), original);
+    assert.equal((await read(live, `/v1/sold/${request.query_id}`)).status, 409);
+    for (const [index, delay] of [
+      [2, 2000],
+      [3, 4000],
+      [4, null],
+    ]) {
+      const pid = await poll(
+        `replacement process ${index} started`,
+        () => [...logs.matchAll(/"event":"query_worker_started","pid":(\d+)/g)][index - 1]?.[1],
+      );
+      process.kill(Number(pid), "SIGKILL");
+      await poll(`restart budget advances to ${delay}`, () =>
+        logs.includes(`"signal":"SIGKILL","restart_ms":${delay}`),
+      );
+      assert.equal((await read(live, `/v1/sold/${x.queryId}`)).status, 200);
+    }
+  } finally {
+    if (stopped) process.kill(stopped, "SIGCONT");
+    dev.kill("SIGTERM");
+    await exited;
+  }
+});
 
 test("loopback product HTTP serves retained history and account functions during outage, with exact freshness limits and recovery", async (t) => {
   const x = await create(),
