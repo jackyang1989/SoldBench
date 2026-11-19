@@ -10,6 +10,7 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { mountAuth } from "./auth.ts";
 import { mountCatalog } from "./catalog.ts";
 import { mountDeveloper } from "./developer.ts";
+import { editorialNotFound, mountEditorial, siteBlocks } from "./editorial.ts";
 import { mountMcp } from "./mcp.ts";
 import { mountOperations } from "./operations.ts";
 import { mountPayments } from "./payments.ts";
@@ -83,30 +84,34 @@ export function createApp(
     ["zh-CN", "/zh-CN"],
   ] as const) {
     for (const page of webPages) {
+      if (page === "/guides") continue;
       const path = page === "/" ? prefix || "/" : prefix + page;
       app.get(path, async (c) => {
-        const kind =
-          page === "/" ? "announcement" : page === "/guides" ? "guide" : page === "/faq" ? "faq" : null;
+        const kind = page === "/" ? "announcement" : page === "/faq" ? "faq" : null;
         const rows =
           kind && services.query
             ? await publishedSiteContent(
                 db,
-                page === "/" ? [kind, "home", "navigation", "footer"] : [kind, "navigation", "footer"],
+                page === "/"
+                  ? [kind, "home", "navigation", "footer", "blog"]
+                  : [kind, "navigation", "footer"],
               )
             : [];
         const sections = rows
           .filter((row) => row.kind === kind)
           .map((row) => ({ slug: row.slug, ...row.body[locale] }));
-        const blocks = rows
-          .filter((row) => row.kind === "home" || row.kind === "navigation" || row.kind === "footer")
-          .map((row) => ({
-            kind: row.kind,
-            slug: row.slug,
-            target: row.metadata.target,
-            ...row.body[locale],
-          }));
+        if (kind) c.header("Cache-Control", "no-store");
         return c.html(
-          renderPage(locale, page, new URL(c.req.url), undefined, undefined, undefined, sections, blocks),
+          renderPage(
+            locale,
+            page,
+            new URL(c.req.url),
+            undefined,
+            undefined,
+            undefined,
+            sections,
+            siteBlocks(rows, locale),
+          ),
         );
       });
       if (page === "/" && prefix)
@@ -120,12 +125,21 @@ export function createApp(
   }
   mountQueries(app, config, services.auth, services.query);
   mountMcp(app, config, services.auth, services.query);
+  mountEditorial(app, db, services.query);
   mountDeveloper(app);
   mountPublicResults(app, config, services.auth, services.query);
   mountOperations(app, config, services.auth, services.query, services.payments);
   mountPayments(app, config, services.auth, config.paymentFixtures ? services.payments : undefined);
-  app.notFound((c) =>
-    c.json(
+  app.notFound((c) => {
+    const chinese = /^\/zh-CN(?:\/|$)/.test(c.req.path);
+    const path = chinese ? c.req.path.slice("/zh-CN".length) : c.req.path;
+    if (
+      c.req.method === "GET" &&
+      c.req.header("Accept")?.includes("text/html") &&
+      !/^\/(?:v1|web|billing|webhooks|admin|assets|mcp|\.well-known)(?:\/|$)/.test(path)
+    )
+      return editorialNotFound(c, chinese ? "zh-CN" : "en");
+    return c.json(
       {
         error: {
           code: "not_found",
@@ -135,7 +149,7 @@ export function createApp(
         },
       },
       404,
-    ),
-  );
+    );
+  });
   return app;
 }

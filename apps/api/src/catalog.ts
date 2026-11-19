@@ -14,15 +14,14 @@ const attribute = z.strictObject({
 
 type Env = { Variables: { requestId: string } };
 
-export function mountCatalog(app: Hono<Env>, db: Database, query?: QueryService) {
-  const catalog = () =>
-    transaction(db, async (c) => {
-      const now: Date = query
-        ? await query.now(c)
-        : (await c.query("SELECT clock_timestamp() AS now")).rows[0].now;
-      const rows = (
-        await c.query(
-          `SELECT t.category_path,t.name,t.supported_windows,t.attribute_schema,
+export function readCatalog(db: Database, query?: QueryService) {
+  return transaction(db, async (c) => {
+    const now: Date = query
+      ? await query.now(c)
+      : (await c.query("SELECT clock_timestamp() AS now")).rows[0].now;
+    const rows = (
+      await c.query(
+        `SELECT t.category_path,t.name,t.supported_windows,t.attribute_schema,
               projected.last_at,projected.collector_status,projected.paused,
               EXISTS(SELECT 1 FROM data_availability a WHERE a.category_path=t.category_path) AS had_status
          FROM category_taxonomy t
@@ -41,61 +40,63 @@ export function mountCatalog(app: Hono<Env>, db: Database, query?: QueryService)
             ORDER BY last_at DESC NULLS LAST,s.id LIMIT 1
          ) projected ON true
         WHERE t.active AND t.marketplace='ebay_us' ORDER BY t.category_path`,
-          [now],
-        )
-      ).rows;
-      return rows.flatMap((row) => {
-        const names = categoryAttributeNames(row.category_path);
-        if (!names) return [];
-        const asOf = row.last_at?.toISOString() ?? null;
-        const rights = row.had_status && row.collector_status === null ? "revoked" : "allowed";
-        const verified = availability({
-          now: now.toISOString(),
-          dataAsOf: asOf,
-          currentRights: rights,
-          snapshotExists: asOf !== null,
-          verifiedSamples: 0,
-          allowStale: false,
-        });
-        const freshness = verified.freshness === "unknown" ? "never_observed" : verified.freshness;
-        const status = {
-          category: row.category_path,
-          data_as_of: asOf,
-          freshness_state: freshness,
-          collector_status: row.paused
-            ? "paused"
-            : ["running", "paused", "stopped"].includes(row.collector_status)
-              ? row.collector_status
-              : "unknown",
-          evaluated_at: now.toISOString(),
-          incident_message: null,
-        };
-        const attributes = new Map();
-        for (const value of Array.isArray(row.attribute_schema) ? row.attribute_schema : []) {
-          const parsed = attribute.safeParse(value);
-          if (parsed.success && names.includes(parsed.data.name))
-            attributes.set(parsed.data.name, parsed.data);
-        }
-        return [
-          {
-            status,
-            category: {
-              id: row.category_path,
-              name: row.name,
-              marketplace: "ebay_us",
-              supported_windows: offlineQueryWindows.filter((days) => row.supported_windows.includes(days)),
-              supported_attributes: Array.from(attributes.values()),
-              quality_status: "unverified",
-              availability: freshness,
-            },
-          },
-        ];
+        [now],
+      )
+    ).rows;
+    return rows.flatMap((row) => {
+      const names = categoryAttributeNames(row.category_path);
+      if (!names) return [];
+      const asOf = row.last_at?.toISOString() ?? null;
+      const rights = row.had_status && row.collector_status === null ? "revoked" : "allowed";
+      const verified = availability({
+        now: now.toISOString(),
+        dataAsOf: asOf,
+        currentRights: rights,
+        snapshotExists: asOf !== null,
+        verifiedSamples: 0,
+        allowStale: false,
       });
+      const freshness = verified.freshness === "unknown" ? "never_observed" : verified.freshness;
+      const status = {
+        category: row.category_path,
+        data_as_of: asOf,
+        freshness_state: freshness,
+        collector_status: row.paused
+          ? "paused"
+          : ["running", "paused", "stopped"].includes(row.collector_status)
+            ? row.collector_status
+            : "unknown",
+        evaluated_at: now.toISOString(),
+        incident_message: null,
+      };
+      const attributes = new Map();
+      for (const value of Array.isArray(row.attribute_schema) ? row.attribute_schema : []) {
+        const parsed = attribute.safeParse(value);
+        if (parsed.success && names.includes(parsed.data.name)) attributes.set(parsed.data.name, parsed.data);
+      }
+      return [
+        {
+          status,
+          category: {
+            id: row.category_path,
+            name: row.name,
+            marketplace: "ebay_us",
+            supported_windows: offlineQueryWindows.filter((days) => row.supported_windows.includes(days)),
+            supported_attributes: Array.from(attributes.values()),
+            quality_status: "unverified",
+            availability: freshness,
+          },
+        },
+      ];
     });
+  });
+}
+
+export function mountCatalog(app: Hono<Env>, db: Database, query?: QueryService) {
   const response = async (c: Context<Env>, path: "categories" | "data-status") => {
     if (new URL(c.req.url).searchParams.size)
       throw new AppError("invalid_parameter", 400, "Unknown catalog parameter.");
-    const rows = await catalog();
+    const rows = await readCatalog(db, query);
     c.header("X-SoldBench-Data-Mode", "synthetic_fixture");
     const data =
       path === "categories"

@@ -3,6 +3,9 @@ import type { Locale } from "@soldbench/shared";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { type DocsView, Documentation } from "./developer.tsx";
+import { Editorial, type EditorialView, editorialUrl } from "./editorial.tsx";
+
+export type { EditorialEntry, EditorialView } from "./editorial.tsx";
 
 export const webCss = readFileSync(new URL("../src/site.css", import.meta.url), "utf8");
 export const webClient = readFileSync(new URL("../src/site.js", import.meta.url), "utf8");
@@ -47,7 +50,14 @@ export const webPages = [
   "/agents",
   "/operations",
 ] as const;
-type Page = (typeof webPages)[number] | "/results" | "/share" | "/docs" | "/admin/content";
+type Page =
+  | (typeof webPages)[number]
+  | "/results"
+  | "/share"
+  | "/docs"
+  | "/admin/content"
+  | "/editorial"
+  | "/404";
 type PublishedSection = { slug: string; title: string; body: string };
 type SiteBlock = PublishedSection & { kind: string; target?: string };
 type SharedSummary = {
@@ -70,6 +80,7 @@ export function renderPage(
   docs?: DocsView,
   sections: PublishedSection[] = [],
   blocks: SiteBlock[] = [],
+  editorial?: EditorialView,
 ): string {
   const zh = locale === "zh-CN";
   const t = (en: string, cn: string) => (zh ? cn : en);
@@ -93,11 +104,13 @@ export function renderPage(
   if (resultId) draft.set("result", resultId);
   const query = draft.size ? `?${draft}` : "";
   const resume = (path: string) => link(path) + query;
-  const other = docs
-    ? docs.alternate
-    : page === "/share" || page === "/admin/content"
-      ? `${url.pathname}?lang=${zh ? "en" : "zh-CN"}`
-      : (zh ? "" : "/zh-CN") + (resultId ? `/results/${resultId}` : page) + query;
+  const other = editorial
+    ? (zh ? "" : "/zh-CN") + editorial.path + (editorial.path === "/worth" ? query : "")
+    : docs
+      ? docs.alternate
+      : page === "/share" || page === "/admin/content"
+        ? `${url.pathname}?lang=${zh ? "en" : "zh-CN"}`
+        : (zh ? "" : "/zh-CN") + (resultId ? `/results/${resultId}` : page) + query;
   const priceDraft = (key: string) => {
     const value = draft.get(key);
     if (!value || !/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) return "";
@@ -132,10 +145,12 @@ export function renderPage(
     "/operations": ["Operations", "运营中心"],
     "/admin/content": ["Content studio", "内容中心"],
   };
-  const title = docs?.current.title ?? t(...(headings[page] ?? ["Search sold prices", "查询成交价"]));
+  const title =
+    editorial?.title ?? docs?.current.title ?? t(...(headings[page] ?? ["Search sold prices", "查询成交价"]));
   const isDestination = (target: string | undefined): target is string =>
     !!target &&
-    ((webPages as readonly string[]).includes(target) || ["/docs", "/changelog"].includes(target));
+    ((webPages as readonly string[]).includes(target) ||
+      ["/docs", "/blog", "/about", "/changelog"].includes(target));
   const browseableLinks = (kind: "navigation" | "footer") =>
     blocks.flatMap((block) =>
       block.kind === kind && isDestination(block.target) ? (
@@ -329,8 +344,28 @@ export function renderPage(
             </div>
           </div>
         </section>
+        {blocks.some((row) => row.kind === "blog") && (
+          <section className="wrap workbench">
+            <h2>{t("Latest articles", "最新文章")}</h2>
+            <div className="grid3">
+              {blocks
+                .filter((row) => row.kind === "blog")
+                .slice(0, 3)
+                .map((row) => (
+                  <article className="card" key={row.slug}>
+                    <h3>
+                      <a href={link(`/blog/${row.slug}`)}>{row.title}</a>
+                    </h3>
+                  </article>
+                ))}
+            </div>
+            <a href={link("/blog")}>{t("All articles", "全部文章")}</a>
+          </section>
+        )}
       </>
     );
+  } else if (editorial) {
+    content = <Editorial view={editorial} locale={locale} query={draft.get("q") ?? undefined} />;
   } else if (docs) {
     content = <Documentation view={docs} locale={locale} />;
   } else if (page === "/share") {
@@ -1058,11 +1093,22 @@ export function renderPage(
           <meta charSet="utf-8" />
           <meta name="viewport" content="width=device-width,initial-scale=1" />
           <meta name="robots" content="noindex,nofollow" />
+          {editorial && editorial.path !== "/404" && (
+            <>
+              <link rel="canonical" href={editorialUrl(locale, editorial.path)} />
+              <link rel="alternate" hrefLang="en" href={editorialUrl("en", editorial.path)} />
+              <link rel="alternate" hrefLang="zh-CN" href={editorialUrl("zh-CN", editorial.path)} />
+            </>
+          )}
           <title>{`${title} · SoldBench`}</title>
           <link rel="stylesheet" href="/assets/soldbench.css" />
           <script src="/assets/soldbench.js" type="module" />
         </head>
-        <body data-page={page} data-prefix={prefix} data-result-id={resultId}>
+        <body
+          data-page={editorial?.path === "/worth" ? "/worth" : page}
+          data-prefix={prefix}
+          data-result-id={resultId}
+        >
           <a className="skip" href="#main">
             {t("Skip to content", "跳到正文")}
           </a>
@@ -1113,6 +1159,14 @@ export function renderPage(
             <a href={link("/guides")}>{t("Guides", "指南")}</a>
             <a href={link("/methodology")}>{t("Methodology", "价格研究方法")}</a>
             <a href={link("/faq")}>FAQ</a>
+            <a href={link("/blog")}>{t("Blog", "博客")}</a>
+            <a href={link("/worth")}>{t("What is it worth?", "商品值多少钱？")}</a>
+            <a href={link("/alternatives")}>{t("Alternatives", "方案比较")}</a>
+            <a href={link("/changelog")}>{t("Changelog", "更新记录")}</a>
+            <a href={link("/about")}>{t("About", "关于")}</a>
+            <a href={link("/help")}>{t("Help", "帮助")}</a>
+            <a href={link("/terms")}>{t("Terms", "条款")}</a>
+            <a href={link("/privacy")}>{t("Privacy", "隐私")}</a>
             {footer}
           </footer>
         </body>

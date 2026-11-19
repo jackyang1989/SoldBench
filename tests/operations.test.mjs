@@ -69,6 +69,12 @@ test("public category and availability projections use current findings, scope a
   assert.equal(snapshot.data[1].data_as_of, null);
   assert.equal(snapshot.meta.credits_charged, 0);
   assert.doesNotMatch(JSON.stringify(snapshot), new RegExp(x.source.sourceId));
+  const categoryPage = await get("/zh-CN/categories/cards_graded");
+  assert.equal(categoryPage.status, 200);
+  const categoryHtml = await categoryPage.text();
+  assert.match(categoryHtml, /评级卡牌/);
+  assert.match(categoryHtml, /30 天 \/ 90 天/);
+  assert.match(categoryHtml, new RegExp(x.now()));
   await db.query(
     `INSERT INTO collector_circuits(source_id,category_key,status,opened_at) VALUES($1,'*','open',$2)`,
     [x.source.sourceId, x.now()],
@@ -84,6 +90,7 @@ test("public category and availability projections use current findings, scope a
   const revoked = (await status()).data[0];
   assert.equal(revoked.freshness_state, "forbidden");
   assert.equal(revoked.data_as_of, null);
+  assert.equal((await get("/zh-CN/categories/cards_graded")).status, 404);
   assert.deepEqual(
     (await (await get(routes[0])).json()).data.map((row) => row.id),
     ["watches"],
@@ -370,7 +377,9 @@ test("typed bilingual release projects only the active revision and never publis
     ["navigation", "fixture-nav-later", { position: 50, target: "/pricing" }],
     ["navigation", "fixture-nav-first", { position: 2, target: "/search" }],
     ["footer", "fixture-footer", { target: "/data-availability" }],
-    ["blog", "fixture-cms-article", { author: "Fixture editor", related: ["fixture-guide"] }],
+    ["blog", "fixture-cms-article", { author: "Fixture editor", related: ["fixture-cms-related"] }],
+    ["blog", "fixture-cms-related", {}],
+    ["guide", "fixture-published-guide", {}],
     ["comparison", "fixture-cms-comparison", { reference: "https://example.test/evidence" }],
     ["changelog", "fixture-cms-release", {}],
   ]) {
@@ -383,6 +392,30 @@ test("typed bilingual release projects only the active revision and never publis
   assert.match(home, /fixture-home-block/);
   assert.match(home, /href="\/search">fixture-nav-first/);
   assert.ok(home.indexOf("fixture-nav-first") < home.indexOf("fixture-nav-later"));
+  const articlePath = "/blog/fixture-cms-article";
+  assert.match(home, /href="\/blog\/fixture-cms-article"/);
+  assert.match(await (await read(x, "/guides")).text(), /href="\/guides\/fixture-published-guide"/);
+  const article = await read(x, `/zh-CN${articlePath}?tracking=ignored`);
+  assert.equal(article.status, 200);
+  assert.equal(article.headers.get("cache-control"), "no-store");
+  const articleHtml = await article.text();
+  assert.match(articleHtml, /中文 fixture-cms-article/);
+  assert.match(articleHtml, /Fixture editor/);
+  assert.match(articleHtml, /href="\/zh-CN\/blog\/fixture-cms-related"/);
+  assert.match(
+    articleHtml,
+    /rel="canonical" href="https:\/\/soldbench.com\/zh-CN\/blog\/fixture-cms-article"/,
+  );
+  assert.match(articleHtml, /hrefLang="en" href="https:\/\/soldbench.com\/blog\/fixture-cms-article"/i);
+  assert.doesNotMatch(articleHtml, /tracking=ignored/);
+  assert.equal((await change("unpublish", "fixture-cms-related")).status, 202);
+  assert.doesNotMatch(await (await read(x, articlePath)).text(), /fixture-cms-related/);
+  assert.equal((await change("unpublish", "fixture-cms-article")).status, 202);
+  assert.equal((await read(x, articlePath)).status, 404);
+  assert.doesNotMatch(await (await read(x, "/")).text(), /fixture-cms-article/);
+  const comparison = await (await read(x, "/compare/fixture-cms-comparison")).text();
+  assert.match(comparison, /https:\/\/example.test\/evidence/);
+  assert.match(await (await read(x, "/zh-CN/changelog")).text(), /中文 fixture-cms-release/);
   assert.match(
     await (await read(x, "/zh-CN/faq")).text(),
     /href="\/zh-CN\/data-availability">中文 fixture-footer/,

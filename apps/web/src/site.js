@@ -1071,7 +1071,7 @@ if (search) {
       submit.disabled = false;
     }
   };
-  const searchPath = ["/", "/playground"].includes(page) ? page : "/search";
+  const searchPath = ["/", "/playground", "/worth"].includes(page) ? page : "/search";
   const updateLinks = (draft, keepResult) => {
     for (const a of document.querySelectorAll("[data-resume]")) {
       a.href = resume(a.dataset.resume, draft, keepResult);
@@ -1308,6 +1308,10 @@ if (page === "/categories" || page === "/data-availability") {
         card.append(element("p", `${t("Last observation", "最近有效观测")} · ${row.data_as_of}`, "small"));
       if (row.collector_status === "paused")
         card.append(element("p", t("Collection paused", "采集暂停"), "small"));
+      if (categories)
+        card.append(
+          link(t("Category details", "类目详情"), `${prefix}/categories/${encodeURIComponent(category)}`),
+        );
       if (categories && row.supported_windows.length) {
         card.append(
           element(

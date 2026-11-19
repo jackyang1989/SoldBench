@@ -48,6 +48,15 @@ test("prototype-based pages serve both languages, valid private deep links and s
       "/support",
       "/categories",
       "/data-availability",
+      "/blog",
+      "/guides",
+      "/alternatives",
+      "/compare",
+      "/worth",
+      "/about",
+      "/terms",
+      "/privacy",
+      "/help",
       `/results/${x.queryId}`,
     ]) {
       const response = await x.app.request(
@@ -62,6 +71,19 @@ test("prototype-based pages serve both languages, valid private deep links and s
     }
   }
   assert.equal((await x.app.request("/results/not-a-uuid")).status, 404);
+  const missing = await x.app.request("/zh-CN/blog/not-published", { headers: { Accept: "text/html" } });
+  assert.equal(missing.status, 404);
+  assert.match(await missing.text(), /找不到此页面/);
+  const apiMissing = await x.app.request("/v1/not-a-route", { headers: { Accept: "text/html" } });
+  assert.equal(apiMissing.status, 404);
+  assert.match(apiMissing.headers.get("content-type"), /json/);
+  const markdown = await x.app.request("/changelog", { headers: { Accept: "text/markdown" } });
+  assert.match(markdown.headers.get("content-type"), /markdown/);
+  const htmlChangelog = await x.app.request("/changelog", { headers: { Accept: "text/html" } });
+  assert.match(htmlChangelog.headers.get("content-type"), /html/);
+  const sitemap = await x.app.request("/sitemap.xml");
+  assert.match(sitemap.headers.get("content-type"), /xml/);
+  assert.doesNotMatch(await sitemap.text(), /<loc>/);
   for (const [extension, mime] of [
     ["css", "text/css"],
     ["js", "text/javascript"],
@@ -161,9 +183,11 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     const secondIntake = intake();
     await page.getByRole("button", { name: "Submit request" }).click();
     assert.equal((await (await secondIntake).json()).data.request_id, firstReceipt);
-    await page.goto(`${origin}/?q=Nintendo+Switch`);
-    await page.getByRole("button", { name: "Search", exact: true }).click();
+    await page.goto(`${origin}/worth`);
+    await page.getByRole("textbox", { name: "Product" }).fill("Nintendo Switch");
+    await page.getByRole("button", { name: "Check sold prices", exact: true }).click();
     await page.getByText("Cached result · 4 lookups left today").waitFor();
+    assert.equal(new URL(page.url()).pathname, "/worth");
     await page.goto(`${origin}/search`);
     const countJobs = async () => (await db.query("SELECT count(*)::int AS n FROM query_jobs")).rows[0].n;
     const beforeMiss = await countJobs();
