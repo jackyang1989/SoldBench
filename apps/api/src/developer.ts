@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { AppError } from "@soldbench/shared";
+import { renderPage } from "@soldbench/web";
 import type { Hono } from "hono";
 
 type Env = { Variables: { requestId: string } };
@@ -63,12 +64,28 @@ export function mountDeveloper(app: Hono<Env>) {
       meta: { credits_charged: 0 },
     });
   });
-  for (const [path, asset] of Object.entries(data.assets))
+  for (const [path, asset] of Object.entries(data.assets)) {
+    const docs = data.pages.find((page) => page.path === path);
     app.get(path, (c) => {
+      if (docs) {
+        c.header("Vary", "Accept");
+        if (c.req.header("Accept")?.includes("text/html")) {
+          const locale = docs.locale === "zh-CN" ? "zh-CN" : "en";
+          const alternateLocale = locale === "en" ? "zh-CN" : "en";
+          return c.html(
+            renderPage(locale, "/docs", new URL(c.req.url), undefined, undefined, {
+              current: docs,
+              pages: data.pages.filter((page) => page.locale === locale),
+              alternate: path.replace(`/docs/${locale}/`, `/docs/${alternateLocale}/`),
+            }),
+          );
+        }
+      }
       c.header("Cache-Control", "public, max-age=300");
       c.header("ETag", asset.etag);
       c.header("Content-Type", asset.contentType);
       if (c.req.header("If-None-Match") === asset.etag) return c.body(null, 304);
       return c.body(asset.body);
     });
+  }
 }

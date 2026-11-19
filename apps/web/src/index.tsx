@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import type { Locale } from "@soldbench/shared";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { type DocsView, Documentation } from "./developer.tsx";
 
 export const webCss = readFileSync(new URL("../src/site.css", import.meta.url), "utf8");
 export const webClient = readFileSync(new URL("../src/site.js", import.meta.url), "utf8");
@@ -15,6 +16,7 @@ const filters = [
   "allow_stale",
   "min_price_cents",
   "max_price_cents",
+  "category",
 ];
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export const webPages = [
@@ -27,8 +29,16 @@ export const webPages = [
   "/forgot-password",
   "/reset-password",
   "/account",
+  "/account/queries",
+  "/account/usage",
+  "/account/logs",
+  "/account/keys",
+  "/playground",
+  "/support",
+  "/categories",
+  "/data-availability",
 ] as const;
-type Page = (typeof webPages)[number] | "/results" | "/share";
+type Page = (typeof webPages)[number] | "/results" | "/share" | "/docs";
 type SharedSummary = {
   data_as_of: string;
   expires_at: string;
@@ -46,6 +56,7 @@ export function renderPage(
   url: URL,
   resultId?: string,
   shared?: SharedSummary,
+  docs?: DocsView,
 ): string {
   const zh = locale === "zh-CN";
   const t = (en: string, cn: string) => (zh ? cn : en);
@@ -63,8 +74,9 @@ export function renderPage(
   if (resultId) draft.set("result", resultId);
   const query = draft.size ? `?${draft}` : "";
   const resume = (path: string) => link(path) + query;
-  const other =
-    page === "/share"
+  const other = docs
+    ? docs.alternate
+    : page === "/share"
       ? `${url.pathname}?lang=${zh ? "en" : "zh-CN"}`
       : (zh ? "" : "/zh-CN") + (resultId ? `/results/${resultId}` : page) + query;
   const priceDraft = (key: string) => {
@@ -73,27 +85,29 @@ export function renderPage(
     const cents = String(Number(value)).padStart(3, "0");
     return `${cents.slice(0, -2)}.${cents.slice(-2)}`;
   };
-  const title =
-    page === "/"
-      ? t("eBay sold prices, with evidence", "eBay 成交价，附可核查的证据")
-      : page === "/login"
-        ? t("Sign in", "登录")
-        : page === "/register"
-          ? t("Create an account", "创建账户")
-          : page === "/verify-email"
-            ? t("Verify your email", "验证邮箱")
-            : page === "/forgot-password"
-              ? t("Reset your password", "找回密码")
-              : page === "/reset-password"
-                ? t("Choose a new password", "设置新密码")
-                : page === "/account"
-                  ? t("Overview", "账户概览")
-                  : page === "/share"
-                    ? t("Shared price research", "分享的成交研究")
-                    : t("Search sold prices", "查询成交价");
+  const headings: Partial<Record<Page, [string, string]>> = {
+    "/": ["eBay sold prices, with evidence", "eBay 成交价，附可核查的证据"],
+    "/login": ["Sign in", "登录"],
+    "/register": ["Create an account", "创建账户"],
+    "/verify-email": ["Verify your email", "验证邮箱"],
+    "/forgot-password": ["Reset your password", "找回密码"],
+    "/reset-password": ["Choose a new password", "设置新密码"],
+    "/account": ["Overview", "账户概览"],
+    "/account/queries": ["Research history", "研究历史"],
+    "/account/usage": ["Usage", "用量"],
+    "/account/logs": ["Request logs", "请求日志"],
+    "/account/keys": ["API keys", "API 密钥"],
+    "/playground": ["API Playground", "API 调试台"],
+    "/categories": ["Research categories", "研究类目"],
+    "/data-availability": ["Data availability", "数据可用性"],
+    "/share": ["Shared price research", "分享的成交研究"],
+    "/support": ["Support", "支持"],
+  };
+  const title = docs?.current.title ?? t(...(headings[page] ?? ["Search sold prices", "查询成交价"]));
   const nav = (
     <>
       <a href={link("/search")}>{t("Search", "查价")}</a>
+      <a href={link("/categories")}>{t("Categories", "类目")}</a>
       <a href={zh ? "/docs/zh-CN/quickstart" : "/docs/en/quickstart"}>{t("Docs", "文档")}</a>
       <a href={link("/account")}>{t("Dashboard", "账户")}</a>
     </>
@@ -133,7 +147,8 @@ export function renderPage(
     </p>
   );
   const status = <p className="notice" data-status="" aria-live="polite" hidden />;
-  const research = page === "/search" || page === "/research" || page === "/results";
+  const research =
+    page === "/search" || page === "/research" || page === "/results" || page === "/playground";
   const auth = ["/login", "/register", "/verify-email", "/forgot-password", "/reset-password"].includes(page);
   let content: ReactNode;
   if (page === "/") {
@@ -250,6 +265,8 @@ export function renderPage(
         </section>
       </>
     );
+  } else if (docs) {
+    content = <Documentation view={docs} locale={locale} />;
   } else if (page === "/share") {
     const currency = new Intl.NumberFormat(locale, {
       style: "currency",
@@ -294,14 +311,79 @@ export function renderPage(
         )}
       </section>
     );
+  } else if (page === "/categories" || page === "/data-availability") {
+    content = (
+      <section className="wrap workbench">
+        <h1>{title}</h1>
+        {market}
+        <div className="actions">
+          <a className="btn ghost" href={link(page === "/categories" ? "/data-availability" : "/categories")}>
+            {page === "/categories"
+              ? t("Data availability", "数据可用性")
+              : t("Research categories", "研究类目")}
+          </a>
+        </div>
+        {status}
+        <div className="grid3" data-results="" />
+      </section>
+    );
+  } else if (page === "/support") {
+    content = (
+      <section className="wrap auth-wrap">
+        <div className="card auth-card">
+          <h1>{title}</h1>
+          <p>
+            {t(
+              "Share the relevant request ID if you have it. Keep passwords, card numbers and API keys private.",
+              "如有请求编号，请随工单附上。请妥善保管密码、银行卡号和 API 密钥。",
+            )}
+          </p>
+          <form data-support="" method="post">
+            <label>
+              {t("Issue type", "问题类型")}
+              <select name="category" required>
+                <option value="data_quality">{t("Data quality", "数据质量")}</option>
+                <option value="takedown">{t("Data rights or takedown", "数据权利或下架")}</option>
+                <option value="account">{t("Account access", "账户访问")}</option>
+                <option value="billing">{t("Billing", "账务")}</option>
+                <option value="other">{t("Other", "其他")}</option>
+              </select>
+            </label>
+            <label>
+              {t("Request ID (optional)", "请求编号（选填）")}
+              <input name="request_id" maxLength={36} />
+            </label>
+            <label>
+              {t("What happened?", "请描述遇到的问题")}
+              <textarea name="message" required maxLength={4000} rows={5} />
+            </label>
+            <button className="btn brand" type="submit">
+              {t("Submit request", "提交工单")}
+            </button>
+          </form>
+          {status}
+        </div>
+      </section>
+    );
   } else if (research) {
     content = (
       <section className="wrap workbench">
         <p className="eyebrow">{t("Research workbench", "研究工作台")}</p>
         <h1>{title}</h1>
         {market}
+        {page === "/playground" && (
+          <p>
+            {t(
+              "Try the research API with your account session. Inspect the response and copy a server-side example.",
+              "使用当前账户会话调试研究接口，查看响应并复制服务端调用示例。",
+            )}
+          </p>
+        )}
         <form action={link("/search")} method="get" data-search="">
           {searchBox}
+          {draft.get("category") && (
+            <input type="hidden" name="category" value={draft.get("category") ?? ""} />
+          )}
           <div className="wb-filters">
             <label>
               {t("Condition", "成色")}
@@ -374,6 +456,26 @@ export function renderPage(
         {examples}
         {status}
         <div className="actions" data-actions="" />
+        {page === "/playground" && (
+          <section className="card result-card" data-api-trace="">
+            <h2>{t("Requests and responses", "请求与响应")}</h2>
+            <div className="actions" data-trace-list="" />
+            <details open>
+              <summary>{t("Response", "响应")}</summary>
+              <pre data-trace-body="">
+                {t("Run a search to inspect its response.", "提交查询后查看响应。")}
+              </pre>
+            </details>
+            <details>
+              <summary>{t("Headers", "响应头")}</summary>
+              <pre data-trace-headers="" />
+            </details>
+            <details>
+              <summary>{t("Server-side cURL example", "服务端 cURL 示例")}</summary>
+              <pre data-trace-code="" />
+            </details>
+          </section>
+        )}
         <div data-results="" />
         <noscript>{t("Enable JavaScript to submit a search.", "请启用 JavaScript 后提交搜索。")}</noscript>
       </section>
@@ -455,18 +557,33 @@ export function renderPage(
     );
   } else {
     content = (
-      <section className="wrap workbench">
-        <h1>{title}</h1>
-        {status}
-        <div className="actions">
-          <a className="btn brand" href={resume("/search")}>
-            {t("New search", "开始查价")}
-          </a>
-          <button className="btn ghost" type="button" data-logout="" hidden>
-            {t("Sign out", "退出登录")}
-          </button>
+      <section className="wrap account-layout">
+        <aside className="docs-sidebar">
+          <nav aria-label={t("Account navigation", "账户导航")}>
+            {(
+              ["/account", "/account/queries", "/account/usage", "/account/logs", "/account/keys"] as const
+            ).map((target) => (
+              <a key={target} aria-current={page === target ? "page" : undefined} href={link(target)}>
+                {headings[target]?.[zh ? 1 : 0]}
+              </a>
+            ))}
+            <a href={link("/support")}>{t("Support", "支持")}</a>
+            <a href={link("/playground")}>{t("API Playground", "API 调试台")}</a>
+          </nav>
+        </aside>
+        <div className="account-main">
+          <h1>{title}</h1>
+          {status}
+          <div className="actions">
+            <a className="btn brand" href={resume("/search")}>
+              {t("New search", "开始查价")}
+            </a>
+            <button className="btn ghost" type="button" data-logout="" hidden>
+              {t("Sign out", "退出登录")}
+            </button>
+          </div>
+          <div data-results="" />
         </div>
-        <div data-results="" />
       </section>
     );
   }
@@ -528,7 +645,8 @@ export function renderPage(
           <footer className="wrap">
             <a href={link("/")}>SoldBench</a>
             <p>{t("Comparable sales research and pricing evidence.", "可比成交研究与价格证据。")}</p>
-            <a href="mailto:support@soldbench.com">{t("Support", "支持")}</a>
+            <a href={link("/support")}>{t("Support", "支持")}</a>
+            <a href={link("/data-availability")}>{t("Availability", "数据可用性")}</a>
           </footer>
         </body>
       </html>,

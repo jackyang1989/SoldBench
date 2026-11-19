@@ -172,7 +172,7 @@ test("documented research demo drives actual HTTP, owner claims and main-image e
   assert.ok(await auth.keyIdentity(replacement.SOLDBENCH_API_KEY, "sold:read"));
   assert.ok(await otherAuth.keyIdentity(otherEnv.SOLDBENCH_API_KEY, "sold:read"));
 });
-test("public developer assets are bilingual, fixed-path, cacheable and distinguish contract-only operations", async () => {
+test("public developer assets preserve Markdown while browser views use the same localized source", async () => {
   const s = await http(),
     x = await createProductFixture(db, roots, { port: s.port });
   s.bind(x.app);
@@ -189,6 +189,15 @@ test("public developer assets are bilingual, fixed-path, cacheable and distingui
     });
     assert.equal(cached.status, 304);
     assert.equal(await cached.text(), "");
+    const browser = await fetch(`${s.origin}/docs/${locale}/quickstart`, {
+      headers: { Accept: "text/html" },
+    });
+    assert.match(browser.headers.get("Content-Type"), /text\/html/);
+    assert.match(browser.headers.get("Vary"), /Accept/);
+    const markup = await browser.text();
+    assert.ok(markup.includes(`<html lang="${locale}">`));
+    assert.ok(markup.includes("developer:demo"));
+    assert.ok(markup.includes("data-docs-search"));
   }
   const index = await (await get("/.well-known/skills/index.json")).json();
   const skill = await get(index.skills[0].url);
@@ -202,7 +211,9 @@ test("public developer assets are bilingual, fixed-path, cacheable and distingui
   assert.equal((await get("/docs/search?q=key&locale=fr")).status, 400);
   assert.equal((await get("/.well-known/skills/soldbench/references/private.md")).status, 404);
   const status = await (await get("/docs/implementation-status.json")).json();
-  assert.ok(status.operations.some((o) => o.status === "contract_only"));
+  for (const path of ["/v1/categories", "/v1/data-status"]) {
+    assert.equal(status.operations.find((o) => o.path === path).status, "local_route_present");
+  }
   assert.ok(status.operations.find((o) => o.path === "/mcp").status === "local_route_present");
   const spec = await (await get("/openapi.json")).json();
   assert.match(spec.info.version, /^1\.\d+\.\d+$/);

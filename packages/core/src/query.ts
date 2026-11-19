@@ -26,6 +26,10 @@ const attributeSets: Record<string, readonly string[]> = {
   gpu_hardware: ["vram_gb", "chipset", "variant"],
   collectibles: ["series", "number", "variant", "completeness"],
 };
+export const offlineQueryWindows = [30, 90] as const;
+export function categoryAttributeNames(category: string): readonly string[] | undefined {
+  return Object.hasOwn(attributeSets, category) ? attributeSets[category] : undefined;
+}
 const conditions = [
   "new_with_tags",
   "new_without_tags",
@@ -41,7 +45,7 @@ export function isStandardCondition(value: unknown): value is Condition {
 }
 export function normalizeQuery(
   input: URLSearchParams,
-  supportedWindows: readonly number[] = [30, 90],
+  supportedWindows: readonly number[] = offlineQueryWindows,
 ): SoldQuery {
   const allowed = new Set([
     "q",

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { after, before, test } from "node:test";
@@ -13,6 +14,88 @@ before(() => migrate(db));
 after(async () => {
   await Promise.all(roots.map((dir) => rm(dir, { recursive: true, force: true })));
   await db.end();
+});
+
+test("public category and availability projections use current findings, scope and freshness", async () => {
+  const x = await createProductFixture(db, roots, { prepareQuery: false });
+  const get = (path) => x.app.request(path);
+  const routes = ["/v1/categories", "/v1/data-status"];
+  for (const route of routes) assert.deepEqual((await (await get(route)).json()).data, []);
+  await db.query(
+    `INSERT INTO category_taxonomy(marketplace,category_path,name,active,attribute_schema,supported_windows)
+     VALUES('ebay_us','cards_graded','Graded cards',true,$1,'{30,90,180}'),
+           ('ebay_us','watches','Watches',true,'[]','{90}'),
+           ('ebay_us','sneakers','Hidden',false,'[]','{90}')`,
+    [
+      JSON.stringify([
+        {
+          name: "grading_company",
+          type: "string",
+          allowed_values: ["PSA"],
+          required_for_comparability: true,
+        },
+        { name: "wrong_key", type: "string", allowed_values: [], required_for_comparability: false },
+      ]),
+    ],
+  );
+  await db.query(
+    `INSERT INTO data_availability(source_id,category_path,last_successful_observation_at,freshness_state,collector_status,last_transition_at)
+     VALUES($1,'cards_graded',$2,'fresh','running',$2)`,
+    [x.source.sourceId, x.now()],
+  );
+  await db.query(
+    `UPDATE source_clearances SET permitted_fields=permitted_fields || '{"public_cache":["aggregate"]}'::jsonb
+     WHERE id=(SELECT source_clearance_id FROM sources WHERE id=$1)`,
+    [x.source.sourceId],
+  );
+  const cat = await get(routes[0]);
+  assert.equal(cat.headers.get("X-SoldBench-Data-Mode"), "synthetic_fixture");
+  const categories = await cat.json();
+  assert.deepEqual(
+    categories.data.map((row) => row.id),
+    ["cards_graded", "watches"],
+  );
+  assert.deepEqual(categories.data[0].supported_windows, [30, 90]);
+  assert.deepEqual(
+    categories.data[0].supported_attributes.map((f) => f.name),
+    ["grading_company"],
+  );
+  const status = async () => (await get(routes[1])).json();
+  const snapshot = await status();
+  assert.equal(snapshot.data[0].freshness_state, "fresh");
+  assert.equal(snapshot.data[0].data_as_of, x.now());
+  assert.equal(snapshot.data[1].freshness_state, "never_observed");
+  assert.equal(snapshot.data[1].data_as_of, null);
+  assert.equal(snapshot.meta.credits_charged, 0);
+  assert.doesNotMatch(JSON.stringify(snapshot), new RegExp(x.source.sourceId));
+  await db.query(
+    `INSERT INTO collector_circuits(source_id,category_key,status,opened_at) VALUES($1,'*','open',$2)`,
+    [x.source.sourceId, x.now()],
+  );
+  const asOf = Date.parse(x.now());
+  x.clock.value = new Date(asOf + 25 * 3600000).toISOString();
+  const stale = (await status()).data[0];
+  assert.equal(stale.freshness_state, "stale_acceptable");
+  assert.equal(stale.collector_status, "paused");
+  x.clock.value = new Date(asOf + 73 * 3600000).toISOString();
+  assert.equal((await status()).data[0].freshness_state, "expired");
+  await x.store.revokeSource(x.source.sourceId, "synthetic public field revocation");
+  const revoked = (await status()).data[0];
+  assert.equal(revoked.freshness_state, "forbidden");
+  assert.equal(revoked.data_as_of, null);
+  assert.deepEqual(
+    (await (await get(routes[0])).json()).data.map((row) => row.id),
+    ["watches"],
+  );
+  assert.equal((await get("/v1/data-status?unexpected=1")).status, 400);
+  const page = await x.app.request("/status", { headers: { Accept: "text/html" } });
+  assert.match(await page.text(), /Data availability/);
+  execFileSync("python3", ["tests/validate-response.py"], {
+    input: JSON.stringify([
+      ["CategoriesResponse", categories],
+      ["DataStatusResponse", snapshot],
+    ]),
+  });
 });
 async function actor(x, role, options = {}) {
   const now = x.now(),

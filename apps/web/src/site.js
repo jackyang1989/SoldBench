@@ -6,6 +6,7 @@ const status = document.querySelector("[data-status]");
 const actions = document.querySelector("[data-actions]");
 const output = document.querySelector("[data-results]");
 const search = document.querySelector("[data-search]");
+const trace = document.querySelector("[data-api-trace]");
 const current = () => new URL(location.href);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const safeId = (value) => (uuid.test(value ?? "") ? value : null);
@@ -18,6 +19,7 @@ const queryNames = [
   "allow_stale",
   "min_price_cents",
   "max_price_cents",
+  "category",
 ];
 const draftNames = [...queryNames, "job", "result"];
 
@@ -81,6 +83,12 @@ async function api(path, options, downloadFile = false) {
   const response = await fetch(path, { ...options, cache: "no-store", redirect: "error" });
   if (response.ok && downloadFile) return response.blob();
   const body = response.status === 204 ? {} : await response.json();
+  if (
+    trace &&
+    (path === "/web/search" || /^\/v1\/(sold\/[^/]+(?:\/claim)?|jobs\/[^/]+(?:\/cancel)?)$/.test(path))
+  ) {
+    showTrace(path, response, body);
+  }
   if (!response.ok) {
     throw Object.assign(new Error(body.error?.code ?? "service_unavailable"), {
       status: response.status,
@@ -89,6 +97,26 @@ async function api(path, options, downloadFile = false) {
     });
   }
   return body;
+}
+
+function showTrace(path, response, body) {
+  const list = trace.querySelector("[data-trace-list]");
+  const headers = ["X-Request-ID", "Content-Type", "Retry-After", "Cache-Control"]
+    .filter((name) => response.headers.has(name))
+    .map((name) => `${name}: ${response.headers.get(name)}`)
+    .join("\n");
+  const display = () => {
+    trace.querySelector("[data-trace-body]").textContent = JSON.stringify(body, null, 2);
+    trace.querySelector("[data-trace-headers]").textContent = headers;
+  };
+  const control = button(`${response.status} ${path.split("?")[0]}`, display);
+  control.className = "btn ghost";
+  list.append(control);
+  if (list.childElementCount > 12) list.firstElementChild.remove();
+  const params = queryDraft(search);
+  trace.querySelector("[data-trace-code]").textContent =
+    `curl -H "Authorization: Bearer $SOLDBENCH_API_KEY" '${location.origin}/v1/sold?${params}'`;
+  display();
 }
 
 const post = (path, data, csrf, idempotency, downloadFile) =>
@@ -709,7 +737,7 @@ if (search) {
       submit.disabled = false;
     }
   };
-  const searchPath = page === "/" ? "/" : "/search";
+  const searchPath = ["/", "/playground"].includes(page) ? page : "/search";
   const updateLinks = (draft, keepResult) => {
     for (const a of document.querySelectorAll("[data-resume]")) {
       a.href = resume(a.dataset.resume, draft, keepResult);
@@ -745,6 +773,7 @@ if (search) {
               : value;
       }
       save(draft);
+      if (trace) trace.querySelector("[data-trace-list]").replaceChildren();
       output.replaceChildren();
       const placeholder = document.querySelector("[data-hero-empty]");
       if (placeholder) placeholder.hidden = false;
@@ -911,7 +940,333 @@ if (page === "/login")
     if ((await session())?.mfa_required) showMfa();
   });
 
-if (page === "/account")
+if (page === "/categories" || page === "/data-availability") {
+  const labels = {
+    cards_graded: t("Graded cards", "评级卡牌"),
+    sneakers: t("Sneakers", "运动鞋"),
+    watches: t("Watches", "腕表"),
+    video_games: t("Video games", "电子游戏"),
+    gpu_hardware: t("Graphics hardware", "显卡硬件"),
+    collectibles: t("Collectibles", "收藏品"),
+  };
+  const freshness = {
+    fresh: t("Recent approved observation", "近期获准观测"),
+    stale_acceptable: t("Data delayed", "数据延迟"),
+    expired: t("Observation window expired", "已超出可用时间窗口"),
+    never_observed: t("Availability unknown", "可用性未知"),
+    forbidden: t("Data unavailable", "数据不可用"),
+  };
+  const categories = page === "/categories";
+  run(async () => {
+    message(t("Loading…", "正在加载…"));
+    const { data } = await api(`/v1/${categories ? "categories" : "data-status"}`);
+    if (!data.length) {
+      message(t("No categories have a public availability record yet.", "暂时没有可公开的类目可用性记录。"));
+      return;
+    }
+    message("");
+    for (const row of data) {
+      const category = row.id ?? row.category;
+      const card = element("section", undefined, "card");
+      card.append(element("h2", labels[category] ?? row.name ?? category));
+      card.append(element("p", freshness[row.availability ?? row.freshness_state]));
+      if (row.data_as_of)
+        card.append(element("p", `${t("Last observation", "最近有效观测")} · ${row.data_as_of}`, "small"));
+      if (row.collector_status === "paused")
+        card.append(element("p", t("Collection paused", "采集暂停"), "small"));
+      if (categories && row.supported_windows.length) {
+        card.append(
+          element(
+            "p",
+            `${t("Supported windows", "可选查询窗口")} · ${row.supported_windows.join(" / ")} ${t("days", "天")}`,
+            "small",
+          ),
+        );
+        const params = new URLSearchParams({ category });
+        card.append(link(t("Search this category", "查询本类目"), `${prefix}/search?${params}`));
+      }
+      output.append(card);
+    }
+  });
+}
+
+const docsSearch = document.querySelector("[data-docs-search]");
+if (docsSearch) {
+  const results = document.querySelector("[data-docs-results]");
+  const submit = docsSearch.querySelector("button");
+  docsSearch.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (submit.disabled) return;
+    submit.disabled = true;
+    results.hidden = false;
+    results.replaceChildren(element("li", t("Searching…", "正在搜索…")));
+    try {
+      const params = new URLSearchParams(new FormData(docsSearch));
+      const { data } = await api(`/docs/search?${params}`);
+      results.replaceChildren();
+      for (const item of data.items) {
+        if (!/^\/docs\/(en|zh-CN)\/[a-z-]+$/.test(item.path)) continue;
+        const row = element("li");
+        row.append(link(item.title, item.path), element("p", item.excerpt, "small"));
+        results.append(row);
+      }
+      if (!results.childElementCount)
+        results.append(element("li", t("No matching documents.", "没有匹配的文档。")));
+    } catch {
+      results.replaceChildren(
+        element("li", t("Search is unavailable. Try again.", "文档搜索暂不可用，请重试。")),
+      );
+    } finally {
+      submit.disabled = false;
+    }
+  });
+}
+
+const support = document.querySelector("[data-support]");
+if (support) {
+  let previous;
+  support.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const submit = support.querySelector("button");
+    if (submit.disabled) return;
+    submit.disabled = true;
+    run(async () => {
+      try {
+        const values = new FormData(support);
+        const ticket = { category: values.get("category"), message: values.get("message").trim() };
+        const requestId = values.get("request_id").trim();
+        if (requestId) ticket.request_id = requestId;
+        const serialized = JSON.stringify(ticket);
+        if (previous?.serialized !== serialized) previous = { serialized, key: crypto.randomUUID() };
+        const { data } = await post("/support/requests", ticket, (await session())?.csrf_token, previous.key);
+        message(t(`Request received · ${data.request_id}`, `已受理 · 工单编号 ${data.request_id}`));
+      } finally {
+        submit.disabled = false;
+      }
+    });
+  });
+}
+
+function accountTable(heading, columns, rows) {
+  const card = element("section", undefined, "card result-card");
+  card.append(element("h2", heading));
+  if (!rows.length) {
+    card.append(element("p", t("No records yet.", "暂无记录。"), "small"));
+    return card;
+  }
+  const viewport = element("div", undefined, "table-scroll");
+  viewport.tabIndex = 0;
+  viewport.setAttribute("aria-label", heading);
+  viewport.setAttribute("role", "region");
+  const table = element("table");
+  const head = table.createTHead().insertRow();
+  for (const label of columns) head.append(element("th", label));
+  const body = table.createTBody();
+  for (const row of rows) {
+    const tr = body.insertRow();
+    for (const value of row) {
+      const td = tr.insertCell();
+      if (value instanceof HTMLElement) td.append(value);
+      else td.textContent = value ?? "—";
+    }
+  }
+  viewport.append(table);
+  card.append(viewport);
+  return card;
+}
+
+async function showUsage() {
+  const { data } = await api("/v1/usage");
+  const labels = {
+    grant: t("Credits granted", "额度入账"),
+    consume: t("Search charge", "查询扣费"),
+    expire: t("Credits expired", "额度到期"),
+    refund: t("Credit refund", "额度退回"),
+  };
+  output.append(
+    accountTable(
+      t("Credit buckets", "额度桶"),
+      [t("Type", "类型"), t("Balance", "余额"), t("Expires", "到期")],
+      data.wallets.map((row) => [row.type, row.balance, row.expires_at]),
+    ),
+  );
+  output.append(
+    accountTable(
+      t("Latest credit entries", "最近额度流水"),
+      [t("Date", "日期"), t("Action", "操作"), t("Change", "变动"), t("Balance after", "变更后余额")],
+      data.ledger.map((row) => [row.created_at, labels[row.kind] ?? row.kind, row.delta, row.balance_after]),
+    ),
+  );
+}
+
+async function showLogs(cursor) {
+  const params = cursor ? `?${new URLSearchParams({ cursor })}` : "";
+  const { data } = await api(`/v1/requests${params}`);
+  const card = accountTable(
+    t("Requests", "请求"),
+    [
+      t("Date", "日期"),
+      t("Operation", "操作"),
+      t("Status", "状态"),
+      t("Credits", "额度"),
+      t("Request ID", "请求编号"),
+    ],
+    data.items.map((row) => [
+      row.created_at,
+      row.operation,
+      `${row.http_status}${row.error_code ? ` · ${row.error_code}` : ""}`,
+      row.credits_charged,
+      row.request_id,
+    ]),
+  );
+  if (data.next_cursor) {
+    const more = button(t("Load more", "加载更多"), () =>
+      run(async () => {
+        more.disabled = true;
+        try {
+          await showLogs(data.next_cursor);
+          more.remove();
+        } finally {
+          more.disabled = false;
+        }
+      }),
+    );
+    card.append(more);
+  }
+  output.append(card);
+}
+
+async function showKeys() {
+  const { data } = await api("/v1/keys");
+  const setup = element("section", undefined, "card result-card");
+  setup.append(element("h2", t("Create an API key", "创建 API 密钥")));
+  const form = element("form", undefined, "key-form");
+  const label = element("label", t("Key name", "密钥名称"));
+  const name = element("input");
+  name.name = "name";
+  name.maxLength = 80;
+  name.required = true;
+  label.append(name);
+  const scopes = element("fieldset");
+  scopes.append(element("legend", t("Scopes", "权限范围")));
+  for (const scope of ["sold:read", "jobs:read", "usage:read"]) {
+    const check = element("input");
+    check.type = "checkbox";
+    check.name = "scopes";
+    check.value = scope;
+    check.checked = scope === "sold:read";
+    const entry = element("label");
+    entry.append(check, scope);
+    scopes.append(entry);
+  }
+  const submit = element("button", t("Create key", "创建密钥"), "btn brand");
+  const secret = element("div");
+  secret.setAttribute("aria-live", "polite");
+  let attempt;
+  const saveKey = async (path, input, idempotency) => {
+    const { data } = await post(path, input, (await session())?.csrf_token, idempotency);
+    secret.replaceChildren();
+    if (data.key) {
+      const value = element("input");
+      value.value = data.key;
+      value.readOnly = true;
+      value.setAttribute("aria-label", t("New key shown once", "仅显示一次的新密钥"));
+      value.addEventListener("focus", () => value.select());
+      secret.append(
+        value,
+        button(t("Hide key", "隐藏密钥"), () => secret.replaceChildren()),
+      );
+      value.focus();
+    } else
+      secret.append(
+        element(
+          "p",
+          t(
+            "The command succeeded earlier. Rotate the key if you need a new secret.",
+            "操作此前已成功。需要新密钥时请轮换。",
+          ),
+        ),
+      );
+    await refreshKeys();
+  };
+  form.append(label, scopes, submit);
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (submit.disabled) return;
+    submit.disabled = true;
+    run(async () => {
+      try {
+        const values = new FormData(form);
+        const input = { name: values.get("name").trim(), scopes: values.getAll("scopes") };
+        const shape = JSON.stringify(input);
+        if (attempt?.shape !== shape) attempt = { shape, key: crypto.randomUUID() };
+        await saveKey("/v1/keys", input, attempt.key);
+        attempt = undefined;
+        form.reset();
+      } finally {
+        submit.disabled = false;
+      }
+    });
+  });
+  setup.append(form, secret);
+  const list = element("div");
+  const refreshKeys = async (rows) => {
+    const keys = rows ?? (await api("/v1/keys")).data;
+    list.replaceChildren(
+      accountTable(
+        t("Your API keys", "你的 API 密钥"),
+        [
+          t("Name", "名称"),
+          t("Prefix", "前缀"),
+          t("Scopes", "权限"),
+          t("Last used", "上次使用"),
+          t("Actions", "操作"),
+        ],
+        keys.map((row) => {
+          const controls = element("div", undefined, "actions");
+          if (row.revoked_at) controls.append(t("Revoked", "已撤销"));
+          else {
+            const id = safeId(row.id);
+            const key = crypto.randomUUID();
+            controls.append(
+              button(t("Rotate", "轮换"), () =>
+                run(async () => {
+                  if (
+                    confirm(
+                      t("Rotate this key? The old key will be revoked.", "轮换此密钥？旧密钥将被撤销。"),
+                    )
+                  )
+                    await saveKey(`/v1/keys/${id}/rotate`, { name: row.name, scopes: row.scopes }, key);
+                }),
+              ),
+              button(t("Revoke", "撤销"), () =>
+                run(async () => {
+                  if (
+                    !confirm(
+                      t("Revoke this key? Calls using it will fail.", "撤销此密钥？使用它的调用将失败。"),
+                    )
+                  )
+                    return;
+                  await api(`/v1/keys/${id}`, {
+                    method: "DELETE",
+                    headers: { "X-CSRF-Token": (await session())?.csrf_token ?? "" },
+                  });
+                  secret.replaceChildren();
+                  await refreshKeys();
+                }),
+              ),
+            );
+          }
+          return [row.name, row.prefix, row.scopes.join(", "), row.last_used_at, controls];
+        }),
+      ),
+    );
+  };
+  output.append(setup, list);
+  await refreshKeys(data);
+}
+
+if (page.startsWith("/account"))
   run(async () => {
     const user = await session();
     if (!user?.email_verified || user.mfa_required) {
@@ -927,13 +1282,27 @@ if (page === "/account")
         location.assign(`${prefix}/`);
       }),
     );
-    const [balance, history] = await Promise.all([api("/v1/usage"), api("/v1/queries")]);
-    const usage = element("section", undefined, "card result-card");
-    usage.append(element("h2", t("Credit balance", "额度余额")));
-    if (Number.isSafeInteger(balance.data.total_available)) {
-      usage.append(element("strong", String(balance.data.total_available)));
+    if (page === "/account/usage") return showUsage();
+    if (page === "/account/logs") return showLogs();
+    if (page === "/account/keys") {
+      try {
+        await showKeys();
+      } catch (error) {
+        if (error.message === "reauthentication_required")
+          output.append(link(t("Sign in again", "重新登录"), resume("/login")));
+        throw error;
+      }
+      return;
     }
-    output.append(usage);
+    if (page === "/account") {
+      const balance = await api("/v1/usage");
+      const usage = element("section", undefined, "card result-card");
+      usage.append(element("h2", t("Credit balance", "额度余额")));
+      if (Number.isSafeInteger(balance.data.total_available))
+        usage.append(element("strong", String(balance.data.total_available)));
+      output.append(usage);
+    }
+    const history = await api("/v1/queries");
     const recent = element("section", undefined, "card result-card");
     recent.append(element("h2", t("Recent research", "近期研究")));
     if (!history.data.items.length) {

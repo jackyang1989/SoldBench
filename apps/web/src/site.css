@@ -488,17 +488,17 @@ footer > a:first-child {
     grid-template-columns: minmax(0, 1fr);
     gap: 26px;
   }
-}
-@media (max-width: 700px) {
-  .wrap {
-    padding-inline: 16px;
-  }
   .nav-links,
   .desktop {
     display: none;
   }
   .mobile {
     display: block;
+  }
+}
+@media (max-width: 700px) {
+  .wrap {
+    padding-inline: 16px;
   }
   .nav-right {
     gap: 6px;
@@ -584,4 +584,134 @@ body [hidden] {
   padding-inline: 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+.docs-layout {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr) 150px;
+  gap: 30px;
+  padding-block: 48px;
+}
+.docs-sidebar {
+  border-inline-start: 1px solid var(--line);
+  padding: 0 14px;
+}
+.docs-sidebar nav {
+  display: grid;
+  gap: 10px;
+  position: sticky;
+  top: 85px;
+}
+.docs-sidebar a {
+  color: var(--body);
+  padding: 5px 8px;
+}
+.docs-sidebar a[aria-current="page"] {
+  color: var(--brand-d);
+  background: var(--brand-bg);
+  border-radius: 7px;
+}
+.docs-article {
+  overflow-wrap: anywhere;
+}
+.docs-article p,
+.docs-article form,
+.docs-article pre {
+  margin-block: 16px;
+}
+[data-api-trace] pre {
+  max-height: 320px;
+  overflow: auto;
+  margin-block: 8px 14px;
+  border-radius: 12px;
+  padding: 14px;
+  color: var(--card);
+  background: var(--navy);
+}
+[data-api-trace] summary {
+  margin-top: 12px;
+  cursor: pointer;
+}
+.docs-article code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  background: var(--soft);
+  border-radius: 4px;
+  padding-inline: 4px;
+}
+.docs-article pre {
+  background: var(--navy);
+  color: var(--card);
+  border-radius: var(--r);
+  padding: 18px;
+  overflow: auto;
+}
+.docs-article pre code {
+  background: transparent;
+  padding: 0;
+}
+.docs-search-results {
+  padding: 14px 26px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+.account-layout {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 28px;
+  padding-block: 38px;
+}
+.account-main {
+  min-width: 0;
+}
+.account-main td {
+  white-space: nowrap;
+}
+.account-main td .actions {
+  margin: 0;
+}
+.key-form {
+  display: grid;
+  gap: 10px;
+  max-width: 460px;
+  margin-block: 14px;
+}
+.key-form fieldset {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.key-form fieldset label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.key-form fieldset input {
+  height: auto;
+}
+.key-form input[name="name"],
+.account-main input[readonly],
+.auth-card textarea,
+.auth-card select {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  font: inherit;
+  background: var(--card);
+}
+.auth-card textarea {
+  resize: vertical;
+}
+@media (max-width: 820px) {
+  .docs-layout,
+  .account-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+    padding-block: 26px;
+  }
+  .docs-sidebar nav {
+    grid-template-columns: repeat(auto-fit, minmax(126px, 1fr));
+  }
 }

@@ -29,6 +29,14 @@ test("prototype-based pages serve both languages, valid private deep links and s
       "/forgot-password",
       "/reset-password",
       "/account",
+      "/account/queries",
+      "/account/usage",
+      "/account/logs",
+      "/account/keys",
+      "/playground",
+      "/support",
+      "/categories",
+      "/data-availability",
       `/results/${x.queryId}`,
     ]) {
       const response = await x.app.request(
@@ -109,6 +117,26 @@ test("Chrome walks an empty account from cache miss and registration to explicit
         await page.screenshot({ path: join(captures, `home-${locale}-${width}.png`), fullPage: true });
       }
     }
+    await page.goto(`${origin}/docs/en/quickstart`);
+    await page.getByRole("textbox", { name: "Search documentation" }).fill("claim");
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+    await page.locator("[data-docs-results] a").first().waitFor();
+    await page.getByRole("link", { name: "简体中文" }).click();
+    await page.getByRole("textbox", { name: "搜索文档" }).fill("领取");
+    await page.getByRole("button", { name: "搜索", exact: true }).click();
+    await page.locator("[data-docs-results] a").first().waitFor();
+    await page.goto(`${origin}/categories`);
+    await page.getByText("No categories have a public availability record yet.").waitFor();
+    await page.goto(`${origin}/support`);
+    await page.getByRole("textbox", { name: "What happened?" }).fill("Synthetic request to verify the form.");
+    const intake = () => page.waitForResponse((response) => response.url().endsWith("/support/requests"));
+    const firstIntake = intake();
+    await page.getByRole("button", { name: "Submit request" }).click();
+    const firstReceipt = (await (await firstIntake).json()).data.request_id;
+    await page.getByText(`Request received · ${firstReceipt}`).waitFor();
+    const secondIntake = intake();
+    await page.getByRole("button", { name: "Submit request" }).click();
+    assert.equal((await (await secondIntake).json()).data.request_id, firstReceipt);
     await page.goto(`${origin}/?q=Nintendo+Switch`);
     await page.getByRole("button", { name: "Search", exact: true }).click();
     await page.getByText("Cached result · 4 lookups left today").waitFor();
@@ -291,6 +319,44 @@ test("Chrome walks an empty account from cache miss and registration to explicit
         await page.screenshot({ path: join(captures, `result-${locale}-${width}.png`), fullPage: true });
       }
     }
+    assert.equal((await charges()).rowCount, 1);
+    await page.setViewportSize({ width: 390, height: 900 });
+    x.clock.value = new Date(Date.parse(x.now()) + 60000).toISOString();
+    await page.goto(`${origin}/account/usage`);
+    await page.getByRole("heading", { name: "Latest credit entries" }).waitFor();
+    await page.getByRole("cell", { name: "Search charge", exact: true }).waitFor();
+    await page.getByRole("link", { name: "Request logs", exact: true }).click();
+    await page.getByRole("heading", { name: "Requests", exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 390);
+    await page.getByRole("link", { name: "API keys", exact: true }).click();
+    await page.getByRole("textbox", { name: "Key name" }).fill("Browser-only fixture key");
+    await page.getByRole("button", { name: "Create key", exact: true }).click();
+    const oneTime = page.getByRole("textbox", { name: "New key shown once" });
+    const key = await oneTime.inputValue();
+    assert.match(key, /^sb_k_/);
+    assert.ok(!page.url().includes(key));
+    await page.getByRole("button", { name: "Hide key" }).click();
+    assert.equal(await oneTime.count(), 0);
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("button", { name: "Rotate", exact: true }).click();
+    const rotated = await oneTime.inputValue();
+    assert.notEqual(rotated, key);
+    await page.getByText("Revoked", { exact: true }).waitFor();
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("button", { name: "Revoke", exact: true }).click();
+    await page.getByRole("button", { name: "Rotate", exact: true }).waitFor({ state: "detached" });
+    assert.equal(await oneTime.count(), 0);
+    await page.goto(`${origin}/playground?q=Nintendo+Switch`);
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+    await page.getByRole("button", { name: "202 /web/search" }).waitFor();
+    await page.locator("[data-trace-body]").getByText(new RegExp(id)).waitFor();
+    await page.getByText(/0 credits charged for this request/).waitFor();
+    await page.getByText("Headers", { exact: true }).click();
+    assert.match(await page.locator("[data-trace-headers]").textContent(), /X-Request-ID:/);
+    await page.getByText("Server-side cURL example", { exact: true }).click();
+    const snippet = await page.locator("[data-trace-code]").textContent();
+    assert.match(snippet, /\$SOLDBENCH_API_KEY/);
+    assert.ok(!snippet.includes(rotated));
     assert.equal((await charges()).rowCount, 1);
     assert.deepEqual(mistakes, []);
     console.log(`Browser screenshots saved to ${captures}`);

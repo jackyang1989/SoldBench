@@ -3,6 +3,7 @@ import { getConnInfo } from "@hono/node-server/conninfo";
 import type { AuthService } from "@soldbench/auth";
 import type { QueryService } from "@soldbench/query";
 import { AppError, type Config } from "@soldbench/shared";
+import { renderPage } from "@soldbench/web";
 import type { Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { getCookie } from "hono/cookie";
@@ -116,7 +117,12 @@ export function mountOperations(app: Hono<Env>, config: Config, auth?: AuthServi
     const requestId = await service().support(actor, peer, await body(c, ticket), key(c));
     return c.json({ data: { status: "accepted", request_id: requestId }, meta: meta(c) }, 202);
   });
-  app.get("/status", async (c) => c.json({ data: await service().status(), meta: meta(c) }));
+  app.get("/status", async (c) => {
+    c.header("Vary", "Accept");
+    if (c.req.header("Accept")?.includes("text/html"))
+      return c.html(renderPage("en", "/data-availability", new URL(c.req.url)));
+    return c.json({ data: await service().status(), meta: meta(c) });
+  });
   app.get("/admin/sources", async (c) =>
     c.json({ data: await service().sources(await identity(c)), meta: meta(c) }),
   );

@@ -8,6 +8,7 @@ import { renderPage, webClient, webCss, webPages } from "@soldbench/web";
 import { Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { mountAuth } from "./auth.ts";
+import { mountCatalog } from "./catalog.ts";
 import { mountDeveloper } from "./developer.ts";
 import { mountMcp } from "./mcp.ts";
 import { mountOperations } from "./operations.ts";
@@ -58,6 +59,7 @@ export function createApp(
     );
   });
   mountAuth(app, config, services.auth);
+  mountCatalog(app, db, services.query);
   app.get("/health", (c) => c.json({ status: "ok", data_mode: config.dataMode, collector_enabled: false }));
   app.get("/ready", async (c) => {
     await db.query("SELECT 1");
