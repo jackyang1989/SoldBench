@@ -98,7 +98,7 @@ export function createApp(
   mountMcp(app, config, services.auth, services.query);
   mountDeveloper(app);
   mountPublicResults(app, config, services.auth, services.query);
-  mountOperations(app, config, services.auth, services.query);
+  mountOperations(app, config, services.auth, services.query, services.payments);
   mountPayments(app, config, services.auth, config.paymentFixtures ? services.payments : undefined);
   app.notFound((c) =>
     c.json(

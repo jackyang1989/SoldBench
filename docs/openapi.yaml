@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.18.0
+  version: 1.19.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -6929,6 +6929,45 @@ paths:
       x-task: TASK-035
       x-roles: [admin]
       x-credit-policy: '0'
+  /admin/payments/events/{id}/replay:
+    post:
+      operationId: replayOfflinePayment
+      summary: Reconcile a late confirmation for the original verified offline receipt
+      security: *id009
+      parameters:
+      - *content_language
+      - *id003
+      - *id008
+      - name: id
+        in: path
+        required: true
+        schema: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: {type: string, minLength: 1, maxLength: 1000}
+                case_reference: {type: string, minLength: 1, maxLength: 200}
+              required: [reason, case_reference]
+              additionalProperties: false
+      responses:
+        '202':
+          description: Audited outcome of the controlled offline recovery command.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PaymentReplayResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '409': *content_error
+        '503': *content_error
+      x-task: TASK-035
+      x-roles: [admin]
+      x-credit-policy: '0'
 components:
   securitySchemes:
     OfflinePayPalFixtureSignature:
@@ -9256,6 +9295,21 @@ components:
       - reason
       - evidence_ref
       - version
+      additionalProperties: false
+    PaymentReplayResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            command_id: *id002
+            audit_id: *id002
+            status: {const: completed}
+            outcome: {type: string, enum: [applied, already_applied, manual_review]}
+          required: [command_id, audit_id, status, outcome]
+          additionalProperties: false
+        meta: {$ref: '#/components/schemas/BasicMeta'}
+      required: [data, meta]
       additionalProperties: false
     BilingualSiteText:
       type: object

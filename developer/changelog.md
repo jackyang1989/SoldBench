@@ -1,5 +1,9 @@
 # SoldBench engineering changelog
 
+## 2026-11-19 — bilingual publication and offline payment recovery
+
+The local operator content studio can review, publish, restore and withdraw bilingual announcements, FAQs and guides. Separate administrator sessions author and approve revisions. The published version is stored in PostgreSQL and shared across both languages. OpenAPI 1.19 also documents the fixture-only operator command for late payment confirmation. It preserves the original verified event and uses the existing settlement transaction and audit rules.
+
 ## 2026-11-19 — complete-snapshot ordering and sale date evidence
 
 In the offline build, GET for an existing result accepts `sort=price_asc` and other OpenAPI orderings. It orders the complete permitted snapshot before the requested limit without changing the candidate hash, stats or charge. `sold_date` carries the frozen date precision in comp responses, calculation inputs and JSON exports. CSV appends `sold_date_timezone`. Consumers can keep reading legacy fields and use `sold_date` for calculations involving time. Job cancellation returns HTTP 200 with a JobResponse, using the original version and Idempotency-Key for replay within 24 hours. Research history requires the owner's browser session. The REST namespace remains `/v1`.

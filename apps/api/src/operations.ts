@@ -1,6 +1,7 @@
 import { isIP } from "node:net";
 import { getConnInfo } from "@hono/node-server/conninfo";
 import type { AuthService } from "@soldbench/auth";
+import type { PaymentLifecycle } from "@soldbench/billing";
 import type { QueryService } from "@soldbench/query";
 import { AppError, type Config } from "@soldbench/shared";
 import { renderPage } from "@soldbench/web";
@@ -67,8 +68,14 @@ function resource(c: C) {
   if (!result.success) throw invalid();
   return result.data;
 }
-export function mountOperations(app: Hono<Env>, config: Config, auth?: AuthService, query?: QueryService) {
-  const ops = query ? new OperationsService(query) : undefined;
+export function mountOperations(
+  app: Hono<Env>,
+  config: Config,
+  auth?: AuthService,
+  query?: QueryService,
+  payments?: PaymentLifecycle,
+) {
+  const ops = query ? new OperationsService(query, config.paymentFixtures ? payments : undefined) : undefined;
   const service = () => {
     if (!ops) throw new AppError("service_unavailable", 503, "Operations service is unavailable.");
     return ops;
@@ -137,6 +144,20 @@ export function mountOperations(app: Hono<Env>, config: Config, auth?: AuthServi
     const input = await body(c, siteContentCommand);
     const data = await service().contentCommand(actor, input, key(c), c.get("requestId"));
     return c.json({ data, meta: meta(c) }, 202);
+  });
+  app.post("/admin/payments/events/:id/replay", async (c) => {
+    const actor = await identity(c, true);
+    const input = await body(
+      c,
+      z.strictObject({ reason, case_reference: z.string().trim().min(1).max(200) }),
+    );
+    return c.json(
+      {
+        data: await service().replayPayment(actor, resource(c), input, key(c), c.get("requestId")),
+        meta: meta(c),
+      },
+      202,
+    );
   });
   app.get("/status", async (c) => {
     c.header("Vary", "Accept");

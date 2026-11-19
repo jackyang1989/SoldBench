@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Identity } from "@soldbench/auth";
+import type { PaymentLifecycle } from "@soldbench/billing";
 import { CollectorStore } from "@soldbench/collector";
 import { type Transaction, transaction } from "@soldbench/db";
 import type { QueryService } from "@soldbench/query";
@@ -25,7 +26,10 @@ type SourceCommand = {
 
 export class OperationsService {
   readonly collector: CollectorStore;
-  constructor(readonly service: QueryService) {
+  constructor(
+    readonly service: QueryService,
+    readonly payments?: PaymentLifecycle,
+  ) {
     this.collector = new CollectorStore(service.db, service.clock);
   }
   private get crypto() {
@@ -98,6 +102,53 @@ export class OperationsService {
       audit_id: id,
       ...(valid ? { probe_status: probe } : {}),
     };
+  }
+
+  async replayPayment(
+    actor: Identity,
+    eventId: string,
+    input: { reason: string; case_reference: string },
+    rawKey: string | undefined,
+    requestId: string,
+  ) {
+    const payment = this.payments;
+    if (!payment) return fail("service_unavailable", 503, "Offline payments are disabled.");
+    const key = this.commandKey(rawKey),
+      op = "ops.payment_replay";
+    const shape = this.crypto.hash("ops.payment_replay_input", JSON.stringify([eventId, input]));
+    return transaction(this.service.db, async (c) => {
+      const now = await this.service.now(c);
+      // The payment worker takes the receipt lock before locking its transaction owner.
+      await c.query("SELECT id FROM payment_events WHERE id=$1 FOR UPDATE", [eventId]);
+      await this.role(c, actor, true, now);
+      const prior = await this.previous(c, actor.userId, op, key, shape);
+      if (prior) {
+        const diff = (await c.query("SELECT safe_diff FROM audit_events WHERE id=$1", [prior])).rows[0]
+          .safe_diff;
+        return { ...this.commandView(prior), outcome: diff.outcome };
+      }
+      const result = await payment.replayLateConfirmation(c, eventId, now);
+      const audit = await this.record(
+        c,
+        actor.userId,
+        op,
+        "payment_event",
+        eventId,
+        key,
+        shape,
+        input.reason,
+        requestId,
+        now,
+        {
+          ...result,
+          prior_status: result.outcome === "already_applied" ? "applied" : "failed",
+          prior_error: result.outcome === "already_applied" ? null : "confirmation_pending",
+          evidence_type: "offline_fixture_confirmation",
+          case_hash: this.crypto.hash("ops.payment_case", input.case_reference),
+        },
+      );
+      return { ...this.commandView(audit), outcome: result.outcome };
+    });
   }
 
   async contentList(actor: Identity) {

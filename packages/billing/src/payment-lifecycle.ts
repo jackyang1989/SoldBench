@@ -240,19 +240,27 @@ export class PaymentLifecycle {
   async stageFixture(input: unknown) {
     const fact = factSchema.parse(input);
     if (fact.merchant !== merchant(fact.provider)) throw new Error("fixture_merchant_mismatch");
-    const rows = await this.billing.db.query(
-      "INSERT INTO payment_fixture_facts(provider,merchant_id,object_id,revision,fact) VALUES($1,$2,$3,$4,$5) ON CONFLICT(provider,merchant_id,object_id,revision) DO NOTHING RETURNING revision",
-      [fact.provider, fact.merchant, fact.object_id, fact.revision, fact],
-    );
-    if (!rows.rowCount) {
+    await transaction(this.billing.db, async (c) => {
+      await this.lockFixtureObject(c, fact.provider, fact.object_id);
+      const rows = await c.query(
+        "INSERT INTO payment_fixture_facts(provider,merchant_id,object_id,revision,fact) VALUES($1,$2,$3,$4,$5) ON CONFLICT(provider,merchant_id,object_id,revision) DO NOTHING RETURNING revision",
+        [fact.provider, fact.merchant, fact.object_id, fact.revision, fact],
+      );
+      if (rows.rowCount) return;
       const match = (
-        await this.billing.db.query(
+        await c.query(
           "SELECT 1 FROM payment_fixture_facts WHERE provider=$1 AND merchant_id=$2 AND object_id=$3 AND revision=$4 AND fact=$5::jsonb",
           [fact.provider, fact.merchant, fact.object_id, fact.revision, fact],
         )
       ).rowCount;
       if (!match) throw new Error("fixture_fact_revision_conflict");
-    }
+    });
+  }
+  private async lockFixtureObject(c: Transaction, provider: Provider, object: string) {
+    await c.query("SELECT pg_advisory_xact_lock(hashtext($1),hashtext($2))", [
+      `offline-fixture-fact:${provider}`,
+      object,
+    ]);
   }
   async workOnce() {
     return transaction(this.billing.db, async (c) => {
@@ -309,6 +317,64 @@ export class PaymentLifecycle {
         return { status, eventId: receipt.id, reason: error.code };
       }
     });
+  }
+  /** Reconcile only a sealed offline notification whose confirmation arrived after its retry budget. */
+  async replayLateConfirmation(c: Transaction, id: string, now: Date) {
+    const receipt = (
+      await c.query<Receipt & { status: string; fixture_error: string | null }>(
+        "SELECT id,provider,fixture_envelope,fixture_attempts,status,fixture_error FROM payment_events WHERE id=$1 AND fixture_envelope IS NOT NULL FOR UPDATE",
+        [id],
+      )
+    ).rows[0];
+    if (!receipt) return fail("not_found", 404, "Offline payment receipt not found.");
+    if (receipt.status === "applied")
+      return { outcome: "already_applied" as const, attempts: receipt.fixture_attempts };
+    if (
+      receipt.status !== "failed" ||
+      receipt.fixture_attempts < 12 ||
+      receipt.fixture_error !== "confirmation_pending"
+    )
+      return fail("state_conflict", 409, "This receipt is outside the late confirmation recovery scope.");
+    const envelope = receipt.fixture_envelope;
+    await this.lockFixtureObject(c, receipt.provider, envelope.object_id);
+    const recorded = (
+      await c.query(
+        `SELECT fact FROM payment_fixture_facts WHERE provider=$1 AND merchant_id=$2 AND object_id=$3
+       ORDER BY revision DESC LIMIT 1`,
+        [receipt.provider, envelope.merchant, envelope.object_id],
+      )
+    ).rows[0];
+    if (!recorded) return fail("state_conflict", 409, "Trusted confirmation is still missing.");
+    const fact = factSchema.parse(recorded.fact);
+    const review = (reason: string) => ({
+      outcome: "manual_review" as const,
+      attempts: receipt.fixture_attempts,
+      revision: fact.revision,
+      reason,
+    });
+    if (fact.revision !== envelope.revision) return review("confirmation_superseded");
+    if (
+      fact.provider !== receipt.provider ||
+      fact.merchant !== envelope.merchant ||
+      fact.object_id !== envelope.object_id ||
+      fact.kind !== "transaction" ||
+      fact.status !== "confirmed" ||
+      !inspectMatch(fact, envelope)
+    )
+      return review("confirmation_mismatch");
+    await c.query("SAVEPOINT late_confirmation_apply");
+    try {
+      await this.apply(c, fact, now);
+      await c.query(
+        "UPDATE payment_events SET status='applied',processed_at=$2,fixture_error=NULL WHERE id=$1",
+        [id, now],
+      );
+      return { outcome: "applied" as const, attempts: receipt.fixture_attempts, revision: fact.revision };
+    } catch (error) {
+      if (!(error instanceof Review)) throw error;
+      await c.query("ROLLBACK TO SAVEPOINT late_confirmation_apply");
+      return review(error.code);
+    }
   }
   private async audit(c: Transaction, userId: string, action: string, id: string, diff: object) {
     await c.query(

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFile, spawn } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -19,6 +19,8 @@ import {
 } from "@soldbench/billing";
 import { normalizeQuery } from "@soldbench/core";
 import { database, migrate } from "@soldbench/db";
+import { PrivateMediaStore } from "@soldbench/media";
+import { QueryService } from "@soldbench/query";
 import { loadConfig } from "@soldbench/shared";
 import { createProductFixture } from "./helpers/product.mjs";
 
@@ -140,6 +142,94 @@ async function confirm(x, fact, type) {
   return x.payments.workOnce();
 }
 const month = (date) => new Date(date).toISOString();
+
+test("an authorized operator restores a late offline confirmation once from the original verified notification", async (t) => {
+  const x = fixture(),
+    customer = await user(x),
+    operator = await user(x),
+    support = await user(x);
+  const root = await mkdtemp(join(tmpdir(), "soldbench-payment-replay-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const query = new QueryService(db, x.auth, x.billing, new PrivateMediaStore(root), x.now);
+  x.app = createApp(config, db, { auth: x.auth, payments: x.payments, query });
+  for (const [account, role] of [
+    [operator, "admin"],
+    [support, "support"],
+  ]) {
+    await db.query("INSERT INTO admin_roles(user_id,role) VALUES($1,$2)", [account.owner, role]);
+    if (role === "admin")
+      await db.query(
+        "INSERT INTO user_mfa(user_id,encrypted_secret,state,enabled_at,updated_at) VALUES($1,$2,'enabled',$3,$3)",
+        [account.owner, x.auth.crypto.seal("TEST_ONLY", account.owner), x.now()],
+      );
+  }
+  const delayed = async (owner) => {
+    const id = checkoutId(await x.payments.checkout(owner, terms("stripe", "purchased_1500"), randomUUID()));
+    const fact = tx(x, "stripe", id);
+    assert.equal((await deliver(x, signed(x, fact, "payment_intent_succeeded"))).status, 200);
+    let ended;
+    for (let i = 0; i < 12; i++) {
+      ended = await x.payments.workOnce();
+      assert.equal(ended.status, i < 11 ? "retryable" : "failed");
+      if (i < 11) x.clock.now = new Date(x.clock.now.getTime() + Math.min(30 * 2 ** i, 3600) * 1000 + 1);
+    }
+    return { fact, eventId: ended.eventId, endpoint: `/admin/payments/events/${ended.eventId}/replay` };
+  };
+  const { fact, eventId, endpoint } = await delayed(customer.owner);
+  const payload = { reason: "Review delayed synthetic confirmation", case_reference: "test-01" };
+  await db.query("UPDATE sessions SET authenticated_at=$2,mfa_at=$2 WHERE user_id=$1", [
+    operator.owner,
+    x.now(),
+  ]);
+  const key = randomUUID();
+  assert.equal((await post(x, support, endpoint, payload)).status, 403);
+  assert.equal((await post(x, operator, endpoint, payload, key)).status, 409);
+  await x.payments.stageFixture(fact);
+  const replies = await Promise.all(
+    Array.from({ length: 10 }, () => post(x, operator, endpoint, payload, key)),
+  );
+  assert.ok(replies.every((response) => response.status === 202));
+  const states = await Promise.all(replies.map((response) => response.json()));
+  const first = states[0];
+  assert.equal(first.data.outcome, "applied");
+  for (const state of states) assert.deepEqual(state.data, first.data);
+  assert.deepEqual(await counts(customer.owner), { p: 1, g: 1, s: 0 });
+  assert.equal((await (await post(x, operator, endpoint, payload)).json()).data.outcome, "already_applied");
+  assert.equal(
+    (await post(x, operator, endpoint, { ...payload, reason: "different command" }, key)).status,
+    409,
+  );
+  const event = (await db.query("SELECT status,fixture_attempts FROM payment_events WHERE id=$1", [eventId]))
+    .rows[0];
+  assert.deepEqual(event, { status: "applied", fixture_attempts: 12 });
+  const diff = (await db.query("SELECT safe_diff FROM audit_events WHERE id=$1", [first.data.audit_id]))
+    .rows[0].safe_diff;
+  assert.equal(diff.attempts, 12);
+  assert.equal(diff.prior_status, "failed");
+  assert.equal(diff.prior_error, "confirmation_pending");
+  assert.ok(diff.case_hash);
+  assert.ok(!JSON.stringify(diff).includes(payload.case_reference));
+  execFileSync("python3", ["tests/validate-response.py"], {
+    input: JSON.stringify([["PaymentReplayResponse", first]]),
+  });
+  const deleted = await user(x),
+    review = await delayed(deleted.owner);
+  await db.query("UPDATE users SET status='deleted' WHERE id=$1", [deleted.owner]);
+  await x.payments.stageFixture(review.fact);
+  await db.query("UPDATE sessions SET authenticated_at=$2,mfa_at=$2 WHERE user_id=$1", [
+    operator.owner,
+    x.now(),
+  ]);
+  const refusal = await (await post(x, operator, review.endpoint, payload)).json();
+  assert.equal(refusal.data.outcome, "manual_review");
+  assert.deepEqual(await counts(deleted.owner), { p: 0, g: 0, s: 0 });
+  const reviewLog = (
+    await db.query("SELECT safe_diff FROM audit_events WHERE id=$1", [refusal.data.audit_id])
+  ).rows[0].safe_diff;
+  assert.equal(reviewLog.reason, "owner_not_active");
+  const off = { ...x, app: createApp(loadConfig({}), db, { auth: x.auth, query, payments: x.payments }) };
+  assert.equal((await post(off, operator, review.endpoint, payload)).status, 503);
+});
 
 test("100 cross-channel subscription requests create one pending intent, with exact replay and independent credit packs", async () => {
   const x = fixture(),
