@@ -25,7 +25,7 @@ export async function launchCollector(args, input = process.env) {
   loadConfig(input);
   const options = new Map();
   for (const raw of args) {
-    const match = /^--(fixture|max-ms|grace-ms|heap-mb|max-pages|media-only)=(.+)$/.exec(raw);
+    const match = /^--(fixture|max-ms|grace-ms|heap-mb|max-pages|media-only|expected-job)=(.+)$/.exec(raw);
     if (!match || options.has(match[1])) throw new Error("invalid_collector_launcher_argument");
     options.set(match[1], match[2]);
   }
@@ -53,6 +53,7 @@ export async function launchCollector(args, input = process.env) {
       `--max-old-space-size=${heapMb}`,
       worker,
       `--fixture=${path}`,
+      ...(options.has("expected-job") ? [`--expected-job=${options.get("expected-job")}`] : []),
       ...(options.has("media-only") ? ["--media-only=true"] : []),
       ...(maxPages === undefined ? [] : [`--max-pages=${maxPages}`]),
     ],

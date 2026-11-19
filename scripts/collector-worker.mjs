@@ -1,4 +1,5 @@
-import { lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { constants, lstatSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { open } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { CollectorStore, loadFixtureArtifact, OfflineCollectorWorker } from "@soldbench/collector";
 import { instant } from "@soldbench/core";
@@ -9,7 +10,7 @@ import { localDatabaseUrl } from "./local-db.mjs";
 
 const args = new Map();
 for (const raw of process.argv.slice(2)) {
-  const match = /^--(fixture|max-pages|clock|status|media-only)=(.+)$/.exec(raw);
+  const match = /^--(fixture|max-pages|clock|status|media-only|expected-job)=(.+)$/.exec(raw);
   if (!match || args.has(match[1])) throw new Error("invalid_collector_worker_argument");
   args.set(match[1], match[2]);
 }
@@ -28,10 +29,26 @@ if (
 const config = loadConfig(process.env);
 if (args.has("clock")) instant(args.get("clock"));
 const path = resolve(args.get("fixture"));
-if (!lstatSync(path).isFile() || lstatSync(path).size > 16 * 1024 * 1024)
-  throw new Error("fixture_artifact_file_invalid");
-const loaded = loadFixtureArtifact(readFileSync(path)),
-  artifact = loaded.artifact;
+const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+let loaded;
+try {
+  const stat = await file.stat();
+  if (!stat.isFile() || stat.size > 16 * 1024 * 1024) throw new Error("fixture_artifact_file_invalid");
+  const bytes = Buffer.alloc(stat.size + 1);
+  let total = 0;
+  while (total < bytes.length) {
+    const read = await file.read(bytes, total, bytes.length - total, total);
+    if (!read.bytesRead) break;
+    total += read.bytesRead;
+  }
+  if (total !== stat.size) throw new Error("fixture_artifact_file_changed");
+  loaded = loadFixtureArtifact(bytes.subarray(0, total));
+} finally {
+  await file.close();
+}
+const artifact = loaded.artifact;
+if (args.has("expected-job") && args.get("expected-job") !== artifact.jobId)
+  throw new Error("fixture_artifact_expected_job_mismatch");
 const url = process.env.DATABASE_URL ?? localDatabaseUrl();
 assertLocalDatabaseUrl(url, [
   resolve(".local/postgres/socket"),
@@ -42,16 +59,21 @@ const db = database(url),
 const stop = () => controller.abort();
 process.once("SIGTERM", stop);
 process.once("SIGINT", stop);
-const directory = resolve(process.env.COLLECTOR_DEMO_DIR ?? ".local");
+const root = resolve(process.env.COLLECTOR_DEMO_DIR ?? ".local");
+const supervised = args.has("expected-job");
+const directory = supervised ? join(root, "collector-supervised-status") : root;
 mkdirSync(directory, { recursive: true, mode: 0o700 });
+if (supervised && !lstatSync(directory).isDirectory()) throw new Error("collector_status_not_directory");
 const heartbeat = join(
   directory,
-  `${args.has("status") ? "collector-status" : "collector-worker"}-${artifact.jobId}${args.has("status") ? "" : `-${process.pid}`}.json`,
+  supervised
+    ? `${artifact.jobId}-${args.has("media-only") ? "images" : "pages"}.json`
+    : `${args.has("status") ? "collector-status" : "collector-worker"}-${artifact.jobId}${args.has("status") ? "" : `-${process.pid}`}.json`,
 );
 const clock = args.has("clock") ? () => args.get("clock") : undefined;
 const writeHeartbeat = (value) => {
   const temporary = `${heartbeat}.${process.pid}.tmp`;
-  writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+  writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600, flag: "wx" });
   renameSync(temporary, heartbeat);
 };
 try {

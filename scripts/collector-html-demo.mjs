@@ -15,6 +15,7 @@ import { PrivateMediaStore } from "@soldbench/media";
 import { loadConfig } from "@soldbench/shared";
 import { load } from "cheerio/slim";
 import sharp from "sharp";
+import { publishFixtureFile } from "./collector-fixture-file.mjs";
 import { localDatabaseUrl } from "./local-db.mjs";
 
 const flags = new Set(process.argv.slice(2));
@@ -135,7 +136,6 @@ try {
     loaded = loadFixtureArtifact(Buffer.from(JSON.stringify(artifact)));
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const artifactPath = join(directory, `collector-html-fixture-${jobId}.json`);
-  writeFileSync(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`, { mode: 0o600 });
   await store.bindFixtureArtifact({
     jobId,
     sourceId: source.sourceId,
@@ -144,6 +144,7 @@ try {
     hash: loaded.hash,
     pageHashes: loaded.pageHashes,
   });
+  await publishFixtureFile(artifactPath, artifact);
   let transport = loaded.transport;
   if (flags.has("--http")) {
     const responses = new Map(),
@@ -201,6 +202,7 @@ try {
     scenario: research ? "research" : "quickstart",
     query: keyword,
     sourceVerified: false,
+    sourceId: source.sourceId,
     networkRequests: localHttpRequests,
     externalNetworkRequests: 0,
     localHttpRequests,

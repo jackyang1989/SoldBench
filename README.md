@@ -144,6 +144,15 @@ collector1.5将临时图片失败、共享来源退避、预算/租约恢复和�
 
 HTTP获取联通演示：`npm run collector:http-demo`。它启动仅绑定127.0.0.1的本机样本服务，经真实HTTP获取2页合成HTML和8张生成主图，再走同一解析、PG证据、WebP私有存储与共享统计。输出`transport=loopback_fixture`、`localHttpRequests=10`、`externalNetworkRequests=0`及证据报告；不是eBay采集命令。请求有超时、正文上限、取消和断流处理，禁止跟随重定向、压缩正文和配置外部origin。获准真实来源及适配仍待完成。
 
+单来源离线自动运行。先用合成演示准备响应包，再将输出中的 `sourceId` 传给运行器：
+
+```sh
+npm run collector:html-demo -- --prepare-only
+npm run collector:supervise -- --source=SOURCE_UUID --spool=.local --watch=true
+```
+
+省略 `--watch=true` 时只执行一轮。请让 API、页面采集、主图补采与维护使用同一 `MEDIA_ROOT`。输出区分缺包、暂缓、实际领取和媒体结果。按一次任务成功判断时，读取对应 PG 状态、主图及清理证据。响应包由各作业单独准备，周期刷新生成的缺包作业保留在队列。详见[采集管线契约](docs/采集管线实施契约.md#18-单来源离线自动运行)。
+
 研究后端已提供owner详情`/v1/sold/{id}/comps/{event_id}`、分页`/diagnostics`、`POST /v1/sold/{id}/export`（JSON/CSV、权威/调整）及`/v1/requests`请求审计；共用已领取快照/当前字段权限，免费复取，不重抓。需要现有已核验session或对应scope的API key。字段许可缺失会裁剪逐条数据，不能以旧DTO绕过；说明/属性未采到会返回明确missing。见[研究交付契约](docs/查询账本与交付实施契约.md)。网页与真实供数未验收。
 
 ## 开发者离线接入

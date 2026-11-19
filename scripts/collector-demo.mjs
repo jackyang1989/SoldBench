@@ -15,6 +15,7 @@ import { assertLocalDatabaseUrl, database, migrate } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
 import { loadConfig } from "@soldbench/shared";
 import sharp from "sharp";
+import { publishFixtureFile } from "./collector-fixture-file.mjs";
 import { localDatabaseUrl } from "./local-db.mjs";
 
 if (process.argv.slice(2).some((arg) => arg !== "--prepare-only") || process.argv.slice(2).length > 1)
@@ -91,7 +92,6 @@ try {
   );
   mkdirSync(demoDir, { recursive: true, mode: 0o700 });
   const artifactPath = resolve(demoDir, `collector-fixture-${jobId}.json`);
-  writeFileSync(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`, { mode: 0o600 });
   const loaded = loadFixtureArtifact(Buffer.from(JSON.stringify(artifact)));
   await store.bindFixtureArtifact({
     jobId,
@@ -101,10 +101,12 @@ try {
     hash: loaded.hash,
     pageHashes: loaded.pageHashes,
   });
+  await publishFixtureFile(artifactPath, artifact);
   if (process.argv.includes("--prepare-only")) {
     const report = {
       mode: "offline_fixture",
       sourceApproval: "NOT_CLEARED",
+      sourceId: source.sourceId,
       networkRequests: 0,
       jobId,
       artifactPath,
@@ -143,6 +145,7 @@ try {
     const report = {
       mode: "offline_fixture",
       sourceApproval: "NOT_CLEARED",
+      sourceId: source.sourceId,
       networkRequests: 0,
       jobId,
       artifactPath,

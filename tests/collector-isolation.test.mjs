@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
@@ -107,6 +108,126 @@ test("bounded launcher executes an owned worker and reports its actual final cyc
   assert.equal(report.cycle.pageCount, 2);
   assert.equal(report.limits.v8HeapMb, 128);
   assert.throws(() => process.kill(report.workerPid, 0), /ESRCH/);
+});
+
+test("offline supervisor serves the available queue, resumes primary images, and purges the withdrawn source", async () => {
+  const directory = await root(),
+    prepared = await preparedDemo(directory),
+    artifact = JSON.parse(await readFile(prepared.artifactPath, "utf8")),
+    store = new CollectorStore(db, undefined, { htmlProfile: artifact.htmlProfile }),
+    first = await store.view(prepared.jobId),
+    source = first.source_id;
+  const extra = async (query) =>
+    store.enqueue({
+      sourceId: source,
+      configId: first.config_id,
+      queryHash: digest(query),
+      asOf: first.as_of.toISOString(),
+      runKey: randomUUID(),
+    });
+  const unavailable = await extra("missing fixture"),
+    linked = await extra("symlinked fixture"),
+    wrong = [];
+  await symlink(prepared.artifactPath, join(directory, `collector-fixture-${linked}.json`));
+  for (let i = 0; i < 4; i++) {
+    const id = await extra(`misfiled fixture ${i}`);
+    wrong.push(id);
+    await writeFile(join(directory, `collector-fixture-${id}.json`), JSON.stringify(artifact), {
+      mode: 0o600,
+    });
+  }
+  await db.query("UPDATE collector_jobs SET available_at=now()-interval '1 hour' WHERE id=ANY($1::uuid[])", [
+    wrong,
+  ]);
+  const command = [
+      "scripts/collector-supervisor.mjs",
+      [`--source=${source}`, `--spool=${directory}`, "--max-ms=8000"],
+    ],
+    env = { COLLECTOR_DEMO_DIR: directory, MEDIA_ROOT: join(directory, "media") };
+  await writeFile(env.MEDIA_ROOT, "fixture media root temporarily unavailable", { mode: 0o600 });
+  const loop = start(command[0], [...command[1], "--watch=true", "--interval-ms=250"], env);
+  const reports = () =>
+    loop.output
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .flatMap((line) => {
+        try {
+          return [JSON.parse(line)];
+        } catch {
+          return [];
+        }
+      });
+  const original = await waitFor(
+    () => reports().find((report) => report.cycles.some((cycle) => cycle.claimed)),
+    8000,
+  );
+  assert.equal(original.externalNetworkRequests, 0);
+  assert.equal(original.queues.pages.artifactUnavailable, 2);
+  assert.equal(original.queues.pages.deferred, wrong.length);
+  for (const id of wrong) {
+    const rejected = reports()
+      .flatMap((row) => row.cycles)
+      .find((cycle) => cycle.jobId === id);
+    assert.equal(rejected.claimed, false);
+    assert.equal(rejected.exitCode, 1);
+  }
+  const duplicate = start(...command, env);
+  assert.equal((await duplicate.exited).code, 0, duplicate.errors);
+  assert.equal(JSON.parse(duplicate.output).state, "already_supervised");
+  assert.equal((await store.view(first.id)).status, "completed");
+  assert.equal((await store.view(first.id)).page_count, 2);
+  const jobs = (
+    await db.query("SELECT id,status FROM collector_image_jobs WHERE parent_job_id=$1", [first.id])
+  ).rows;
+  assert.equal(jobs.length, 8);
+  assert.ok(jobs.every((job) => job.status === "retry"));
+  await rm(env.MEDIA_ROOT);
+  await db.query("UPDATE collector_image_jobs SET available_at=now() WHERE parent_job_id=$1", [first.id]);
+  await waitFor(
+    () =>
+      reports().some((report) =>
+        report.cycles.some(
+          (cycle) =>
+            cycle.lane === "images" &&
+            cycle.mediaResults.filter((item) => item.status === "completed").length === 8,
+        ),
+      ),
+    8000,
+  );
+  const results = await db.query(
+    `SELECT (SELECT count(*) FROM collector_pages WHERE job_id=$1)::int pages,
+            (SELECT count(*) FROM listing_images WHERE source_id=$2 AND state='available')::int images`,
+    [first.id, source],
+  );
+  assert.deepEqual(results.rows[0], { pages: 2, images: 8 });
+  assert.deepEqual((await readdir(join(directory, "collector-supervised-status"))).sort(), [
+    `${first.id}-images.json`,
+    `${first.id}-pages.json`,
+  ]);
+  for (const pending of [unavailable, linked, ...wrong]) {
+    const row = await store.view(pending);
+    assert.equal(row.lease_count, 0);
+    assert.equal(row.request_count, 0);
+  }
+  loop.child.kill("SIGTERM");
+  assert.deepEqual(await loop.exited, { code: 0, signal: null }, loop.errors);
+  await store.revokeSource(source, "supervised_source_revocation");
+  const cleanup = start(...command, env);
+  assert.equal((await cleanup.exited).code, 0, cleanup.errors);
+  const report = JSON.parse(cleanup.output);
+  assert.equal(report.state, "source_inactive");
+  assert.equal(report.maintenance.cleanupProcessed, 1);
+  assert.equal(report.cycles.length, 0);
+  assert.equal(
+    (
+      await db.query(
+        "SELECT count(*)::int n FROM listing_images WHERE source_id=$1 AND object_key IS NOT NULL",
+        [source],
+      )
+    ).rows[0].n,
+    0,
+  );
 });
 
 test("watchdog kills a stalled child after a bounded grace interval without consuming a queued job", async () => {
