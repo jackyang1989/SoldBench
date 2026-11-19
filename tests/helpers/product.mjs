@@ -30,6 +30,7 @@ export async function createProductFixture(
     limit = 5,
     prepareQuery = true,
     keyword,
+    userId,
     filters = {},
     saleTimes = {},
     clockValue = "2026-11-17T12:00:00.000Z",
@@ -121,12 +122,14 @@ export async function createProductFixture(
       .status,
     "completed",
   );
-  const user = (
-      await db.query(
-        "INSERT INTO users(email,password_hash,status,email_verified_at,free_anchor_at) VALUES($1,'fixture','active',$2,$2) RETURNING id",
-        [`research-${randomUUID()}@example.test`, now()],
-      )
-    ).rows[0].id,
+  const user =
+      userId ??
+      (
+        await db.query(
+          "INSERT INTO users(email,password_hash,status,email_verified_at,free_anchor_at) VALUES($1,'fixture','active',$2,$2) RETURNING id",
+          [`research-${randomUUID()}@example.test`, now()],
+        )
+      ).rows[0].id,
     secret = auth.crypto.token("sb_k_");
   await db.query(
     "INSERT INTO api_keys(user_id,name,key_hash,key_prefix,scopes) VALUES($1,'fixture',$2,'sb_k_test',$3)",

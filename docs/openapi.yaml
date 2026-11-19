@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.24.0
+  version: 1.25.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -6935,6 +6935,193 @@ paths:
       x-task: TASK-035
       x-roles: [admin]
       x-credit-policy: '0'
+  /v1/saved-research:
+    get:
+      operationId: listSavedResearch
+      summary: Search the session owner's saved research references
+      security: *id007
+      parameters:
+      - *content_language
+      - {name: q, in: query, schema: {type: string, maxLength: 120}}
+      responses:
+        '200':
+          description: At most 100 owner references, without sale identifiers.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {type: array, maxItems: 100, items: {$ref: '#/components/schemas/SavedResearchReference'}}
+                  meta: {$ref: '#/components/schemas/BasicMeta'}
+                required: [data, meta]
+                additionalProperties: false
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+      x-task: TASK-059
+      x-roles: [owner]
+      x-credit-policy: '0'
+    post:
+      operationId: saveDeliveredResearch
+      summary: Name a delivered snapshot with optional verified exclusions
+      security: *id007
+      parameters: [*content_language, *id008]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query_id: *id002
+                name: &saved_name {type: string, minLength: 1, maxLength: 120}
+                excluded_sale_event_ids: &saved_exclusions {type: array, maxItems: 2000, uniqueItems: true, items: *id002}
+              required: [query_id, name]
+              additionalProperties: false
+      responses:
+        '200': &saved_reference_response
+          description: Returns the same reference on replay of an identical active name and view.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {$ref: '#/components/schemas/SavedResearchReference'}
+                  meta: {$ref: '#/components/schemas/BasicMeta'}
+                required: [data, meta]
+                additionalProperties: false
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '409': *content_error
+      x-task: TASK-059
+      x-roles: [owner]
+      x-credit-policy: '0'
+  /v1/saved-research/compare:
+    post:
+      operationId: compareSavedResearch
+      summary: Compare current authorized views of two delivered snapshots
+      security: *id007
+      parameters: [*content_language, *id008]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                left_id: *id002
+                right_id: *id002
+                left_view: &saved_view {enum: [authoritative, adjusted]}
+                right_view: *saved_view
+              required: [left_id, right_id]
+              additionalProperties: false
+      responses:
+        '200':
+          description: A withheld side or an incompatible scope or sample suppresses the median difference.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      left: {$ref: '#/components/schemas/SavedResearchComparisonSide'}
+                      right: {$ref: '#/components/schemas/SavedResearchComparisonSide'}
+                      differences:
+                        type: array
+                        uniqueItems: true
+                        items: {enum: [unavailable, marketplace, price_basis, window, scope, sample_size]}
+                      median_delta_cents: {type: [integer, 'null']}
+                    required: [left, right, differences, median_delta_cents]
+                    additionalProperties: false
+                  meta: {$ref: '#/components/schemas/BasicMeta'}
+                required: [data, meta]
+                additionalProperties: false
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+      x-task: TASK-059
+      x-roles: [owner]
+      x-credit-policy: '0'
+  /v1/saved-research/{id}:
+    get:
+      operationId: openSavedResearch
+      summary: Retrieve saved exclusions after checking current snapshot rights
+      security: *id007
+      parameters: [*content_language, &saved_id {name: id, in: path, required: true, schema: *id002}]
+      responses:
+        '200':
+          description: Saved exclusions for a currently readable snapshot.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id: *id002
+                      query_id: *id002
+                      name: *saved_name
+                      version: {type: integer, minimum: 1}
+                      created_at: {type: string, format: date-time}
+                      updated_at: {type: string, format: date-time}
+                      excluded_sale_event_ids: *saved_exclusions
+                    required: [id, query_id, name, version, created_at, updated_at, excluded_sale_event_ids]
+                    additionalProperties: false
+                  meta: {$ref: '#/components/schemas/BasicMeta'}
+                required: [data, meta]
+                additionalProperties: false
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '409': *content_error
+      x-task: TASK-059
+      x-roles: [owner]
+      x-credit-policy: '0'
+    patch:
+      operationId: renameSavedResearch
+      summary: Rename the owner's saved reference using its current version
+      security: *id007
+      parameters: [*content_language, *saved_id, *id008]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: *saved_name
+                version: {type: integer, minimum: 1}
+              required: [name, version]
+              additionalProperties: false
+      responses:
+        '200': *saved_reference_response
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '409': *content_error
+      x-task: TASK-059
+      x-roles: [owner]
+      x-credit-policy: '0'
+    delete:
+      operationId: deleteSavedResearch
+      summary: Remove the owner's reference and preserve the underlying query and ledger
+      security: *id007
+      parameters: [*content_language, *saved_id, *id008]
+      responses:
+        '204': {description: The owner has no saved reference under this identifier.}
+        '401': *content_error
+        '403': *content_error
+      x-task: TASK-059
+      x-roles: [owner]
+      x-credit-policy: '0'
+
   /admin/recovery:
     get:
       operationId: listOfflineRecoveryReceipts
@@ -9591,6 +9778,51 @@ components:
         zh-CN: *site_text
       required: [en, zh-CN]
       additionalProperties: false
+    SavedResearchReference:
+      type: object
+      properties:
+        id: *id002
+        query_id: *id002
+        name: *saved_name
+        excluded_count: {type: integer, minimum: 0, maximum: 2000}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        version: {type: integer, minimum: 1}
+      required: [id, query_id, name, excluded_count, created_at, updated_at, version]
+      additionalProperties: false
+    SavedResearchComparisonSide:
+      type: object
+      properties:
+        id: *id002
+        name: *saved_name
+        query_id: *id002
+        view: *saved_view
+        available: {type: boolean}
+        marketplace: {const: ebay_us}
+        currency: {const: USD}
+        price_basis: {enum: [item, item_plus_observed_shipping]}
+        window_days: {enum: [30, 90, 180, 365]}
+        data_as_of: {type: string, format: date-time}
+        freshness: {enum: [fresh, stale_acceptable, expired]}
+        source_scope: {type: array, items: {type: string}}
+        coverage: {const: unknown}
+        n_price_verified: {type: integer, minimum: 0}
+        excluded_count: {type: integer, minimum: 0, maximum: 2000}
+        median_cents: &compare_money {type: [integer, 'null'], minimum: 0}
+        p25_cents: *compare_money
+        p75_cents: *compare_money
+        trimmed_mean_cents: *compare_money
+        observed_min_cents: *compare_money
+        observed_max_cents: *compare_money
+      required: [id, name, query_id, view, available]
+      additionalProperties: false
+      if: {properties: {available: {const: true}}}
+      then:
+        required: [marketplace, currency, price_basis, window_days, data_as_of, freshness, source_scope,
+                   coverage, n_price_verified, excluded_count, median_cents, p25_cents, p75_cents,
+                   trimmed_mean_cents, observed_min_cents, observed_max_cents]
+      else: {maxProperties: 5}
+
     SiteContentDraft:
       type: object
       properties:

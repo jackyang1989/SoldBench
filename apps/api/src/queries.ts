@@ -9,17 +9,20 @@ import {
   RequestAuditService,
   type RequestOperation,
   ResearchService,
+  SavedResearch,
 } from "@soldbench/query";
 import { AppError, type Config } from "@soldbench/shared";
 import type { Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { getCookie, setCookie } from "hono/cookie";
+import * as z from "zod";
 
 type Env = { Variables: { requestId: string; queryTrace?: Partial<RequestAudit> & { actor?: Identity } } };
 export function mountQueries(app: Hono<Env>, config: Config, auth?: AuthService, query?: QueryService) {
   const audit = query ? new RequestAuditService(query) : null,
     research = query ? new ResearchService(query) : null,
-    publicResults = query ? new PublicResults(query) : null;
+    publicResults = query ? new PublicResults(query) : null,
+    saved = query ? new SavedResearch(query) : null;
   const routes: [string, RegExp, RequestOperation][] = [
     ["GET", /^\/v1\/sold$/, "sold_search"],
     ["POST", /^\/web\/search$/, "sold_search"],
@@ -268,6 +271,87 @@ export function mountQueries(app: Hono<Env>, config: Config, auth?: AuthService,
   app.get("/v1/queries", async (c) => {
     const p = page(c);
     return c.json({ data: await service().history(await identity(c), p.cursor, p.size), meta: meta(c) });
+  });
+  const workspace = () => {
+    if (!saved) throw new AppError("service_unavailable", 503, "Saved research is not configured.");
+    return saved;
+  };
+  const savedName = z
+    .string()
+    .trim()
+    .min(1)
+    .max(120)
+    .refine((value) => !/[\p{Cc}\p{Cs}]/u.test(value) && value.normalize("NFKC").toLowerCase().length <= 240);
+  const mode = z.enum(["authoritative", "adjusted"]);
+  const savedId = z.uuid().transform((value) => value.toLowerCase());
+  const saveShape = z
+    .strictObject({
+      query_id: savedId,
+      name: savedName,
+      excluded_sale_event_ids: z.array(savedId).max(2000).default([]),
+    })
+    .refine((value) => new Set(value.excluded_sale_event_ids).size === value.excluded_sale_event_ids.length);
+  const renameShape = z.strictObject({ name: savedName, version: z.int().positive() });
+  const compareShape = z
+    .strictObject({
+      left_id: savedId,
+      right_id: savedId,
+      left_view: mode.optional(),
+      right_view: mode.optional(),
+    })
+    .refine((value) => value.left_id !== value.right_id);
+  const parse = async <T>(c: Context<Env>, schema: z.ZodType<T>) => {
+    if (c.req.header("Content-Type")?.split(";")[0]?.trim() !== "application/json")
+      throw new AppError("invalid_parameter", 415, "Use application/json.");
+    let input: unknown;
+    try {
+      input = await c.req.json();
+    } catch {
+      throw new AppError("invalid_parameter", 400, "Invalid JSON.");
+    }
+    const parsed = schema.safeParse(input);
+    if (!parsed.success) throw new AppError("invalid_parameter", 400, "Invalid saved research fields.");
+    return parsed.data;
+  };
+  app.use("/v1/saved-research", bodyLimit({ maxSize: 90000 }));
+  app.use("/v1/saved-research/*", bodyLimit({ maxSize: 2048 }));
+  app.get("/v1/saved-research", async (c) => {
+    const params = new URL(c.req.url).searchParams;
+    const term = params.get("q")?.trim() ?? "";
+    if (params.size > 1 || (params.size && !params.has("q")) || (term && !savedName.safeParse(term).success))
+      throw new AppError("invalid_parameter", 400, "Invalid saved name search.");
+    return c.json({ data: await workspace().list(await identity(c), term), meta: meta(c) });
+  });
+  app.post("/v1/saved-research", async (c) => {
+    const actor = await identity(c, "sold:read", true);
+    const data = await parse(c, saveShape);
+    return c.json({
+      data: await workspace().save(actor, data.query_id, data.name, data.excluded_sale_event_ids),
+      meta: meta(c),
+    });
+  });
+  app.post("/v1/saved-research/compare", async (c) => {
+    const actor = await identity(c, "sold:read", true);
+    const data = await parse(c, compareShape);
+    return c.json({
+      data: await workspace().compare(actor, data.left_id, data.right_id, data.left_view, data.right_view),
+      meta: meta(c),
+    });
+  });
+  app.get("/v1/saved-research/:id", async (c) =>
+    c.json({ data: await workspace().open(await identity(c), id(c.req.param("id"))), meta: meta(c) }),
+  );
+  app.patch("/v1/saved-research/:id", async (c) => {
+    const actor = await identity(c, "sold:read", true);
+    const data = await parse(c, renameShape);
+    return c.json({
+      data: await workspace().rename(actor, id(c.req.param("id")), data.name, data.version),
+      meta: meta(c),
+    });
+  });
+  app.delete("/v1/saved-research/:id", async (c) => {
+    await workspace().remove(await identity(c, "sold:read", true), id(c.req.param("id")));
+    return c.body(null, 204);
   });
 
   app.get("/v1/sold/:id/diagnostics", async (c) => {

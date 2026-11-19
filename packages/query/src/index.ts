@@ -547,7 +547,14 @@ export class QueryService {
       return { jobId: lease.jobId, status: "failed", error: code };
     }
   }
-  private async readable(c: Transaction, identity: Identity, id: string, claim: boolean, key?: string) {
+  private async readable(
+    c: Transaction,
+    identity: Identity,
+    id: string,
+    claim: boolean,
+    key?: string,
+    deliveredOnly = false,
+  ) {
     const now = await this.owner(c, identity);
     let keyHash: string | undefined;
     if (claim) {
@@ -572,6 +579,9 @@ export class QueryService {
       )
     ).rows[0];
     if (!q) fail("not_found", 404, "Query not found.");
+    const delivered = ["charged", "refunded", "not_required"].includes(q.settlement_status);
+    if (deliveredOnly && (!delivered || !q.delivered_at))
+      fail("result_not_claimed", 409, "Save a result only after delivery.");
     await this.assertSnapshotRights(c, id, now);
     if (q.compute_status !== "completed") fail("state_conflict", 409, "Query computation is not complete.");
     if (
@@ -581,7 +591,6 @@ export class QueryService {
       q.billing_policy_version !== VERSIONS.billing
     )
       fail("state_conflict", 409, "Snapshot versions require recomputation.");
-    const delivered = ["charged", "refunded", "not_required"].includes(q.settlement_status);
     if (!delivered && q.expires_at <= now) fail("result_expired", 410, "Unclaimed query expired.");
     const state = availability({
       now: now.toISOString(),
@@ -755,6 +764,9 @@ export class QueryService {
   ) {
     return transaction(this.db, async (c) => work(c, await this.readable(c, identity, id, false)));
   }
+  async readDeliveredSnapshot(c: Transaction, identity: Identity, id: string) {
+    return this.readable(c, identity, id, false, undefined, true);
+  }
   private async imageViews(c: Transaction, id: string, eventIds: string[], now: Date) {
     const images = new Map<
       string,
@@ -790,38 +802,42 @@ export class QueryService {
   async calculation(identity: Identity, id: string) {
     return transaction(this.db, async (c) => {
       const { q } = await this.readable(c, identity, id, false);
-      const policy = await permissions(c, id);
-      if ([...policy.values()].some((p) => !canPrice(p)))
-        fail("forbidden", 403, "Current field rights do not allow complete calculation inputs.");
-      const items = (
-        await c.query(
-          `SELECT i.sale_event_id,i.price_usd_cents,i.sold_at,i.sale_format,s.candidate->'time' AS sold_date
+      return this.calculationLocked(c, q);
+    });
+  }
+  async calculationLocked(c: Transaction, q: Awaited<ReturnType<QueryService["readable"]>>["q"]) {
+    const id = q.id;
+    const policy = await permissions(c, id);
+    if ([...policy.values()].some((p) => !canPrice(p)))
+      fail("forbidden", 403, "Current field rights do not allow complete calculation inputs.");
+    const items = (
+      await c.query(
+        `SELECT i.sale_event_id,i.price_usd_cents,i.sold_at,i.sale_format,s.candidate->'time' AS sold_date
            FROM query_calculation_inputs i LEFT JOIN query_snapshot_records s USING (query_id,sale_event_id)
            WHERE i.query_id=$1 ORDER BY i.sale_event_id`,
-          [id],
-        )
-      ).rows.map((r) => ({
-        ...r,
-        price_usd_cents: Number(r.price_usd_cents),
-        sold_at: iso(r.sold_at),
-        sold_date: saleDateEvidence(r.sold_date),
-      }));
-      return {
-        query_id: id,
-        candidate_set_hash: q.candidate_set_hash,
-        as_of: iso(q.as_of),
-        price_basis: q.price_basis,
-        versions: {
-          engine_version: q.engine_version,
-          cleaner_version: q.cleaner_version,
-          billing_policy_version: q.billing_policy_version,
-          normalizer_version: q.normalizer_version,
-        },
-        original_stats: q.stats,
-        items,
-        is_complete: true,
-      };
-    });
+        [id],
+      )
+    ).rows.map((r) => ({
+      ...r,
+      price_usd_cents: Number(r.price_usd_cents),
+      sold_at: iso(r.sold_at),
+      sold_date: saleDateEvidence(r.sold_date),
+    }));
+    return {
+      query_id: id,
+      candidate_set_hash: q.candidate_set_hash,
+      as_of: iso(q.as_of),
+      price_basis: q.price_basis,
+      versions: {
+        engine_version: q.engine_version,
+        cleaner_version: q.cleaner_version,
+        billing_policy_version: q.billing_policy_version,
+        normalizer_version: q.normalizer_version,
+      },
+      original_stats: q.stats,
+      items,
+      is_complete: true,
+    };
   }
   async job(identity: Identity, id: string) {
     return transaction(this.db, async (c) => {
@@ -1078,3 +1094,4 @@ export function safeCsvCell(value: unknown) {
 export { PublicResults } from "./public-results.ts";
 export * from "./request-audit.ts";
 export * from "./research.ts";
+export { SavedResearch } from "./saved-research.ts";

@@ -33,6 +33,7 @@ export const webPages = [
   "/reset-password",
   "/account",
   "/account/queries",
+  "/account/saved",
   "/account/usage",
   "/account/logs",
   "/account/keys",
@@ -91,7 +92,7 @@ export function renderPage(
     const value = url.searchParams.get(key);
     if (value && value.length <= 120) draft.set(key, value);
   }
-  for (const key of ["result", "job"]) {
+  for (const key of ["result", "job", "saved"]) {
     const value = url.searchParams.get(key);
     if (value && uuid.test(value)) draft.set(key, value);
   }
@@ -126,6 +127,7 @@ export function renderPage(
     "/reset-password": ["Choose a new password", "设置新密码"],
     "/account": ["Overview", "账户概览"],
     "/account/queries": ["Research history", "研究历史"],
+    "/account/saved": ["Saved research", "已保存的研究"],
     "/account/usage": ["Usage", "用量"],
     "/account/logs": ["Request logs", "请求日志"],
     "/account/keys": ["API keys", "API 密钥"],
@@ -1054,6 +1056,7 @@ export function renderPage(
               [
                 "/account",
                 "/account/queries",
+                "/account/saved",
                 "/account/usage",
                 "/account/logs",
                 "/account/keys",

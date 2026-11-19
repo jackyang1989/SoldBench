@@ -94,6 +94,12 @@ test("deletion immediately removes access and anonymous publication before its w
     origin,
   );
   const sharePath = new URL(share.data.url).pathname;
+  const saved = await x.app.request("/v1/saved-research", {
+    method: "POST",
+    headers: actor.headers,
+    body: JSON.stringify({ query_id: x.queryId, name: "Private retained study" }),
+  });
+  assert.equal(saved.status, 200);
   const supportToken = receipt();
   const supportStatus = () =>
     x.app.request("/support/receipt", { headers: { "X-Support-Receipt": supportToken } });
@@ -124,6 +130,7 @@ test("deletion immediately removes access and anonymous publication before its w
   assert.deepEqual(record, { status: "deleted", email: null, password_hash: null });
   assert.equal((await x.app.request(`/v1/sold/${x.queryId}`, { headers: x.headers })).status, 401);
   assert.equal((await x.app.request("/auth/me", { headers: actor.headers })).status, 401);
+  assert.equal((await db.query("SELECT 1 FROM saved_research WHERE user_id=$1", [x.user])).rowCount, 0);
   assert.equal((await supportStatus()).status, 404);
   assert.equal((await x.app.request(sharePath)).status, 410);
   const cache = await x.app.request("/web/search", {
@@ -168,6 +175,85 @@ test("deletion immediately removes access and anonymous publication before its w
   );
   x.clock.value = "2026-12-17T12:00:00.001Z";
   assert.equal((await status(x.app, token, id)).status, 404);
+});
+
+test("saved research preserves original queries and charges, scopes owners and rechecks both sides after revocation", async () => {
+  const x = await createProductFixture(db, roots, { claimed: false });
+  const owner = await session(x.auth, x.user, x.now());
+  const stranger = await createProductFixture(db, roots, { prepareQuery: false });
+  const other = await session(x.auth, stranger.user, x.now());
+  const base = "/v1/saved-research";
+  const request = (path = "", options = {}, user = owner) =>
+    x.app.request(base + path, { ...options, headers: { ...user.headers, ...options.headers } });
+  const mutate = (path, method, value, who) => request(path, { method, body: JSON.stringify(value) }, who);
+  const draft = { query_id: x.queryId, name: "Nintendo Study" };
+  assert.equal((await mutate("", "POST", draft)).status, 409);
+  assert.equal(
+    (await db.query("SELECT settlement_status FROM queries WHERE id=$1", [x.queryId])).rows[0]
+      .settlement_status,
+    "pending",
+  );
+  await x.query.result(x.identity, x.queryId, randomUUID(), true, randomUUID());
+  const otherSnapshot = await createProductFixture(db, roots, {
+    userId: x.user,
+    keyword: x.q.q,
+    filters: { price_basis: "item" },
+  });
+  const beforeLines = await ledger(db, x.user);
+  const jobs = async () => (await db.query("SELECT count(*)::int n FROM query_jobs")).rows[0].n;
+  const beforeJobs = await jobs();
+  assert.equal((await mutate("", "POST", { ...draft, excluded_sale_event_ids: [randomUUID()] })).status, 400);
+  assert.equal((await mutate("", "POST", draft, other)).status, 404);
+  assert.equal((await request("", { headers: x.headers }, { headers: {} })).status, 403);
+  const repeated = await Promise.all(Array.from({ length: 3 }, () => mutate("", "POST", draft)));
+  const results = await Promise.all(repeated.map((response) => response.json()));
+  assert.ok(repeated.every((response) => response.status === 200));
+  const first = results[0].data;
+  assert.ok(results.every(({ data }) => data.id === first.id));
+  const valid = (await x.query.calculation(x.identity, x.queryId)).items[0].sale_event_id;
+  const excluded = { query_id: x.queryId, name: "Adjusted", excluded_sale_event_ids: [valid] };
+  const secondRes = await mutate("", "POST", excluded);
+  assert.equal(secondRes.status, 200);
+  const second = (await secondRes.json()).data;
+  const third = (
+    await (await mutate("", "POST", { query_id: otherSnapshot.queryId, name: "With shipping" })).json()
+  ).data;
+  const find = async (name) => (await (await request(`?${new URLSearchParams({ q: name })}`)).json()).data;
+  assert.equal((await find("nintendo"))[0].id, first.id);
+  assert.doesNotMatch(JSON.stringify(await find("adjusted")), new RegExp(valid));
+  assert.equal((await request(`/${second.id}`, {}, other)).status, 404);
+  assert.equal((await mutate(`/${second.id}`, "PATCH", { name: "Foreign", version: 1 }, other)).status, 404);
+  assert.equal((await request(`/${second.id}`, { method: "DELETE" }, other)).status, 204);
+  assert.deepEqual((await (await request(`/${second.id}`)).json()).data.excluded_sale_event_ids, [valid]);
+  const renamed = (
+    await (await mutate(`/${second.id}`, "PATCH", { name: "Adjusted prices", version: 1 })).json()
+  ).data;
+  assert.equal(renamed.version, 2);
+  assert.equal((await mutate(`/${second.id}`, "PATCH", { name: "Old change", version: 1 })).status, 409);
+  const compare = async (left, right, modes = {}) =>
+    (await (await mutate("/compare", "POST", { left_id: left.id, right_id: right.id, ...modes })).json())
+      .data;
+  const result = await compare(first, second);
+  assert.equal(result.left.n_price_verified, 58);
+  assert.equal(result.right.n_price_verified, 57);
+  assert.equal(result.right.view, "adjusted");
+  assert.deepEqual(result.differences, []);
+  assert.equal((await compare(first, second, { right_view: "authoritative" })).median_delta_cents, 0);
+  assert.deepEqual((await compare(first, third)).differences, ["price_basis", "scope"]);
+  assert.equal((await compare(first, third)).median_delta_cents, null);
+  assert.equal(await jobs(), beforeJobs);
+  assert.deepEqual(await ledger(db, x.user), beforeLines);
+  await x.store.revokeSource(x.source.sourceId, "Exercise saved source revocation");
+  assert.equal((await request(`/${first.id}`)).status, 403);
+  const withdrawn = await compare(first, second);
+  assert.equal(withdrawn.left.available, false);
+  assert.ok(!("median_cents" in withdrawn.left));
+  assert.deepEqual(withdrawn.differences, ["unavailable"]);
+  assert.equal(withdrawn.median_delta_cents, null);
+  assert.equal((await compare(first, third)).right.available, true);
+  assert.equal((await request(`/${first.id}`, { method: "DELETE" })).status, 204);
+  assert.equal((await request(`/${first.id}`)).status, 404);
+  assert.deepEqual(await ledger(db, x.user), beforeLines);
 });
 
 test("batch checkpoints survive retry and pending accounts can delete with recent auth", async () => {

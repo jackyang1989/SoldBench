@@ -34,6 +34,7 @@ test("prototype-based pages serve both languages, valid private deep links and s
       "/reset-password",
       "/account",
       "/account/queries",
+      "/account/saved",
       "/account/usage",
       "/account/logs",
       "/account/keys",
@@ -387,6 +388,46 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByText(/0 credits charged for this request/).waitFor();
     assert.equal(new URL(page.url()).pathname, `/results/${id}`);
     assert.equal(await search.inputValue(), "Nintendo Switch");
+    x.clock.value = new Date(Date.parse(x.now()) + 60000).toISOString();
+    const savedName = page.getByRole("textbox", { name: "Name this research" });
+    await savedName.fill("Original browser study");
+    await page.getByRole("button", { name: "Save research", exact: true }).click();
+    await page.getByText("Research saved.", { exact: true }).waitFor();
+    await page.getByRole("checkbox", { name: "Exclude", exact: true }).first().check();
+    await savedName.fill("Adjusted browser study");
+    const adjustedReceipt = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/v1/saved-research" && response.request().method() === "POST",
+    );
+    await page.getByRole("button", { name: "Save research", exact: true }).click();
+    assert.equal((await adjustedReceipt).status(), 200);
+    await page.getByRole("link", { name: "Saved research", exact: true }).click();
+    await page.getByRole("heading", { name: "Original browser study" }).waitFor();
+    const adjusted = page
+      .locator("article")
+      .filter({ has: page.getByRole("heading", { name: "Adjusted browser study" }) });
+    await adjusted.getByRole("link", { name: "Open saved view", exact: true }).click();
+    await page.getByText("1 saved exclusions restored", { exact: true }).waitFor();
+    await page.getByRole("link", { name: "Saved research", exact: true }).click();
+    await page.getByRole("button", { name: "Compare saved research" }).click();
+    await page.getByText("Median difference unavailable · sample size", { exact: true }).waitFor();
+    await page.getByRole("link", { name: "简体中文" }).click();
+    await page.getByRole("heading", { name: "已保存的研究", exact: true }).waitFor();
+    const original = page
+      .locator("article")
+      .filter({ has: page.getByRole("heading", { name: "Original browser study" }) });
+    await original.getByRole("textbox", { name: "新的保存名称" }).fill("重新命名的研究");
+    const renameReceipt = page.waitForResponse(
+      (response) => response.request().method() === "PATCH" && response.url().includes("/v1/saved-research/"),
+    );
+    await original.getByRole("button", { name: "重命名" }).click();
+    const renamedResponse = await renameReceipt;
+    assert.equal(renamedResponse.status(), 200, await renamedResponse.text());
+    const renamed = page
+      .locator("article")
+      .filter({ has: page.getByRole("heading", { name: "重新命名的研究" }) });
+    await renamed.getByRole("button", { name: "移除保存" }).click();
+    await page.getByText("保存引用已移除。", { exact: true }).waitFor();
     x.clock.value = new Date(Date.parse(x.now()) + 60000).toISOString();
     for (const [locale, target] of [
       ["en", "/results/"],

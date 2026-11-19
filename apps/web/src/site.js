@@ -824,6 +824,39 @@ function resultView({ data, meta }, research = { sort: "", excluded: new Set(), 
         "summary-note",
       ),
     );
+  if (safeId(data.query_id) && meta.anonymous_remaining === undefined) {
+    const saveForm = element("form", undefined, "actions");
+    const label = element("label", t("Name this research", "为研究命名"));
+    const name = element("input");
+    name.required = true;
+    name.maxLength = 120;
+    label.append(name);
+    const save = element("button", t("Save research", "保存研究"), "btn ghost");
+    save.type = "submit";
+    saveForm.append(label, save, link(t("Saved research", "已保存的研究"), `${prefix}/account/saved`));
+    saveForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      run(async () => {
+        save.disabled = true;
+        try {
+          await post(
+            "/v1/saved-research",
+            {
+              query_id: data.query_id,
+              name: name.value,
+              excluded_sale_event_ids: [...research.excluded],
+            },
+            (await session())?.csrf_token,
+          );
+          message(t("Research saved.", "研究已保存。"));
+          name.value = "";
+        } finally {
+          save.disabled = false;
+        }
+      });
+    });
+    card.append(saveForm);
+  }
   if (data.comps?.length && safeId(data.query_id)) {
     const exclusion = addResearchTools(card, data.query_id, research);
     const viewport = element("div", undefined, "table-scroll");
@@ -945,6 +978,20 @@ function resultView({ data, meta }, research = { sort: "", excluded: new Set(), 
 
 async function readResult(id) {
   const path = `/v1/sold/${id}`;
+  const saved = safeId(current().searchParams.get("saved"));
+  if (saved) {
+    const { data } = await api(`/v1/saved-research/${saved}`);
+    if (data.query_id !== id) throw new Error("not_found");
+    const excluded = new Set(data.excluded_sale_event_ids);
+    resultView(await api(path), {
+      sort: "",
+      excluded,
+      summary: excluded.size
+        ? t(`${excluded.size} saved exclusions restored`, `已恢复 ${excluded.size} 个保存的排除项`)
+        : "",
+    });
+    return;
+  }
   try {
     resultView(await api(path));
   } catch (error) {
@@ -2833,6 +2880,214 @@ async function showAccountSecurity(codes) {
   output.append(state, signIns, credentials, accountDeletion());
 }
 
+async function showSavedResearch() {
+  const controls = element("section", undefined, "card result-card");
+  const filter = element("form", undefined, "actions");
+  const searchLabel = element("label", t("Find by saved name", "按保存名称查找"));
+  const keyword = element("input");
+  keyword.maxLength = 120;
+  searchLabel.append(keyword);
+  const search = element("button", t("Search saved research", "搜索已保存研究"), "btn ghost");
+  search.type = "submit";
+  filter.append(searchLabel, search);
+  const picks = element("form", undefined, "actions");
+  const select = (label, options) => {
+    const group = element("label", label);
+    const field = element("select");
+    for (const [value, name] of options) {
+      const option = element("option", name);
+      option.value = value;
+      field.append(option);
+    }
+    group.append(field);
+    picks.append(group);
+    return field;
+  };
+  const left = select(t("Left research", "左侧研究"), []);
+  const right = select(t("Right research", "右侧研究"), []);
+  const choices = [
+    ["", t("Saved view", "保存时的视图")],
+    ["authoritative", t("Authoritative", "权威统计")],
+    ["adjusted", t("With saved exclusions", "应用已保存的排除项")],
+  ];
+  const leftMode = select(t("Left view", "左侧视图"), choices);
+  const rightMode = select(t("Right view", "右侧视图"), choices);
+  const compare = element("button", t("Compare saved research", "对照已保存研究"), "btn brand");
+  compare.type = "submit";
+  picks.append(compare);
+  const comparison = element("div", undefined, "saved-comparison");
+  const list = element("div");
+  controls.append(filter, picks, comparison);
+  output.append(controls, list);
+
+  const csrf = async () => (await session())?.csrf_token;
+  const refresh = async () => {
+    const { data } = await api(`/v1/saved-research?${new URLSearchParams({ q: keyword.value })}`);
+    list.replaceChildren();
+    comparison.replaceChildren();
+    for (const side of [left, right]) {
+      side.replaceChildren();
+      for (const item of data) {
+        const option = element("option", item.name);
+        option.value = item.id;
+        side.append(option);
+      }
+    }
+    if (data.length >= 2) right.selectedIndex = 1;
+    compare.disabled = data.length < 2;
+    if (!data.length)
+      list.append(element("p", t("No saved research found.", "没有找到已保存研究。"), "notice"));
+    for (const item of data) {
+      const card = element("article", undefined, "card result-card");
+      const title = element("h2", item.name);
+      const href = `${prefix}/results/${item.query_id}?${new URLSearchParams({ saved: item.id })}`;
+      const rename = element("form", undefined, "actions");
+      const label = element("label", t("New saved name", "新的保存名称"));
+      const input = element("input");
+      input.maxLength = 120;
+      input.required = true;
+      input.value = item.name;
+      label.append(input);
+      const submit = element("button", t("Rename", "重命名"), "btn ghost");
+      submit.type = "submit";
+      rename.append(label, submit);
+      rename.addEventListener("submit", (event) => {
+        event.preventDefault();
+        run(async () => {
+          submit.disabled = true;
+          try {
+            await api(`/v1/saved-research/${item.id}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json", "X-CSRF-Token": await csrf() },
+              body: JSON.stringify({ name: input.value, version: item.version }),
+            });
+            message(t("Saved name updated.", "已更新保存名称。"));
+            await refresh();
+          } finally {
+            submit.disabled = false;
+          }
+        });
+      });
+      const remove = button(t("Remove save", "移除保存"), () =>
+        run(async () => {
+          remove.disabled = true;
+          try {
+            await api(`/v1/saved-research/${item.id}`, {
+              method: "DELETE",
+              headers: { "X-CSRF-Token": await csrf() },
+            });
+            message(t("Saved reference removed.", "保存引用已移除。"));
+            await refresh();
+          } finally {
+            remove.disabled = false;
+          }
+        }),
+      );
+      card.append(
+        title,
+        element("p", t(`${item.excluded_count} saved exclusions`, `${item.excluded_count} 个已保存排除项`)),
+        link(t("Open saved view", "打开保存的视图"), href),
+        rename,
+        remove,
+      );
+      list.append(card);
+    }
+  };
+  const sideCard = (row) => {
+    const card = element("article", undefined, "card result-card");
+    card.append(element("h2", row.name));
+    if (!row.available) {
+      card.append(element("p", t("This snapshot is unavailable.", "该快照目前不可用。")));
+      return card;
+    }
+    card.append(
+      element(
+        "p",
+        row.view === "adjusted" ? t("Adjusted view", "调整视图") : t("Authoritative view", "权威视图"),
+      ),
+      element("strong", amount(row.median_cents)),
+      element(
+        "p",
+        t(
+          `${row.n_price_verified} verified · ${row.excluded_count} excluded`,
+          `已核验 ${row.n_price_verified} 条 · 排除 ${row.excluded_count} 条`,
+        ),
+      ),
+      element(
+        "p",
+        t(
+          `Typical range ${amount(row.p25_cents)} – ${amount(row.p75_cents)}`,
+          `典型区间 ${amount(row.p25_cents)} – ${amount(row.p75_cents)}`,
+        ),
+      ),
+      element(
+        "p",
+        t(
+          `${row.window_days} days · ${row.currency} · ${row.price_basis === "item" ? "item price" : "item plus observed shipping"}`,
+          `${row.window_days} 天 · ${row.currency} · ${row.price_basis === "item" ? "商品价" : "商品价加已观察运费"}`,
+        ),
+      ),
+      element(
+        "p",
+        t(
+          `Data as of ${row.data_as_of} · Market coverage unknown`,
+          `数据时点 ${row.data_as_of} · 市场覆盖未知`,
+        ),
+      ),
+    );
+    return card;
+  };
+  filter.addEventListener("submit", (event) => {
+    event.preventDefault();
+    run(refresh);
+  });
+  picks.addEventListener("submit", (event) => {
+    event.preventDefault();
+    run(async () => {
+      if (!left.value || !right.value || left.value === right.value) {
+        message(t("Choose two distinct saved views.", "请选择两个不同的保存视图。"), "warning");
+        return;
+      }
+      compare.disabled = true;
+      try {
+        const { data } = await post(
+          "/v1/saved-research/compare",
+          {
+            left_id: left.value,
+            right_id: right.value,
+            ...(leftMode.value ? { left_view: leftMode.value } : {}),
+            ...(rightMode.value ? { right_view: rightMode.value } : {}),
+          },
+          await csrf(),
+        );
+        comparison.replaceChildren(sideCard(data.left), sideCard(data.right));
+        const reasons = {
+          unavailable: t("snapshot availability", "快照可用性"),
+          marketplace: t("market or currency", "市场或币种"),
+          price_basis: t("price basis", "价格口径"),
+          window: t("time window", "时间窗口"),
+          scope: t("query and coverage", "查询条件与数据范围"),
+          sample_size: t("sample size", "样本量"),
+        };
+        message(
+          data.median_delta_cents === null
+            ? t(
+                `Median difference unavailable · ${data.differences.map((item) => reasons[item]).join(", ")}`,
+                `无法计算中位价差 · ${data.differences.map((item) => reasons[item]).join("、")}`,
+              )
+            : t(
+                `Right minus left: ${amount(data.median_delta_cents)}`,
+                `右侧减左侧为 ${amount(data.median_delta_cents)}`,
+              ),
+        );
+      } finally {
+        compare.disabled = false;
+      }
+    });
+  });
+  await refresh();
+}
+
 if (page.startsWith("/account"))
   run(async () => {
     const user = await session();
@@ -2851,6 +3106,7 @@ if (page.startsWith("/account"))
     );
     if (page === "/account/usage") return showUsage();
     if (page === "/account/logs") return showLogs();
+    if (page === "/account/saved") return showSavedResearch();
     if (page === "/account/security") return showAccountSecurity();
     if (page === "/account/billing") return showBilling();
     if (page === "/account/keys") {
