@@ -34,6 +34,8 @@ const fail = (code: string, status: number, message: string): never => {
   throw new AppError(code, status, message);
 };
 const iso = (d: Date | null) => d?.toISOString() ?? null;
+const missingImage = { state: "missing", url: null, width: null, height: null } as const;
+const withheldImage = { state: "not_permitted", url: null, width: null, height: null } as const;
 function supportsVerifiedShippingContexts(versions: Record<string, string> | null) {
   const parsers = Object.values(versions ?? {});
   return parsers.length > 0 && parsers.every((parser) => parser === "offline-page-1.4.0");
@@ -642,16 +644,19 @@ export class QueryService {
       delete record.sellerDisplayName;
       return [{ row, record, price: Number(row.price_usd_cents), allowed }];
     });
-    const ordered = sortComparables(candidates, sort);
-    const comps = [];
-    for (const { row, record, price, allowed } of ordered.slice(0, q.requested_limit)) {
-      comps.push({
-        ...comparablePayload(row.sale_event_id, record, price, iso(row.sold_at)),
-        primary_image: allowed.has("primary_image")
-          ? await this.imageView(c, q.id, row.sale_event_id, now)
-          : { state: "not_permitted", url: null, width: null, height: null },
-      });
-    }
+    const shown = sortComparables(candidates, sort).slice(0, q.requested_limit);
+    const images = await this.imageViews(
+      c,
+      q.id,
+      shown.filter(({ allowed }) => allowed.has("primary_image")).map(({ row }) => row.sale_event_id),
+      now,
+    );
+    const comps = shown.map(({ row, record, price, allowed }) => ({
+      ...comparablePayload(row.sale_event_id, record, price, iso(row.sold_at)),
+      primary_image: allowed.has("primary_image")
+        ? (images.get(row.sale_event_id) ?? missingImage)
+        : withheldImage,
+    }));
     const stopped = Boolean(
       (
         await c.query(
@@ -748,29 +753,37 @@ export class QueryService {
   ) {
     return transaction(this.db, async (c) => work(c, await this.readable(c, identity, id, false)));
   }
+  private async imageViews(c: Transaction, id: string, eventIds: string[], now: Date) {
+    const images = new Map<
+      string,
+      { state: string; url: string | null; width: number | null; height: number | null }
+    >();
+    if (!eventIds.length) return images;
+    const { rows } = await c.query(
+      `SELECT i.sale_event_id,i.id,i.state,i.retention_until,i.permission_epoch,i.width,i.height,src.permission_epoch AS current_epoch
+       FROM listing_images i JOIN sources src ON src.id=i.source_id
+       JOIN query_snapshot_records s ON (s.sale_event_id,s.observation_id,s.listing_id,s.source_id)=(i.sale_event_id,i.observation_id,i.listing_id,i.source_id)
+       WHERE s.query_id=$1 AND s.sale_event_id=ANY($2::uuid[]) AND i.role='primary'`,
+      [id, eventIds],
+    );
+    for (const image of rows) {
+      let state = image.state;
+      if (state === "available") {
+        if (image.permission_epoch !== image.current_epoch) state = "revoked";
+        else if (!(image.retention_until > now)) state = "expired";
+      }
+      const available = state === "available";
+      images.set(image.sale_event_id, {
+        state,
+        url: available ? `/v1/media/${image.id}` : null,
+        width: available ? image.width : null,
+        height: available ? image.height : null,
+      });
+    }
+    return images;
+  }
   async imageView(c: Transaction, id: string, eventId: string, now: Date) {
-    const image = (
-      await c.query(
-        "SELECT i.*,src.permission_epoch AS current_epoch FROM listing_images i JOIN sources src ON src.id=i.source_id JOIN query_snapshot_records s ON s.sale_event_id=i.sale_event_id AND s.observation_id=i.observation_id AND s.listing_id=i.listing_id AND s.source_id=i.source_id WHERE s.query_id=$1 AND s.sale_event_id=$2 AND i.role='primary' LIMIT 1",
-        [id, eventId],
-      )
-    ).rows[0];
-    const available =
-      image?.state === "available" &&
-      image.retention_until > now &&
-      image.permission_epoch === image.current_epoch;
-    return {
-      state: available
-        ? "available"
-        : image?.state === "available"
-          ? image.permission_epoch !== image.current_epoch
-            ? "revoked"
-            : "expired"
-          : (image?.state ?? "missing"),
-      url: available ? `/v1/media/${image.id}` : null,
-      width: available ? image.width : null,
-      height: available ? image.height : null,
-    };
+    return (await this.imageViews(c, id, [eventId], now)).get(eventId) ?? missingImage;
   }
   async calculation(identity: Identity, id: string) {
     return transaction(this.db, async (c) => {

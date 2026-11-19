@@ -369,6 +369,116 @@ test("measure real loopback cached HTTP latency over three rounds of 50 concurre
   assert.deepEqual(await counts(x), count);
 });
 
+test("measure private result reads at 1, 50 and 200 items, preserving media rights and query charges", async (t) => {
+  const x = await create({ count: 200, extra: false, limit: 1, claimed: false });
+  const snapshots = [];
+  const original = await counts(x);
+  const secondaryId = (
+    await db.query(
+      "INSERT INTO users(email,password_hash,status,email_verified_at,free_anchor_at) VALUES($1,'fixture','active',$2,$2) RETURNING id",
+      [`capacity-${randomUUID()}@example.test`, x.now()],
+    )
+  ).rows[0].id;
+  const secondaryKey = x.auth.crypto.token("sb_k_");
+  await db.query(
+    "INSERT INTO api_keys(user_id,name,key_hash,key_prefix,scopes) VALUES($1,'capacity',$2,'sb_k_test',ARRAY['sold:read','jobs:read'])",
+    [secondaryId, x.auth.crypto.hash("auth.api-key", secondaryKey)],
+  );
+  const secondary = { ...x, user: secondaryId, headers: { Authorization: `Bearer ${secondaryKey}` } };
+  for (const limit of [1, 50, 200]) {
+    const id = limit === 1 ? x.queryId : await current(x, { limit });
+    const secondaryQuery = await current(secondary, { limit });
+    const delivered = await claim(x, id);
+    assert.equal(delivered.status, 200);
+    const result = await delivered.json();
+    assert.equal(result.meta.credits_charged, 1);
+    assert.equal(result.data.comps.length, limit);
+    assert.equal(result.data.stats.n_price_verified, 200);
+    assert.equal(result.meta.candidate_set_hash, snapshots[0]?.hash ?? result.meta.candidate_set_hash);
+    const same = await (await claim(secondary, secondaryQuery)).json();
+    assert.equal(same.meta?.credits_charged, 1);
+    assert.equal(same.meta?.candidate_set_hash, result.meta.candidate_set_hash);
+    snapshots.push({ limit, id, secondaryQuery, hash: result.meta.candidate_set_hash });
+  }
+  const connect = db.connect;
+  const queries = { transaction: 0, image: 0 };
+  db.connect = function (...args) {
+    const client = Reflect.apply(connect, this, args);
+    if (args.length) return client;
+    return client.then(
+      (connected) =>
+        new Proxy(connected, {
+          get(target, key) {
+            if (key === "query")
+              return (sql, ...params) => {
+                queries.transaction++;
+                if (typeof sql === "string" && sql.includes("FROM listing_images i JOIN sources src"))
+                  queries.image++;
+                return target.query(sql, ...params);
+              };
+            const value = target[key];
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        }),
+    );
+  };
+  const measure = async ({ limit, id, secondaryQuery }, expectedImage) => {
+    x.clock.value = new Date(Date.parse(x.now()) + 60000).toISOString();
+    queries.transaction = 0;
+    queries.image = 0;
+    const sizes = [];
+    const times = await Promise.all(
+      Array.from({ length: 50 }, async (_, index) => {
+        const began = performance.now();
+        const response = await read(
+          index < 25 ? x : secondary,
+          `/v1/sold/${index < 25 ? id : secondaryQuery}?sort=price_asc`,
+        );
+        assert.equal(response.status, 200);
+        const text = await response.text();
+        const result = JSON.parse(text);
+        sizes.push(Buffer.byteLength(text));
+        assert.equal(result.data.stats.n_price_verified, 200);
+        assert.equal(result.data.comps.length, limit);
+        assert.equal(result.data.comps[0].primary_image.state, expectedImage);
+        assert.equal(result.meta.credits_charged, 0);
+        return performance.now() - began;
+      }),
+    );
+    times.sort((a, b) => a - b);
+    assert.equal(queries.image, expectedImage === "available" ? 50 : 0);
+    const percentile = (p) => Number(times[Math.ceil(times.length * p) - 1].toFixed(2));
+    t.diagnostic(
+      JSON.stringify({
+        measurement: "local_private_result_http",
+        limit,
+        expectedImage,
+        requests: 50,
+        image_sql_per_request: queries.image / 50,
+        transaction_sql_per_request: queries.transaction / 50,
+        largest_response_bytes: Math.max(...sizes),
+        latency_ms: { p50: percentile(0.5), p95: percentile(0.95), p99: percentile(0.99) },
+        commercial_slo_verified: false,
+      }),
+    );
+  };
+  try {
+    for (const snapshot of snapshots) await measure(snapshot, "available");
+    await db.query(
+      `UPDATE source_clearances SET permitted_fields=jsonb_set(permitted_fields,'{research}',(permitted_fields->'research')-'primary_image')
+        WHERE id=(SELECT source_clearance_id FROM sources WHERE id=$1)`,
+      [x.source.sourceId],
+    );
+    await measure(snapshots.at(-1), "not_permitted");
+  } finally {
+    db.connect = connect;
+  }
+  assert.deepEqual(await counts(x), { ...original, charges: original.charges + 3 });
+  assert.deepEqual(await counts(secondary), { ...original, charges: 3 });
+  assert.deepEqual(await x.billing.reconcile(x.user), []);
+  assert.deepEqual(await x.billing.reconcile(secondary.user), []);
+});
+
 test("an in-flight revoked snapshot can recover on a new authorized watermark without reviving the old result", async () => {
   const x = await create({ prepareQuery: false });
   const old = (await (await start(x)).json()).data;
