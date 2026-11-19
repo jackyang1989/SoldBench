@@ -368,6 +368,10 @@ td {
 .result-metrics strong {
   font-variant-numeric: tabular-nums;
 }
+.result-metrics > div:first-child strong {
+  font: 800 clamp(1.35rem, 2.7vw, 1.95rem) / 1.15 var(--serif);
+  color: var(--green);
+}
 .median-strip div:first-child strong {
   font: 700 2rem var(--serif);
 }
@@ -408,6 +412,7 @@ td {
   min-width: 0;
 }
 .wb-filters select,
+.wb-filters input:not([type="checkbox"], [type="hidden"]),
 .auth-card input:not([type="checkbox"]) {
   border: 1px solid var(--line);
   border-radius: 10px;

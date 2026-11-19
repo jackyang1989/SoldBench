@@ -407,6 +407,94 @@ function researchDistribution(result, meta) {
   return section;
 }
 
+function researchDiagnostics(id, expectedHash) {
+  const panel = element("details", undefined, "research-distribution");
+  const body = element("div");
+  const reasons = {
+    unverified_actual_price: t("Actual sale price unverified", "实际成交价未核验"),
+    missing_shipping_evidence: t("Shipping evidence missing", "缺少运费证据"),
+    hard_attribute_mismatch: t("Product attributes differ", "商品强属性不匹配"),
+    missing_strong_attribute_evidence: t("Product attributes could not be confirmed", "无法核实商品强属性"),
+    uncertain_identity: t("Sale identity uncertain", "成交事件身份不确定"),
+    event_identity_conflict: t("Conflicting evidence for the same sale", "同一成交存在冲突证据"),
+    outside_window: t("Outside the selected window", "超出查询窗口"),
+    query_filter: t("Filtered out by the query", "未满足查询筛选条件"),
+  };
+  let generation = 0;
+  async function load(cursor) {
+    const attempt = ++generation;
+    const params = new URLSearchParams({ page_size: "50" });
+    if (cursor) params.set("cursor", cursor);
+    const { data } = await api(`/v1/sold/${id}/diagnostics?${params}`);
+    if (!panel.open || attempt !== generation) return;
+    if (data.candidate_set_hash !== expectedHash) throw new Error("state_conflict");
+    if (!cursor) {
+      body.replaceChildren();
+      if (data.withheld_count)
+        body.append(
+          element(
+            "p",
+            t(
+              `${data.withheld_count} entries withheld by source rights`,
+              `依据来源权限隐藏 ${data.withheld_count} 条记录`,
+            ),
+            "small",
+          ),
+        );
+    }
+    const rows = data.items.map((row) => [
+      row.title ?? row.sale_event_id,
+      row.include_in_price_stats ? t("Included", "计入") : t("Excluded", "未计入"),
+      reasons[row.primary_exclusion_reason] ?? row.primary_exclusion_reason,
+      amount(row.displayed_price_cents),
+    ]);
+    const card = accountTable(
+      t("Snapshot decisions", "快照纳排明细"),
+      [t("Item", "商品"), t("Price sample", "价格样本"), t("Reason", "原因"), t("Displayed price", "展示价")],
+      rows,
+    );
+    if (data.next_cursor) {
+      const more = button(t("Load more", "加载更多"), () =>
+        run(async () => {
+          more.disabled = true;
+          try {
+            await load(data.next_cursor);
+            more.remove();
+          } finally {
+            more.disabled = false;
+          }
+        }),
+      );
+      card.append(more);
+    }
+    body.append(card);
+  }
+  panel.append(element("summary", t("Why sales were included or excluded", "查看成交纳入和排除原因")), body);
+  panel.addEventListener("toggle", () => {
+    if (!panel.open) {
+      generation += 1;
+      body.replaceChildren();
+      return;
+    }
+    run(async () => {
+      body.replaceChildren(element("p", t("Loading evidence…", "正在加载证据…"), "small"));
+      try {
+        await load();
+      } catch (error) {
+        body.replaceChildren(
+          element(
+            "p",
+            t("Evidence unavailable. Close and reopen to retry.", "证据暂不可用。收起后可重新打开。"),
+            "small",
+          ),
+        );
+        throw error;
+      }
+    });
+  });
+  return panel;
+}
+
 function addResearchTools(card, id, research) {
   const toolbar = element("div", undefined, "result-toolbar");
   const adjusted = element("p", research.summary, "summary-note");
@@ -539,6 +627,12 @@ function resultView({ data, meta }, research = { sort: "", excluded: new Set(), 
   output.replaceChildren();
   const placeholder = document.querySelector("[data-hero-empty]");
   if (placeholder) placeholder.hidden = true;
+  if (page === "/results" && search && !search.elements.q.value && data.query?.q) {
+    for (const field of ["q", "condition", "sale_format", "window_days", "price_basis"]) {
+      if (data.query[field] !== undefined && search.elements[field])
+        search.elements[field].value = String(data.query[field]);
+    }
+  }
   const stats = data.stats;
   const card = element("section", undefined, "live-card result-card");
   card.append(element("h2", t("Sold-price summary", "成交价格摘要"), "live-head"));
@@ -689,7 +783,12 @@ function resultView({ data, meta }, research = { sort: "", excluded: new Set(), 
     }
     viewport.append(table);
     research.share ??= shareControls(data.query_id);
-    card.append(viewport, researchDistribution(data, meta), research.share);
+    card.append(
+      viewport,
+      researchDistribution(data, meta),
+      researchDiagnostics(data.query_id, meta.candidate_set_hash),
+      research.share,
+    );
   }
   output.append(card);
   if (meta.anonymous_remaining !== undefined) {

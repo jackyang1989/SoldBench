@@ -266,6 +266,9 @@ test("Chrome walks an empty account from cache miss and registration to explicit
       .evaluateAll((meters) => meters.reduce((count, meter) => count + meter.value, 0));
     assert.equal(displayedBars, 8);
     await page.getByText("Price distribution and trends", { exact: true }).click();
+    await page.getByText("Why sales were included or excluded", { exact: true }).click();
+    await page.getByRole("cell", { name: "Actual sale price unverified", exact: true }).waitFor();
+    await page.getByText("Why sales were included or excluded", { exact: true }).click();
     await page.getByText("View evidence").first().click();
     await page
       .getByText(/Description ·/)
@@ -329,6 +332,7 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.locator(`a[href="/results/${id}"]`).click();
     await page.getByText(/0 credits charged for this request/).waitFor();
     assert.equal(new URL(page.url()).pathname, `/results/${id}`);
+    assert.equal(await search.inputValue(), "Nintendo Switch");
     x.clock.value = new Date(Date.parse(x.now()) + 60000).toISOString();
     for (const [locale, target] of [
       ["en", "/results/"],
