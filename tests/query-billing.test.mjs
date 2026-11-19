@@ -171,6 +171,20 @@ async function ready(x, query = x.q) {
 }
 const request = (x, path, options = {}) =>
   x.app.request(path, { ...options, headers: { Authorization: `Bearer ${x.secret}`, ...options.headers } });
+async function browserIdentity(x, account = x.user) {
+  const token = x.auth.crypto.token("sb_s_");
+  const csrf = x.auth.crypto.hash("auth.csrf", token);
+  await db.query(
+    "INSERT INTO sessions(user_id,token_hash,csrf_hash,credential_version,mfa_pending,expires_at,authenticated_at,created_at) SELECT id,$2,$3,credential_version,false,$4::timestamptz + interval '1 day',$4,$4 FROM users WHERE id=$1",
+    [
+      account.id,
+      x.auth.crypto.hash("auth.session", token),
+      x.auth.crypto.hash("auth.csrf-store", csrf),
+      x.now(),
+    ],
+  );
+  return { identity: await x.auth.sessionIdentity(token), headers: { Cookie: `soldbench_session=${token}` } };
+}
 
 test("UTC monthly anniversaries preserve Jan 31 after February and do not drift", () => {
   const anchor = new Date("2024-01-31T23:59:01.123Z");
@@ -370,8 +384,18 @@ test("HTTP API search/worker/claim/GET/calculation/media uses one contract and o
   assert.equal(calc.status, 200);
   const calculation = await calc.json();
   assert.equal(calculation.data.items.length, 58);
-  const usage = await (await request(x, "/v1/usage")).json(),
-    history = await (await request(x, "/v1/queries")).json();
+  const ownerSession = await browserIdentity(x);
+  const foreignSession = await browserIdentity(x, (await setup()).user);
+  const historyResponse = await x.app.request("/v1/queries", { headers: ownerSession.headers });
+  assert.equal(historyResponse.status, 200);
+  const history = await historyResponse.json();
+  assert.ok(history.data.items.some((item) => item.query_id === id));
+  assert.equal((await request(x, "/v1/queries")).status, 403);
+  const foreignHistory = await x.app.request("/v1/queries", { headers: foreignSession.headers });
+  assert.equal(foreignHistory.status, 200);
+  assert.deepEqual((await foreignHistory.json()).data.items, []);
+  assert.equal((await x.app.request(`/v1/sold/${id}`, { headers: foreignSession.headers })).status, 404);
+  const usage = await (await request(x, "/v1/usage")).json();
   execFileSync("python3", ["tests/validate-response.py"], {
     input: JSON.stringify([
       ["SoldResult", result],
@@ -395,6 +419,8 @@ test("HTTP API search/worker/claim/GET/calculation/media uses one contract and o
   assert.equal((await request(x, image.url)).status, 404);
   assert.equal((await request(x, `/v1/sold/${id}`)).status, 200);
   assert.equal((await request(x, "/v1/usage")).status, 200);
+  await db.query("UPDATE api_keys SET revoked_at=$2 WHERE id=$1", [x.key, x.now()]);
+  assert.equal((await request(x, "/v1/queries")).status, 401);
   assert.equal(safeCsvCell(" =SUM(A1:A2)"), '"\' =SUM(A1:A2)"');
 });
 
@@ -672,13 +698,15 @@ test("pagination is signed, owner scoped, stable for identical timestamps and in
   const x = await setup({ count: 8 }),
     y = await setup({ count: 8 });
   for (let i = 1; i <= 3; i++) await ready(x, { ...x.q, limit: i });
-  const first = await x.queries.history(x.identity, undefined, 2),
-    second = await x.queries.history(x.identity, first.next_cursor, 2);
+  const session = (await browserIdentity(x)).identity;
+  const foreign = (await browserIdentity(x, y.user)).identity;
+  const first = await x.queries.history(session, undefined, 2),
+    second = await x.queries.history(session, first.next_cursor, 2);
   assert.equal(first.items.length, 2);
   assert.equal(second.items.length, 1);
   assert.equal(new Set([...first.items, ...second.items].map((r) => r.query_id)).size, 3);
   await assert.rejects(
-    x.queries.history(y.identity, first.next_cursor, 2),
+    x.queries.history(foreign, first.next_cursor, 2),
     (e) => e.code === "invalid_parameter",
   );
   await assert.rejects(

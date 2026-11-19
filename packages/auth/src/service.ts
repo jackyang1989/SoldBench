@@ -141,7 +141,7 @@ export class AuthService {
       [id, user.id, this.crypto.hash(`auth.token:${purpose}`, token), purpose, expires, now],
     );
     const zh = context.locale === "zh-CN",
-      link = `${this.origin}/${purpose === "verify_email" ? "verify-email" : "reset-password"}#token=${token}`,
+      link = `${this.origin}${zh ? "/zh-CN" : ""}/${purpose === "verify_email" ? "verify-email" : "reset-password"}#token=${token}`,
       subject =
         purpose === "verify_email"
           ? zh

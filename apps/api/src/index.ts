@@ -4,7 +4,7 @@ import type { PaymentLifecycle } from "@soldbench/billing";
 import type { Database } from "@soldbench/db";
 import type { QueryService } from "@soldbench/query";
 import { AppError, type Config } from "@soldbench/shared";
-import { renderHome } from "@soldbench/web";
+import { renderPage, webClient, webCss, webPages } from "@soldbench/web";
 import { Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { mountAuth } from "./auth.ts";
@@ -63,8 +63,26 @@ export function createApp(
     await db.query("SELECT 1");
     return c.json({ status: "ready", data_mode: config.dataMode });
   });
-  app.get("/", (c) => c.html(renderHome("en")));
-  app.get("/zh-CN", (c) => c.html(renderHome("zh-CN")));
+  app.get("/assets/soldbench.css", (c) => c.body(webCss, 200, { "Content-Type": "text/css; charset=utf-8" }));
+  app.get("/assets/soldbench.js", (c) =>
+    c.body(webClient, 200, { "Content-Type": "text/javascript; charset=utf-8" }),
+  );
+  for (const [locale, prefix] of [
+    ["en", ""],
+    ["zh-CN", "/zh-CN"],
+  ] as const) {
+    for (const page of webPages) {
+      const path = page === "/" ? prefix || "/" : prefix + page;
+      app.get(path, (c) => c.html(renderPage(locale, page, new URL(c.req.url))));
+      if (page === "/" && prefix)
+        app.get(`${prefix}/`, (c) => c.redirect(prefix + new URL(c.req.url).search, 308));
+    }
+    app.get(`${prefix}/results/:id`, (c) => {
+      const id = c.req.param("id");
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)) return c.notFound();
+      return c.html(renderPage(locale, "/results", new URL(c.req.url), id));
+    });
+  }
   mountQueries(app, config, services.auth, services.query);
   mountMcp(app, config, services.auth, services.query);
   mountDeveloper(app);

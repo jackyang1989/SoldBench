@@ -902,6 +902,8 @@ export class QueryService {
     return row as { id: string; time: string };
   }
   async history(identity: Identity, cursor?: string, pageSize = 20) {
+    if (!identity.sessionId || identity.keyId)
+      fail("forbidden", 403, "Research history requires an account session.");
     return transaction(this.db, async (c) => {
       if (!Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 100)
         fail("invalid_parameter", 400, "Invalid page size.");
