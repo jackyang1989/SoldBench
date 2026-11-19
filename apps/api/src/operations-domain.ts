@@ -104,6 +104,34 @@ export class OperationsService {
     };
   }
 
+  async recovery(actor: Identity, paging: Page) {
+    return transaction(this.service.db, async (c) => {
+      await this.role(c, actor, true, await this.service.now(c));
+      const cursor = this.service.readCursor(actor.userId, "ops.recovery", paging.cursor);
+      const rows = this.payments
+        ? (
+            await c.query(
+              `SELECT id,provider,fixture_attempts,received_at,${timeSql("received_at")}
+               FROM payment_events WHERE fixture_envelope IS NOT NULL AND status='failed'
+               AND fixture_error='confirmation_pending' AND fixture_attempts>=12
+               AND ($1::timestamptz IS NULL OR (received_at,id)<($1::timestamptz,$2::uuid))
+               ORDER BY received_at DESC,id DESC LIMIT $3`,
+              [cursor?.time ?? null, cursor?.id ?? null, paging.size + 1],
+            )
+          ).rows
+        : [];
+      return {
+        payment_fixtures_enabled: Boolean(this.payments),
+        ...this.page(rows, actor, "ops.recovery", paging.size, (row) => ({
+          id: row.id,
+          provider: row.provider,
+          attempts: row.fixture_attempts,
+          received_at: iso(row.received_at),
+        })),
+      };
+    });
+  }
+
   async replayPayment(
     actor: Identity,
     eventId: string,

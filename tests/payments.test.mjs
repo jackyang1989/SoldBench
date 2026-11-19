@@ -182,6 +182,17 @@ test("an authorized operator restores a late offline confirmation once from the 
     x.now(),
   ]);
   const key = randomUUID();
+  const recoveryList = (target, account) =>
+    target.app.request("/admin/recovery", { headers: account.headers });
+  assert.equal((await recoveryList(x, support)).status, 403);
+  const listed = await recoveryList(x, operator);
+  assert.match(listed.headers.get("Cache-Control"), /private, no-store/);
+  const recovery = await listed.json();
+  assert.deepEqual(
+    recovery.data.items.map((row) => row.id),
+    [eventId],
+  );
+  assert.ok(!JSON.stringify(recovery).includes(fact.object_id));
   assert.equal((await post(x, support, endpoint, payload)).status, 403);
   assert.equal((await post(x, operator, endpoint, payload, key)).status, 409);
   await x.payments.stageFixture(fact);
@@ -192,6 +203,7 @@ test("an authorized operator restores a late offline confirmation once from the 
   const states = await Promise.all(replies.map((response) => response.json()));
   const first = states[0];
   assert.equal(first.data.outcome, "applied");
+  assert.deepEqual((await (await recoveryList(x, operator)).json()).data.items, []);
   for (const state of states) assert.deepEqual(state.data, first.data);
   assert.deepEqual(await counts(customer.owner), { p: 1, g: 1, s: 0 });
   assert.equal((await (await post(x, operator, endpoint, payload)).json()).data.outcome, "already_applied");
@@ -210,7 +222,10 @@ test("an authorized operator restores a late offline confirmation once from the 
   assert.ok(diff.case_hash);
   assert.ok(!JSON.stringify(diff).includes(payload.case_reference));
   execFileSync("python3", ["tests/validate-response.py"], {
-    input: JSON.stringify([["PaymentReplayResponse", first]]),
+    input: JSON.stringify([
+      ["PaymentReplayResponse", first],
+      ["AdminRecoveryResponse", recovery],
+    ]),
   });
   const deleted = await user(x),
     review = await delayed(deleted.owner);
@@ -229,6 +244,11 @@ test("an authorized operator restores a late offline confirmation once from the 
   assert.equal(reviewLog.reason, "owner_not_active");
   const off = { ...x, app: createApp(loadConfig({}), db, { auth: x.auth, query, payments: x.payments }) };
   assert.equal((await post(off, operator, review.endpoint, payload)).status, 503);
+  assert.deepEqual((await (await recoveryList(off, operator)).json()).data, {
+    payment_fixtures_enabled: false,
+    items: [],
+    next_cursor: null,
+  });
 });
 
 test("100 cross-channel subscription requests create one pending intent, with exact replay and independent credit packs", async () => {

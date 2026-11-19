@@ -484,9 +484,16 @@ export function renderPage(
               ["sources", t("Sources", "数据源")],
               ["jobs", t("Jobs", "作业")],
               ["billing", t("Reconciliation", "对账")],
+              ["recovery", t("Payment recovery", "付款恢复")],
               ["audit", t("Audit log", "审计日志")],
             ].map(([view, label]) => (
-              <button key={view} className="btn ghost" data-ops-view={view} type="button">
+              <button
+                key={view}
+                className="btn ghost"
+                data-ops-view={view}
+                type="button"
+                hidden={view === "recovery"}
+              >
                 {label}
               </button>
             ))}

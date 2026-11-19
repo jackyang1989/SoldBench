@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.20.0
+  version: 1.21.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -6929,6 +6929,26 @@ paths:
       x-task: TASK-035
       x-roles: [admin]
       x-credit-policy: '0'
+  /admin/recovery:
+    get:
+      operationId: listOfflineRecoveryReceipts
+      summary: List synthetic receipts awaiting late-confirmation review
+      description: Requires recent admin MFA. Receipt summaries omit the signed notification, provider object and account data. Presence does not confirm that payment evidence has arrived.
+      security: *id009
+      parameters: [*content_language, *id005, *id006]
+      responses:
+        '200':
+          description: Private cursor page and the current offline payments feature state.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AdminRecoveryResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '503': *content_error
+      x-task: TASK-035
+      x-roles: [admin]
+      x-credit-policy: '0'
   /admin/payments/events/{id}/replay:
     post:
       operationId: replayOfflinePayment
@@ -9338,6 +9358,30 @@ components:
                 required: [plan_code, amount_cents, credits, kind, currency]
                 additionalProperties: false
           required: [offer_version, data_mode, providers, offers]
+          additionalProperties: false
+        meta: {$ref: '#/components/schemas/BasicMeta'}
+      required: [data, meta]
+      additionalProperties: false
+    AdminRecoveryResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            payment_fixtures_enabled: {type: boolean}
+            items:
+              type: array
+              items:
+                type: object
+                properties:
+                  id: *id002
+                  provider: {enum: [stripe, paypal]}
+                  attempts: {type: integer, minimum: 12}
+                  received_at: *id023
+                required: [id, provider, attempts, received_at]
+                additionalProperties: false
+            next_cursor: {type: [string, 'null']}
+          required: [payment_fixtures_enabled, items, next_cursor]
           additionalProperties: false
         meta: {$ref: '#/components/schemas/BasicMeta'}
       required: [data, meta]

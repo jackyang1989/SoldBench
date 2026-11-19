@@ -1413,6 +1413,13 @@ function accountTable(heading, columns, rows) {
 
 if (page === "/operations") {
   const operatorTabs = [...document.querySelectorAll("[data-ops-view]")];
+  const recoveryTab = operatorTabs.find((item) => item.dataset.opsView === "recovery");
+  const recoveryAccess = api("/admin/recovery", { method: "GET" })
+    .then(({ data }) => {
+      recoveryTab.hidden = !data.payment_fixtures_enabled;
+      return true;
+    })
+    .catch(() => false);
   let generation = 0;
   const views = {
     sources: {
@@ -1441,8 +1448,24 @@ if (page === "/operations") {
         t("Attempts", "尝试次数"),
         t("Error", "错误码"),
         t("Updated", "更新时间"),
+        t("Action", "操作"),
       ],
-      row: (job) => [job.id, job.kind, job.status, job.attempts, job.error_code, job.updated_at],
+      row: (job, canWrite) => [
+        job.id,
+        job.kind,
+        job.status,
+        job.attempts,
+        job.error_code,
+        job.updated_at,
+        canWrite && job.kind === "query" && job.status === "failed" && job.attempts < 3
+          ? recoveryForm("jobs", `/admin/jobs/${job.id}/retry`, {
+              title: t("Retry query job", "重排查询作业"),
+              confirmation: t("Requeue this failed query?", "重新排队执行此失败查询？"),
+              fields: { version: job.version },
+              receipt: () => t("Query requeued", "查询已重新排队"),
+            })
+          : null,
+      ],
     },
     billing: {
       heading: t("Reconciliation", "对账"),
@@ -1453,14 +1476,49 @@ if (page === "/operations") {
         t("State", "状态"),
         t("Reconciliation", "对账"),
         t("Created", "创建时间"),
+        t("Action", "操作"),
       ],
-      row: (entry) => [
+      row: (entry, canWrite) => [
         entry.charge_id,
         entry.user_ref,
         entry.credits,
         entry.state,
         entry.reconciliation_status,
         entry.created_at,
+        canWrite && entry.state === "charged"
+          ? recoveryForm("billing", `/admin/charges/${entry.charge_id}/refund-credit`, {
+              title: t("Return search credit", "退回查询额度"),
+              confirmation: t("Return this search credit to the account?", "向该账户退回本次查询额度？"),
+              receipt: () => t("Credit compensation recorded", "额度补偿已记录"),
+            })
+          : null,
+      ],
+    },
+    recovery: {
+      heading: t("Late payment confirmations", "晚到付款确认"),
+      columns: [
+        t("Receipt ID", "收据 ID"),
+        t("Provider", "渠道"),
+        t("Attempts", "尝试次数"),
+        t("Received", "接收时间"),
+        t("Action", "操作"),
+      ],
+      row: (entry) => [
+        entry.id,
+        entry.provider,
+        entry.attempts,
+        entry.received_at,
+        recoveryForm("recovery", `/admin/payments/events/${entry.id}/replay`, {
+          title: t("Replay confirmation", "重放确认"),
+          caseReference: true,
+          confirmation: t("Check and apply this sandbox confirmation?", "核对并应用此沙盒付款确认？"),
+          receipt: (outcome) =>
+            ({
+              applied: t("Confirmation applied", "付款确认已入账"),
+              already_applied: t("Confirmation already applied", "付款确认已入账过"),
+              manual_review: t("Manual review required", "需要人工复核"),
+            })[outcome],
+        }),
       ],
     },
     audit: {
@@ -1475,6 +1533,63 @@ if (page === "/operations") {
       row: (entry) => [entry.action, entry.object_id, entry.request_id, entry.actor_ref, entry.created_at],
     },
   };
+  function recoveryForm(view, path, { title, confirmation, fields, caseReference, receipt }) {
+    const tools = element("details");
+    const form = element("form", undefined, "key-form security-form");
+    const reasonLabel = element("label", t("Reason", "原因"));
+    const reason = element("input");
+    reason.required = true;
+    reason.maxLength = 1000;
+    reasonLabel.append(reason);
+    form.append(reasonLabel);
+    const reference = element("input");
+    if (caseReference) {
+      const referenceLabel = element("label", t("Case reference", "工单引用"));
+      reference.required = true;
+      reference.maxLength = 200;
+      referenceLabel.append(reference);
+      form.append(referenceLabel);
+    }
+    const submit = element("button", t("Run command", "执行操作"), "btn brand");
+    form.append(submit);
+    tools.append(element("summary", title), form);
+    let attempt;
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (submit.disabled || !confirm(confirmation)) return;
+      submit.disabled = true;
+      const request = generation;
+      run(async () => {
+        try {
+          const data = {
+            ...fields,
+            reason: reason.value.trim(),
+            ...(caseReference ? { case_reference: reference.value.trim() } : {}),
+          };
+          const shape = JSON.stringify(data);
+          if (attempt?.shape !== shape) attempt = { shape, key: crypto.randomUUID() };
+          const { data: result } = await post(path, data, (await session())?.csrf_token, attempt.key);
+          if (request !== generation) return;
+          const notice = `${receipt(result.outcome)} · ${t("Audit ID", "审计编号")} ${result.audit_id}`;
+          await showView(view, undefined, notice);
+        } catch (error) {
+          if (request !== generation) return;
+          if (error.message === "state_conflict") {
+            message(
+              t(
+                "Current state or evidence does not allow this command. Check the record and try again.",
+                "当前状态或证据不满足操作条件。请核对记录后重试。",
+              ) + (error.reference ? ` · ${error.reference}` : ""),
+              "warning",
+            );
+          } else throw error;
+        } finally {
+          submit.disabled = false;
+        }
+      });
+    });
+    return tools;
+  }
   function sourceCommand(source) {
     const tools = element("details");
     if (source.clearance_status === "revoked") return t("Revoked", "已撤销");
@@ -1547,21 +1662,26 @@ if (page === "/operations") {
     tools.append(form);
     return tools;
   }
-  async function showView(view, cursor) {
+  async function showView(view, cursor, notice = "") {
     const request = ++generation;
     if (!cursor) {
       output.replaceChildren();
-      message(t("Loading…", "正在加载…"));
+      message(notice || t("Loading…", "正在加载…"));
       for (const control of operatorTabs)
         control.setAttribute("aria-pressed", String(control.dataset.opsView === view));
     }
     try {
       const params = cursor ? `?${new URLSearchParams({ cursor })}` : "";
-      const response = await api(`/admin/${view}${params}`);
+      const [response, canWrite] = await Promise.all([api(`/admin/${view}${params}`), recoveryAccess]);
       if (request !== generation) return;
       const { heading, columns, row } = views[view];
       const data = response.data;
-      const card = accountTable(heading, columns, (Array.isArray(data) ? data : data.items).map(row));
+      const rows = Array.isArray(data) ? data : data.items;
+      const card = accountTable(
+        heading,
+        columns,
+        rows.map((entry) => row(entry, canWrite)),
+      );
       if (data.next_cursor) {
         const next = button(t("Load more", "加载更多"), () =>
           run(async () => {
@@ -1576,12 +1696,18 @@ if (page === "/operations") {
         );
         card.append(next);
       }
-      message("");
+      message(notice);
       output.append(card);
     } catch (error) {
       if (request !== generation) return;
       if (error.status === 401 || error.message === "reauthentication_required")
         output.append(link(t("Sign in again", "重新登录"), `${prefix}/login`));
+      if (notice) {
+        output.append(
+          element("p", t("Unable to refresh. Open this tab again.", "刷新失败，请重新打开此标签页。")),
+        );
+        return;
+      }
       throw error;
     }
   }

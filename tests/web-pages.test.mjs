@@ -461,7 +461,51 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await editor.getByText(/Local readiness ready_for_offline_probe/).waitFor();
     await editor.getByRole("button", { name: "Audit log", exact: true }).click();
     await editor.getByRole("cell", { name: "ops.source", exact: true }).waitFor();
-    await author.context.close();
+    const failed = await x.query.submit(x.identity, { ...x.q, limit: 3 });
+    await db.query("UPDATE queries SET compute_status='failed' WHERE id=$1", [failed.queryId]);
+    await db.query(
+      "UPDATE query_jobs SET status='failed',attempt_count=1,error_code='service_unavailable',version=2 WHERE id=$1",
+      [failed.jobId],
+    );
+    const beforeCollection = (await db.query("SELECT count(*)::int count FROM collector_jobs")).rows[0].count;
+    await editor.getByRole("button", { name: "Jobs", exact: true }).click();
+    const failedRow = editor.getByRole("row").filter({ hasText: failed.jobId });
+    await failedRow.getByText("Retry query job", { exact: true }).click();
+    await failedRow.getByLabel("Reason", { exact: true }).fill("Retry from the retained fixture snapshot");
+    const routePath = `**/admin/jobs/${failed.jobId}/retry`;
+    const commandKeys = [];
+    await editor.route(routePath, async (route) => {
+      commandKeys.push((await route.request().allHeaders())["idempotency-key"]);
+      if (commandKeys.length > 1) return route.continue();
+      const result = await route.fetch();
+      assert.equal(result.status(), 202);
+      await route.abort();
+    });
+    editor.once("dialog", (dialog) => dialog.accept());
+    await failedRow.getByRole("button", { name: "Run command" }).click();
+    await editor.getByText("The request failed. Check your inputs or try again.").waitFor();
+    editor.once("dialog", (dialog) => dialog.accept());
+    await failedRow.getByRole("button", { name: "Run command" }).click();
+    await editor.getByText(/Query requeued · Audit ID/).waitFor();
+    assert.equal(commandKeys.length, 2);
+    assert.equal(commandKeys[0], commandKeys[1]);
+    await editor.unroute(routePath);
+    assert.equal((await x.query.workOnce("browser-recovery")).status, "completed");
+    assert.equal((await x.query.job(x.identity, failed.jobId)).settlement_status, "pending");
+    assert.equal(
+      (await db.query("SELECT count(*)::int count FROM collector_jobs")).rows[0].count,
+      beforeCollection,
+    );
+    await editor.getByRole("button", { name: "Reconciliation", exact: true }).click();
+    const chargeId = (await charges()).rows[0].id;
+    const chargeRow = editor.getByRole("row").filter({ hasText: chargeId });
+    await chargeRow.getByText("Return search credit", { exact: true }).click();
+    await chargeRow.getByLabel("Reason", { exact: true }).fill("Correct the synthetic query charge");
+    editor.once("dialog", (dialog) => dialog.accept());
+    await chargeRow.getByRole("button", { name: "Run command" }).click();
+    await editor.getByText(/Credit compensation recorded · Audit ID/).waitFor();
+    await chargeRow.getByRole("cell", { name: "refunded", exact: true }).waitFor();
+    await chargeRow.getByRole("cell", { name: "balanced", exact: true }).waitFor();
     await reviewer.context.close();
     await page.goto(`${origin}/account/billing`);
     await page.getByRole("heading", { name: "Test checkout" }).waitFor();
@@ -488,7 +532,6 @@ test("Chrome walks an empty account from cache miss and registration to explicit
       period_start: null,
       period_end: null,
     };
-    await payments.stageFixture(fact);
     const notification = Buffer.from(
       JSON.stringify({
         id: randomUUID(),
@@ -509,7 +552,32 @@ test("Chrome walks an empty account from cache miss and registration to explicit
       body: notification,
     });
     assert.equal(webhook.status, 200);
-    assert.equal((await payments.workOnce()).status, "applied");
+    let late;
+    for (let attempt = 1; attempt <= 12; attempt++) {
+      late = await payments.workOnce();
+      assert.equal(late.status, attempt === 12 ? "failed" : "retryable");
+      if (attempt < 12)
+        await db.query("UPDATE payment_events SET fixture_retry_at=$2 WHERE id=$1", [late.eventId, x.now()]);
+    }
+    await editor.getByRole("button", { name: "Payment recovery", exact: true }).click();
+    const receiptRow = editor.getByRole("row").filter({ hasText: late.eventId });
+    await receiptRow.getByText("Replay confirmation", { exact: true }).click();
+    await receiptRow
+      .getByLabel("Reason", { exact: true })
+      .fill("Apply the verified late sandbox confirmation");
+    await receiptRow.getByLabel("Case reference", { exact: true }).fill("browser-recovery-case");
+    editor.once("dialog", (dialog) => dialog.accept());
+    await receiptRow.getByRole("button", { name: "Run command" }).click();
+    await editor.getByText(/Current state or evidence does not allow this command/).waitFor();
+    await payments.stageFixture(fact);
+    editor.once("dialog", (dialog) => dialog.accept());
+    await receiptRow.getByRole("button", { name: "Run command" }).click();
+    await editor.getByText(/Confirmation applied · Audit ID/).waitFor();
+    await receiptRow.waitFor({ state: "detached" });
+    await editor.getByRole("button", { name: "Audit log", exact: true }).click();
+    for (const action of ["ops.query_retry", "ops.credit_refund", "ops.payment_replay"])
+      await editor.getByRole("cell", { name: action, exact: true }).waitFor();
+    await author.context.close();
     await page.getByRole("button", { name: "Refresh order" }).click();
     await page.getByText(/paypal.*Confirmed/).waitFor();
     await page.getByRole("cell", { name: "Succeeded", exact: true }).waitFor();

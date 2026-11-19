@@ -145,6 +145,9 @@ export function mountOperations(
     const data = await service().contentCommand(actor, input, key(c), c.get("requestId"));
     return c.json({ data, meta: meta(c) }, 202);
   });
+  app.get("/admin/recovery", async (c) =>
+    c.json({ data: await service().recovery(await identity(c), page(c)), meta: meta(c) }),
+  );
   app.post("/admin/payments/events/:id/replay", async (c) => {
     const actor = await identity(c, true);
     const input = await body(
