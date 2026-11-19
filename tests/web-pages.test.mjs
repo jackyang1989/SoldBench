@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
@@ -69,7 +69,7 @@ test("Chrome walks an empty account from cache miss and registration to explicit
       x = await createProductFixture(db, roots, { keyword: "Nintendo Switch", port, limit: 50, count: 8 });
     app = x.app;
     await db.query(
-      "UPDATE source_clearances SET permitted_fields=jsonb_set(permitted_fields,'{public_cache}','[\"aggregate\"]') WHERE id=(SELECT source_clearance_id FROM sources WHERE id=$1)",
+      `UPDATE source_clearances SET permitted_fields=permitted_fields || '{"public_cache":["aggregate"],"public_share":["aggregate"]}'::jsonb WHERE id=(SELECT source_clearance_id FROM sources WHERE id=$1)`,
       [x.source.sourceId],
     );
     await new PublicResults(x.query).publishFixture(x.queryId);
@@ -218,6 +218,54 @@ test("Chrome walks an empty account from cache miss and registration to explicit
       .getByText(/Description ·/)
       .first()
       .waitFor();
+    const beforeSort = requests.length;
+    const highest = page.waitForResponse((response) => response.url().endsWith(`/${id}?sort=price_desc`));
+    await page.getByRole("combobox", { name: "Sort results" }).selectOption("price_desc");
+    assert.equal((await highest).status(), 200);
+    await page
+      .getByRole("cell", { name: /99\.99/ })
+      .first()
+      .waitFor();
+    assert.equal(requests.length, beforeSort);
+    await page.getByRole("checkbox", { name: "Exclude", exact: true }).first().check();
+    await page.getByRole("button", { name: "Recalculate" }).click();
+    await page.getByText(/Adjusted median.*7 verified.*1 excluded/).waitFor();
+    const file = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Export JSON" }).click();
+    const exported = JSON.parse(await readFile(await (await file).path(), "utf8"));
+    assert.equal(exported.user_modified, true);
+    assert.equal(exported.items.length, 7);
+    await page.getByRole("button", { name: "Exclude complete sample" }).click();
+    await page.getByText("8 marked for exclusion").waitFor();
+    await page.getByRole("button", { name: "Recalculate" }).click();
+    await page.getByText(/Adjusted median.*0 verified.*8 excluded/).waitFor();
+    await page.getByRole("button", { name: "Restore all" }).click();
+    assert.equal(
+      await page.getByRole("checkbox", { name: "Exclude", exact: true }).first().isChecked(),
+      false,
+    );
+    await page.getByText("Share price summary", { exact: true }).click();
+    await page.getByRole("button", { name: "Create 24-hour link" }).click();
+    const shareUrl = await page.getByRole("textbox", { name: "Share link" }).inputValue();
+    const visitor = await browser.newContext();
+    await visitor.route("**/*", (route) =>
+      new URL(route.request().url()).origin === origin ? route.continue() : route.abort(),
+    );
+    const shared = await visitor.newPage();
+    const share = await shared.goto(shareUrl);
+    assert.equal(share.status(), 200);
+    assert.equal(share.headers()["referrer-policy"], "no-referrer");
+    assert.match(share.headers()["cache-control"], /no-store/);
+    await shared.getByRole("heading", { name: "Shared price research" }).waitFor();
+    assert.equal(await shared.locator("table").count(), 0);
+    assert.equal((await shared.content()).includes(id), false);
+    await shared.getByRole("link", { name: "简体中文" }).click();
+    await shared.getByRole("heading", { name: "分享的成交研究" }).waitFor();
+    await page.getByRole("button", { name: "Revoke link" }).click();
+    await page.getByText("Link revoked.").waitFor();
+    assert.equal((await shared.reload()).status(), 410);
+    await shared.getByText("此分享已不可用。").waitFor();
+    await visitor.close();
     const beforeLanguage = requests.length;
     await page.getByRole("link", { name: "简体中文" }).click();
     await page.getByText(/本次扣费 0 个额度/).waitFor();
@@ -228,6 +276,7 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.locator(`a[href="/results/${id}"]`).click();
     await page.getByText(/0 credits charged for this request/).waitFor();
     assert.equal(new URL(page.url()).pathname, `/results/${id}`);
+    x.clock.value = new Date(Date.parse(x.now()) + 60000).toISOString();
     for (const [locale, target] of [
       ["en", "/results/"],
       ["zh-CN", "/zh-CN/results/"],

@@ -350,6 +350,24 @@ td {
   font-size: 1.125rem;
   font-variant-numeric: tabular-nums;
 }
+.result-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
+  gap: 16px;
+  background: var(--green-bg);
+  padding: 18px;
+}
+.result-metrics b,
+.result-metrics strong {
+  display: block;
+}
+.result-metrics b {
+  color: var(--green);
+  font-size: 0.78rem;
+}
+.result-metrics strong {
+  font-variant-numeric: tabular-nums;
+}
 .median-strip div:first-child strong {
   font: 700 2rem var(--serif);
 }
@@ -530,4 +548,40 @@ footer > a:first-child {
 
 body [hidden] {
   display: none;
+}
+
+.result-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 18px;
+}
+.result-toolbar select {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0 10px;
+  height: var(--ctl);
+}
+.exclusion {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+.exclusion input {
+  height: auto;
+  accent-color: var(--brand);
+}
+.share-controls {
+  padding: 12px 18px;
+}
+.share-controls p {
+  margin-block: 8px;
+}
+.share-controls input {
+  width: min(100%, 460px);
+  margin: 8px 8px 8px 0;
+  padding-inline: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
 }

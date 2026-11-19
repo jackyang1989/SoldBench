@@ -357,7 +357,7 @@ test("owner isolation, exact collection scope, idempotency conflict, cancellatio
   );
   const c = await x.queries.submit(x.identity, { ...x.q, limit: 199 }),
     status = await x.queries.job(x.identity, c.jobId);
-  await x.queries.cancel(x.identity, c.jobId, status.version);
+  await x.queries.cancel(x.identity, c.jobId, status.version, randomUUID());
   assert.equal((await x.queries.job(x.identity, c.jobId)).status, "cancelled");
   await x.store.revokeSource(x.source.sourceId, "synthetic revocation");
   await assert.rejects(x.queries.result(x.identity, a.queryId, "revoked"), (e) => e.code === "forbidden");
@@ -752,4 +752,46 @@ test("current business lock rechecks administrator absolute TTL on an already ob
   const identity = await x.auth.sessionIdentity(token);
   x.clock.value = new Date(Date.parse(x.now()) + 12 * 3600000 + 1).toISOString();
   await assert.rejects(x.queries.submit(identity, x.q), (e) => e.status === 401);
+});
+
+test("HTTP cancellation replays the committed job for the same key and never charges", async () => {
+  const x = await setup({ count: 8 }),
+    y = await setup({ count: 8 }),
+    submitted = await x.queries.submit(x.identity, x.q);
+  const { version } = await x.queries.job(x.identity, submitted.jobId);
+  const key = randomUUID(),
+    endpoint = `/v1/jobs/${submitted.jobId}/cancel`;
+  const cancel = (owner, v, idempotency) =>
+    request(owner, endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(idempotency ? { "Idempotency-Key": idempotency } : {}),
+      },
+      body: JSON.stringify({ version: v }),
+    });
+  assert.equal((await cancel(x, version)).status, 400);
+  assert.equal((await cancel(y, version, key)).status, 404);
+  const replies = await Promise.all(Array.from({ length: 4 }, () => cancel(x, version, key)));
+  for (const reply of replies) assert.equal(reply.status, 200);
+  const [first, ...replays] = await Promise.all(replies.map((reply) => reply.json()));
+  assert.equal(first.data.status, "cancelled");
+  assert.equal(first.data.version, version + 1);
+  assert.equal(first.meta.credits_charged, 0);
+  for (const replay of replays) assert.deepEqual(replay.data, first.data);
+  const changed = await cancel(x, version + 1, key);
+  assert.equal((await changed.json()).error.code, "idempotency_conflict");
+  assert.equal((await cancel(x, version, randomUUID())).status, 409);
+  const status = await (await request(x, `/v1/jobs/${submitted.jobId}`)).json();
+  assert.deepEqual(status.data, first.data);
+  await x.queries.workOnce("after-cancel");
+  for (const table of ["query_results", "billing_charges"]) {
+    assert.equal(
+      (await db.query(`SELECT 1 FROM ${table} WHERE query_id=$1`, [submitted.queryId])).rowCount,
+      0,
+    );
+  }
+  execFileSync("python3", ["tests/validate-response.py"], {
+    input: JSON.stringify([["JobResponse", first]]),
+  });
 });

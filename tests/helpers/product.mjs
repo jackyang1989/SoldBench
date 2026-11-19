@@ -31,6 +31,7 @@ export async function createProductFixture(
     prepareQuery = true,
     keyword,
     filters = {},
+    saleTimes = {},
     clockValue = "2026-11-17T12:00:00.000Z",
   } = {},
 ) {
@@ -72,7 +73,7 @@ export async function createProductFixture(
         shippingStatus: "verified_free_shipping",
         condition: "good",
         title: i === 0 ? '=HYPERLINK("https://example.test")' : `Synthetic ${i}`,
-        time: { precision: "instant", value: now() },
+        time: saleTimes[i] ?? { precision: "instant", value: now() },
       },
     }));
   if (extra)

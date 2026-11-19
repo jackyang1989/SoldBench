@@ -64,10 +64,10 @@ function item(row: PricedCandidate): number | null {
   return row.record.currency === "USD" ? row.record.itemCents : (row.record.usdConversion?.itemCents ?? null);
 }
 /** Pure presentation ordering, no mutation or selection/charging side effects. */
-export function sortComparables(
-  rows: readonly PricedCandidate[],
+export function sortComparables<T extends PricedCandidate>(
+  rows: readonly T[],
   sort: PresentationSort = "date_desc",
-): PricedCandidate[] {
+): T[] {
   parsePresentationSort(sort);
   const intervals = new Map(rows.map((row) => [row.record, interval(row.record)]));
   const [field, direction] = sort.split("_");

@@ -1,7 +1,7 @@
 import { isIP } from "node:net";
 import { getConnInfo } from "@hono/node-server/conninfo";
 import type { AuthService, Identity } from "@soldbench/auth";
-import { normalizeQuery, queryParameters } from "@soldbench/core";
+import { normalizeQuery, parsePresentationSort, queryParameters } from "@soldbench/core";
 import {
   PublicResults,
   type QueryService,
@@ -73,12 +73,23 @@ export function mountQueries(app: Hono<Env>, config: Config, auth?: AuthService,
     if (t) t.actor = actor;
   };
   const result = async (c: Context<Env>, claim = false) => {
+    const params = new URL(c.req.url).searchParams;
+    let sort: ReturnType<typeof parsePresentationSort> | undefined;
+    if (!claim && params.size) {
+      try {
+        if (params.size !== 1 || !params.has("sort")) throw new Error("invalid_presentation_sort");
+        sort = parsePresentationSort(params.get("sort") ?? "");
+      } catch {
+        throw new AppError("invalid_parameter", 400, "Invalid result sort.");
+      }
+    }
     const r = await service().result(
         await identity(c, "sold:read", claim),
         id(c.req.param("id")),
         c.get("requestId"),
         claim,
         claim ? c.req.header("Idempotency-Key") : undefined,
+        sort,
       ),
       t = c.get("queryTrace");
     if (t) {
@@ -212,6 +223,8 @@ export function mountQueries(app: Hono<Env>, config: Config, auth?: AuthService,
   app.use("/v1/jobs/:id/cancel", bodyLimit({ maxSize: 1024 }));
   app.post("/v1/jobs/:id/cancel", async (c) => {
     const actor = await identity(c, "jobs:read", true);
+    if (c.req.header("Content-Type")?.split(";")[0]?.trim() !== "application/json")
+      throw new AppError("invalid_parameter", 415, "Use application/json.");
     let b: Record<string, unknown>;
     try {
       b = await c.req.json();
@@ -226,8 +239,15 @@ export function mountQueries(app: Hono<Env>, config: Config, auth?: AuthService,
       b.version < 1
     )
       throw new AppError("invalid_parameter", 400, "A job version is required.");
-    await service().cancel(actor, id(c.req.param("id")), b.version as number);
-    return c.body(null, 204);
+    const data = await service().cancel(
+      actor,
+      id(c.req.param("id")),
+      b.version,
+      c.req.header("Idempotency-Key"),
+    );
+    const trace = c.get("queryTrace");
+    if (trace) trace.queryId = data.query_id;
+    return c.json({ data, meta: meta(c) });
   });
   const page = (c: Context<Env>) => {
     const p = new URL(c.req.url).searchParams;

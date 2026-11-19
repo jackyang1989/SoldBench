@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.16.0
+  version: 1.17.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -2181,7 +2181,7 @@ paths:
     get:
       operationId: getShare
       summary: getShare
-      description: getShare
+      description: Read the currently authorized shared aggregate. Browsers requesting text/html receive a localized view of the same projection.
       security: *id004
       parameters:
       - name: Accept-Language
@@ -2199,6 +2199,11 @@ paths:
           minLength: 32
           maxLength: 512
         description: ''
+      - name: lang
+        in: query
+        required: false
+        schema: {type: string, enum: [en, zh-CN]}
+        description: Preferred language of the browser view only.
       responses:
         '200':
           description: 成功；所有样例均为合成数据。
@@ -2206,6 +2211,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ShareResponse'
+            text/html:
+              schema: {type: string}
           headers:
             X-Request-ID:
               schema:
@@ -7721,6 +7728,8 @@ components:
           enum:
           - second
           - day
+        sold_date:
+          $ref: '#/components/schemas/SoldDateEvidence'
         condition_std:
           type: string
         source_id:
@@ -8148,12 +8157,35 @@ components:
       required:
       - version
       additionalProperties: false
+    SoldDateEvidence:
+      description: Original sale time evidence. A source-local date is not a UTC instant.
+      oneOf:
+      - type: object
+        properties:
+          precision: {const: instant}
+          value: {type: string, format: date-time}
+        required: [precision, value]
+        additionalProperties: false
+      - type: object
+        properties:
+          precision: {const: day}
+          value: {type: string, format: date}
+          timeZone: {type: [string, 'null']}
+        required: [precision, value, timeZone]
+        additionalProperties: false
+      - type: object
+        properties:
+          precision: {const: unknown}
+        required: [precision]
+        additionalProperties: false
     CalculationItem:
       type: object
       properties:
         sale_event_id: *id002
         price_usd_cents: *id022
         sold_at: *id023
+        sold_date:
+          $ref: '#/components/schemas/SoldDateEvidence'
         sale_format:
           type: string
           enum:
@@ -10189,6 +10221,8 @@ components:
               type: string
             sold_at:
               type: string
+            sold_date:
+              type: string
           required:
           - price_usd_cents
           - observed_shipping_cents
@@ -10242,6 +10276,8 @@ components:
                 - instant
                 - day
                 - unknown
+              sold_date:
+                $ref: '#/components/schemas/SoldDateEvidence'
             required:
             - sale_event_id
             - title

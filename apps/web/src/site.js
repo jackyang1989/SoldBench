@@ -9,16 +9,34 @@ const search = document.querySelector("[data-search]");
 const current = () => new URL(location.href);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const safeId = (value) => (uuid.test(value ?? "") ? value : null);
-const draftNames = [
+const queryNames = [
   "q",
   "condition",
   "sale_format",
   "window_days",
   "price_basis",
   "allow_stale",
-  "job",
-  "result",
+  "min_price_cents",
+  "max_price_cents",
 ];
+const draftNames = [...queryNames, "job", "result"];
+
+function queryDraft(form) {
+  const fields = new FormData(form);
+  const draft = new URLSearchParams();
+  for (const name of queryNames) {
+    if (name.endsWith("_cents")) continue;
+    const value = fields.get(name)?.trim();
+    if (value) draft.set(name, name === "allow_stale" ? "true" : value);
+  }
+  for (const name of ["min_price", "max_price"]) {
+    const value = fields.get(name)?.trim() ?? "";
+    if (!value || !/^\d+(\.\d{1,2})?$/.test(value)) continue;
+    const [dollars, fraction = ""] = value.split(".");
+    draft.set(`${name}_cents`, (BigInt(dollars) * 100n + BigInt(fraction.padEnd(2, "0"))).toString());
+  }
+  return draft;
+}
 
 function resume(path, draft = current().searchParams, keepResult = true) {
   const filtered = new URLSearchParams();
@@ -59,8 +77,9 @@ function button(text, onClick) {
   return control;
 }
 
-async function api(path, options) {
+async function api(path, options, downloadFile = false) {
   const response = await fetch(path, { ...options, cache: "no-store", redirect: "error" });
+  if (response.ok && downloadFile) return response.blob();
   const body = response.status === 204 ? {} : await response.json();
   if (!response.ok) {
     throw Object.assign(new Error(body.error?.code ?? "service_unavailable"), {
@@ -72,17 +91,21 @@ async function api(path, options) {
   return body;
 }
 
-const post = (path, data, csrf, idempotency) =>
-  api(path, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Accept-Language": document.documentElement.lang,
-      ...(csrf ? { "X-CSRF-Token": csrf } : {}),
-      ...(idempotency ? { "Idempotency-Key": idempotency } : {}),
+const post = (path, data, csrf, idempotency, downloadFile) =>
+  api(
+    path,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept-Language": document.documentElement.lang,
+        ...(csrf ? { "X-CSRF-Token": csrf } : {}),
+        ...(idempotency ? { "Idempotency-Key": idempotency } : {}),
+      },
+      body: JSON.stringify(data),
     },
-    body: JSON.stringify(data),
-  });
+    downloadFile,
+  );
 
 async function session() {
   try {
@@ -117,6 +140,7 @@ function report(error) {
       "The code is invalid, expired, or already used. Request another code and try again.",
       "验证码无效、已过期或已使用。请请求新验证码后重试。",
     ),
+    reauthentication_required: t("Sign in again to continue this action.", "请重新登录后继续此操作。"),
   };
   const retry = Number(error.retryAfter);
   const text =
@@ -142,8 +166,249 @@ const usd = new Intl.NumberFormat(document.documentElement.lang, {
   currencyDisplay: "code",
 });
 const amount = (cents) => (Number.isSafeInteger(cents) ? usd.format(cents / 100) : "—");
+const conditions = {
+  new_with_tags: t("New with tags", "全新带标签"),
+  new_without_tags: t("New without tags", "全新无标签"),
+  like_new: t("Like new", "近新"),
+  good: t("Good", "良好"),
+  fair: t("Fair", "一般"),
+  defective: t("For parts", "故障或零件"),
+};
 
-function resultView({ data, meta }) {
+async function exportResult(id, format, excluded) {
+  return post(
+    `/v1/sold/${id}/export`,
+    {
+      format,
+      view: excluded.length ? "adjusted" : "authoritative",
+      ...(excluded.length ? { excluded_sale_event_ids: excluded } : {}),
+    },
+    (await session())?.csrf_token,
+    undefined,
+    format === "csv",
+  );
+}
+
+function download(body, name) {
+  const url = URL.createObjectURL(body);
+  const a = element("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function shareControls(queryId) {
+  const details = element("details", undefined, "share-controls");
+  const result = element("div");
+  const message = element("p", "", "small");
+  message.setAttribute("aria-live", "polite");
+  let key;
+  const create = button(t("Create 24-hour link", "创建有效期 24 小时的链接"), () =>
+    run(async () => {
+      key ??= crypto.randomUUID();
+      create.disabled = true;
+      let created;
+      try {
+        created = (
+          await post(
+            "/v1/shares",
+            { query_id: queryId, expires_in: 86400 },
+            (
+              await session()
+            )?.csrf_token,
+            key,
+          )
+        ).data;
+      } catch (error) {
+        if (error.message === "reauthentication_required")
+          result.replaceChildren(link(t("Sign in again", "重新登录"), resume("/login")));
+        create.disabled = false;
+        throw error;
+      }
+      const id = safeId(created.share_id);
+      const token = /^sb_sh_[A-Za-z0-9_-]{43}$/.test(created.token ?? "") ? created.token : null;
+      result.replaceChildren();
+      if (token) {
+        const output = element("input");
+        output.readOnly = true;
+        output.setAttribute("aria-label", t("Share link", "分享链接"));
+        output.value = new URL(`/share/${token}${zh ? "?lang=zh-CN" : ""}`, location.origin).href;
+        output.addEventListener("focus", () => output.select());
+        result.append(output);
+        message.textContent = t(
+          "Copy this link before leaving. Its expiry can be earlier if source access changes.",
+          "离开前请复制链接。来源权利变化时，链接可能提早失效。",
+        );
+      } else {
+        message.textContent = t(
+          "The link already exists. Revoke it to create a replacement.",
+          "链接已创建。撤销原链接后可重新创建。",
+        );
+      }
+      if (id) {
+        const revoke = button(t("Revoke link", "撤销链接"), () =>
+          run(async () => {
+            await api(`/v1/shares/${id}`, {
+              method: "DELETE",
+              headers: { "X-CSRF-Token": (await session())?.csrf_token ?? "" },
+            });
+            result.replaceChildren();
+            message.textContent = t("Link revoked.", "链接已撤销。");
+            key = undefined;
+            create.disabled = false;
+            create.focus();
+          }),
+        );
+        revoke.className = "btn ghost";
+        result.append(revoke);
+      }
+    }),
+  );
+  details.append(
+    element("summary", t("Share price summary", "分享价格摘要")),
+    element(
+      "p",
+      t(
+        "Anyone with the link can see the original price summary and sample count.",
+        "持链接者可查看原价格摘要和样本量。",
+      ),
+    ),
+    create,
+    message,
+    result,
+  );
+  return details;
+}
+
+function addResearchTools(card, id, research) {
+  const toolbar = element("div", undefined, "result-toolbar");
+  const adjusted = element("p", research.summary, "summary-note");
+  adjusted.setAttribute("aria-live", "polite");
+  const sort = element("select");
+  sort.setAttribute("aria-label", t("Sort results", "结果排序"));
+  for (const [value, label] of [
+    ["", t("Latest sale", "最近成交")],
+    ["price_asc", t("Lowest price first", "价格从低到高")],
+    ["price_desc", t("Highest price first", "价格从高到低")],
+    ["date_asc", t("Earliest sale", "最早成交")],
+  ]) {
+    const option = element("option", label);
+    option.value = value;
+    sort.append(option);
+  }
+  sort.value = research.sort;
+  sort.addEventListener("change", () =>
+    run(async () => {
+      sort.disabled = true;
+      try {
+        const next = sort.value;
+        const updated = await api(`/v1/sold/${id}${next ? `?sort=${next}` : ""}`);
+        if (!card.isConnected) return;
+        research.sort = next;
+        resultView(updated, research);
+        output.querySelector("select")?.focus();
+      } finally {
+        sort.value = research.sort;
+        sort.disabled = false;
+      }
+    }),
+  );
+  const recalculate = button(t("Recalculate", "重算"), () =>
+    run(async () => {
+      const ids = [...research.excluded];
+      recalculate.disabled = true;
+      try {
+        const result = await exportResult(id, "json", ids);
+        if (ids.length !== research.excluded.size || ids.some((value) => !research.excluded.has(value)))
+          return;
+        const stats = result.price_summary;
+        research.summary = t(
+          `Adjusted median ${amount(stats.median_cents)} · ${stats.n_price_verified} verified · ${ids.length} excluded`,
+          `调整后中位价 ${amount(stats.median_cents)} · 已核验 ${stats.n_price_verified} 条 · 已排除 ${ids.length} 条`,
+        );
+        adjusted.textContent = research.summary;
+      } finally {
+        recalculate.disabled = research.excluded.size === 0;
+      }
+    }),
+  );
+  recalculate.disabled = research.excluded.size === 0;
+  toolbar.append(sort, recalculate);
+  for (const [format, label] of [
+    ["csv", t("Export CSV", "导出 CSV")],
+    ["json", t("Export JSON", "导出 JSON")],
+  ]) {
+    const control = button(label, () =>
+      run(async () => {
+        control.disabled = true;
+        const excluded = [...research.excluded];
+        try {
+          const result = await exportResult(id, format, excluded);
+          const blob =
+            format === "csv"
+              ? result
+              : new Blob([JSON.stringify(result, null, 2)], { type: "application/json" });
+          download(blob, `soldbench-${excluded.length ? "adjusted" : "authoritative"}.${format}`);
+        } finally {
+          control.disabled = false;
+        }
+      }),
+    );
+    control.className = "btn ghost";
+    toolbar.append(control);
+  }
+  const restore = button(t("Restore all", "恢复全部"), () => {
+    research.excluded.clear();
+    research.summary = "";
+    adjusted.textContent = "";
+    recalculate.disabled = true;
+    for (const input of card.querySelectorAll(".exclusion input")) input.checked = false;
+  });
+  restore.className = "btn ghost";
+  const excludeAll = button(t("Exclude complete sample", "排除完整样本"), () =>
+    run(async () => {
+      excludeAll.disabled = true;
+      try {
+        const { data } = await api(`/v1/sold/${id}/calculation-inputs`);
+        if (!card.isConnected) return;
+        if (!data.is_complete) throw new Error("forbidden");
+        research.excluded = new Set(data.items.map((row) => row.sale_event_id));
+        for (const input of card.querySelectorAll(".exclusion input")) input.checked = true;
+        research.summary = t(
+          `${research.excluded.size} marked for exclusion`,
+          `已标记排除 ${research.excluded.size} 条`,
+        );
+        adjusted.textContent = research.summary;
+        recalculate.disabled = research.excluded.size === 0;
+      } finally {
+        excludeAll.disabled = false;
+      }
+    }),
+  );
+  excludeAll.className = "btn ghost";
+  toolbar.append(excludeAll, restore);
+  card.append(toolbar, adjusted);
+  return (eventId) => {
+    const label = element("label", undefined, "exclusion");
+    const input = element("input");
+    input.type = "checkbox";
+    input.checked = research.excluded.has(eventId);
+    input.addEventListener("change", () => {
+      if (input.checked) research.excluded.add(eventId);
+      else research.excluded.delete(eventId);
+      recalculate.disabled = research.excluded.size === 0;
+      research.summary = research.excluded.size
+        ? t(`${research.excluded.size} marked for exclusion`, `已标记排除 ${research.excluded.size} 条`)
+        : "";
+      adjusted.textContent = research.summary;
+    });
+    label.append(input, t("Exclude", "排除"));
+    return label;
+  };
+}
+
+function resultView({ data, meta }, research = { sort: "", excluded: new Set(), summary: "" }) {
   actions.replaceChildren();
   output.replaceChildren();
   const placeholder = document.querySelector("[data-hero-empty]");
@@ -151,7 +416,7 @@ function resultView({ data, meta }) {
   const stats = data.stats;
   const card = element("section", undefined, "live-card result-card");
   card.append(element("h2", t("Sold-price summary", "成交价格摘要"), "live-head"));
-  const summary = element("div", undefined, "median-strip");
+  const summary = element("div", undefined, "result-metrics");
   for (const [label, value] of [
     [t("Median", "中位价"), amount(stats.median_cents)],
     [
@@ -159,6 +424,12 @@ function resultView({ data, meta }) {
       stats.p25_cents == null ? "—" : `${amount(stats.p25_cents)} – ${amount(stats.p75_cents)}`,
     ],
     [t("Verified prices", "已核验价格"), String(stats.n_price_verified)],
+    [t("Mean", "平均价"), amount(data.supplemental_stats?.mean_cents)],
+    [t("Trimmed mean", "截尾均价"), amount(stats.trimmed_mean_cents)],
+    [
+      t("Low / high", "最低／最高"),
+      `${amount(stats.observed_min_cents)} / ${amount(stats.observed_max_cents)}`,
+    ],
   ]) {
     const metric = element("div");
     metric.append(element("b", label), element("strong", value));
@@ -172,6 +443,17 @@ function resultView({ data, meta }) {
   );
   const recorded = asOf ? ` · ${asOf.slice(0, 16).replace("T", " ")} UTC` : "";
   card.append(element("p", counts + recorded, "summary-note"));
+  const basis = data.query?.price_basis ?? data.price_basis;
+  if (basis)
+    card.append(
+      element(
+        "p",
+        basis === "item"
+          ? t("Basis: item price", "口径为商品价")
+          : t("Basis: item price and observed shipping", "口径为商品价和已观察运费"),
+        "summary-note",
+      ),
+    );
   if (data.quality?.warnings?.some((warning) => warning.code === "mixed_models")) {
     card.append(
       element("p", t("The sample includes multiple models.", "样本包含多个型号。"), "summary-note"),
@@ -186,10 +468,22 @@ function resultView({ data, meta }) {
       ),
     );
   if (data.comps?.length && safeId(data.query_id)) {
+    const exclusion = addResearchTools(card, data.query_id, research);
     const viewport = element("div", undefined, "table-scroll");
+    viewport.tabIndex = 0;
+    viewport.setAttribute("role", "region");
+    viewport.setAttribute("aria-label", t("Comparable sales", "可比成交"));
     const table = element("table");
     const row = table.createTHead().insertRow();
-    for (const label of [t("Item", "商品"), t("Price", "价格"), t("Evidence", "证据")])
+    for (const label of [
+      t("Item", "商品"),
+      t("Condition", "成色"),
+      t("Sold price", "成交价"),
+      t("Shipping", "运费"),
+      t("Item + shipping", "商品价＋运费"),
+      t("Date", "成交日期"),
+      t("Evidence", "证据"),
+    ])
       row.append(element("th", label));
     const body = table.createTBody();
     for (const comp of data.comps) {
@@ -206,7 +500,20 @@ function resultView({ data, meta }) {
         item.append(photo);
       }
       item.append(element("span", comp.title ?? t("Title unavailable", "标题不可用")));
-      line.insertCell().textContent = amount(comp.price_usd_cents);
+      line.insertCell().textContent = conditions[comp.condition_std] ?? "—";
+      line.insertCell().textContent = amount(comp.item_price_cents);
+      line.insertCell().textContent = amount(comp.observed_shipping_cents);
+      line.insertCell().textContent =
+        Number.isSafeInteger(comp.item_price_cents) && Number.isSafeInteger(comp.observed_shipping_cents)
+          ? amount(comp.item_price_cents + comp.observed_shipping_cents)
+          : "—";
+      const soldDate = comp.sold_date;
+      line.insertCell().textContent =
+        soldDate?.precision === "day"
+          ? `${soldDate.value}${soldDate.timeZone ? ` · ${soldDate.timeZone}` : ""}`
+          : soldDate?.precision === "instant"
+            ? `${soldDate.value.slice(0, 10)} UTC`
+            : "—";
       const evidenceCell = line.insertCell();
       const event = safeId(comp.sale_event_id);
       if (!event) continue;
@@ -223,12 +530,19 @@ function resultView({ data, meta }) {
           for (const [key, label] of [
             ["description", t("Description", "描述")],
             ["defects", t("Condition notes", "成色备注")],
+            ["attributes", t("Attributes", "商品属性")],
           ]) {
             const field = result.data.fields[key];
+            const value =
+              key === "attributes" && field.state === "present"
+                ? Object.entries(field.value)
+                    .map(([name, value]) => `${name} ${value}`)
+                    .join(" · ")
+                : field.value;
             panel.append(
               element(
                 "p",
-                `${label} · ${field.state === "present" ? field.value : field.state === "withheld" ? t("Withheld", "无权限") : t("Unavailable", "暂无")}`,
+                `${label} · ${field.state === "present" ? value : field.state === "withheld" ? t("Withheld", "无权限") : t("Unavailable", "暂无")}`,
               ),
             );
           }
@@ -240,10 +554,11 @@ function resultView({ data, meta }) {
           report(error);
         }
       });
-      evidenceCell.append(detail);
+      evidenceCell.append(detail, exclusion(event));
     }
     viewport.append(table);
-    card.append(viewport);
+    research.share ??= shareControls(data.query_id);
+    card.append(viewport, research.share);
   }
   output.append(card);
   if (meta.anonymous_remaining !== undefined) {
@@ -298,6 +613,41 @@ async function readResult(id) {
 
 async function follow(job, id) {
   actions.replaceChildren();
+  let version;
+  let finished = false;
+  const cancel = button(t("Cancel search", "取消查询"), () =>
+    run(async () => {
+      cancel.disabled = true;
+      const expected = version;
+      try {
+        const receipt = await post(
+          `/v1/jobs/${job}/cancel`,
+          { version: expected },
+          (await session())?.csrf_token,
+          `web-cancel-${job}-${expected}`,
+        );
+        if (receipt.data.status === "cancelled") {
+          finished = true;
+          actions.replaceChildren();
+          message(t("Search canceled. No credits charged.", "查询已取消，未扣费。"));
+        }
+      } catch (error) {
+        if (error.status === 409) {
+          const latest = (await api(`/v1/jobs/${job}`)).data;
+          if (latest.status === "cancelled") {
+            finished = true;
+            actions.replaceChildren();
+            message(t("Search canceled. No credits charged.", "查询已取消，未扣费。"));
+            return;
+          }
+        }
+        throw error;
+      } finally {
+        cancel.disabled = false;
+      }
+    }),
+  );
+  cancel.className = "btn ghost";
   try {
     message(
       t(
@@ -306,9 +656,12 @@ async function follow(job, id) {
       ),
     );
     for (let i = 0; i < 10; i++) {
+      if (finished) return;
       const view = (await api(`/v1/jobs/${job}`)).data;
+      if (finished) return;
       if (view.status === "completed") return readResult(id);
       if (!["queued", "running"].includes(view.status)) {
+        actions.replaceChildren();
         message(
           t(
             `Search status · ${view.status === "cancelled" ? "Canceled" : view.status === "expired" ? "Expired" : "Failed"}`,
@@ -318,6 +671,8 @@ async function follow(job, id) {
         );
         return;
       }
+      if (!cancel.isConnected) actions.append(cancel);
+      version = view.version;
       await new Promise((done) => setTimeout(done, 1500));
     }
     message(t("The search is still processing.", "查询仍在处理。"));
@@ -374,21 +729,20 @@ if (search) {
     updateLinks(draft, draft.has("result"));
   };
   search.addEventListener("input", () => {
-    const draft = new URLSearchParams(new FormData(search));
-    if (draft.has("allow_stale")) draft.set("allow_stale", "true");
-    updateLinks(draft, false);
+    updateLinks(queryDraft(search), false);
   });
   search.addEventListener("submit", (event) => {
     event.preventDefault();
     perform(async () => {
-      const fields = new FormData(search);
-      const draft = new URLSearchParams();
+      const draft = queryDraft(search);
       const input = {};
-      for (const name of draftNames.slice(0, 6)) {
-        const value = fields.get(name)?.trim();
-        if (!value) continue;
-        draft.set(name, name === "allow_stale" ? "true" : value);
-        input[name] = name === "window_days" ? Number(value) : name === "allow_stale" ? true : value;
+      for (const [name, value] of draft) {
+        input[name] =
+          name === "window_days" || name.endsWith("_cents")
+            ? Number(value)
+            : name === "allow_stale"
+              ? true
+              : value;
       }
       save(draft);
       output.replaceChildren();
@@ -435,6 +789,9 @@ if (search) {
         else await readResult(id);
       } catch (error) {
         if (error.status === 401) actions.replaceChildren(link(t("Sign in", "登录"), resume("/login")));
+        else if (!job && (!error.status || error.status === 429 || error.status >= 500)) {
+          actions.replaceChildren(button(t("Retry result", "重试读取"), () => location.reload()));
+        }
         throw error;
       }
     });

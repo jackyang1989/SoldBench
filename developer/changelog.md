@@ -1,5 +1,9 @@
 # SoldBench engineering changelog
 
+## 2026-11-19 — complete-snapshot ordering and sale date evidence
+
+In the offline build, GET for an existing result accepts `sort=price_asc` and other OpenAPI orderings. It orders the complete permitted snapshot before the requested limit without changing the candidate hash, stats or charge. `sold_date` carries the frozen date precision in comp responses, calculation inputs and JSON exports. CSV appends `sold_date_timezone`. Consumers can keep reading legacy fields and use `sold_date` for calculations involving time. Job cancellation returns HTTP 200 with a JobResponse, using the original version and Idempotency-Key for replay within 24 hours. Research history requires the owner's browser session. The REST namespace remains `/v1`.
+
 ## 2026-11-18 — observed search context
 
 OpenAPI 1.16 adds source-reported search counts with source timestamp, units and estimate status. Grouped observed shipping, seller aggregates and reported counts each require their own current field permission. Source-reported counts never contribute to verified samples or market coverage.

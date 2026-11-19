@@ -82,6 +82,21 @@ function field(value: unknown, allowed: boolean) {
     value: allowed ? (value ?? null) : null,
   };
 }
+export function saleDateEvidence(time: Candidate["time"] | null | undefined): Candidate["time"] {
+  if (time?.precision === "instant") return { precision: "instant", value: time.value };
+  if (time?.precision === "day") return { precision: "day", value: time.value, timeZone: time.timeZone };
+  return { precision: "unknown" };
+}
+export function observedShippingCents(record: Candidate) {
+  const cents =
+    record.currency === "USD" ? record.shippingCents : (record.usdConversion?.shippingCents ?? null);
+  if (
+    record.shippingStatus === "unknown" ||
+    (record.shippingStatus === "verified_free_shipping" && cents !== 0)
+  )
+    return null;
+  return cents;
+}
 function listingLink(value: unknown) {
   if (typeof value !== "string") return null;
   try {
@@ -264,7 +279,10 @@ export class ResearchService {
               : { currency: p.currency, cents: p.shippingCents, status: p.shippingStatus },
             allowed.has("shipping"),
           ),
-          sold_date: field(p.time.precision === "unknown" ? null : p.time, allowed.has("sold_date")),
+          sold_date: field(
+            p.time.precision === "unknown" ? null : saleDateEvidence(p.time),
+            allowed.has("sold_date"),
+          ),
           listing_url: field(
             listingLink(e?.listingUrl),
             allowed.has("listing_url") && (!e?.listingUrl || listingLink(e.listingUrl) !== null),
@@ -341,13 +359,13 @@ export class ResearchService {
             title: a.has("title") ? (p.title ?? null) : null,
             condition: a.has("condition") && isStandardCondition(p.condition) ? p.condition : null,
             item_price_cents: p.currency === "USD" ? p.itemCents : (p.usdConversion?.itemCents ?? null),
-            observed_shipping_cents:
-              p.currency === "USD" ? p.shippingCents : (p.usdConversion?.shippingCents ?? null),
+            observed_shipping_cents: observedShippingCents(p),
             price_usd_cents: Number(r.price_usd_cents),
             currency: "USD",
             sale_format: r.sale_format,
             sold_at: p.time.precision === "unknown" ? null : p.time.value,
             sold_date_precision: p.time.precision,
+            sold_date: saleDateEvidence(p.time),
           };
         });
       const document = {
@@ -390,6 +408,7 @@ export class ResearchService {
           price_usd_cents: "USD integer cents at the selected price_basis",
           observed_shipping_cents: "Observed source shipping, not tax or destination shipping quotes",
           sold_at: "Original frozen sold time, never replaced with collection time",
+          sold_date: "Frozen date evidence, including the source time zone for a date-only sale",
         },
         items,
       };
@@ -413,6 +432,7 @@ export class ResearchService {
             "sold_at",
             "sold_date_precision",
             "metadata_json",
+            "sold_date_timezone",
           ];
         const data = items.length ? items : [null];
         body = `${[
@@ -423,9 +443,13 @@ export class ResearchService {
                 csv(
                   k === "metadata_json"
                     ? JSON.stringify(metadata)
-                    : k in document
-                      ? document[k as keyof typeof document]
-                      : r?.[k as keyof typeof r],
+                    : k === "sold_date_timezone"
+                      ? r?.sold_date.precision === "day"
+                        ? r.sold_date.timeZone
+                        : null
+                      : k in document
+                        ? document[k as keyof typeof document]
+                        : r?.[k as keyof typeof r],
                 ),
               )
               .join(","),

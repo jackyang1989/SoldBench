@@ -11,14 +11,24 @@ import {
   evaluateSnapshot,
   hasStrongFilters,
   isStandardCondition,
+  type PresentationSort,
   queryHash,
   type SoldQuery,
+  sortComparables,
 } from "@soldbench/core";
 import { type Database, type Transaction, transaction } from "@soldbench/db";
 import type { PrivateMediaStore } from "@soldbench/media";
 import { AppError, VERSIONS } from "@soldbench/shared";
 import { qualityReport } from "./quality-report.ts";
-import { allSourcesAllow, canPrice, csv, permissions, writeComparables } from "./research.ts";
+import {
+  allSourcesAllow,
+  canPrice,
+  csv,
+  observedShippingCents,
+  permissions,
+  saleDateEvidence,
+  writeComparables,
+} from "./research.ts";
 
 const fail = (code: string, status: number, message: string): never => {
   throw new AppError(code, status, message);
@@ -27,6 +37,25 @@ const iso = (d: Date | null) => d?.toISOString() ?? null;
 function supportsVerifiedShippingContexts(versions: Record<string, string> | null) {
   const parsers = Object.values(versions ?? {});
   return parsers.length > 0 && parsers.every((parser) => parser === "offline-page-1.4.0");
+}
+function comparablePayload(eventId: string, record: Candidate, cents: number, soldAt: string | null) {
+  return {
+    sale_event_id: eventId,
+    item_price_cents:
+      record.currency === "USD" ? record.itemCents : (record.usdConversion?.itemCents ?? null),
+    observed_shipping_cents: observedShippingCents(record),
+    price_usd_cents: cents,
+    currency: "USD",
+    sale_price_status: "verified_actual",
+    sale_format: record.format,
+    sold_at: soldAt,
+    sold_date_precision: record.time.precision === "day" ? "day" : "second",
+    sold_date: saleDateEvidence(record.time),
+    source_id: record.sourceId,
+    verification_evidence_type: "synthetic_test_marker",
+    ...(record.title ? { title: record.title } : {}),
+    ...(isStandardCondition(record.condition) ? { condition_std: record.condition } : {}),
+  };
 }
 export class QueryService {
   constructor(
@@ -475,31 +504,15 @@ export class QueryService {
             "INSERT INTO query_calculation_inputs(query_id,sale_event_id,price_usd_cents,sold_at,sale_format) VALUES($1,$2,$3,$4,$5)",
             [q.id, r.sale_event_id, input.priceCents, soldAt, input.record.format],
           );
-          const item = {
-            sale_event_id: r.sale_event_id,
-            item_price_cents:
-              input.record.currency === "USD"
-                ? input.record.itemCents
-                : (input.record.usdConversion?.itemCents ?? null),
-            observed_shipping_cents:
-              input.record.currency === "USD"
-                ? input.record.shippingCents
-                : (input.record.usdConversion?.shippingCents ?? null),
-            price_usd_cents: input.priceCents,
-            currency: "USD",
-            sale_price_status: "verified_actual",
-            sale_format: input.record.format,
-            sold_at: soldAt,
-            sold_date_precision: input.record.time.precision === "day" ? "day" : "second",
-            source_id: source,
-            verification_evidence_type: "synthetic_test_marker",
-            ...(input.record.title ? { title: input.record.title } : {}),
-            ...(isStandardCondition(input.record.condition) ? { condition_std: input.record.condition } : {}),
-          };
           if (position < p.limit)
             await c.query(
               "INSERT INTO query_result_items(query_id,sale_event_id,presentation_order,visible_payload) VALUES($1,$2,$3,$4)",
-              [q.id, r.sale_event_id, position, JSON.stringify(item)],
+              [
+                q.id,
+                r.sale_event_id,
+                position,
+                JSON.stringify(comparablePayload(r.sale_event_id, input.record, input.priceCents, soldAt)),
+              ],
             );
         }
         await c.query(
@@ -608,32 +621,34 @@ export class QueryService {
     c: Transaction,
     r: Awaited<ReturnType<QueryService["readable"]>>,
     requestId: string,
+    sort?: PresentationSort,
   ) {
     const { q, now, state, charged, history } = r;
-    const items = (
+    const policy = await permissions(c, q.id);
+    const candidates = (
       await c.query(
-        "SELECT visible_payload,sale_event_id FROM query_result_items WHERE query_id=$1 ORDER BY presentation_order",
+        `SELECT s.source_id,s.candidate,i.sale_event_id,i.price_usd_cents,i.sold_at
+         FROM query_calculation_inputs i JOIN query_snapshot_records s USING (query_id,sale_event_id)
+         WHERE i.query_id=$1 ORDER BY i.sale_event_id`,
         [q.id],
       )
-    ).rows;
-    const policy = await permissions(c, q.id),
-      permitted = (
-        await c.query(
-          "SELECT source_id FROM query_calculation_inputs i JOIN query_snapshot_records s ON s.query_id=i.query_id AND s.sale_event_id=i.sale_event_id WHERE i.query_id=$1",
-          [q.id],
-        )
-      ).rows.filter((r) => canPrice(policy.get(r.source_id))).length;
+    ).rows.flatMap((row) => {
+      const allowed = policy.get(row.source_id);
+      if (!allowed || !canPrice(allowed)) return [];
+      const record = { ...row.candidate, sourceId: row.source_id } as Candidate;
+      if (sort) record.eventKey = row.sale_event_id;
+      if (!allowed.has("title")) delete record.title;
+      if (!allowed.has("condition")) delete record.condition;
+      delete record.sellerDisplayName;
+      return [{ row, record, price: Number(row.price_usd_cents), allowed }];
+    });
+    const ordered = sortComparables(candidates, sort);
     const comps = [];
-    for (const item of items) {
-      const allowed = policy.get(item.visible_payload.source_id);
-      if (!canPrice(allowed) || !allowed) continue;
-      const { title, condition_std, ...visible } = item.visible_payload;
+    for (const { row, record, price, allowed } of ordered.slice(0, q.requested_limit)) {
       comps.push({
-        ...visible,
-        ...(allowed.has("title") && title ? { title } : {}),
-        ...(allowed.has("condition") && isStandardCondition(condition_std) ? { condition_std } : {}),
+        ...comparablePayload(row.sale_event_id, record, price, iso(row.sold_at)),
         primary_image: allowed.has("primary_image")
-          ? await this.imageView(c, q.id, item.sale_event_id, now)
+          ? await this.imageView(c, q.id, row.sale_event_id, now)
           : { state: "not_permitted", url: null, width: null, height: null },
       });
     }
@@ -702,11 +717,11 @@ export class QueryService {
         candidate_set_hash: q.candidate_set_hash,
         returned_comp_count: comps.length,
         available_comp_count: stats.n_price_verified,
-        permitted_comp_count: permitted,
+        permitted_comp_count: candidates.length,
         truncated: comps.length < stats.n_price_verified,
         truncation_reasons: [
-          ...(permitted < stats.n_price_verified ? ["field_rights"] : []),
-          ...(comps.length < permitted ? ["presentation_limit"] : []),
+          ...(candidates.length < stats.n_price_verified ? ["field_rights"] : []),
+          ...(comps.length < candidates.length ? ["presentation_limit"] : []),
         ],
         source_window_start: iso(q.source_window_start),
         source_window_end: iso(q.source_window_end),
@@ -714,9 +729,16 @@ export class QueryService {
       },
     };
   }
-  async result(identity: Identity, id: string, requestId: string, claim = false, key?: string) {
+  async result(
+    identity: Identity,
+    id: string,
+    requestId: string,
+    claim = false,
+    key?: string,
+    sort?: PresentationSort,
+  ) {
     return transaction(this.db, async (c) =>
-      this.resultLocked(c, await this.readable(c, identity, id, claim, key), requestId),
+      this.resultLocked(c, await this.readable(c, identity, id, claim, key), requestId, sort),
     );
   }
   async readSnapshot<T>(
@@ -758,10 +780,17 @@ export class QueryService {
         fail("forbidden", 403, "Current field rights do not allow complete calculation inputs.");
       const items = (
         await c.query(
-          "SELECT sale_event_id,price_usd_cents,sold_at,sale_format FROM query_calculation_inputs WHERE query_id=$1 ORDER BY sale_event_id",
+          `SELECT i.sale_event_id,i.price_usd_cents,i.sold_at,i.sale_format,s.candidate->'time' AS sold_date
+           FROM query_calculation_inputs i LEFT JOIN query_snapshot_records s USING (query_id,sale_event_id)
+           WHERE i.query_id=$1 ORDER BY i.sale_event_id`,
           [id],
         )
-      ).rows.map((r) => ({ ...r, price_usd_cents: Number(r.price_usd_cents), sold_at: iso(r.sold_at) }));
+      ).rows.map((r) => ({
+        ...r,
+        price_usd_cents: Number(r.price_usd_cents),
+        sold_at: iso(r.sold_at),
+        sold_date: saleDateEvidence(r.sold_date),
+      }));
       return {
         query_id: id,
         candidate_set_hash: q.candidate_set_hash,
@@ -781,37 +810,44 @@ export class QueryService {
   }
   async job(identity: Identity, id: string) {
     return transaction(this.db, async (c) => {
-      await this.owner(c, identity, "jobs:read");
-      const j = (
-        await c.query(
-          "SELECT j.*,q.compute_status,q.result_state,q.settlement_status FROM query_jobs j JOIN queries q ON q.id=j.query_id WHERE j.id=$1 AND q.user_id=$2",
-          [id, identity.userId],
-        )
-      ).rows[0];
-      if (!j) fail("not_found", 404, "Job not found.");
-      return {
-        job_id: j.id,
-        query_id: j.query_id,
-        status: j.status,
-        compute_status: j.compute_status,
-        result_state:
-          j.status === "completed" && j.settlement_status === "pending" && j.expires_at <= (await this.now(c))
-            ? "expired"
-            : j.result_state,
-        settlement_status: j.settlement_status,
-        attempt_count: j.attempt_count,
-        created_at: iso(j.created_at),
-        updated_at: iso(j.updated_at),
-        expires_at: iso(j.expires_at),
-        error_code: j.error_code,
-        retryable: j.retryable,
-        result_url: j.status === "completed" ? `/v1/sold/${j.query_id}` : null,
-        claim_url: j.status === "completed" ? `/v1/sold/${j.query_id}/claim` : null,
-        version: j.version,
-      };
+      const now = await this.owner(c, identity, "jobs:read");
+      return this.jobView(c, identity.userId, id, now);
     });
   }
-  async cancel(identity: Identity, id: string, version: number) {
+  private async jobView(c: Transaction, owner: string, id: string, now: Date) {
+    const j = (
+      await c.query(
+        "SELECT j.*,q.compute_status,q.result_state,q.settlement_status FROM query_jobs j JOIN queries q ON q.id=j.query_id WHERE j.id=$1 AND q.user_id=$2",
+        [id, owner],
+      )
+    ).rows[0];
+    if (!j) fail("not_found", 404, "Job not found.");
+    return {
+      job_id: j.id,
+      query_id: j.query_id,
+      status: j.status,
+      compute_status: j.compute_status,
+      result_state:
+        j.status === "completed" && j.settlement_status === "pending" && j.expires_at <= now
+          ? "expired"
+          : j.result_state,
+      settlement_status: j.settlement_status,
+      attempt_count: j.attempt_count,
+      created_at: iso(j.created_at),
+      updated_at: iso(j.updated_at),
+      expires_at: iso(j.expires_at),
+      error_code: j.error_code,
+      retryable: j.retryable,
+      result_url: j.status === "completed" ? `/v1/sold/${j.query_id}` : null,
+      claim_url: j.status === "completed" ? `/v1/sold/${j.query_id}/claim` : null,
+      version: j.version,
+    };
+  }
+  async cancel(identity: Identity, id: string, version: number, key: string | undefined) {
+    if (!key || !/^[\x21-\x7e]{16,128}$/.test(key))
+      throw new AppError("invalid_parameter", 400, "A valid Idempotency-Key is required.");
+    const keyHash = createHash("sha256").update(key).digest("hex");
+    const requestHash = createHash("sha256").update(`${id}:${version}`).digest("hex");
     return transaction(this.db, async (c) => {
       const now = await this.owner(c, identity, "jobs:read");
       const peek = (
@@ -821,17 +857,36 @@ export class QueryService {
         )
       ).rows[0];
       if (!peek) fail("not_found", 404, "Job not found.");
+      const previous = (
+        await c.query(
+          "SELECT request_hash FROM idempotency_records WHERE owner_scope=$1 AND operation='query.cancel' AND key_hash=$2 AND expires_at>$3",
+          [identity.userId, keyHash, now],
+        )
+      ).rows[0];
+      if (previous) {
+        if (previous.request_hash !== requestHash)
+          fail("idempotency_conflict", 409, "Idempotency key was used for a different cancellation.");
+        return this.jobView(c, identity.userId, id, now);
+      }
       await c.query("SELECT id FROM queries WHERE id=$1 FOR UPDATE", [peek.query_id]);
       const j = (await c.query("SELECT * FROM query_jobs WHERE id=$1 FOR UPDATE", [id])).rows[0];
       if (j.version !== version) fail("state_conflict", 409, "Job version changed.");
       if (!["queued", "running"].includes(j.status)) fail("state_conflict", 409, "Job cannot be cancelled.");
       await c.query(
-        "UPDATE query_jobs SET status='cancelled',lease_owner=NULL,lease_until=NULL,updated_at=$2,version=version+1 WHERE id=$1",
+        "UPDATE query_jobs SET status='cancelled',lease_owner=NULL,lease_until=NULL,retryable=false,error_code=NULL,updated_at=$2,version=version+1 WHERE id=$1",
         [id, now],
       );
       await c.query("UPDATE queries SET compute_status='cancelled',version=version+1 WHERE id=$1", [
         peek.query_id,
       ]);
+      await c.query(
+        `INSERT INTO idempotency_records(owner_scope,operation,key_hash,request_hash,resource_id,status,expires_at)
+         VALUES($1,'query.cancel',$2,$3,$4,'committed',$5)
+         ON CONFLICT(owner_scope,operation,key_hash) DO UPDATE SET
+         request_hash=excluded.request_hash,resource_id=excluded.resource_id,expires_at=excluded.expires_at`,
+        [identity.userId, keyHash, requestHash, id, new Date(now.getTime() + 86400000)],
+      );
+      return this.jobView(c, identity.userId, id, now);
     });
   }
   async image(identity: Identity, imageId: string) {

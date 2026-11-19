@@ -1,6 +1,7 @@
 import type { AuthService } from "@soldbench/auth";
 import { PublicResults, type QueryService } from "@soldbench/query";
 import { AppError, type Config } from "@soldbench/shared";
+import { renderPage } from "@soldbench/web";
 import type { Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { getCookie } from "hono/cookie";
@@ -97,7 +98,20 @@ export function mountPublicResults(app: Hono<Env>, config: Config, auth?: AuthSe
     await service().revoke(actor, id.data);
     return c.body(null, 204);
   });
-  app.get("/share/:token", async (c) =>
-    c.json({ data: await service().share(c.req.param("token")), meta: meta(c) }),
-  );
+  app.get("/share/:token", async (c) => {
+    const html = c.req.header("Accept")?.includes("text/html");
+    const url = new URL(c.req.url);
+    const locale = url.searchParams.get("lang") === "zh-CN" ? "zh-CN" : "en";
+    c.header("Vary", "Accept");
+    try {
+      const data = await service().share(c.req.param("token"));
+      return html
+        ? c.html(renderPage(locale, "/share", url, undefined, data))
+        : c.json({ data, meta: meta(c) });
+    } catch (error) {
+      if (html && error instanceof AppError && error.status === 410)
+        return c.html(renderPage(locale, "/share", url), 410);
+      throw error;
+    }
+  });
 }

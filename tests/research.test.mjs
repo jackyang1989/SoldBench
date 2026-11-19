@@ -26,6 +26,61 @@ async function policy(x, fields) {
 const charges = async (x) =>
   (await db.query("SELECT count(*)::int n FROM billing_charges WHERE user_id=$1", [x.user])).rows[0].n;
 
+test("full authorized snapshot is sorted before limit and preserves source-local sale dates across outputs", async () => {
+  const local = { precision: "day", value: "2026-11-01", timeZone: "America/Los_Angeles" };
+  const x = await setup({ saleTimes: { 57: local } });
+  const id = x.queryId;
+  const get = (path) => x.app.request(`/v1/sold/${id}${path}`, { headers: x.headers });
+  const ordinary = await (await get("")).json();
+  assert.equal(ordinary.data.comps.length, 5);
+  assert.equal(
+    ordinary.data.comps.some((r) => r.price_usd_cents === 9999),
+    false,
+  );
+  const sorted = await (await get("?sort=price_desc")).json();
+  const first = sorted.data.comps[0];
+  assert.equal(first.price_usd_cents, 9999);
+  assert.deepEqual(first.sold_date, local);
+  assert.equal(sorted.data.comps.length, 5);
+  assert.equal(sorted.meta.permitted_comp_count, 58);
+  assert.equal(sorted.meta.candidate_set_hash, ordinary.meta.candidate_set_hash);
+  assert.equal(sorted.meta.credits_charged, 0);
+  assert.deepEqual(sorted.data.stats, ordinary.data.stats);
+  const input = await (await get("/calculation-inputs")).json();
+  const detail = await (await get(`/comps/${first.sale_event_id}`)).json();
+  assert.deepEqual(detail.data.fields.sold_date.value, local);
+  assert.deepEqual(
+    input.data.items.find((row) => row.sale_event_id === first.sale_event_id).sold_date,
+    local,
+  );
+  const exportByFormat = (format) => x.research.export(x.identity, id, { format, view: "authoritative" });
+  const json = JSON.parse((await exportByFormat("json")).body);
+  assert.equal(json.items.find((row) => row.sale_event_id === first.sale_event_id).sold_at, local.value);
+  assert.deepEqual(json.items.find((row) => row.sale_event_id === first.sale_event_id).sold_date, local);
+  const csv = (await exportByFormat("csv")).body;
+  assert.match(csv, /sold_date_timezone/);
+  assert.match(csv, /America\/Los_Angeles/);
+  assert.equal((await get("?sort=price_desc&sort=date_asc")).status, 400);
+  assert.equal((await get("?sort=invalid")).status, 400);
+  await policy(
+    x,
+    researchFields.filter((field) => field !== "title"),
+  );
+  const redacted = await (await get("?sort=title_desc")).json();
+  const ids = input.data.items
+    .map((row) => row.sale_event_id)
+    .sort()
+    .slice(0, 5);
+  assert.deepEqual(
+    redacted.data.comps.map((row) => row.sale_event_id),
+    ids,
+  );
+  assert.ok(redacted.data.comps.every((row) => !Object.hasOwn(row, "title")));
+  await x.store.revokeSource(x.source.sourceId, "synthetic sort revocation");
+  assert.equal((await get("?sort=price_desc")).status, 403);
+  assert.equal(await charges(x), 1);
+});
+
 test("legacy filter results cannot claim or bypass reuse while valid unfiltered history remains readable", async () => {
   const plain = await setup(),
     filtered = await setup({ filters: { condition: "good" } }),

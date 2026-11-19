@@ -8,10 +8,10 @@ Implemented local routes:
 |---|---|---|
 | GET | /sold?q=... | 202; data.query_id, job_id, status. No charge. limit 1–200, default 50. |
 | GET | /jobs/{id} | data.status queued/running/completed/failed/cancelled/expired; no result before claim. |
-| POST | /jobs/{id}/cancel | Send the current job version in JSON and a stable Idempotency-Key. The local handler returns 204 with no body. On a lost reply or 409, GET the same job; the frozen 200 JobResponse and same-key replay are pending. |
-| GET | /sold/{id} | Delivered/free result, or 409 result_not_claimed. The local adapter ignores the frozen sort parameter. |
+| POST | /jobs/{id}/cancel | Send the current job version in JSON and a stable Idempotency-Key. HTTP 200 returns JobResponse. Within 24 hours, replay an uncertain cancellation with the same key and original version, or GET that job for free. |
+| GET | /sold/{id} | Delivered/free result, or 409 result_not_claimed. Optional sort orders the complete permitted snapshot before the original display limit. |
 | POST | /sold/{id}/claim | Explicit settlement; Idempotency-Key required. At most 1 credit. |
-| GET | /sold/{id}/calculation-inputs | Complete permitted pricing input rows, independent of display limit. A date-only sale can appear as a UTC midnight placeholder without its precision. Read permitted comparable detail for the original date and zone before time analysis. |
+| GET | /sold/{id}/calculation-inputs | Complete permitted pricing input rows, independent of display limit. Use sold_date for original date precision and source time zone. A day-precision sold_at value is reserved for older clients. |
 | GET | /sold/{id}/diagnostics | Owner-only signed cursor pagination, size 1–100; decisions and withheld count. |
 | GET | /sold/{id}/comps/{event_id} | Current permitted detail fields, missing/withheld states, controlled primary image. |
 | POST | /sold/{id}/export | JSON body format=json/csv, view=authoritative/adjusted, optional excluded_sale_event_ids. Complete allowed inputs, 2000 rows/5 MiB maximum. |

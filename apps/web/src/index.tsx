@@ -6,7 +6,16 @@ import { renderToStaticMarkup } from "react-dom/server";
 export const webCss = readFileSync(new URL("../src/site.css", import.meta.url), "utf8");
 export const webClient = readFileSync(new URL("../src/site.js", import.meta.url), "utf8");
 
-const filters = ["q", "window_days", "price_basis", "condition", "sale_format", "allow_stale"];
+const filters = [
+  "q",
+  "window_days",
+  "price_basis",
+  "condition",
+  "sale_format",
+  "allow_stale",
+  "min_price_cents",
+  "max_price_cents",
+];
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export const webPages = [
   "/",
@@ -19,9 +28,25 @@ export const webPages = [
   "/reset-password",
   "/account",
 ] as const;
-type Page = (typeof webPages)[number] | "/results";
+type Page = (typeof webPages)[number] | "/results" | "/share";
+type SharedSummary = {
+  data_as_of: string;
+  expires_at: string;
+  stats: {
+    median_cents: number | null;
+    p25_cents: number | null;
+    p75_cents: number | null;
+    n_price_verified: number;
+  };
+};
 
-export function renderPage(locale: Locale, page: Page, url: URL, resultId?: string): string {
+export function renderPage(
+  locale: Locale,
+  page: Page,
+  url: URL,
+  resultId?: string,
+  shared?: SharedSummary,
+): string {
   const zh = locale === "zh-CN";
   const t = (en: string, cn: string) => (zh ? cn : en);
   const prefix = zh ? "/zh-CN" : "";
@@ -38,7 +63,16 @@ export function renderPage(locale: Locale, page: Page, url: URL, resultId?: stri
   if (resultId) draft.set("result", resultId);
   const query = draft.size ? `?${draft}` : "";
   const resume = (path: string) => link(path) + query;
-  const other = (zh ? "" : "/zh-CN") + (resultId ? `/results/${resultId}` : page) + query;
+  const other =
+    page === "/share"
+      ? `${url.pathname}?lang=${zh ? "en" : "zh-CN"}`
+      : (zh ? "" : "/zh-CN") + (resultId ? `/results/${resultId}` : page) + query;
+  const priceDraft = (key: string) => {
+    const value = draft.get(key);
+    if (!value || !/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) return "";
+    const cents = String(Number(value)).padStart(3, "0");
+    return `${cents.slice(0, -2)}.${cents.slice(-2)}`;
+  };
   const title =
     page === "/"
       ? t("eBay sold prices, with evidence", "eBay 成交价，附可核查的证据")
@@ -54,7 +88,9 @@ export function renderPage(locale: Locale, page: Page, url: URL, resultId?: stri
                 ? t("Choose a new password", "设置新密码")
                 : page === "/account"
                   ? t("Overview", "账户概览")
-                  : t("Search sold prices", "查询成交价");
+                  : page === "/share"
+                    ? t("Shared price research", "分享的成交研究")
+                    : t("Search sold prices", "查询成交价");
   const nav = (
     <>
       <a href={link("/search")}>{t("Search", "查价")}</a>
@@ -214,6 +250,50 @@ export function renderPage(locale: Locale, page: Page, url: URL, resultId?: stri
         </section>
       </>
     );
+  } else if (page === "/share") {
+    const currency = new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency: "USD",
+      currencyDisplay: "code",
+    });
+    const money = (cents: number | null) => (cents === null ? "—" : currency.format(cents / 100));
+    content = (
+      <section className="wrap workbench">
+        <h1>{title}</h1>
+        {shared ? (
+          <div className="live-card result-card">
+            <h2 className="live-head">{t("Historical price summary", "历史价格摘要")}</h2>
+            <div className="result-metrics">
+              <div>
+                <b>{t("Median", "中位价")}</b>
+                <strong>{money(shared.stats.median_cents)}</strong>
+              </div>
+              <div>
+                <b>{t("Typical range", "典型区间")}</b>
+                <strong>{`${money(shared.stats.p25_cents)} – ${money(shared.stats.p75_cents)}`}</strong>
+              </div>
+              <div>
+                <b>{t("Verified prices", "已核验价格")}</b>
+                <strong>{shared.stats.n_price_verified}</strong>
+              </div>
+            </div>
+            <p className="summary-note">
+              {t("Data as of", "数据时点")} <time dateTime={shared.data_as_of}>{shared.data_as_of}</time>
+            </p>
+            <p className="summary-note">
+              {t("Link expires", "链接过期")} <time dateTime={shared.expires_at}>{shared.expires_at}</time>
+            </p>
+            <p className="summary-note">
+              {t("Synthetic samples from the offline workspace.", "本机离线工作区的合成样本。")}
+            </p>
+          </div>
+        ) : (
+          <p className="notice" data-kind="warning">
+            {t("This share is unavailable.", "此分享已不可用。")}
+          </p>
+        )}
+      </section>
+    );
   } else if (research) {
     content = (
       <section className="wrap workbench">
@@ -241,6 +321,26 @@ export function renderPage(locale: Locale, page: Page, url: URL, resultId?: stri
                 <option value="auction">{t("Auction", "拍卖")}</option>
                 <option value="best_offer">{t("Best Offer", "议价")}</option>
               </select>
+            </label>
+            <label>
+              {t("Min price (USD)", "最低价格（美元）")}
+              <input
+                name="min_price"
+                inputMode="decimal"
+                maxLength={17}
+                pattern="[0-9]+([.][0-9]{1,2})?"
+                defaultValue={priceDraft("min_price_cents")}
+              />
+            </label>
+            <label>
+              {t("Max price (USD)", "最高价格（美元）")}
+              <input
+                name="max_price"
+                inputMode="decimal"
+                maxLength={17}
+                pattern="[0-9]+([.][0-9]{1,2})?"
+                defaultValue={priceDraft("max_price_cents")}
+              />
             </label>
             <label>
               {t("Window", "时间范围")}
