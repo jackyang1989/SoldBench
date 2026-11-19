@@ -900,14 +900,22 @@ export class QueryService {
       ).rows;
       if (!links.length) fail("not_found", 404, "Image not found.");
       // A withdrawn linked query cannot be bypassed through another cached result.
-      for (const link of links) await this.assertSnapshotRights(c, link.id, now);
+      for (const link of links) {
+        try {
+          await this.assertSnapshotRights(c, link.id, now);
+        } catch (error) {
+          if (error instanceof AppError && ["forbidden", "source_unavailable"].includes(error.code))
+            fail("not_found", 404, "Image not found.");
+          throw error;
+        }
+      }
       const i = (await c.query("SELECT * FROM listing_images WHERE id=$1 FOR SHARE", [imageId])).rows[0];
-      for (const link of links)
-        if (
-          !(await permissions(c, link.id)).get(i.source_id)?.has("primary_image") ||
-          !(await permissions(c, link.id)).get(i.source_id)?.has("identity")
-        )
-          fail("not_found", 404, "Image unavailable.");
+      if (!i) fail("not_found", 404, "Image not found.");
+      for (const link of links) {
+        const allowed = (await permissions(c, link.id)).get(i.source_id);
+        if (!allowed?.has("primary_image") || !allowed.has("identity"))
+          fail("not_found", 404, "Image not found.");
+      }
       const source = (
         await c.query("SELECT permission_epoch,media_store_identity FROM sources WHERE id=$1", [i.source_id])
       ).rows[0];
@@ -918,8 +926,14 @@ export class QueryService {
         i.permission_epoch !== source.permission_epoch ||
         !i.object_key
       )
-        fail("not_found", 404, "Image unavailable.");
-      return this.media.get(i.object_key, source.media_store_identity ?? undefined);
+        fail("not_found", 404, "Image not found.");
+      try {
+        return await this.media.get(i.object_key, source.media_store_identity ?? undefined);
+      } catch (error) {
+        if (error instanceof Error && "code" in error && error.code === "ENOENT")
+          fail("not_found", 404, "Image not found.");
+        throw error;
+      }
     });
   }
   makeCursor(owner: string, kind: string, row: { id: string; cursor_at: string }) {

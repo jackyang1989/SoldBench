@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { randomBytes, randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
@@ -199,7 +199,7 @@ test("batch checkpoints survive retry and pending accounts can delete with recen
   );
 });
 
-test("private export and CLI replay on a restored PG backup prevent deleted credentials and cached results from reappearing", async () => {
+test("anchored CLI recovery reapplies deletion, capability revocation and source restrictions to an older PG backup", async () => {
   const root = await mkdtemp(join(tmpdir(), "soldbench-privacy-restore-"));
   roots.push(root);
   const x = await createProductFixture(db, roots),
@@ -210,18 +210,42 @@ test("private export and CLI replay on a restored PG backup prevent deleted cred
     app = createApp(config, db, { auth, query }),
     actor = await session(auth, x.user, new Date().toISOString()),
     value = receipt(),
+    keep = await createProductFixture(db, roots, {
+      count: 8,
+      authSecrets: secrets,
+      clockValue: new Date().toISOString(),
+    }),
+    restricted = await createProductFixture(db, roots, {
+      count: 8,
+      limit: 50,
+      authSecrets: secrets,
+      clockValue: new Date().toISOString(),
+    }),
+    revokedSession = await session(auth, keep.user, new Date().toISOString()),
     ledgerBefore = await ledger(db, x.user);
-  const oldKey = auth.crypto.token("sb_k_");
+  const oldKey = auth.crypto.token("sb_k_"),
+    revokedKey = auth.crypto.token("sb_k_");
   await db.query(
-    "INSERT INTO api_keys(user_id,name,key_hash,key_prefix,scopes) VALUES($1,'restored',$2,'fixture',ARRAY['sold:read'])",
-    [x.user, auth.crypto.hash("auth.api-key", oldKey)],
+    "INSERT INTO api_keys(user_id,name,key_hash,key_prefix,scopes) VALUES($1,'deleted-owner',$2,'fixture',ARRAY['sold:read']),($3,'newly-revoked',$4,'fixture',ARRAY['sold:read'])",
+    [
+      x.user,
+      auth.crypto.hash("auth.api-key", oldKey),
+      keep.user,
+      auth.crypto.hash("auth.api-key", revokedKey),
+    ],
   );
   const backup = join(root, "before.dump"),
     file = join(root, "tombstones.json"),
+    stalePath = join(root, "previous-checkpoint.json"),
+    tamperedPath = join(root, "tampered-checkpoint.json"),
     bin = pgBinaries(),
     name = `soldbench_restore_${randomUUID().replaceAll("-", "")}`,
     url = new URL(process.env.DATABASE_URL);
   url.pathname = `/${name}`;
+  const env = { ...process.env, LOCAL_STATE_ROOT: root };
+  const privacyCli = (action, filePath, options = { env, timeout: 30000 }) =>
+    run(process.execPath, ["scripts/privacy-recovery.mjs", action, filePath], options);
+  await privacyCli("export", stalePath);
   await run(join(bin, "pg_dump"), ["--format=custom", "--file", backup, process.env.DATABASE_URL], {
     timeout: 30000,
     maxBuffer: 1024 * 1024,
@@ -229,15 +253,24 @@ test("private export and CLI replay on a restored PG backup prevent deleted cred
   const response = await submit(app, actor, value),
     created = (await response.json()).data;
   assert.equal(response.status, 202);
-  const env = { ...process.env, LOCAL_STATE_ROOT: root },
-    exported = await run(process.execPath, ["scripts/privacy-recovery.mjs", "export", file], {
-      env,
-      timeout: 30000,
-    });
-  assert.equal(JSON.parse(exported.stdout).exported, true);
+  await db.query("UPDATE api_keys SET revoked_at=now() WHERE key_hash=$1", [
+    auth.crypto.hash("auth.api-key", revokedKey),
+  ]);
+  await db.query("UPDATE sessions SET revoked_at=now() WHERE id=$1", [revokedSession.sessionId]);
+  const original = await restricted.app.request(`/v1/sold/${restricted.queryId}`, {
+    headers: restricted.headers,
+  });
+  assert.equal(original.status, 200);
+  const image = (await original.json()).data.comps.find((comp) => comp.primary_image?.url)?.primary_image.url;
+  assert.ok(image);
+  await restricted.store.revokeSource(restricted.source.sourceId, "fixture backup revocation");
+  const exported = JSON.parse((await privacyCli("export", file)).stdout);
+  assert.equal(exported.exported, true);
+  assert.match(exported.sha256, /^[a-f0-9]{64}$/);
   assert.equal((await stat(file)).mode & 0o777, 0o600);
   const written = await readFile(file, "utf8");
-  assert.ok(!written.includes(value) && !written.includes(x.user));
+  for (const secret of [value, x.user, keep.user, revokedKey, revokedSession.token])
+    assert.ok(!written.includes(secret));
   const old = new URL(process.env.DATABASE_URL);
   await db.query(`CREATE DATABASE "${name}"`);
   const restored = database(url.href);
@@ -249,36 +282,109 @@ test("private export and CLI replay on a restored PG backup prevent deleted cred
     const cloneAuth = new AuthService(restored, secrets, origin),
       cloned = new AccountPrivacy(cloneAuth);
     assert.equal((await cloneAuth.sessionIdentity(actor.token)).userId, x.user);
-    const signed = JSON.parse(written);
+    const signed = JSON.parse(JSON.parse(written).body).account;
     await assert.rejects(
       cloned.replayManifest({ ...signed, body: signed.body.replace("offline_fixture", "unapproved") }),
       /invalid_privacy_manifest_signature/,
     );
     assert.equal((await cloneAuth.keyIdentity(oldKey, "sold:read")).userId, x.user);
     const options = {
-      env: { ...env, DATABASE_URL: url.href, PRIVACY_RESTORE_ISOLATED: "true" },
+      env: {
+        ...env,
+        DATABASE_URL: url.href,
+        PRIVACY_RESTORE_ISOLATED: "true",
+        PRIVACY_RECOVERY_MANIFEST_SHA256: exported.sha256,
+      },
       timeout: 30000,
     };
-    const replay = await run(process.execPath, ["scripts/privacy-recovery.mjs", "replay", file], options);
-    assert.equal(JSON.parse(replay.stdout).requests_restored, 1);
-    const cloneApp = createApp(config, restored, { auth: cloneAuth });
+    const cloneQuery = new QueryService(
+      restored,
+      cloneAuth,
+      new BillingService(restored),
+      restricted.query.media,
+    );
+    const cloneApp = createApp(config, restored, { auth: cloneAuth, query: cloneQuery });
+    await assert.rejects(
+      privacyCli("replay", stalePath, options),
+      /privacy_recovery_checkpoint_digest_mismatch/,
+    );
+    const tampered = written.replace("soldbench.offline-recovery.v2", "soldbench.offline-recovery.v9");
+    await writeFile(tamperedPath, tampered, { mode: 0o600 });
+    await assert.rejects(
+      privacyCli("replay", tamperedPath, {
+        ...options,
+        env: {
+          ...options.env,
+          PRIVACY_RECOVERY_MANIFEST_SHA256: createHash("sha256").update(tampered).digest("hex"),
+        },
+      }),
+      /invalid_privacy_recovery_checkpoint_signature/,
+    );
+    const incompletePath = join(root, "incomplete-checkpoint.json");
+    const incomplete = JSON.parse(JSON.parse(written).body);
+    incomplete.sources = incomplete.sources.filter((source) => source.id !== restricted.source.sourceId);
+    const incompleteBody = JSON.stringify(incomplete);
+    const incompleteBytes = JSON.stringify({
+      body: incompleteBody,
+      signature: auth.crypto.hash("recovery.bundle", incompleteBody),
+    });
+    await writeFile(incompletePath, incompleteBytes, { mode: 0o600 });
+    await assert.rejects(
+      privacyCli("replay", incompletePath, {
+        ...options,
+        env: {
+          ...options.env,
+          PRIVACY_RECOVERY_MANIFEST_SHA256: createHash("sha256").update(incompleteBytes).digest("hex"),
+        },
+      }),
+      /privacy_recovery_source_checkpoint_incomplete/,
+    );
+    assert.equal((await cloneAuth.keyIdentity(revokedKey, "sold:read")).userId, keep.user);
+    assert.equal((await cloneAuth.sessionIdentity(revokedSession.token)).userId, keep.user);
+    assert.equal((await cloneApp.request(image, { headers: restricted.headers })).status, 200);
+    const replay = JSON.parse((await privacyCli("replay", file, options)).stdout);
+    assert.equal(replay.requests_restored, 1);
+    assert.equal(replay.sources_quarantined, 1);
     assert.equal(
       (await (await status(cloneApp, value, created.request.request_id)).json()).data.state,
       "completed",
     );
     await assert.rejects(cloneAuth.sessionIdentity(actor.token));
     await assert.rejects(cloneAuth.keyIdentity(oldKey, "sold:read"));
+    await assert.rejects(cloneAuth.sessionIdentity(revokedSession.token));
+    await assert.rejects(cloneAuth.keyIdentity(revokedKey, "sold:read"));
+    assert.equal((await cloneApp.request(`/v1/sold/${keep.queryId}`, { headers: keep.headers })).status, 200);
+    const withdrawnImage = await cloneApp.request(image, { headers: restricted.headers });
+    const unknownImage = await cloneApp.request(`/v1/media/${randomUUID()}`, { headers: restricted.headers });
+    assert.equal(withdrawnImage.status, 404);
+    assert.equal(unknownImage.status, 404);
+    assert.equal(withdrawnImage.headers.get("Cache-Control"), "private, no-store");
+    const stableError = async (response) => {
+      const { code, message } = (await response.json()).error;
+      return { code, message };
+    };
+    assert.deepEqual(await stableError(withdrawnImage), await stableError(unknownImage));
+    assert.equal(
+      (await cloneApp.request(`/v1/sold/${restricted.queryId}`, { headers: restricted.headers })).status,
+      403,
+    );
     assert.deepEqual(await ledger(restored, x.user), ledgerBefore);
     assert.equal(
       (await restored.query("SELECT normalized_query FROM queries WHERE id=$1", [x.queryId])).rows[0]
         .normalized_query,
       "",
     );
+    const repeated = JSON.parse((await privacyCli("replay", file, options)).stdout);
+    assert.equal(repeated.requests_restored, 0);
+    assert.equal(repeated.sources_quarantined, 0);
     assert.equal(
-      JSON.parse(
-        (await run(process.execPath, ["scripts/privacy-recovery.mjs", "replay", file], options)).stdout,
-      ).requests_restored,
-      0,
+      (
+        await restored.query(
+          "SELECT count(*)::int n FROM outbox WHERE kind='collector.media_cleanup' AND payload->>'sourceId'=$1",
+          [restricted.source.sourceId],
+        )
+      ).rows[0].n,
+      1,
     );
     assert.deepEqual(await ledger(restored, x.user), ledgerBefore);
     assert.notEqual(url.href, old.href);

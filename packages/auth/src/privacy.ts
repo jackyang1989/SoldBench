@@ -1,4 +1,4 @@
-import { type Transaction, transaction } from "@soldbench/db";
+import { type Database, type Transaction, transaction } from "@soldbench/db";
 import { AppError } from "@soldbench/shared";
 import type { AuthService, Identity } from "./service.ts";
 
@@ -266,9 +266,9 @@ export class AccountPrivacy {
       return { state: completed ? "completed" : "running", queries_cleaned: ids.length };
     });
   }
-  async exportManifest(): Promise<Manifest> {
+  async exportManifest(connection: Database | Transaction = this.auth.db): Promise<Manifest> {
     const rows = (
-      await this.auth.db.query(
+      await connection.query(
         "SELECT subject_hash,effective_at,scope FROM tombstones WHERE subject_type='account' ORDER BY subject_hash LIMIT 10001",
       )
     ).rows;
@@ -326,10 +326,10 @@ export class AccountPrivacy {
     }
     return stones;
   }
-  async replayManifest(manifest: Manifest) {
+  async replayManifest(manifest: Manifest, connection?: Transaction) {
     const stones = this.parseManifest(manifest);
     let restored = 0;
-    await transaction(this.auth.db, async (c) => {
+    const replay = async (c: Transaction) => {
       const now = await this.now(c);
       for (const stone of stones.values()) {
         if (Date.parse(stone.deleted_at) > now.getTime()) throw new Error("future_privacy_tombstone");
@@ -375,7 +375,9 @@ export class AccountPrivacy {
         }
         last = users.at(-1)?.id ?? null;
       }
-    });
+    };
+    if (connection) await replay(connection);
+    else await transaction(this.auth.db, replay);
     return { tombstones: stones.size, requests_restored: restored };
   }
 }

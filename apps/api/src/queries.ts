@@ -329,6 +329,7 @@ export function mountQueries(app: Hono<Env>, config: Config, auth?: AuthService,
     });
   });
   app.get("/v1/media/:id", async (c) => {
+    c.header("Cache-Control", "private, no-store");
     const bytes = await service().image(await identity(c), id(c.req.param("id")));
     c.header("Content-Type", "image/webp");
     return c.body(new Uint8Array(bytes));
