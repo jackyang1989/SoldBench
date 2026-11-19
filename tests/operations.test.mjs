@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { after, before, test } from "node:test";
+import { publishNextScheduledContent } from "@soldbench/api";
 import { AccountPrivacy } from "@soldbench/auth";
 import { database, migrate } from "@soldbench/db";
 import { createProductFixture } from "./helpers/product.mjs";
@@ -225,9 +226,95 @@ test("bilingual content remains private until independent approval and atomicall
   assert.equal((await send("unpublish", reviewer, await current(), 1)).status, 202);
   assert.doesNotMatch(await page("/"), /Fixture announcement V1/);
   const view = await (await read(x, list, writer)).json();
+  const due = () => new Date(Date.parse(x.now()) + 60000).toISOString();
+  const schedule = async (execute_at, who = reviewer, idempotency = randomUUID()) => {
+    const row = await current();
+    return post(
+      x,
+      endpoint,
+      who,
+      {
+        command: "schedule",
+        entry_id: row.id,
+        revision: row.latest_revision,
+        version: row.version,
+        execute_at,
+        reason,
+      },
+      idempotency,
+    );
+  };
+  assert.equal((await schedule(x.now())).status, 400);
+  assert.equal((await schedule(due(), support)).status, 403);
+  assert.equal((await schedule(due())).status, 202);
+  assert.equal((await current()).schedule.status, "pending");
+  assert.equal(await publishNextScheduledContent(db, x.now), null);
+  assert.equal((await send("cancel_schedule", reviewer, await current(), 2)).status, 202);
+  assert.equal((await current()).schedule.status, "cancelled");
+  x.clock.value = due();
+  assert.equal(await publishNextScheduledContent(db, x.now), null);
+  const execute = due();
+  const payload = {
+    command: "schedule",
+    entry_id: first.id,
+    version: (await current()).version,
+    revision: 2,
+    execute_at: execute,
+    reason,
+  };
+  const scheduleKey = randomUUID();
+  const saved = await post(x, endpoint, reviewer, payload, scheduleKey);
+  assert.equal(saved.status, 202);
+  assert.deepEqual(
+    (await (await post(x, endpoint, reviewer, payload, scheduleKey)).json()).data,
+    (await saved.json()).data,
+  );
+  assert.doesNotMatch(await page("/"), /Fixture announcement V2/);
+  x.clock.value = execute;
+  const delivered = (
+    await Promise.all(Array.from({ length: 10 }, () => publishNextScheduledContent(db, x.now)))
+  ).filter(Boolean);
+  assert.equal(delivered.length, 1);
+  assert.equal(delivered[0].status, "published");
+  assert.equal((await current()).schedule.status, "published");
+  assert.match(await page("/"), /Fixture announcement V2/);
+  assert.match(await page("/zh-CN"), /合成公告第一版/);
+  assert.equal(
+    (
+      await db.query(
+        "SELECT id FROM audit_events WHERE action='ops.content.scheduled_publish' AND request_id=$1",
+        [delivered[0].schedule_id],
+      )
+    ).rowCount,
+    1,
+  );
+  for (const cause of ["entry_changed", "operator_access_changed"]) {
+    const update = {
+      ...draft,
+      version: (await current()).version,
+      body: { ...draft.body, en: { ...draft.body.en, title: "Blocked version" } },
+    };
+    assert.equal((await post(x, endpoint, writer, update)).status, 202);
+    assert.equal((await send("submit", writer, await current())).status, 202);
+    assert.equal((await send("approve", reviewer, await current())).status, 202);
+    const executeAt = due();
+    assert.equal((await schedule(executeAt)).status, 202);
+    if (cause === "entry_changed") {
+      const newer = { ...draft, version: (await current()).version };
+      assert.equal((await post(x, endpoint, writer, newer)).status, 202);
+    } else await db.query("DELETE FROM admin_roles WHERE user_id=$1", [reviewer.owner]);
+    x.clock.value = executeAt;
+    assert.equal((await publishNextScheduledContent(db, x.now)).status, "blocked");
+    const row = await current();
+    assert.equal(row.schedule.failure_code, cause);
+    assert.equal(row.published_revision, 2);
+    assert.doesNotMatch(await page("/"), /Blocked version/);
+  }
   execFileSync("python3", ["tests/validate-response.py"], {
     input: JSON.stringify([
       ["SiteContentList", view],
+      ["SiteContentList", await (await read(x, list, writer)).json()],
+      ["SiteContentScheduleRequest", payload],
       ["CommandResponse", receipt],
     ]),
   });

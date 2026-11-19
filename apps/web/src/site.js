@@ -1389,6 +1389,8 @@ if (contentForm) {
     submit: t("Submit for review", "送审"),
     approve: t("Approve", "批准"),
     publish: t("Publish", "发布"),
+    schedule: t("Schedule publication", "安排发布"),
+    cancel_schedule: t("Cancel schedule", "取消排程"),
     rollback: t("Restore version", "回滚版本"),
     unpublish: t("Unpublish", "撤下"),
   };
@@ -1443,7 +1445,7 @@ if (contentForm) {
           contentForm.elements.en_title.focus();
         }),
       );
-      const action = (operation, revision, label = labels[operation]) => {
+      const action = (operation, revision, label = labels[operation], scheduleInput) => {
         const control = button(label, () =>
           run(async () => {
             const reason = contentForm.elements.reason.value.trim();
@@ -1454,8 +1456,21 @@ if (contentForm) {
             }
             control.disabled = true;
             try {
+              const schedule = scheduleInput?.value ? new Date(`${scheduleInput.value}Z`) : null;
+              if (scheduleInput && (!schedule || !Number.isFinite(schedule.getTime()))) {
+                scheduleInput.reportValidity();
+                scheduleInput.focus();
+                return;
+              }
               await command(
-                { command: operation, entry_id: row.id, version: row.version, revision, reason },
+                {
+                  command: operation,
+                  entry_id: row.id,
+                  version: row.version,
+                  revision,
+                  reason,
+                  ...(schedule ? { execute_at: schedule.toISOString() } : {}),
+                },
                 `content-${operation}-${row.id}-${row.version}-${revision}`,
               );
             } finally {
@@ -1468,8 +1483,41 @@ if (contentForm) {
       };
       if (row.state === "draft") tools.append(action("submit", row.latest_revision));
       if (row.state === "submitted") tools.append(action("approve", row.latest_revision));
-      if (row.state === "approved" && row.latest_revision !== row.published_revision)
+      const schedule = row.schedule;
+      if (schedule) {
+        const publicationStates = {
+          pending: t("Scheduled", "已排程"),
+          cancelled: t("Schedule cancelled", "排程已取消"),
+          blocked: t("Scheduled publication blocked", "定时发布被阻断"),
+          published: t("Published on schedule", "已按排程发布"),
+        };
+        const failure = {
+          entry_changed: t("The entry or revision has changed.", "条目或修订已变更。"),
+          operator_access_changed: t("An operator’s access has changed.", "运营人员的权限已变更。"),
+        }[schedule.failure_code];
+        const scheduledAt = new Date(schedule.execute_at).toISOString().slice(0, 16).replace("T", " ");
+        card.append(
+          element(
+            "p",
+            `${publicationStates[schedule.status]} · ${scheduledAt} UTC${failure ? ` · ${failure}` : ""}`,
+            "summary-note",
+          ),
+        );
+      }
+      if (row.state === "approved" && row.latest_revision !== row.published_revision) {
         tools.append(action("publish", row.latest_revision));
+        if (schedule?.status !== "pending") {
+          const when = element("label", t("Publication time (UTC)", "发布时间（UTC）"));
+          const datetime = element("input");
+          datetime.type = "datetime-local";
+          datetime.required = true;
+          when.append(datetime);
+          const fields = element("div", undefined, "key-form security-form");
+          fields.append(when, action("schedule", row.latest_revision, labels.schedule, datetime));
+          card.append(fields);
+        }
+      }
+      if (schedule?.status === "pending") tools.append(action("cancel_schedule", schedule.revision));
       if (row.published_revision) tools.append(action("unpublish", row.published_revision));
       for (const revision of row.publication_history.slice(0, 8)) {
         if (revision !== row.published_revision)

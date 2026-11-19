@@ -17,6 +17,8 @@ import { mountPublicResults } from "./public-results.ts";
 import { mountQueries } from "./queries.ts";
 import { publishedSiteContent } from "./site-content.ts";
 
+export { publishNextScheduledContent } from "./site-content.ts";
+
 export function createApp(
   config: Config,
   db: Database,

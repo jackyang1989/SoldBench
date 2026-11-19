@@ -5,7 +5,7 @@ import { CollectorStore } from "@soldbench/collector";
 import { type Transaction, transaction } from "@soldbench/db";
 import type { QueryService } from "@soldbench/query";
 import { AppError } from "@soldbench/shared";
-import type { SiteContentCommand } from "./site-content.ts";
+import { publishContentRevision, type SiteContentCommand } from "./site-content.ts";
 
 const fail = (code: string, status: number, message: string): never => {
   throw new AppError(code, status, message);
@@ -185,9 +185,12 @@ export class OperationsService {
       return (
         await c.query(
           `SELECT e.id,e.kind,e.slug,e.version,e.latest_revision,e.published_revision,v.state,v.body,
+                CASE WHEN s.entry_id IS NOT NULL THEN jsonb_build_object('revision',s.revision,'execute_at',s.execute_at,
+                  'status',s.status,'failure_code',s.failure_code) END AS schedule,
                 (SELECT coalesce(jsonb_agg(r.revision ORDER BY r.revision DESC),'[]') FROM site_content_revisions r
                  WHERE r.entry_id=e.id AND r.first_published_at IS NOT NULL) AS publication_history
            FROM site_content_entries e JOIN site_content_revisions v ON (v.entry_id,v.revision)=(e.id,e.latest_revision)
+           LEFT JOIN site_content_schedules s ON s.entry_id=e.id
           ORDER BY e.updated_at DESC,e.id LIMIT 100`,
         )
       ).rows;
@@ -225,6 +228,7 @@ export class OperationsService {
       if (!entry) fail("not_found", 404, "Content entry not found.");
       if (entry.version !== input.version) fail("state_conflict", 409, "Content version changed.");
       let revision = entry.latest_revision ?? 0;
+      let scheduleTime: Date | undefined;
       if (input.command === "draft") {
         revision += 1;
         await c.query(
@@ -241,7 +245,10 @@ export class OperationsService {
           ])
         ).rows[0];
         if (!current) fail("not_found", 404, "Content revision not found.");
-        if (["submit", "approve", "publish"].includes(input.command) && revision !== entry.latest_revision)
+        if (
+          ["submit", "approve", "publish", "schedule"].includes(input.command) &&
+          revision !== entry.latest_revision
+        )
           fail("state_conflict", 409, "Only the latest revision can move through review.");
         switch (input.command) {
           case "submit":
@@ -269,15 +276,32 @@ export class OperationsService {
               (input.command === "rollback" && !current.first_published_at)
             )
               fail("state_conflict", 409, "An approved revision is required.");
-            await c.query(
-              "UPDATE site_content_revisions SET first_published_at=coalesce(first_published_at,$3) WHERE entry_id=$1 AND revision=$2",
-              [entry.id, revision, now],
-            );
-            await c.query(
-              "UPDATE site_content_entries SET published_revision=$2,published_at=$3 WHERE id=$1",
-              [entry.id, revision, now],
-            );
+            await publishContentRevision(c, entry.id, revision, now);
             break;
+          case "schedule": {
+            scheduleTime = new Date(input.execute_at);
+            if (!Number.isFinite(scheduleTime.getTime()) || scheduleTime <= now)
+              fail("invalid_parameter", 400, "Choose a future UTC publication time.");
+            if (current.state !== "approved" || !current.reviewer_id || entry.published_revision === revision)
+              fail("state_conflict", 409, "Only an approved inactive revision can be scheduled.");
+            const queued = await c.query(
+              `INSERT INTO site_content_schedules(entry_id,revision,entry_version,scheduled_by,execute_at)
+               VALUES($1,$2,$3,$4,$5) ON CONFLICT(entry_id) DO UPDATE SET id=excluded.id,revision=excluded.revision,
+               entry_version=excluded.entry_version,scheduled_by=excluded.scheduled_by,execute_at=excluded.execute_at,
+               status='pending',finished_at=NULL,failure_code=NULL WHERE site_content_schedules.status<>'pending'`,
+              [entry.id, revision, entry.version + 1, actor.userId, scheduleTime],
+            );
+            if (!queued.rowCount) fail("state_conflict", 409, "Cancel the current schedule first.");
+            break;
+          }
+          case "cancel_schedule": {
+            const cancelled = await c.query(
+              "UPDATE site_content_schedules SET status='cancelled',finished_at=$3 WHERE entry_id=$1 AND revision=$2 AND status='pending'",
+              [entry.id, revision, now],
+            );
+            if (!cancelled.rowCount) fail("state_conflict", 409, "No matching pending publication schedule.");
+            break;
+          }
           case "unpublish":
             if (entry.published_revision !== revision)
               fail("state_conflict", 409, "Only the active revision can be unpublished.");
@@ -304,7 +328,11 @@ export class OperationsService {
           input.reason,
           requestId,
           now,
-          { revision, version: entry.version + 1 },
+          {
+            revision,
+            version: entry.version + 1,
+            ...(scheduleTime ? { execute_at: scheduleTime.toISOString() } : {}),
+          },
         ),
       );
     });

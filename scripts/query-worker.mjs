@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { setTimeout } from "node:timers/promises";
+import { publishNextScheduledContent } from "@soldbench/api";
 import { AccountPrivacy, AuthService, localAuthSecrets } from "@soldbench/auth";
 import { BillingService, localPaymentKeys, PaymentLifecycle } from "@soldbench/billing";
 import { assertLocalDatabaseUrl, database, migrate } from "@soldbench/db";
@@ -35,6 +36,7 @@ try {
     privacy = new AccountPrivacy(auth);
   let nextMaintenance = 0,
     nextHeartbeat = 0,
+    nextPublicationCheck = 0,
     nextPaymentAttempt = 0,
     nextPrivacyAttempt = 0;
   do {
@@ -70,6 +72,16 @@ try {
       }
     }
     if (deletion) console.log(JSON.stringify({ data_mode: "offline_fixture", deletion_job: deletion }));
+    if (Date.now() >= nextPublicationCheck) {
+      try {
+        const publication = await publishNextScheduledContent(db);
+        if (publication) console.log(JSON.stringify({ data_mode: "offline_fixture", publication }));
+        nextPublicationCheck = Date.now() + (publication ? 0 : 1000);
+      } catch {
+        console.error("soldbench_scheduled_content_processing_failed");
+        nextPublicationCheck = Date.now() + 1000;
+      }
+    }
     if (Date.now() >= nextHeartbeat) {
       await db.query(
         `INSERT INTO worker_heartbeats(worker_kind,last_cycle_at) VALUES('query',clock_timestamp())

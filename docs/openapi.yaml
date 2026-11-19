@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.21.0
+  version: 1.22.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -6904,7 +6904,7 @@ paths:
   /admin/content/commands:
     post:
       operationId: updateSiteContent
-      summary: Save, review, publish, restore or withdraw bilingual content
+      summary: Save, review, publish, schedule, restore or withdraw bilingual content
       security: *id009
       parameters: [*content_language, *id003, *id008]
       requestBody:
@@ -6915,6 +6915,7 @@ paths:
               oneOf:
               - $ref: '#/components/schemas/SiteContentDraft'
               - $ref: '#/components/schemas/SiteContentTransition'
+              - $ref: '#/components/schemas/SiteContentScheduleRequest'
       responses:
         '202':
           description: Audited content command receipt.
@@ -9428,12 +9429,23 @@ components:
     SiteContentTransition:
       type: object
       properties:
-        command: {type: string, enum: [submit, approve, publish, rollback, unpublish]}
+        command: {type: string, enum: [submit, approve, publish, rollback, unpublish, cancel_schedule]}
         entry_id: *id002
         version: {type: integer, minimum: 0}
         revision: &site_revision {type: integer, minimum: 1}
         reason: *site_reason
       required: [command, entry_id, version, revision, reason]
+      additionalProperties: false
+    SiteContentScheduleRequest:
+      type: object
+      properties:
+        command: {const: schedule}
+        entry_id: *id002
+        version: {type: integer, minimum: 0}
+        revision: *site_revision
+        execute_at: {type: string, format: date-time, pattern: 'Z$'}
+        reason: *site_reason
+      required: [command, entry_id, version, revision, execute_at, reason]
       additionalProperties: false
     SiteContentList:
       type: object
@@ -9455,6 +9467,17 @@ components:
               state: {type: string, enum: [draft, submitted, approved]}
               body: {$ref: '#/components/schemas/BilingualSiteText'}
               publication_history: {type: array, items: *site_revision}
+              schedule:
+                anyOf:
+                - type: object
+                  properties:
+                    revision: *site_revision
+                    execute_at: {type: string, format: date-time}
+                    status: {enum: [pending, cancelled, blocked, published]}
+                    failure_code: {enum: [entry_changed, operator_access_changed, null]}
+                  required: [revision, execute_at, status, failure_code]
+                  additionalProperties: false
+                - {type: 'null'}
             required: [id, kind, slug, version, latest_revision, published_revision, state, body, publication_history]
             additionalProperties: false
         meta: {$ref: '#/components/schemas/BasicMeta'}
