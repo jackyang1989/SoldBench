@@ -71,12 +71,19 @@ export async function launchCollector(args, input = process.env, signal) {
     output = "",
     errors = "";
   const send = (signal) => {
-    if (finished || !child.pid) return;
+    if (finished || !child.pid || child.exitCode !== null || child.signalCode !== null) return;
     try {
       if (detached) process.kill(-child.pid, signal);
-      else child.kill(signal);
+      else process.kill(child.pid, signal);
     } catch (error) {
-      if (error.code !== "ESRCH") throw error;
+      if (error.code === "ESRCH") return;
+      if (error.code !== "EPERM") throw error;
+      try {
+        process.kill(child.pid, signal);
+      } catch (fallback) {
+        if (fallback.code === "EPERM" && child.connected) child.disconnect();
+        else if (!["EPERM", "ESRCH"].includes(fallback.code)) throw fallback;
+      }
     }
   };
   const stop = () => {

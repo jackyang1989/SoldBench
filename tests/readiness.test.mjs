@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn } from "node:child_process";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -551,6 +551,76 @@ test("measure private result reads at 1, 50 and 200 items, preserving media righ
   assert.deepEqual(await counts(secondary), { ...original, charges: 3 });
   assert.deepEqual(await x.billing.reconcile(x.user), []);
   assert.deepEqual(await x.billing.reconcile(secondary.user), []);
+});
+
+test("measure private primary-image bytes over real HTTP and verify independent expiry and source withdrawal", async (t) => {
+  const owners = [await create({ count: 8, extra: false }), await create({ count: 8, extra: false })];
+  const before = await Promise.all(owners.map(counts));
+  const images = await Promise.all(
+    owners.map(async (owner) => {
+      const result = await read(owner, `/v1/sold/${owner.queryId}`);
+      assert.equal(result.status, 200);
+      const row = (await result.json()).data.comps[0].primary_image;
+      assert.equal(row.state, "available");
+      const saved = await db.query("SELECT object_key FROM listing_images WHERE id=$1", [
+        row.url.split("/").at(-1),
+      ]);
+      return {
+        url: row.url,
+        hash: saved.rows[0].object_key
+          .split("/")
+          .at(-1)
+          .replace(/\.webp$/, ""),
+      };
+    }),
+  );
+  const statuses = [200, 200];
+  const measure = async (stage) => {
+    for (const owner of owners) owner.clock.value = new Date(Date.parse(owner.now()) + 60000).toISOString();
+    let bytes = 0;
+    const times = await Promise.all(
+      Array.from({ length: 50 }, async (_, index) => {
+        const id = index < 25 ? 0 : 1;
+        const began = performance.now();
+        const response = await read(owners[id], images[id].url);
+        assert.equal(response.status, statuses[id]);
+        assert.match(response.headers.get("Cache-Control"), /no-store/);
+        if (statuses[id] === 200) {
+          assert.equal(response.headers.get("Content-Type"), "image/webp");
+          const image = Buffer.from(await response.arrayBuffer());
+          assert.equal(createHash("sha256").update(image).digest("hex"), images[id].hash);
+          bytes += image.length;
+        } else {
+          assert.equal((await response.json()).error.code, "not_found");
+        }
+        return performance.now() - began;
+      }),
+    );
+    times.sort((a, b) => a - b);
+    t.diagnostic(
+      JSON.stringify({
+        measurement: "local_private_image_http",
+        stage,
+        requests: times.length,
+        image_bytes: bytes,
+        statuses,
+        p95_ms: Number(times[Math.ceil(times.length * 0.95) - 1].toFixed(2)),
+        commercial_slo_verified: false,
+      }),
+    );
+  };
+  await measure("available");
+  assert.equal((await read(owners[0], images[1].url)).status, 404);
+  await db.query("UPDATE listing_images SET retention_until=$2 WHERE id=$1", [
+    images[0].url.split("/").at(-1),
+    owners[0].now(),
+  ]);
+  statuses[0] = 404;
+  await measure("one_image_expired");
+  await owners[1].store.revokeSource(owners[1].source.sourceId, "image_http_measurement_revocation");
+  statuses[1] = 404;
+  await measure("expired_and_withdrawn");
+  assert.deepEqual(await Promise.all(owners.map(counts)), before);
 });
 
 test("an in-flight revoked snapshot can recover on a new authorized watermark without reviving the old result", async () => {

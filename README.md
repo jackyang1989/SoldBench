@@ -67,6 +67,8 @@ python3 docs/check_docs.py
 python3 docs/contracts/check_contracts.py
 ```
 
+独立 PG16 回归保留数据库日志。测试通过后自动清理本次临时数据目录。失败时保留临时数据库供排查。使用 `SOLDBENCH_KEEP_TEST_DATABASES=true` 可保留成功回归的数据库。
+
 这些检查验证夹具与文档一致性，不代表真实网络来源、支付或生产端到端验收通过。工程命令为`npm run lint`、`npm run typecheck`、`npm run build`、`npm test`、`npm run contracts`；运行前需`npm ci`。开发服务器使用回环地址、离线fixture、支付offline和Collector关闭：
 
 ```sh

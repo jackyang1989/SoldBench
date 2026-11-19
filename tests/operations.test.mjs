@@ -912,6 +912,19 @@ test("telemetry uses real offline runs, current evidence rights and versioned lo
     input: JSON.stringify([["OperationsTelemetryResponse", current]]),
   });
 
+  await db.query(
+    `INSERT INTO collector_quarantines(source_id,job_id,collector_run_id,dispatch_id,parser_version,cursor,reason,raw_hash,byte_length,affected_event_id,captured_at)
+     SELECT e.source_id,p.job_id,o.collector_run_id,d.id,o.parser_version,p.cursor,'event_identity_conflict',p.raw_hash,d.actual_bytes,e.id,$2
+     FROM sale_events e JOIN source_observations o ON o.id=e.observation_id
+     JOIN collector_pages p ON p.observation_id=o.id JOIN collector_dispatches d ON d.committed_observation_id=o.id
+     WHERE e.id=$1`,
+    [photo.sale_event_id, end],
+  );
+  assert.equal(rows((await get(`records?record=${photo.sale_event_id}`)).data).length, 0);
+  assert.equal(rows((await get(`quality?source=${source}`)).data).length, 0);
+  assert.equal((await x.app.request(`/v1/sold/${x.queryId}`, { headers: x.headers })).status, 403);
+  assert.ok(rows((await get(`collector?source=${source}`)).data).some((row) => row.source_id === source));
+
   x.clock.value = new Date(Date.parse(end) + 25 * 3600000).toISOString();
   operator = await actor(x, "admin");
   assert.equal(rows((await get(`coverage?source=${source}`)).data)[0].freshness, "stale_acceptable");

@@ -155,6 +155,7 @@ export async function telemetry(c: Transaction, now: Date, view: TelemetryView, 
             =(e.id,e.listing_id,e.source_id,e.observation_id)
           JOIN sources s ON s.id=e.source_id JOIN source_clearances x ON x.id=s.source_clearance_id
           WHERE ${allowedSource} AND x.permitted_fields->'research' @> '["identity"]'::jsonb AND o.retention_until>$2
+            AND NOT EXISTS(SELECT 1 FROM collector_quarantines quarantine WHERE quarantine.affected_event_id=e.id)
             AND o.captured_at BETWEEN $1 AND $2 AND ($3::uuid IS NULL OR e.source_id=$3)
             AND ($5::uuid IS NULL OR e.id=$5)
           ORDER BY o.captured_at DESC,e.id LIMIT $4`,
@@ -225,6 +226,11 @@ export async function telemetry(c: Transaction, now: Date, view: TelemetryView, 
           AND NOT EXISTS(SELECT 1 FROM query_result_sources k JOIN sources s ON s.id=k.source_id
             JOIN source_clearances x ON x.id=s.source_clearance_id WHERE k.query_id=q.id AND
             (NOT (${allowedSource}) OR k.permission_epoch<>s.permission_epoch OR k.clearance_id<>x.id))
+          AND NOT EXISTS(SELECT 1 FROM query_snapshot_records input JOIN source_observations observation ON observation.id=input.observation_id
+            WHERE input.query_id=q.id AND (observation.retention_until IS NULL OR observation.retention_until<=$2
+              OR EXISTS(SELECT 1 FROM collector_quarantines quarantine WHERE quarantine.affected_event_id=input.sale_event_id)))
+          AND NOT EXISTS(SELECT 1 FROM collector_jobs j JOIN source_observations observation ON observation.collector_run_id=j.collector_run_id
+            WHERE j.id=q.collector_job_id AND (observation.retention_until IS NULL OR observation.retention_until<=$2))
           GROUP BY r.engine_version,r.cleaner_version ORDER BY snapshots DESC,r.engine_version,r.cleaner_version LIMIT $4`,
         scope,
       );
