@@ -712,6 +712,32 @@ body [hidden] {
 .published-section h2 {
   margin-bottom: 8px;
 }
+.research-distribution {
+  border-top: 1px solid var(--line);
+  padding: 12px 18px;
+}
+.research-distribution h3 {
+  margin-block: 14px 4px;
+}
+.research-distribution summary {
+  cursor: pointer;
+}
+.distribution-bars {
+  list-style: none;
+  padding: 0;
+  margin-block: 12px;
+}
+.distribution-bars li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(30px, 1fr) 2ch;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+.distribution-bars meter {
+  width: 100%;
+}
 @media (max-width: 820px) {
   .docs-layout,
   .account-layout {

@@ -241,6 +241,13 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     assert.equal(claimRequests.length, 1);
     assert.equal(claimRequests[0], `web-claim-${id}`);
     await page.getByRole("img", { name: "Sale photo" }).first().waitFor();
+    await page.getByText("Price distribution and trends", { exact: true }).click();
+    await page.getByText("8 prices from the complete permitted snapshot").waitFor();
+    const displayedBars = await page
+      .locator(".distribution-bars meter")
+      .evaluateAll((meters) => meters.reduce((count, meter) => count + meter.value, 0));
+    assert.equal(displayedBars, 8);
+    await page.getByText("Price distribution and trends", { exact: true }).click();
     await page.getByText("View evidence").first().click();
     await page
       .getByText(/Description ·/)

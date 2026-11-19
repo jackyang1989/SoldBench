@@ -309,6 +309,104 @@ function shareControls(queryId) {
   return details;
 }
 
+function researchDistribution(result, meta) {
+  const id = result.query_id;
+  const section = element("details", undefined, "research-distribution");
+  const body = element("div");
+  let generation = 0;
+  section.append(element("summary", t("Price distribution and trends", "价格分布与趋势")), body);
+  section.addEventListener("toggle", async () => {
+    const attempt = ++generation;
+    if (!section.open) {
+      body.replaceChildren();
+      return;
+    }
+    body.replaceChildren(element("p", t("Loading complete sample…", "正在加载完整样本…"), "small"));
+    try {
+      const { data } = await api(`/v1/sold/${id}/calculation-inputs`);
+      if (!section.open || attempt !== generation) return;
+      if (!data.is_complete || data.candidate_set_hash !== meta.candidate_set_hash)
+        throw new Error("state_conflict");
+      const cents = data.items.map((item) => item.price_usd_cents);
+      body.replaceChildren(element("h3", t("Verified sample distribution", "核验价格分布")));
+      if (!cents.length) {
+        body.append(element("p", t("No verified prices in this sample.", "此样本没有核验价格。"), "small"));
+        return;
+      }
+      body.append(
+        element(
+          "p",
+          t(
+            `${cents.length} prices from the complete permitted snapshot`,
+            `完整获准快照中的 ${cents.length} 个核验价格`,
+          ),
+          "small",
+        ),
+      );
+      const low = BigInt(Math.min(...cents)),
+        high = BigInt(Math.max(...cents));
+      const size = (high - low) / 5n + 1n;
+      const bins = Array.from({ length: Number((high - low) / size + 1n) }, () => 0);
+      for (const value of cents) bins[Number((BigInt(value) - low) / size)] += 1;
+      const bars = element("ul", undefined, "distribution-bars");
+      bins.forEach((count, index) => {
+        const from = low + BigInt(index) * size;
+        const to = from + size - 1n;
+        const range = `${amount(Number(from))} – ${amount(Number(to > high ? high : to))}`;
+        const row = element("li");
+        const meter = element("meter");
+        meter.max = Math.max(...bins);
+        meter.value = count;
+        meter.setAttribute("aria-label", range);
+        row.append(element("span", range), meter, element("strong", String(count)));
+        bars.append(row);
+      });
+      body.append(bars);
+      const periods = result.supplemental_stats?.time_series;
+      if (!periods?.buckets.length) return;
+      const buckets = periods.buckets.map((bucket) => [
+        `${bucket.start.slice(0, 10)} – ${bucket.end.slice(0, 10)}`,
+        bucket.sample_count || (bucket.observation_coverage === "complete" ? 0 : "—"),
+        bucket.observation_coverage === "complete"
+          ? amount(bucket.median_cents)
+          : t("Coverage unknown", "覆盖范围未知"),
+      ]);
+      body.append(
+        accountTable(
+          t("Price observations by period (UTC)", "分期价格观测（UTC）"),
+          [t("Period", "时间段"), t("Verified prices", "核验价格"), t("Median", "中位价")],
+          buckets,
+        ),
+      );
+      if (periods.unassigned_count)
+        body.append(
+          element(
+            "p",
+            t(
+              `${periods.unassigned_count} prices could not be placed in one UTC bucket.`,
+              `${periods.unassigned_count} 笔价格无法归入单个 UTC 时间段。`,
+            ),
+            "small",
+          ),
+        );
+    } catch (error) {
+      if (!section.open || attempt !== generation) return;
+      body.replaceChildren(
+        element(
+          "p",
+          t(
+            "The full sample is unavailable. Close and reopen to retry.",
+            "完整样本暂不可用。收起后可重新打开。",
+          ),
+          "small",
+        ),
+      );
+      report(error);
+    }
+  });
+  return section;
+}
+
 function addResearchTools(card, id, research) {
   const toolbar = element("div", undefined, "result-toolbar");
   const adjusted = element("p", research.summary, "summary-note");
@@ -586,7 +684,7 @@ function resultView({ data, meta }, research = { sort: "", excluded: new Set(), 
     }
     viewport.append(table);
     research.share ??= shareControls(data.query_id);
-    card.append(viewport, research.share);
+    card.append(viewport, researchDistribution(data, meta), research.share);
   }
   output.append(card);
   if (meta.anonymous_remaining !== undefined) {
