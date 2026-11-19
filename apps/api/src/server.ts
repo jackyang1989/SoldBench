@@ -10,11 +10,10 @@ import { createApp } from "./index.ts";
 
 const config = loadConfig(process.env);
 if (!config.databaseUrl) throw new Error("DATABASE_URL is required");
-if (config.paymentFixtures)
-  assertLocalDatabaseUrl(config.databaseUrl, [
-    resolve(".local/postgres/socket"),
-    ...(process.env.SOLDBENCH_TEST_SOCKET ? [process.env.SOLDBENCH_TEST_SOCKET] : []),
-  ]);
+assertLocalDatabaseUrl(config.databaseUrl, [
+  resolve(".local/postgres/socket"),
+  ...(process.env.SOLDBENCH_TEST_SOCKET ? [process.env.SOLDBENCH_TEST_SOCKET] : []),
+]);
 const db = database(config.databaseUrl);
 await migrate(db);
 const auth = new AuthService(db, localAuthSecrets(resolve(config.localStateRoot)), config.origin);
