@@ -77,6 +77,7 @@ export class AccountPrivacy {
       [userId],
     );
     await c.query("DELETE FROM anonymous_cache_publications WHERE user_id=$1", [userId]);
+    await c.query("UPDATE support_requests SET receipt_hash=NULL,reply=NULL WHERE user_id=$1", [userId]);
     await c.query(
       "UPDATE query_jobs j SET status='cancelled',lease_owner=NULL,lease_until=NULL,updated_at=$2,version=j.version+1,retryable=false,error_code=NULL FROM queries q WHERE q.id=j.query_id AND q.user_id=$1 AND j.status IN ('queued','running')",
       [userId, when],

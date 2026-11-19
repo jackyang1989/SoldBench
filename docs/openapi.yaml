@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.22.0
+  version: 1.23.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -4868,6 +4868,11 @@ paths:
       description: createSupportRequest
       security: *id004
       parameters:
+      - name: X-Support-Receipt
+        in: header
+        required: false
+        description: Client-generated private status capability. Reuse the same value and Idempotency-Key after a lost response.
+        schema: {type: string, pattern: '^[A-Za-z0-9_-]{43}$'}
       - name: Accept-Language
         in: header
         required: false
@@ -6950,6 +6955,89 @@ paths:
       x-task: TASK-035
       x-roles: [admin]
       x-credit-policy: '0'
+  /support/receipt:
+    get:
+      operationId: readSupportReceipt
+      summary: Retrieve the current status and requester reply using a private support receipt
+      security: [{SupportReceipt: []}]
+      parameters: [*content_language]
+      responses:
+        '200':
+          description: Limited private status. Initial request text and operator details are withheld.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SupportReceiptResponse'}
+        '404': *content_error
+      x-task: TASK-034
+      x-roles: [public]
+      x-credit-policy: '0'
+  /admin/support:
+    get:
+      operationId: listSupportQueue
+      summary: List minimized unexpired support queue entries
+      security: *id009
+      parameters: [*content_language, *id005, *id006]
+      responses:
+        '200':
+          description: Queue metadata without original or reply text.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SupportQueueResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+      x-task: TASK-035
+      x-roles: [support, admin]
+      x-credit-policy: '0'
+  /admin/support/{id}:
+    get:
+      operationId: readAssignedSupportRequest
+      summary: Read an assigned request body with a current administrator session
+      security: *id009
+      parameters:
+      - *content_language
+      - {name: id, in: path, required: true, schema: *id002}
+      responses:
+        '200':
+          description: Audited read for the assigned administrator only.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SupportDetailResponse'}
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+      x-task: TASK-035
+      x-roles: [admin]
+      x-credit-policy: '0'
+  /admin/support/{id}/commands:
+    post:
+      operationId: transitionSupportRequest
+      summary: Claim, take over, reply, close or reopen a support request
+      security: *id009
+      parameters:
+      - *content_language
+      - *id003
+      - *id008
+      - {name: id, in: path, required: true, schema: *id002}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SupportCommand'}
+      responses:
+        '202':
+          description: Audited reversible workflow transition receipt.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CommandResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '409': *content_error
+      x-task: TASK-035
+      x-roles: [admin]
+      x-credit-policy: '0'
   /admin/payments/events/{id}/replay:
     post:
       operationId: replayOfflinePayment
@@ -7009,6 +7097,11 @@ paths:
       x-credit-policy: '0'
 components:
   securitySchemes:
+    SupportReceipt:
+      type: apiKey
+      in: header
+      name: X-Support-Receipt
+      description: Private random capability for one support request status, valid during its retention period.
     OfflinePayPalFixtureSignature:
       type: apiKey
       in: header
@@ -7053,6 +7146,89 @@ components:
       name: X-Deletion-Receipt
       description: Hash-stored capability limited to a deletion request status; expires in 30 days.
   schemas:
+    SupportReceiptResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            request_id: *id002
+            status: &support_state {enum: [received, in_progress, resolved, closed]}
+            reply: &support_reply {type: [string, 'null'], maxLength: 2000}
+            updated_at: {type: string, format: date-time}
+            expires_at: {type: string, format: date-time}
+          required: [request_id, status, reply, updated_at, expires_at]
+          additionalProperties: false
+        meta: {$ref: '#/components/schemas/BasicMeta'}
+      required: [data, meta]
+      additionalProperties: false
+    SupportQueueResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            items:
+              type: array
+              items:
+                type: object
+                properties:
+                  id: *id002
+                  category: {enum: [data_quality, takedown, billing, account, other]}
+                  status: *support_state
+                  version: {type: integer, minimum: 1}
+                  assigned_to_you: {type: boolean}
+                  can_take_over: {type: boolean}
+                  assignee_ref: {type: [string, 'null']}
+                  due_at: {type: [string, 'null'], format: date-time}
+                  created_at: {type: string, format: date-time}
+                required: [id, category, status, version, assigned_to_you, can_take_over, assignee_ref, due_at, created_at]
+                additionalProperties: false
+            next_cursor: {type: [string, 'null']}
+          required: [items, next_cursor]
+          additionalProperties: false
+        meta: {$ref: '#/components/schemas/BasicMeta'}
+      required: [data, meta]
+      additionalProperties: false
+    SupportDetailResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            message: {type: string, minLength: 1, maxLength: 4000}
+            related_request_id: {type: [string, 'null'], format: uuid}
+            reply: *support_reply
+          required: [message, related_request_id, reply]
+          additionalProperties: false
+        meta: {$ref: '#/components/schemas/BasicMeta'}
+      required: [data, meta]
+      additionalProperties: false
+    SupportCommand:
+      oneOf:
+      - type: object
+        properties:
+          command: {enum: [claim, take_over, reopen]}
+          due_at: {type: string, format: date-time, pattern: 'Z$'}
+          reason: &support_reason {type: string, minLength: 1, maxLength: 1000}
+          version: &support_version {type: integer, minimum: 1}
+        required: [command, due_at, reason, version]
+        additionalProperties: false
+      - type: object
+        properties:
+          command: {const: resolve}
+          reply: {type: string, minLength: 1, maxLength: 2000}
+          reason: *support_reason
+          version: *support_version
+        required: [command, reply, reason, version]
+        additionalProperties: false
+      - type: object
+        properties:
+          command: {const: close}
+          reason: *support_reason
+          version: *support_version
+        required: [command, reason, version]
+        additionalProperties: false
     BasicMeta:
       type: object
       properties:

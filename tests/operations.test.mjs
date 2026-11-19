@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { publishNextScheduledContent } from "@soldbench/api";
@@ -374,6 +374,95 @@ test("support intake is private, idempotent, rate limited and prunes expired ori
     (await db.query("SELECT count(*)::int n FROM support_requests WHERE id=$1", [data.request_id])).rows[0].n,
     0,
   );
+});
+
+test("support work follows assignment and version, provides a limited private reply, and expires", async () => {
+  const x = await createProductFixture(db, roots, { prepareQuery: false });
+  const first = await actor(x, "admin"),
+    second = await actor(x, "admin"),
+    support = await actor(x, "support");
+  const privateReceipt = randomBytes(32).toString("base64url");
+  const message = "Original billing details for the assigned administrator";
+  const requester = { headers: { "X-Support-Receipt": privateReceipt } };
+  const payload = { category: "billing", message, request_id: randomUUID() };
+  const key = randomUUID();
+  const accepted = await post(x, "/support/requests", requester, payload, key);
+  assert.equal(accepted.status, 202);
+  const id = (await accepted.json()).data.request_id;
+  assert.equal(
+    (await (await post(x, "/support/requests", requester, payload, key)).json()).data.request_id,
+    id,
+  );
+  assert.equal((await post(x, "/support/requests", requester, payload)).status, 409);
+  assert.equal(
+    (await post(x, "/support/requests", { headers: { "X-Support-Receipt": "A".repeat(43) } }, payload, key))
+      .status,
+    409,
+  );
+  assert.equal((await read(x, `/support/receipt?id=${id}`, null)).status, 404);
+  const state = async () => {
+    const response = await read(x, "/support/receipt", requester);
+    assert.match(response.headers.get("Cache-Control"), /private, no-store/);
+    return response.json();
+  };
+  assert.equal((await state()).data.status, "received");
+  const endpoint = `/admin/support/${id}`;
+  assert.equal((await read(x, endpoint, first)).status, 404);
+  const metadata = await (await read(x, "/admin/support", support)).json();
+  assert.ok(metadata.data.items.some((item) => item.id === id));
+  assert.ok(!JSON.stringify(metadata).includes(message));
+  assert.equal((await read(x, endpoint, support)).status, 403);
+  const due_at = new Date(Date.parse(x.now()) + 86400000).toISOString();
+  const claim = { command: "claim", version: 1, due_at, reason: "Assign synthetic case" };
+  const claimKey = randomUUID();
+  const command = (who, value, idempotency) => post(x, `${endpoint}/commands`, who, value, idempotency);
+  assert.equal((await command(support, claim)).status, 403);
+  assert.equal((await command(first, { ...claim, due_at: x.now() })).status, 400);
+  const assigned = await command(first, claim, claimKey);
+  assert.equal(assigned.status, 202);
+  assert.deepEqual((await (await command(first, claim, claimKey)).json()).data, (await assigned.json()).data);
+  assert.equal((await command(second, claim)).status, 409);
+  const details = await (await read(x, endpoint, first)).json();
+  assert.equal(details.data.message, message);
+  assert.equal(details.data.related_request_id, payload.request_id);
+  assert.equal((await read(x, endpoint, second)).status, 404);
+  const take = { command: "take_over", version: 2, due_at, reason: "Resume synthetic investigation" };
+  assert.equal((await command(second, take)).status, 409);
+  await db.query("DELETE FROM admin_roles WHERE user_id=$1", [first.owner]);
+  assert.equal((await command(second, take)).status, 202);
+  assert.equal((await read(x, endpoint, first)).status, 403);
+  const reply = "The original charge was verified and the support case can close.";
+  const resolve = { command: "resolve", version: 3, reason: "Confirmed internal evidence", reply };
+  assert.equal((await command(second, resolve)).status, 202);
+  const final = await state();
+  assert.equal(final.data.status, "resolved");
+  assert.equal(final.data.reply, reply);
+  assert.ok(!JSON.stringify(final).includes(message));
+  assert.equal(
+    (await command(second, { command: "close", version: 4, reason: "Close synthetic case" })).status,
+    202,
+  );
+  assert.equal(
+    (await command(second, { command: "reopen", version: 5, due_at, reason: "Review new evidence" })).status,
+    202,
+  );
+  assert.equal((await state()).data.status, "in_progress");
+  const audit = await (await read(x, "/admin/audit?page_size=100", support)).json();
+  assert.ok(audit.data.items.some((item) => item.object_id === id && item.action === "ops.support.read"));
+  assert.ok(!JSON.stringify(audit).includes(reply));
+  assert.ok(!JSON.stringify(audit).includes(privateReceipt));
+  execFileSync("python3", ["tests/validate-response.py"], {
+    input: JSON.stringify([
+      ["SupportQueueResponse", metadata],
+      ["SupportDetailResponse", details],
+      ["SupportReceiptResponse", final],
+      ["SupportCommand", resolve],
+    ]),
+  });
+  x.clock.value = new Date(Date.parse(x.now()) + 31 * 86400000).toISOString();
+  assert.equal((await read(x, "/support/receipt", requester)).status, 404);
+  await new AccountPrivacy(x.auth, x.now).prune();
+  assert.equal((await db.query("SELECT id FROM support_requests WHERE id=$1", [id])).rowCount, 0);
 });
 
 test("operator roles, recent MFA, and source CAS protect stop, readiness check and immediate evidence withdrawal", async () => {

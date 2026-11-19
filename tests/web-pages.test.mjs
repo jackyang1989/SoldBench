@@ -150,6 +150,9 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByRole("button", { name: "Submit request" }).click();
     const firstReceipt = (await (await firstIntake).json()).data.request_id;
     await page.getByText(`Request received · ${firstReceipt}`).waitFor();
+    const supportReceipt = await page.getByLabel("Save this private receipt", { exact: true }).inputValue();
+    assert.match(supportReceipt, /^[A-Za-z0-9_-]{43}$/);
+    assert.ok(!page.url().includes(supportReceipt));
     const secondIntake = intake();
     await page.getByRole("button", { name: "Submit request" }).click();
     assert.equal((await (await secondIntake).json()).data.request_id, firstReceipt);
@@ -544,6 +547,29 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await editor.getByText(/Credit compensation recorded · Audit ID/).waitFor();
     await chargeRow.getByRole("cell", { name: "refunded", exact: true }).waitFor();
     await chargeRow.getByRole("cell", { name: "balanced", exact: true }).waitFor();
+    await editor.getByRole("button", { name: "Support queue", exact: true }).click();
+    const supportRow = editor.getByRole("row").filter({ hasText: firstReceipt });
+    await supportRow.locator("summary").filter({ hasText: "Claim request" }).click();
+    await supportRow.getByLabel("Reason", { exact: true }).fill("Assign browser support fixture");
+    await supportRow
+      .getByLabel("Deadline (UTC)", { exact: true })
+      .fill(new Date(Date.parse(x.now()) + 86400000).toISOString().slice(0, 16));
+    await supportRow.getByRole("button", { name: "Claim request", exact: true }).click();
+    await editor.getByText(/Support request updated · Audit ID/).waitFor();
+    await supportRow.locator("summary").filter({ hasText: "Manage request" }).click();
+    await supportRow.getByText("Synthetic request to verify the form.").waitFor();
+    await supportRow.getByLabel("Reason", { exact: true }).fill("Confirm the case is ready to resolve");
+    await supportRow
+      .getByLabel("Reply for the requester", { exact: true })
+      .fill("The fixture review is complete.");
+    await supportRow.getByRole("button", { name: "Record reply and resolve", exact: true }).click();
+    await supportRow.getByRole("cell", { name: "Resolved", exact: true }).waitFor();
+    await page.goto(`${origin}/zh-CN/support`);
+    await page.getByLabel("私密工单回执", { exact: true }).fill(supportReceipt);
+    await page.getByRole("button", { name: "查询工单状态", exact: true }).click();
+    await page.getByText(`已处置 · ${firstReceipt}`).waitFor();
+    await page.getByText("The fixture review is complete.", { exact: true }).waitFor();
+    assert.ok(!page.url().includes(supportReceipt));
     await reviewer.context.close();
     await page.goto(`${origin}/account/billing`);
     await page.getByRole("heading", { name: "Test checkout" }).waitFor();
@@ -613,7 +639,14 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await editor.getByText(/Confirmation applied · Audit ID/).waitFor();
     await receiptRow.waitFor({ state: "detached" });
     await editor.getByRole("button", { name: "Audit log", exact: true }).click();
-    for (const action of ["ops.query_retry", "ops.credit_refund", "ops.payment_replay"])
+    for (const action of [
+      "ops.query_retry",
+      "ops.credit_refund",
+      "ops.payment_replay",
+      "ops.support.claim",
+      "ops.support.read",
+      "ops.support.resolve",
+    ])
       await editor.getByRole("cell", { name: action, exact: true }).waitFor();
     await author.context.close();
     await page.getByRole("button", { name: "Refresh order" }).click();

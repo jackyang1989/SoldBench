@@ -94,10 +94,16 @@ test("deletion immediately removes access and anonymous publication before its w
     origin,
   );
   const sharePath = new URL(share.data.url).pathname;
-  await db.query(
-    "INSERT INTO support_requests(user_id,category,message,request_ref,retention_until) VALUES($1,'privacy','private message','opaque REF',$2)",
-    [x.user, "2027-01-01"],
-  );
+  const supportToken = receipt();
+  const supportStatus = () =>
+    x.app.request("/support/receipt", { headers: { "X-Support-Receipt": supportToken } });
+  const support = await x.app.request("/support/requests", {
+    method: "POST",
+    headers: { ...actor.headers, "X-Support-Receipt": supportToken, "Idempotency-Key": randomUUID() },
+    body: JSON.stringify({ category: "account", message: "private message" }),
+  });
+  assert.equal(support.status, 202);
+  assert.equal((await supportStatus()).status, 200);
   const beforeLines = await ledger(db, x.user);
   assert.ok(beforeLines.length > 0);
   assert.equal((await submit(x.app, actor, token, false)).status, 400);
@@ -118,6 +124,7 @@ test("deletion immediately removes access and anonymous publication before its w
   assert.deepEqual(record, { status: "deleted", email: null, password_hash: null });
   assert.equal((await x.app.request(`/v1/sold/${x.queryId}`, { headers: x.headers })).status, 401);
   assert.equal((await x.app.request("/auth/me", { headers: actor.headers })).status, 401);
+  assert.equal((await supportStatus()).status, 404);
   assert.equal((await x.app.request(sharePath)).status, 410);
   const cache = await x.app.request("/web/search", {
     method: "POST",

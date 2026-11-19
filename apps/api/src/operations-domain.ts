@@ -23,6 +23,11 @@ type SourceCommand = {
   evidence_ref: string;
   version: number;
 };
+type SupportCommand = { reason: string; version: number } & (
+  | { command: "claim" | "reopen" | "take_over"; due_at: string }
+  | { command: "resolve"; reply: string }
+  | { command: "close" }
+);
 
 export class OperationsService {
   readonly collector: CollectorStore;
@@ -343,9 +348,14 @@ export class OperationsService {
     peer: string,
     input: { category: string; message: string; request_id?: string },
     rawKey?: string,
+    receipt?: string,
   ) {
     const key = this.commandKey(rawKey),
-      fingerprint = this.crypto.hash("ops.support_input", JSON.stringify(input));
+      receiptHash = receipt ? this.crypto.hash("ops.support.receipt", receipt) : null,
+      fingerprint = this.crypto.hash(
+        "ops.support_input",
+        JSON.stringify(receiptHash ? [input, receiptHash] : input),
+      );
     return transaction(this.service.db, async (c) => {
       const now = await this.service.now(c),
         start = new Date(Math.floor(now.getTime() / 3600000) * 3600000);
@@ -380,10 +390,22 @@ export class OperationsService {
         });
       const id = randomUUID(),
         expires = new Date(now.getTime() + 30 * 86400000);
-      await c.query(
-        "INSERT INTO support_requests(id,user_id,category,message,request_ref,retention_until,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)",
-        [id, actor?.userId ?? null, input.category, input.message, input.request_id ?? null, expires, now],
+      const created = await c.query(
+        `INSERT INTO support_requests(id,user_id,category,message,request_ref,retention_until,created_at,receipt_hash)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(receipt_hash) WHERE receipt_hash IS NOT NULL DO NOTHING`,
+        [
+          id,
+          actor?.userId ?? null,
+          input.category,
+          input.message,
+          input.request_id ?? null,
+          expires,
+          now,
+          receiptHash,
+        ],
       );
+      if (!created.rowCount)
+        return fail("state_conflict", 409, "This receipt cannot be used for a new request.");
       await c.query(
         "INSERT INTO idempotency_records(owner_scope,operation,key_hash,request_hash,resource_id,status,expires_at) VALUES($1,'support.submit',$2,$3,$4,'committed',$5)",
         [scope, key, fingerprint, id, expires],
@@ -391,6 +413,158 @@ export class OperationsService {
       return id;
     });
   }
+
+  async supportReceipt(receipt: string) {
+    return transaction(this.service.db, async (c) => {
+      const now = await this.service.now(c);
+      const row = (
+        await c.query(
+          "SELECT id,status,reply,updated_at,created_at,retention_until FROM support_requests WHERE receipt_hash=$1 AND retention_until>$2",
+          [this.crypto.hash("ops.support.receipt", receipt), now],
+        )
+      ).rows[0];
+      if (!row) return fail("not_found", 404, "Support receipt not found.");
+      return {
+        request_id: row.id,
+        status: row.status,
+        reply: row.reply,
+        updated_at: iso(row.updated_at ?? row.created_at),
+        expires_at: iso(row.retention_until),
+      };
+    });
+  }
+
+  async supportQueue(actor: Identity, paging: Page) {
+    return transaction(this.service.db, async (c) => {
+      const now = await this.service.now(c);
+      await this.role(c, actor, false, now);
+      const cursor = this.service.readCursor(actor.userId, "ops.support_queue", paging.cursor);
+      const rows = (
+        await c.query(
+          `SELECT q.id,q.category,q.status,q.version,q.assignee_id,q.due_at,q.created_at,${timeSql("q.created_at")},
+                  NOT EXISTS (SELECT 1 FROM users u JOIN admin_roles a ON a.user_id=u.id AND a.role='admin'
+                    JOIN user_mfa m ON m.user_id=u.id AND m.state='enabled' WHERE u.id=q.assignee_id AND u.status='active') AS assignee_unavailable
+             FROM support_requests q WHERE q.retention_until>$1
+              AND ($2::timestamptz IS NULL OR (created_at,id)<($2::timestamptz,$3::uuid))
+             ORDER BY created_at DESC,id DESC LIMIT $4`,
+          [now, cursor?.time ?? null, cursor?.id ?? null, paging.size + 1],
+        )
+      ).rows;
+      return this.page(rows, actor, "ops.support_queue", paging.size, (row) => ({
+        id: row.id,
+        category: ["data_quality", "takedown", "billing", "account"].includes(row.category)
+          ? row.category
+          : "other",
+        status: row.status,
+        version: row.version,
+        assigned_to_you: row.assignee_id === actor.userId,
+        can_take_over: row.status === "in_progress" && row.assignee_unavailable,
+        assignee_ref: row.assignee_id ? this.crypto.hash("ops.owner", row.assignee_id).slice(0, 20) : null,
+        due_at: iso(row.due_at),
+        created_at: iso(row.created_at),
+      }));
+    });
+  }
+
+  async supportDetail(actor: Identity, id: string, requestId: string) {
+    return transaction(this.service.db, async (c) => {
+      const now = await this.service.now(c);
+      await this.role(c, actor, true, now);
+      const row = (
+        await c.query(
+          "SELECT message,request_ref,reply FROM support_requests WHERE id=$1 AND assignee_id=$2 AND retention_until>$3 FOR SHARE",
+          [id, actor.userId, now],
+        )
+      ).rows[0];
+      if (!row) return fail("not_found", 404, "Assigned support request not found.");
+      await c.query(
+        `INSERT INTO audit_events(actor_id,action,object_type,object_id,reason,request_id,created_at)
+         VALUES($1,'ops.support.read','support_request',$2,'assigned_support_investigation',$3,$4)`,
+        [actor.userId, id, requestId, now],
+      );
+      return { message: row.message, related_request_id: row.request_ref, reply: row.reply };
+    });
+  }
+
+  async supportCommand(
+    actor: Identity,
+    id: string,
+    input: SupportCommand,
+    rawKey: string | undefined,
+    requestId: string,
+  ) {
+    const key = this.commandKey(rawKey),
+      op = `ops.support.${input.command}`;
+    const shape = this.crypto.hash("ops.support.case", JSON.stringify([id, input]));
+    return transaction(this.service.db, async (c) => {
+      const now = await this.service.now(c);
+      await this.role(c, actor, true, now);
+      const prior = await this.previous(c, actor.userId, op, key, shape);
+      if (prior) return this.commandView(prior);
+      const ticket = (
+        await c.query("SELECT * FROM support_requests WHERE id=$1 AND retention_until>$2 FOR UPDATE", [
+          id,
+          now,
+        ])
+      ).rows[0];
+      if (!ticket) return fail("not_found", 404, "Support request not found.");
+      if (ticket.version !== input.version)
+        return fail("state_conflict", 409, "Support request version changed.");
+      if (input.command === "take_over") {
+        const current = await c.query(
+          `SELECT 1 FROM users u JOIN admin_roles a ON a.user_id=u.id AND a.role='admin'
+             JOIN user_mfa m ON m.user_id=u.id AND m.state='enabled' WHERE u.id=$1 AND u.status='active'`,
+          [ticket.assignee_id],
+        );
+        if (current.rowCount) return fail("state_conflict", 409, "The assigned operator is still active.");
+      } else if (input.command !== "claim" && ticket.assignee_id !== actor.userId)
+        return fail("forbidden", 403, "Use the assigned operator session.");
+      const expected = {
+        claim: "received",
+        resolve: "in_progress",
+        close: "resolved",
+        reopen: "closed",
+        take_over: "in_progress",
+      };
+      const next = {
+        claim: "in_progress",
+        resolve: "resolved",
+        close: "closed",
+        reopen: "in_progress",
+        take_over: "in_progress",
+      };
+      if (ticket.status !== expected[input.command])
+        return fail("state_conflict", 409, "This support transition is unavailable.");
+      const due = "due_at" in input ? new Date(input.due_at) : ticket.due_at;
+      if (
+        "due_at" in input &&
+        (!Number.isFinite(due.getTime()) || due <= now || due >= ticket.retention_until)
+      )
+        return fail("invalid_parameter", 400, "Use a future deadline within the request retention window.");
+      const reply = input.command === "resolve" ? input.reply : ticket.reply;
+      await c.query(
+        `UPDATE support_requests SET status=$2,assignee_id=$3,due_at=$4,reply=$5,version=version+1,updated_at=$6
+         WHERE id=$1`,
+        [id, next[input.command], actor.userId, due, reply, now],
+      );
+      return this.commandView(
+        await this.record(
+          c,
+          actor.userId,
+          op,
+          "support_request",
+          id,
+          key,
+          shape,
+          input.reason,
+          requestId,
+          now,
+          { state: next[input.command], version: ticket.version + 1 },
+        ),
+      );
+    });
+  }
+
   async status() {
     const row = (
       await this.service.db.query(

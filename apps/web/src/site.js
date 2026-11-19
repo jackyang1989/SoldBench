@@ -1356,9 +1356,29 @@ if (docsSearch) {
   });
 }
 
+function privateReceipt() {
+  return btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
+}
+
+function supportState(value) {
+  return (
+    {
+      received: t("Received", "已受理"),
+      in_progress: t("In progress", "处理中"),
+      resolved: t("Resolved", "已处置"),
+      closed: t("Closed", "已关闭"),
+    }[value] ?? "—"
+  );
+}
+
 const support = document.querySelector("[data-support]");
 if (support) {
   let previous;
+  const lookup = document.querySelector("[data-support-receipt]");
+  const result = document.querySelector("[data-support-result]");
   support.addEventListener("submit", (event) => {
     event.preventDefault();
     const submit = support.querySelector("button");
@@ -1371,9 +1391,53 @@ if (support) {
         const requestId = values.get("request_id").trim();
         if (requestId) ticket.request_id = requestId;
         const serialized = JSON.stringify(ticket);
-        if (previous?.serialized !== serialized) previous = { serialized, key: crypto.randomUUID() };
-        const { data } = await post("/support/requests", ticket, (await session())?.csrf_token, previous.key);
+        if (previous?.serialized !== serialized)
+          previous = { serialized, key: crypto.randomUUID(), receipt: privateReceipt() };
+        const csrf = (await session())?.csrf_token;
+        const { data } = await api("/support/requests", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept-Language": document.documentElement.lang,
+            "Idempotency-Key": previous.key,
+            "X-Support-Receipt": previous.receipt,
+            ...(csrf ? { "X-CSRF-Token": csrf } : {}),
+          },
+          body: JSON.stringify(ticket),
+        });
         message(t(`Request received · ${data.request_id}`, `已受理 · 工单编号 ${data.request_id}`));
+        lookup.elements.receipt.value = previous.receipt;
+        const label = element("label", t("Save this private receipt", "请保存此私密回执"));
+        const receipt = element("input");
+        receipt.readOnly = true;
+        receipt.value = previous.receipt;
+        label.append(receipt);
+        result.replaceChildren(label);
+      } finally {
+        submit.disabled = false;
+      }
+    });
+  });
+  lookup.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const submit = lookup.querySelector("button");
+    if (submit.disabled) return;
+    submit.disabled = true;
+    run(async () => {
+      try {
+        const { data } = await api("/support/receipt", {
+          headers: { "X-Support-Receipt": lookup.elements.receipt.value.trim() },
+        });
+        message(`${supportState(data.status)} · ${data.request_id}`);
+        result.replaceChildren(
+          element("h2", t("Request update", "工单进展")),
+          element("p", data.reply ?? t("No reply yet.", "暂无回复。")),
+          element("p", `${t("Receipt expires", "回执到期")} · ${data.expires_at}`, "small"),
+        );
+      } catch (error) {
+        result.replaceChildren();
+        if (error.status !== 404) throw error;
+        message(t("This support receipt is unavailable.", "此工单回执不可用。"), "warning");
       } finally {
         submit.disabled = false;
       }
@@ -1701,6 +1765,33 @@ if (page === "/operations") {
         }),
       ],
     },
+    support: {
+      heading: t("Support queue", "支持工单"),
+      columns: [
+        t("Request ID", "工单编号"),
+        t("Issue type", "问题类型"),
+        t("State", "状态"),
+        t("Assignee reference", "处理人引用"),
+        t("Due (UTC)", "截止时间（UTC）"),
+        t("Action", "操作"),
+      ],
+      row: (entry, canWrite) => [
+        entry.id,
+        {
+          data_quality: t("Data quality", "数据质量"),
+          takedown: t("Data rights or takedown", "数据权利或下架"),
+          account: t("Account access", "账户访问"),
+          billing: t("Billing", "账务"),
+          other: t("Other", "其他"),
+        }[entry.category],
+        supportState(entry.status),
+        entry.assigned_to_you ? t("You", "自己") : entry.assignee_ref,
+        entry.due_at,
+        canWrite && (entry.assigned_to_you || entry.status === "received" || entry.can_take_over)
+          ? supportCase(entry)
+          : null,
+      ],
+    },
     audit: {
       heading: t("Audit log", "审计日志"),
       columns: [
@@ -1713,6 +1804,101 @@ if (page === "/operations") {
       row: (entry) => [entry.action, entry.object_id, entry.request_id, entry.actor_ref, entry.created_at],
     },
   };
+  function supportCase(entry) {
+    const panel = element("details");
+    panel.append(
+      element(
+        "summary",
+        entry.assigned_to_you
+          ? t("Manage request", "处理工单")
+          : entry.can_take_over
+            ? t("Take over request", "接手工单")
+            : t("Claim request", "领取工单"),
+      ),
+    );
+    const details = element("div");
+    if (entry.assigned_to_you) {
+      panel.append(details);
+      panel.addEventListener("toggle", async () => {
+        if (!panel.open) {
+          details.replaceChildren();
+          return;
+        }
+        await run(async () => {
+          const { data } = await api(`/admin/support/${entry.id}`);
+          if (!panel.open) return;
+          details.replaceChildren(element("p", data.message));
+          if (data.related_request_id)
+            details.append(
+              element("p", `${t("Related request", "关联请求")} · ${data.related_request_id}`, "small"),
+            );
+          if (data.reply)
+            details.append(element("p", `${t("Latest reply", "最近回复")} · ${data.reply}`, "small"));
+        });
+      });
+    }
+    const operation = entry.can_take_over
+      ? ["take_over", t("Take over request", "接手工单")]
+      : {
+          received: ["claim", t("Claim request", "领取工单")],
+          in_progress: ["resolve", t("Record reply and resolve", "回复并处置")],
+          resolved: ["close", t("Close request", "关闭工单")],
+          closed: ["reopen", t("Reopen request", "重开工单")],
+        }[entry.status];
+    if (!operation) return panel;
+    const [command, title] = operation;
+    const form = element("form", undefined, "key-form security-form");
+    function field(name, label, control) {
+      const wrapper = element("label", label);
+      control.name = name;
+      control.required = true;
+      wrapper.append(control);
+      form.append(wrapper);
+      return control;
+    }
+    const reason = field("reason", t("Reason", "原因"), element("input"));
+    reason.maxLength = 1000;
+    if (["claim", "reopen", "take_over"].includes(command)) {
+      const deadline = field("due_at", t("Deadline (UTC)", "截止时间（UTC）"), element("input"));
+      deadline.type = "datetime-local";
+    } else if (command === "resolve") {
+      field("reply", t("Reply for the requester", "回复给提交人"), element("textarea")).maxLength = 2000;
+    }
+    const submit = element("button", title, "btn brand");
+    form.append(submit);
+    panel.append(form);
+    let attempt;
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (submit.disabled) return;
+      submit.disabled = true;
+      const request = generation;
+      run(async () => {
+        try {
+          const input = { command, version: entry.version, reason: reason.value.trim() };
+          if (form.elements.due_at) input.due_at = new Date(`${form.elements.due_at.value}Z`).toISOString();
+          if (form.elements.reply) input.reply = form.elements.reply.value.trim();
+          const shape = JSON.stringify(input);
+          if (attempt?.shape !== shape) attempt = { shape, key: crypto.randomUUID() };
+          const { data } = await post(
+            `/admin/support/${entry.id}/commands`,
+            input,
+            (await session())?.csrf_token,
+            attempt.key,
+          );
+          if (request === generation)
+            await showView(
+              "support",
+              undefined,
+              `${t("Support request updated · Audit ID", "工单已更新 · 审计编号")} ${data.audit_id}`,
+            );
+        } finally {
+          submit.disabled = false;
+        }
+      });
+    });
+    return panel;
+  }
   function recoveryForm(view, path, { title, confirmation, fields, caseReference, receipt }) {
     const tools = element("details");
     const form = element("form", undefined, "key-form security-form");
@@ -2331,11 +2517,7 @@ function accountDeletion() {
   );
   const prepare = button(t("Prepare deletion", "准备删除"), () => {
     prepare.disabled = true;
-    const bytes = crypto.getRandomValues(new Uint8Array(32));
-    const receipt = btoa(String.fromCharCode(...bytes))
-      .replaceAll("+", "-")
-      .replaceAll("/", "_")
-      .replace(/=+$/, "");
+    const receipt = privateReceipt();
     const label = element(
       "label",
       t("Save this private receipt to view deletion status later", "请保存此私密回执，以后可查询删除状态"),

@@ -485,6 +485,7 @@ export function renderPage(
               ["jobs", t("Jobs", "作业")],
               ["billing", t("Reconciliation", "对账")],
               ["recovery", t("Payment recovery", "付款恢复")],
+              ["support", t("Support queue", "支持工单")],
               ["audit", t("Audit log", "审计日志")],
             ].map(([view, label]) => (
               <button
@@ -604,6 +605,25 @@ export function renderPage(
             </button>
           </form>
           {status}
+          <form data-support-receipt="" method="post">
+            <h2>{t("Check a support request", "查看工单进展")}</h2>
+            <label>
+              {t("Private support receipt", "私密工单回执")}
+              <input
+                name="receipt"
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                minLength={43}
+                maxLength={43}
+                required
+              />
+            </label>
+            <button className="btn ghost" type="submit">
+              {t("Check request status", "查询工单状态")}
+            </button>
+          </form>
+          <div data-support-result="" />
         </div>
       </section>
     );

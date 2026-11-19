@@ -17,6 +17,7 @@ type C = Context<Env>;
 const reason = z.string().trim().min(1).max(1000),
   id = z.uuid(),
   version = z.int().positive(),
+  receiptToken = z.string().regex(/^[A-Za-z0-9_-]{43}$/),
   source = z.strictObject({
     command: z.enum(["suspend", "probe", "revoke"]),
     reason,
@@ -37,7 +38,27 @@ const reason = z.string().trim().min(1).max(1000),
         "Message must contain valid text.",
       ),
     request_id: z.uuid().optional(),
-  });
+  }),
+  supportCommand = z.discriminatedUnion("command", [
+    z.strictObject({
+      command: z.enum(["claim", "reopen", "take_over"]),
+      due_at: z.iso.datetime(),
+      reason,
+      version,
+    }),
+    z.strictObject({
+      command: z.literal("resolve"),
+      reply: z
+        .string()
+        .trim()
+        .min(1)
+        .max(2000)
+        .refine((value) => !value.includes("\u0000") && !/[\uD800-\uDFFF]/u.test(value)),
+      reason,
+      version,
+    }),
+    z.strictObject({ command: z.literal("close"), reason, version }),
+  ]);
 const invalid = () => new AppError("invalid_parameter", 400, "Invalid operation parameters.");
 async function body<T extends z.ZodType>(c: C, schema: T): Promise<z.infer<T>> {
   if (c.req.header("Content-Type")?.split(";")[0]?.trim().toLowerCase() !== "application/json")
@@ -125,8 +146,37 @@ export function mountOperations(
     } catch (error) {
       if (error instanceof AppError) throw error;
     }
-    const requestId = await service().support(actor, peer, await body(c, ticket), key(c));
+    const receipt = receiptToken.optional().safeParse(c.req.header("X-Support-Receipt"));
+    if (!receipt.success) throw invalid();
+    const requestId = await service().support(actor, peer, await body(c, ticket), key(c), receipt.data);
     return c.json({ data: { status: "accepted", request_id: requestId }, meta: meta(c) }, 202);
+  });
+  app.get("/support/receipt", async (c) => {
+    c.header("Cache-Control", "private, no-store");
+    c.header("X-Robots-Tag", "noindex, nofollow, noarchive");
+    const receipt = receiptToken.safeParse(c.req.header("X-Support-Receipt"));
+    if (!receipt.success) throw new AppError("not_found", 404, "Support receipt not found.");
+    return c.json({ data: await service().supportReceipt(receipt.data), meta: meta(c) });
+  });
+  app.get("/admin/support", async (c) =>
+    c.json({ data: await service().supportQueue(await identity(c), page(c)), meta: meta(c) }),
+  );
+  app.get("/admin/support/:id", async (c) =>
+    c.json({
+      data: await service().supportDetail(await identity(c), resource(c), c.get("requestId")),
+      meta: meta(c),
+    }),
+  );
+  app.post("/admin/support/:id/commands", async (c) => {
+    const actor = await identity(c, true);
+    const input = await body(c, supportCommand);
+    return c.json(
+      {
+        data: await service().supportCommand(actor, resource(c), input, key(c), c.get("requestId")),
+        meta: meta(c),
+      },
+      202,
+    );
   });
   app.get("/admin/content", async (c) => {
     const data = await service().contentList(await identity(c));
