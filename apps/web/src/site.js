@@ -580,6 +580,11 @@ function resultView({ data, meta }, research = { sort: "", excluded: new Set(), 
         "summary-note",
       ),
     );
+  const method = element("p", undefined, "summary-note");
+  const methodology = element("a", t("How these prices are calculated", "查看价格计算方法"));
+  methodology.href = `${prefix}/methodology`;
+  method.append(methodology);
+  card.append(method);
   if (data.quality?.warnings?.some((warning) => warning.code === "mixed_models")) {
     card.append(
       element("p", t("The sample includes multiple models.", "样本包含多个型号。"), "summary-note"),
@@ -1305,6 +1310,185 @@ function accountTable(heading, columns, rows) {
   viewport.append(table);
   card.append(viewport);
   return card;
+}
+
+if (page === "/operations") {
+  const operatorTabs = [...document.querySelectorAll("[data-ops-view]")];
+  let generation = 0;
+  const views = {
+    sources: {
+      heading: t("Sources", "数据源"),
+      columns: [
+        t("Source ID", "来源 ID"),
+        t("Clearance", "权利状态"),
+        t("Circuit", "熔断状态"),
+        t("Last observation", "最近观测"),
+        t("Action", "操作"),
+      ],
+      row: (source) => [
+        source.source_id,
+        source.clearance_status,
+        source.circuit_status,
+        source.last_data_as_of,
+        sourceCommand(source),
+      ],
+    },
+    jobs: {
+      heading: t("Jobs", "作业"),
+      columns: [
+        t("Job ID", "作业 ID"),
+        t("Type", "类型"),
+        t("State", "状态"),
+        t("Attempts", "尝试次数"),
+        t("Error", "错误码"),
+        t("Updated", "更新时间"),
+      ],
+      row: (job) => [job.id, job.kind, job.status, job.attempts, job.error_code, job.updated_at],
+    },
+    billing: {
+      heading: t("Reconciliation", "对账"),
+      columns: [
+        t("Charge ID", "扣费 ID"),
+        t("Account reference", "账户引用"),
+        t("Credits", "额度"),
+        t("State", "状态"),
+        t("Reconciliation", "对账"),
+        t("Created", "创建时间"),
+      ],
+      row: (entry) => [
+        entry.charge_id,
+        entry.user_ref,
+        entry.credits,
+        entry.state,
+        entry.reconciliation_status,
+        entry.created_at,
+      ],
+    },
+    audit: {
+      heading: t("Audit log", "审计日志"),
+      columns: [
+        t("Action", "操作"),
+        t("Object", "对象"),
+        t("Request ID", "请求编号"),
+        t("Operator reference", "操作者引用"),
+        t("Date", "日期"),
+      ],
+      row: (entry) => [entry.action, entry.object_id, entry.request_id, entry.actor_ref, entry.created_at],
+    },
+  };
+  function sourceCommand(source) {
+    const tools = element("details");
+    if (source.clearance_status === "revoked") return t("Revoked", "已撤销");
+    tools.append(element("summary", t("Source controls", "来源操作")));
+    const form = element("form", undefined, "key-form security-form");
+    const label = element("label", t("Action", "操作"));
+    const action = element("select");
+    for (const [value, text] of [
+      ["probe", t("Check local readiness", "检查本机就绪")],
+      ["suspend", t("Suspend collection", "暂停采集")],
+      ["revoke", t("Revoke source rights", "撤销来源权限")],
+    ]) {
+      const option = element("option", text);
+      option.value = value;
+      action.append(option);
+    }
+    label.append(action);
+    const inputs = [t("Reason", "原因"), t("Evidence reference", "证据引用")].map((text, index) => {
+      const field = element("label", text);
+      const input = element("input");
+      input.required = true;
+      input.maxLength = index === 0 ? 1000 : 200;
+      field.append(input);
+      return { field, input };
+    });
+    const [reason, evidence] = inputs;
+    const submit = element("button", t("Run command", "执行操作"), "btn brand");
+    let attempt;
+    form.append(label, reason.field, evidence.field, submit);
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (submit.disabled) return;
+      if (
+        action.value !== "probe" &&
+        !confirm(t("Apply this change to the selected source?", "将此变更应用到选中的来源？"))
+      )
+        return;
+      submit.disabled = true;
+      run(async () => {
+        try {
+          const data = {
+            command: action.value,
+            reason: reason.input.value.trim(),
+            evidence_ref: evidence.input.value.trim(),
+            version: source.version,
+          };
+          const shape = JSON.stringify(data);
+          if (attempt?.shape !== shape) attempt = { shape, key: crypto.randomUUID() };
+          const result = await post(
+            `/admin/sources/${source.source_id}/commands`,
+            data,
+            (await session())?.csrf_token,
+            attempt.key,
+          );
+          await showView("sources");
+          const probe = result.data.probe_status;
+          message(
+            probe
+              ? t(
+                  `Local readiness ${probe} · ${result.data.audit_id}`,
+                  `本机就绪状态 ${probe} · ${result.data.audit_id}`,
+                )
+              : t(`Source updated · ${result.data.audit_id}`, `来源已更新 · ${result.data.audit_id}`),
+          );
+        } finally {
+          submit.disabled = false;
+        }
+      });
+    });
+    tools.append(form);
+    return tools;
+  }
+  async function showView(view, cursor) {
+    const request = ++generation;
+    if (!cursor) {
+      output.replaceChildren();
+      message(t("Loading…", "正在加载…"));
+      for (const control of operatorTabs)
+        control.setAttribute("aria-pressed", String(control.dataset.opsView === view));
+    }
+    try {
+      const params = cursor ? `?${new URLSearchParams({ cursor })}` : "";
+      const response = await api(`/admin/${view}${params}`);
+      if (request !== generation) return;
+      const { heading, columns, row } = views[view];
+      const data = response.data;
+      const card = accountTable(heading, columns, (Array.isArray(data) ? data : data.items).map(row));
+      if (data.next_cursor) {
+        const next = button(t("Load more", "加载更多"), () =>
+          run(async () => {
+            next.disabled = true;
+            try {
+              await showView(view, data.next_cursor);
+              next.remove();
+            } finally {
+              next.disabled = false;
+            }
+          }),
+        );
+        card.append(next);
+      }
+      message("");
+      output.append(card);
+    } catch (error) {
+      if (request !== generation) return;
+      if (error.status === 401 || error.message === "reauthentication_required")
+        output.append(link(t("Sign in again", "重新登录"), `${prefix}/login`));
+      throw error;
+    }
+  }
+  for (const button of operatorTabs)
+    button.addEventListener("click", () => run(() => showView(button.dataset.opsView)));
+  run(() => showView("jobs"));
 }
 
 async function showUsage() {

@@ -42,6 +42,9 @@ export const webPages = [
   "/data-availability",
   "/guides",
   "/faq",
+  "/methodology",
+  "/agents",
+  "/operations",
 ] as const;
 type Page = (typeof webPages)[number] | "/results" | "/share" | "/docs" | "/admin/content";
 type PublishedSection = { slug: string; title: string; body: string };
@@ -118,6 +121,9 @@ export function renderPage(
     "/support": ["Support", "支持"],
     "/guides": ["Research guides", "研究指南"],
     "/faq": ["Frequently asked questions", "常见问题"],
+    "/methodology": ["Price methodology", "价格研究方法"],
+    "/agents": ["Agents and MCP", "Agent 与 MCP"],
+    "/operations": ["Operations", "运营中心"],
     "/admin/content": ["Content studio", "内容中心"],
   };
   const title = docs?.current.title ?? t(...(headings[page] ?? ["Search sold prices", "查询成交价"]));
@@ -126,6 +132,7 @@ export function renderPage(
       <a href={link("/search")}>{t("Search", "查价")}</a>
       <a href={link("/categories")}>{t("Categories", "类目")}</a>
       <a href={zh ? "/docs/zh-CN/quickstart" : "/docs/en/quickstart"}>{t("Docs", "文档")}</a>
+      <a href={link("/agents")}>{t("Agents", "Agent")}</a>
       <a href={link("/account")}>{t("Dashboard", "账户")}</a>
     </>
   );
@@ -354,6 +361,94 @@ export function renderPage(
         <div className="grid3" data-results="" />
       </section>
     );
+  } else if (page === "/methodology") {
+    const methods = [
+      [
+        t("Comparable sales", "可比成交"),
+        t(
+          "Start with the market, requested window, model, edition or grade. Listings may appear more than once in the source. We deduplicate sale events before counting them. A conflicting model or version takes a record out of the comparable sample.",
+          "先确定站点、查询窗口、型号、版本或评级。来源可能重复展示同一刊登，统计先按成交事件去重。型号或版本冲突的记录不进入可比样本。",
+        ),
+      ],
+      [
+        t("Verified price", "核验价格"),
+        t(
+          "An accepted Best Offer needs evidence of the actual paid price. If you select item plus observed shipping, the shipping amount must also be known. Unconfirmed prices and unknown shipping stay out of the corresponding price calculation.",
+          "Best Offer 需有实际接受金额的证据。选择商品价加已观察运费时，所需运费也必须已知。未经核验的金额和未知的所需运费不会进入对应价格统计。",
+        ),
+      ],
+      [
+        t("Median and typical range", "中位价与典型区间"),
+        t(
+          "We use the complete qualified snapshot and integer cents. The typical range uses the 25th and 75th percentiles with Type 7 interpolation. The trimmed mean removes floor(5% × n) values from each end. A sample with fewer than eight verified prices has no central estimate.",
+          "使用完整合格快照与整数分。典型区间为 Type 7 插值的第 25 与第 75 百分位。截尾均价从两端各去掉 floor(5% × n) 条。核验价格不足 8 条时不计算中心估计。",
+        ),
+      ],
+      [
+        t("Coverage and exclusions", "覆盖与排除"),
+        t(
+          "The results show how many sales we observed, how many are comparable, and how many have a verified price for the selected basis. Use the date of the snapshot when citing results. The original and adjusted views are both available to export when your account has access.",
+          "结果显示已观察、可比及符合所选口径的核验价格数量。引用时请附快照日期。有权访问完整样本的账户可导出原快照或调整视图。",
+        ),
+      ],
+    ];
+    content = (
+      <section className="wrap workbench">
+        <h1>{title}</h1>
+        {methods.map(([heading, copy]) => (
+          <article key={heading} className="card result-card published-section">
+            <h2>{heading}</h2>
+            <p>{copy}</p>
+          </article>
+        ))}
+        <div className="actions">
+          <a className="btn brand" href={link("/search")}>
+            {t("Search sold prices", "查询成交价")}
+          </a>
+          <a className="btn ghost" href={link("/support")}>
+            {t("Report a data issue", "报告数据问题")}
+          </a>
+        </div>
+      </section>
+    );
+  } else if (page === "/agents") {
+    content = (
+      <section className="wrap workbench">
+        <h1>{title}</h1>
+        <div className="grid3">
+          <article className="card">
+            <h2>Agent Skill</h2>
+            <p>
+              {t(
+                "Use the integration guide to generate a server-side client and handle async results and claims.",
+                "使用集成指南生成服务端客户端，并处理异步结果和显式领取。",
+              )}
+            </p>
+            <a href="/.well-known/skills/soldbench/SKILL.md">SKILL.md</a>
+          </article>
+          <article className="card">
+            <h2>MCP</h2>
+            <p>
+              {t(
+                "Connect a host to the local tool server. Query and read approved snapshots with the same account permissions and billing rules.",
+                "将宿主连接至本机工具服务。查询与读取获准快照时，沿用同一账户权限及计费规则。",
+              )}
+            </p>
+            <a href={zh ? "/docs/zh-CN/mcp" : "/docs/en/mcp"}>{t("Connect MCP", "接入 MCP")}</a>
+          </article>
+          <article className="card">
+            <h2>REST API</h2>
+            <p>
+              {t(
+                "Run the first synthetic query through the API Playground. Inspect actual status codes, response headers and request IDs.",
+                "通过 API 调试台运行首次合成查询，核对实际状态码、响应头和请求编号。",
+              )}
+            </p>
+            <a href={link("/playground")}>{t("Open Playground", "打开调试台")}</a>
+          </article>
+        </div>
+      </section>
+    );
   } else if (page === "/guides" || page === "/faq") {
     content = (
       <section className="wrap workbench">
@@ -370,10 +465,41 @@ export function renderPage(
         )}
       </section>
     );
+  } else if (page === "/operations") {
+    content = (
+      <section className="wrap account-layout">
+        <aside className="docs-sidebar">
+          <nav aria-label={t("Operator navigation", "运营导航")}>
+            <a href={link("/operations")}>{t("Operations", "运营中心")}</a>
+            <a href={zh ? "/admin/content?lang=zh-CN" : "/admin/content"}>
+              {t("Content studio", "内容中心")}
+            </a>
+          </nav>
+        </aside>
+        <div className="account-main">
+          <h1>{title}</h1>
+          {status}
+          <div className="actions" data-ops-tabs="">
+            {[
+              ["sources", t("Sources", "数据源")],
+              ["jobs", t("Jobs", "作业")],
+              ["billing", t("Reconciliation", "对账")],
+              ["audit", t("Audit log", "审计日志")],
+            ].map(([view, label]) => (
+              <button key={view} className="btn ghost" data-ops-view={view} type="button">
+                {label}
+              </button>
+            ))}
+          </div>
+          <div data-results="" />
+        </div>
+      </section>
+    );
   } else if (page === "/admin/content") {
     content = (
       <section className="wrap workbench">
         <h1>{title}</h1>
+        <a href={link("/operations")}>{t("Operations", "运营中心")}</a>
         {status}
         <div className="card auth-card">
           <form data-content-draft="" method="post">
@@ -765,6 +891,7 @@ export function renderPage(
             <a href={link("/support")}>{t("Support", "支持")}</a>
             <a href={link("/data-availability")}>{t("Availability", "数据可用性")}</a>
             <a href={link("/guides")}>{t("Guides", "指南")}</a>
+            <a href={link("/methodology")}>{t("Methodology", "价格研究方法")}</a>
             <a href={link("/faq")}>FAQ</a>
           </footer>
         </body>

@@ -41,6 +41,9 @@ test("prototype-based pages serve both languages, valid private deep links and s
       "/account/billing",
       "/deletion-receipt",
       "/playground",
+      "/methodology",
+      "/agents",
+      "/operations",
       "/support",
       "/categories",
       "/data-availability",
@@ -251,6 +254,8 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     );
     await page.getByRole("button", { name: "Claim result" }).click();
     await page.getByText(/This research originally used 1 credit/).waitFor();
+    const methodology = page.getByRole("link", { name: "How these prices are calculated" });
+    assert.equal(await methodology.getAttribute("href"), "/methodology");
     assert.equal(claimRequests.length, 1);
     assert.equal(claimRequests[0], `web-claim-${id}`);
     await page.getByRole("img", { name: "Sale photo" }).first().waitFor();
@@ -442,6 +447,16 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await reviewer.editor.getByRole("button", { name: "Publish", exact: true }).waitFor();
     await page.reload();
     await page.getByText("此处暂未发布内容。").waitFor();
+    await editor.getByRole("link", { name: "Operations", exact: true }).click();
+    await editor.getByRole("button", { name: "Sources", exact: true }).click();
+    const sourceLine = editor.getByRole("row").filter({ hasText: x.source.sourceId });
+    await sourceLine.getByText("Source controls", { exact: true }).click();
+    await sourceLine.getByLabel("Reason", { exact: true }).fill("Verify the synthetic source");
+    await sourceLine.getByLabel("Evidence reference", { exact: true }).fill("offline-test-source");
+    await sourceLine.getByRole("button", { name: "Run command" }).click();
+    await editor.getByText(/Local readiness ready_for_offline_probe/).waitFor();
+    await editor.getByRole("button", { name: "Audit log", exact: true }).click();
+    await editor.getByRole("cell", { name: "ops.source", exact: true }).waitFor();
     await author.context.close();
     await reviewer.context.close();
     await page.goto(`${origin}/account/billing`);
@@ -527,6 +542,13 @@ test("Chrome walks an empty account from cache miss and registration to explicit
       (await db.query("SELECT status FROM users WHERE id=$1", [verifiedUser])).rows[0].status,
       "deleted",
     );
+    await page.goto(`${origin}/agents`);
+    await page.getByRole("link", { name: "Connect MCP" }).click();
+    await page.getByRole("heading", { name: "MCP and Agent Skill" }).waitFor();
+    await page.goto(`${origin}/zh-CN/methodology`);
+    await page.getByRole("heading", { name: "价格研究方法" }).waitFor();
+    await page.getByRole("link", { name: "报告数据问题" }).click();
+    await page.getByRole("heading", { name: "支持" }).waitFor();
     assert.deepEqual(mistakes, []);
     console.log(`Browser screenshots saved to ${captures}`);
   } finally {
