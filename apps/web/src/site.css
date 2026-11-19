@@ -493,6 +493,15 @@ label.check {
   vertical-align: middle;
   margin-right: 10px;
 }
+.comp-photo .small:not(:empty),
+.photo-retry:not([hidden]) {
+  display: inline-block;
+  margin-inline-end: 8px;
+}
+.photo-retry {
+  padding: 3px 6px;
+  font-size: 0.75rem;
+}
 .auth-wrap {
   padding-block: 48px;
 }

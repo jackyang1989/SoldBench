@@ -285,12 +285,32 @@ test("Chrome walks an empty account from cache miss and registration to explicit
       },
       { times: 1 },
     );
+    let interruptedPhoto;
+    await page.route(
+      "**/v1/media/*",
+      async (route) => {
+        interruptedPhoto = route.request().url();
+        await route.abort();
+      },
+      { times: 1 },
+    );
     await page.getByRole("button", { name: "Claim result" }).click();
     await page.getByText(/This research originally used 1 credit/).waitFor();
     const methodology = page.getByRole("link", { name: "How these prices are calculated" });
     assert.equal(await methodology.getAttribute("href"), "/methodology");
     assert.equal(claimRequests.length, 1);
     assert.equal(claimRequests[0], `web-claim-${id}`);
+    const retryPhoto = page.getByRole("button", { name: "Retry photo", exact: true });
+    await retryPhoto.waitFor();
+    const photoCell = await retryPhoto.locator("..").elementHandle();
+    const postCount = requests.length;
+    const response = page.waitForResponse((response) => response.url() === interruptedPhoto);
+    await retryPhoto.press("Enter");
+    assert.equal((await response).status(), 200);
+    await page.waitForFunction((cell) => cell.querySelector("img")?.naturalWidth > 0, photoCell);
+    await retryPhoto.waitFor({ state: "hidden" });
+    assert.equal(requests.length, postCount);
+    assert.equal((await charges()).rowCount, 1);
     await page.getByRole("img", { name: "Sale photo" }).first().waitFor();
     await page.getByText(/Recent 30 days · 8 verified observations, coverage unknown/).waitFor();
     const beforeSummary = requests.length;

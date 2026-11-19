@@ -725,6 +725,65 @@ function addResearchTools(card, id, research) {
   };
 }
 
+function comparablePhoto(image) {
+  const frame = element("span", undefined, "comp-photo");
+  const url = image?.url;
+  if (image?.state !== "available" || !/^\/v1\/media\/[0-9a-f-]{36}$/.test(url ?? "")) {
+    const state = {
+      pending: t("Photo pending", "主图待处理"),
+      expired: t("Photo expired", "主图已过期"),
+      revoked: t("Photo withdrawn", "主图已撤回"),
+      not_permitted: t("Photo withheld", "主图无权显示"),
+      missing: t("No photo", "暂无主图"),
+    };
+    frame.append(element("span", state[image?.state] ?? t("Photo unavailable", "主图不可用"), "small"));
+    return frame;
+  }
+  const status = element("span", "", "small");
+  status.setAttribute("aria-live", "polite");
+  const retry = button(t("Retry photo", "重试主图"), () => load(true));
+  retry.className = "btn ghost photo-retry";
+  retry.hidden = true;
+  function load(explicitRetry = false) {
+    const photo = element("img", undefined, "comp-image");
+    photo.alt = t("Sale photo", "成交主图");
+    photo.loading = explicitRetry ? "eager" : "lazy";
+    photo.decoding = "async";
+    retry.hidden = true;
+    status.textContent = explicitRetry ? t("Loading photo…", "正在加载主图…") : "";
+    photo.addEventListener(
+      "load",
+      () => {
+        status.textContent = "";
+        if (explicitRetry && document.activeElement === status) {
+          photo.tabIndex = -1;
+          photo.focus();
+        }
+      },
+      { once: true },
+    );
+    photo.addEventListener(
+      "error",
+      () => {
+        photo.remove();
+        status.textContent = t("Photo unavailable", "主图不可用");
+        retry.hidden = false;
+        if (explicitRetry && document.activeElement === status) retry.focus();
+      },
+      { once: true },
+    );
+    frame.prepend(photo);
+    if (explicitRetry) {
+      status.tabIndex = -1;
+      status.focus();
+    }
+    photo.src = url;
+  }
+  frame.append(status, retry);
+  load();
+  return frame;
+}
+
 function resultView({ data, meta }, research = { sort: "", excluded: new Set(), summary: "" }) {
   actions.replaceChildren();
   output.replaceChildren();
@@ -879,16 +938,7 @@ function resultView({ data, meta }, research = { sort: "", excluded: new Set(), 
     for (const comp of data.comps) {
       const line = body.insertRow();
       const item = line.insertCell();
-      if (/^\/v1\/media\/[0-9a-f-]{36}$/.test(comp.primary_image?.url ?? "")) {
-        const photo = element("img", undefined, "comp-image");
-        photo.alt = t("Sale photo", "成交主图");
-        photo.loading = "lazy";
-        photo.src = comp.primary_image.url;
-        photo.addEventListener("error", () =>
-          photo.replaceWith(element("span", t("Photo unavailable", "主图不可用"), "small")),
-        );
-        item.append(photo);
-      }
+      item.append(comparablePhoto(comp.primary_image));
       item.append(element("span", comp.title ?? t("Title unavailable", "标题不可用")));
       line.insertCell().textContent = conditions[comp.condition_std] ?? "—";
       line.insertCell().textContent = amount(comp.item_price_cents);
