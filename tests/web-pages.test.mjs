@@ -259,6 +259,25 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     assert.equal(claimRequests.length, 1);
     assert.equal(claimRequests[0], `web-claim-${id}`);
     await page.getByRole("img", { name: "Sale photo" }).first().waitFor();
+    await page.getByText(/Recent 30 days · 8 verified observations, coverage unknown/).waitFor();
+    const beforeSummary = requests.length;
+    const breakdown = page.getByText("Sale formats, shipping and sellers", { exact: true });
+    await breakdown.click();
+    const fixedPrice = page
+      .getByRole("row")
+      .filter({ has: page.getByRole("cell", { name: "Fixed price", exact: true }) });
+    assert.deepEqual((await fixedPrice.getByRole("cell").allTextContents()).slice(0, 2), [
+      "Fixed price",
+      "8",
+    ]);
+    const offer = page
+      .getByRole("row")
+      .filter({ has: page.getByRole("cell", { name: "Best Offer", exact: true }) });
+    assert.deepEqual(await offer.getByRole("cell").allTextContents(), ["Best Offer", "0", "—"]);
+    await page.getByText("Shipping unavailable for 8 of 8 verified prices.").waitFor();
+    await page.getByText(/Seller count unavailable for this sample/).waitFor();
+    assert.equal(requests.length, beforeSummary);
+    await breakdown.click();
     await page.getByText("Price distribution and trends", { exact: true }).click();
     await page.getByText("8 prices from the complete permitted snapshot").waitFor();
     const displayedBars = await page
@@ -325,6 +344,9 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     const beforeLanguage = requests.length;
     await page.getByRole("link", { name: "简体中文" }).click();
     await page.getByText(/本次扣费 0 个额度/).waitFor();
+    await page.getByText("成交形式、运费与卖家", { exact: true }).click();
+    await page.getByRole("cell", { name: "一口价", exact: true }).waitFor();
+    await page.getByText("8 条核验价格中，8 条暂无可用运费口径。").waitFor();
     assert.equal(new URL(page.url()).searchParams.get("result"), id);
     assert.equal(requests.length, beforeLanguage);
     await page.goto(`${origin}/account`);

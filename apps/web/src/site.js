@@ -309,6 +309,109 @@ function shareControls(queryId) {
   return details;
 }
 
+function supplementalResearch(stats) {
+  const details = element("details", undefined, "research-distribution");
+  const locale = document.documentElement.lang;
+  const percent = new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 1 });
+  details.append(element("summary", t("Sale formats, shipping and sellers", "成交形式、运费与卖家")));
+
+  const formats = stats.by_format;
+  if (formats) {
+    const rows = [
+      ["fixed_price", t("Fixed price", "一口价")],
+      ["auction", t("Auction", "拍卖")],
+      ["best_offer", t("Best Offer", "议价成交")],
+    ].map(([key, label]) => [label, formats[key].sample_count, amount(formats[key].median_cents)]);
+    details.append(
+      accountTable(
+        t("Verified sales by format", "各形式的核验成交"),
+        [t("Format", "成交形式"), t("Verified prices", "核验价格"), t("Median", "中位价")],
+        rows,
+      ),
+      element(
+        "p",
+        t(
+          "Each format needs eight verified prices for a median.",
+          "每种成交形式至少需要 8 条核验价格才显示中位价。",
+        ),
+        "summary-note",
+      ),
+    );
+  }
+
+  const shipping = stats.shipping_summary;
+  if (shipping?.groups.length)
+    details.append(
+      accountTable(
+        t("Observed shipping by context", "按统一口径观察的运费"),
+        [
+          t("Context", "运费口径"),
+          t("Known shipping", "已知运费笔数"),
+          t("Mean shipping", "平均运费"),
+          t("Free shipping", "免运费"),
+        ],
+        shipping.groups.map((group) => [
+          group.context_ref,
+          group.known_count,
+          amount(group.mean_shipping_cents),
+          `${percent.format(group.free_share)} (${group.free_count}/${group.known_count})`,
+        ]),
+      ),
+    );
+  if (shipping)
+    details.append(
+      element(
+        "p",
+        t(
+          `Shipping unavailable for ${shipping.unknown_or_withheld_count} of ${stats.sample_count} verified prices.`,
+          `${stats.sample_count} 条核验价格中，${shipping.unknown_or_withheld_count} 条暂无可用运费口径。`,
+        ),
+        "summary-note",
+      ),
+    );
+
+  const sellers = stats.seller_summary;
+  if (sellers)
+    details.append(
+      element(
+        "p",
+        sellers.distinct_count == null
+          ? t(
+              `Seller count unavailable for this sample (${sellers.unknown_or_withheld_count} records without seller evidence).`,
+              `此样本暂无卖家数量（${sellers.unknown_or_withheld_count} 条缺少可用卖家证据）。`,
+            )
+          : t(
+              `${sellers.distinct_count} distinct sellers in ${sellers.identified_count} of ${stats.sample_count} verified sales.`,
+              `${stats.sample_count} 条核验成交中，${sellers.identified_count} 条可识别，涉及 ${sellers.distinct_count} 位不同卖家。`,
+            ),
+        "summary-note",
+      ),
+    );
+
+  const reported = stats.source_reported_match_count;
+  if (reported) {
+    const units = {
+      listings: t("listings", "条刊登"),
+      items: t("items", "件商品"),
+      events: t("events", "条事件"),
+      unknown: t("matches", "条匹配"),
+    };
+    const count = new Intl.NumberFormat(locale).format(reported.count);
+    const date = `${reported.as_of.slice(0, 16).replace("T", " ")} UTC`;
+    details.append(
+      element(
+        "p",
+        t(
+          `Source-reported matches on the first page · ${reported.estimated ? "about " : ""}${count} ${units[reported.unit]} · ${date}. Verified price sample: ${stats.sample_count}.`,
+          `来源报告的首屏匹配量 · ${reported.estimated ? "约 " : ""}${count} ${units[reported.unit]} · ${date}。核验价格样本为 ${stats.sample_count} 条。`,
+        ),
+        "summary-note",
+      ),
+    );
+  }
+  return details;
+}
+
 function researchDistribution(result, meta) {
   const id = result.query_id;
   const section = element("details", undefined, "research-distribution");
@@ -656,6 +759,35 @@ function resultView({ data, meta }, research = { sort: "", excluded: new Set(), 
     summary.append(metric);
   }
   card.append(summary);
+  const supplemental = data.supplemental_stats;
+  if (supplemental) {
+    const recent = supplemental.recent_30d;
+    if (recent) {
+      const change = supplemental.change_ratio;
+      let text;
+      if (recent.observation_coverage !== "complete") {
+        text = t(
+          `Recent 30 days · ${recent.sample_count} verified observations, coverage unknown`,
+          `近 30 天 · ${recent.sample_count} 条核验观测，覆盖范围未知`,
+        );
+      } else {
+        text = t(
+          `Recent 30 days · ${amount(recent.median_cents)} median · ${recent.sample_count} verified prices`,
+          `近 30 天 · 中位价 ${amount(recent.median_cents)} · ${recent.sample_count} 条核验价格`,
+        );
+        if (change) {
+          const percent = new Intl.NumberFormat(document.documentElement.lang, {
+            style: "percent",
+            signDisplay: "exceptZero",
+            maximumFractionDigits: 1,
+          }).format(change.numerator_cents / change.denominator_cents);
+          text += t(` · ${percent} from the prior 30 days`, ` · 较前 30 天 ${percent}`);
+        }
+      }
+      card.append(element("p", text, "summary-note"));
+    }
+    card.append(supplementalResearch(supplemental));
+  }
   const asOf = meta.data_as_of ?? data.data_as_of;
   const counts = t(
     `Observed ${stats.n_observed} · Comparable ${stats.n_comparable}`,
