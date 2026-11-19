@@ -75,6 +75,11 @@ export function mountPayments(
     });
   app.use("/billing/*", limit(8192));
   app.use("/webhooks/*", limit(32768));
+  app.get("/billing/offers", async (c) => {
+    const payment = service();
+    await owner(c);
+    return c.json({ data: payment.checkoutOffers(), meta: meta(c) });
+  });
   app.post("/billing/checkout", async (c) => {
     const p = service();
     return c.json({

@@ -101,6 +101,20 @@ export class PaymentLifecycle {
     if (keys.stripe === keys.paypal || providers.some((p) => !/^[0-9a-f]{64}$/.test(keys[p])))
       throw new Error("distinct_payment_fixture_keys_required");
   }
+  checkoutOffers() {
+    return {
+      offer_version: offerVersion,
+      data_mode: "offline_fixture" as const,
+      providers: [...providers],
+      offers: Object.entries(offers).map(([plan_code, offer]) => ({
+        plan_code,
+        amount_cents: offer.amount,
+        credits: offer.credits,
+        kind: offer.kind,
+        currency: "USD" as const,
+      })),
+    };
+  }
   private async owner(c: Transaction, actor: PaymentActor) {
     const now = await this.billing.now(c);
     // A bare owner id is used by trusted in-process fixture tooling only.

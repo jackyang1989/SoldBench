@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { serve } from "@hono/node-server";
+import { createApp } from "@soldbench/api";
+import { fixtureSignature, merchant, PaymentLifecycle } from "@soldbench/billing";
 import { database, migrate } from "@soldbench/db";
 import { PublicResults } from "@soldbench/query";
+import { loadConfig } from "@soldbench/shared";
+import { generate } from "otplib";
 import { createProductFixture } from "./helpers/product.mjs";
 
 const db = database(process.env.DATABASE_URL),
@@ -33,6 +37,9 @@ test("prototype-based pages serve both languages, valid private deep links and s
       "/account/usage",
       "/account/logs",
       "/account/keys",
+      "/account/security",
+      "/account/billing",
+      "/deletion-receipt",
       "/playground",
       "/support",
       "/categories",
@@ -75,7 +82,13 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     const port = server.address().port,
       origin = `http://127.0.0.1:${port}`,
       x = await createProductFixture(db, roots, { keyword: "Nintendo Switch", port, limit: 50, count: 8 });
-    app = x.app;
+    const paymentKeys = { stripe: randomBytes(32).toString("hex"), paypal: randomBytes(32).toString("hex") };
+    const payments = new PaymentLifecycle(x.billing, origin, paymentKeys);
+    app = createApp(loadConfig({ PORT: String(port), PAYMENT_FIXTURES: "true" }), db, {
+      auth: x.auth,
+      query: x.query,
+      payments,
+    });
     await db.query(
       `UPDATE source_clearances SET permitted_fields=permitted_fields || '{"public_cache":["aggregate"],"public_share":["aggregate"]}'::jsonb WHERE id=(SELECT source_clearance_id FROM sources WHERE id=$1)`,
       [x.source.sourceId],
@@ -431,6 +444,89 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByText("此处暂未发布内容。").waitFor();
     await author.context.close();
     await reviewer.context.close();
+    await page.goto(`${origin}/account/billing`);
+    await page.getByRole("heading", { name: "Test checkout" }).waitFor();
+    const provider = page.getByRole("combobox", { name: "Payment provider" });
+    assert.equal(await provider.inputValue(), "stripe");
+    await provider.selectOption("paypal");
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("button", { name: /Credit pack.*1,?500/ }).click();
+    await page.getByText(/paypal.*Awaiting confirmation/).waitFor();
+    const checkoutId = new URL(page.url()).searchParams.get("checkout");
+    const fact = {
+      provider: "paypal",
+      merchant: merchant("paypal"),
+      environment: "offline_fixture",
+      checkout_id: checkoutId,
+      object_id: randomUUID(),
+      revision: 1,
+      kind: "transaction",
+      status: "confirmed",
+      amount_cents: 1000,
+      currency: "USD",
+      paid_at: x.now(),
+      subscription_id: null,
+      period_start: null,
+      period_end: null,
+    };
+    await payments.stageFixture(fact);
+    const notification = Buffer.from(
+      JSON.stringify({
+        id: randomUUID(),
+        type: "capture_completed",
+        merchant: fact.merchant,
+        environment: fact.environment,
+        object_id: fact.object_id,
+        revision: fact.revision,
+      }),
+    );
+    const webhook = await app.request("/webhooks/paypal", {
+      method: "POST",
+      headers: {
+        Host: new URL(origin).host,
+        "Content-Type": "application/json",
+        ...fixtureSignature("paypal", paymentKeys.paypal, notification, new Date(x.now())),
+      },
+      body: notification,
+    });
+    assert.equal(webhook.status, 200);
+    assert.equal((await payments.workOnce()).status, "applied");
+    await page.getByRole("button", { name: "Refresh order" }).click();
+    await page.getByText(/paypal.*Confirmed/).waitFor();
+    await page.getByRole("cell", { name: "Succeeded", exact: true }).waitFor();
+    await page.goto(`${origin}/account/security`);
+    await page.getByRole("heading", { name: "Active sessions" }).waitFor();
+    await page.getByRole("button", { name: "Set up authenticator" }).click();
+    const secret = await page.locator(".security-secrets code").textContent();
+    const totp = () => generate({ secret, epoch: Date.parse(x.now()) / 1000 });
+    await page
+      .getByLabel("Authenticator code", { exact: true })
+      .first()
+      .fill(await totp());
+    await page.getByRole("button", { name: "Activate authenticator" }).click();
+    await page.getByText("Authenticator enabled", { exact: true }).waitFor();
+    assert.equal(await page.locator(".security-secrets li").count(), 10);
+    await page.getByRole("button", { name: "Hide recovery codes" }).click();
+    assert.equal(await page.locator(".security-secrets li").count(), 0);
+    x.clock.value = new Date(Date.parse(x.now()) + 30000).toISOString();
+    await page.getByLabel("Password", { exact: true }).fill(password);
+    await page.getByLabel("Authenticator code", { exact: true }).fill(await totp());
+    await page.getByRole("button", { name: "Verify identity" }).click();
+    await page.getByText("Identity verified.").waitFor();
+    await page.getByRole("button", { name: "Prepare deletion" }).click();
+    const receipt = await page.getByRole("textbox", { name: /Save this private receipt/ }).inputValue();
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("button", { name: "Confirm account deletion" }).click();
+    await page.getByText(/Deletion requested ·/).waitFor();
+    await page.getByRole("link", { name: "Check a deletion receipt" }).click();
+    await page.getByLabel("Private receipt").fill(receipt);
+    await page.getByRole("button", { name: "Check deletion status" }).click();
+    await page.getByText(/Deletion requested ·/).waitFor();
+    assert.ok(!page.url().includes(receipt));
+    assert.equal(
+      (await db.query("SELECT status FROM users WHERE id=$1", [verifiedUser])).rows[0].status,
+      "deleted",
+    );
     assert.deepEqual(mistakes, []);
     console.log(`Browser screenshots saved to ${captures}`);
   } finally {

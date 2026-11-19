@@ -1331,6 +1331,180 @@ async function showUsage() {
   );
 }
 
+async function showBilling() {
+  let data, prices, transactions;
+  try {
+    const [subscription, offers, payments] = await Promise.all([
+      api("/billing/subscription"),
+      api("/billing/offers"),
+      api("/billing/payments"),
+    ]);
+    data = subscription.data;
+    prices = offers.data;
+    transactions = payments.data;
+  } catch (error) {
+    if (error.status !== 503) throw error;
+    message(
+      t(
+        "Payment sandbox is unavailable. Your credits and usage are available separately.",
+        "支付沙盒暂不可用。仍可在用量页查看额度及扣费。",
+      ),
+    );
+    output.replaceChildren(link(t("View usage", "查看用量"), `${prefix}/account/usage`));
+    return;
+  }
+  const labels = {
+    pending: t("Awaiting confirmation", "等待确认"),
+    free: t("Free", "免费"),
+    active: t("Active", "生效中"),
+    succeeded: t("Succeeded", "已成功"),
+    refunded: t("Refunded", "已退款"),
+    failed: t("Failed", "失败"),
+    expired: t("Expired", "已过期"),
+    disputed: t("Disputed", "有争议"),
+    awaiting_reconciliation: t("Awaiting reconciliation", "等待对账"),
+    confirmed: t("Confirmed", "已确认"),
+  };
+  const labelsForPlan = { starter: "Starter", pro: "Pro", purchased_1500: t("Credit pack", "额度包") };
+  const subscriptionCard = element("section", undefined, "card result-card");
+  subscriptionCard.append(element("h2", t("Subscription", "订阅")));
+  subscriptionCard.append(
+    element(
+      "p",
+      `${labelsForPlan[data.plan_code] ?? data.plan_code} · ${labels[data.status] ?? data.status}`,
+    ),
+  );
+  if (data.current_period_end)
+    subscriptionCard.append(
+      element("p", `${t("Current period ends", "本期结束")} · ${data.current_period_end}`, "small"),
+    );
+  if (data.cancel_at_period_end)
+    subscriptionCard.append(
+      element("p", t("Scheduled to end after this period.", "订阅将在本期结束后取消。")),
+    );
+  else if (data.version) {
+    const cancel = button(t("Cancel at period end", "本期结束后取消"), () =>
+      run(async () => {
+        if (!confirm(t("End renewal after the current billing period?", "本期结束后停止续费？"))) return;
+        cancel.disabled = true;
+        try {
+          await post("/billing/cancel", { version: data.version }, (await session())?.csrf_token);
+          await showBilling();
+        } finally {
+          cancel.disabled = false;
+        }
+      }),
+    );
+    cancel.className = "btn ghost";
+    subscriptionCard.append(cancel);
+  }
+  const checkout = element("section", undefined, "card result-card");
+  checkout.append(
+    element("h2", t("Test checkout", "测试结账")),
+    element(
+      "p",
+      t(
+        "These sandbox offers use fixture amounts. No real payment is collected.",
+        "以下为沙盒测试报价，使用合成金额。此处不会收取实际款项。",
+      ),
+    ),
+  );
+  const chooser = element("label", t("Payment provider", "支付渠道"));
+  const provider = element("select");
+  for (const choice of prices.providers) {
+    const option = element("option", choice === "stripe" ? "Stripe" : "PayPal");
+    option.value = choice;
+    provider.append(option);
+  }
+  chooser.append(provider);
+  checkout.append(chooser);
+  const currentOrder = element("div", undefined, "summary-note");
+  const checkoutId = safeId(current().searchParams.get("checkout"));
+  async function checkOrder(id) {
+    const { data } = await api(`/billing/checkout/${id}`);
+    currentOrder.replaceChildren(
+      element("p", `${data.provider} · ${amount(data.amount_cents)} · ${labels[data.status] ?? data.status}`),
+    );
+    currentOrder.append(
+      button(t("Refresh order", "刷新订单"), () =>
+        run(async () => {
+          await showBilling();
+        }),
+      ),
+    );
+  }
+  const actions = element("div", undefined, "actions");
+  const keys = new Map();
+  for (const offer of prices.offers) {
+    const buttonLabel = `${labelsForPlan[offer.plan_code] ?? offer.plan_code} · ${amount(offer.amount_cents)} · ${offer.credits} ${t("credits", "额度")}`;
+    const start = button(buttonLabel, () =>
+      run(async () => {
+        const channel = provider.value;
+        if (
+          !confirm(
+            t(
+              `Create a ${channel} test checkout for ${amount(offer.amount_cents)}?`,
+              `创建 ${channel} 的 ${amount(offer.amount_cents)} 测试订单？`,
+            ),
+          )
+        )
+          return;
+        start.disabled = true;
+        const request = {
+          plan_code: offer.plan_code,
+          offer_version: prices.offer_version,
+          provider: channel,
+        };
+        const shape = JSON.stringify(request);
+        if (!keys.has(shape)) keys.set(shape, crypto.randomUUID());
+        try {
+          const { data } = await post(
+            "/billing/checkout",
+            request,
+            (await session())?.csrf_token,
+            keys.get(shape),
+          );
+          const route = new URL(data.checkout_url, location.origin);
+          const id = safeId(/^\/billing\/checkout\/([^/]+)$/.exec(route.pathname)?.[1]);
+          if (route.origin !== location.origin || !id) throw new Error("forbidden");
+          const url = current();
+          url.searchParams.set("checkout", id);
+          history.replaceState(null, "", url);
+          const alternate = document.querySelector("[data-language]");
+          alternate.href = `${zh ? "" : "/zh-CN"}/account/billing?checkout=${id}`;
+          await checkOrder(id);
+        } finally {
+          start.disabled = false;
+        }
+      }),
+    );
+    actions.append(start);
+  }
+  checkout.append(actions, currentOrder);
+  output.replaceChildren(
+    subscriptionCard,
+    checkout,
+    accountTable(
+      t("Payments and refunds", "付款与退款"),
+      [
+        t("Date", "日期"),
+        t("Provider", "渠道"),
+        t("Amount", "金额"),
+        t("Refund", "退款"),
+        t("Status", "状态"),
+      ],
+      transactions.items.map((row) => [
+        row.created_at,
+        row.provider,
+        amount(row.amount_cents),
+        amount(row.refunded_cents),
+        labels[row.status] ?? row.status,
+      ]),
+    ),
+  );
+  if (checkoutId) await checkOrder(checkoutId);
+}
+
 async function showLogs(cursor) {
   const params = cursor ? `?${new URLSearchParams({ cursor })}` : "";
   const { data } = await api(`/v1/requests${params}`);
@@ -1498,6 +1672,292 @@ async function showKeys() {
   await refreshKeys(data);
 }
 
+function securityForm(title, fields, action, onSuccess) {
+  const form = element("form", undefined, "key-form security-form");
+  for (const { name, label, type = "password", optional = false, autocomplete } of fields) {
+    const field = element("label", label);
+    const input = element("input");
+    input.name = name;
+    input.type = type;
+    input.required = !optional;
+    input.autocomplete = autocomplete ?? "current-password";
+    if (type === "text") {
+      input.inputMode = "numeric";
+      input.pattern = "[0-9]{6}";
+    }
+    field.append(input);
+    form.append(field);
+  }
+  const submit = element("button", title, "btn brand");
+  form.append(submit);
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (submit.disabled) return;
+    submit.disabled = true;
+    run(async () => {
+      try {
+        const data = Object.fromEntries([...new FormData(form)].filter(([, value]) => value !== ""));
+        const result = await post(action, data, (await session())?.csrf_token);
+        await onSuccess(result.data);
+      } finally {
+        form.reset();
+        submit.disabled = false;
+      }
+    });
+  });
+  return form;
+}
+
+function deletionStatus(receipt) {
+  return api("/account/deletion-requests/by-receipt", { headers: { "X-Deletion-Receipt": receipt } });
+}
+
+const receiptForm = document.querySelector("[data-deletion-receipt]");
+if (receiptForm)
+  receiptForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    run(async () => {
+      const value = receiptForm.elements.receipt.value.trim();
+      const { data } = await deletionStatus(value);
+      const labels = {
+        requested: t("Deletion requested", "已申请删除"),
+        processing: t("Deletion in progress", "正在删除"),
+        completed: t("Deletion complete", "已完成删除"),
+      };
+      message(`${labels[data.state] ?? data.state} · ${data.request_id}`);
+    });
+  });
+
+function accountDeletion() {
+  const card = element("section", undefined, "card result-card");
+  card.append(element("h2", t("Delete account", "删除账户")));
+  card.append(
+    element(
+      "p",
+      t(
+        "Deletion ends your sessions and revokes account access, API keys and shares. Required billing and audit records are retained.",
+        "删除会结束登录会话并撤销账户、密钥与分享访问。必要的账务和审计记录会保留。",
+      ),
+    ),
+  );
+  const prepare = button(t("Prepare deletion", "准备删除"), () => {
+    prepare.disabled = true;
+    const bytes = crypto.getRandomValues(new Uint8Array(32));
+    const receipt = btoa(String.fromCharCode(...bytes))
+      .replaceAll("+", "-")
+      .replaceAll("/", "_")
+      .replace(/=+$/, "");
+    const label = element(
+      "label",
+      t("Save this private receipt to view deletion status later", "请保存此私密回执，以后可查询删除状态"),
+    );
+    const value = element("input");
+    value.readOnly = true;
+    value.value = receipt;
+    value.addEventListener("focus", () => value.select());
+    label.append(value);
+    const submit = button(t("Confirm account deletion", "确认删除账户"), () =>
+      run(async () => {
+        if (!confirm(t("Permanently delete this account?", "永久删除此账户？"))) return;
+        submit.disabled = true;
+        let id;
+        try {
+          const { data } = await post(
+            "/account/deletion-requests",
+            { confirm: true, receipt_token: receipt },
+            (await session())?.csrf_token,
+          );
+          id = data.request.request_id;
+        } catch (failure) {
+          try {
+            id = (await deletionStatus(receipt)).data.request_id;
+          } catch {
+            submit.disabled = false;
+            throw failure;
+          }
+        }
+        controls.remove();
+        for (const section of output.children) {
+          if (section !== card) section.hidden = true;
+        }
+        message(t(`Deletion requested · ${id}`, `已申请删除 · ${id}`));
+      }),
+    );
+    const controls = element("div", undefined, "actions");
+    controls.append(
+      submit,
+      button(t("Cancel", "取消"), () => {
+        label.remove();
+        controls.remove();
+        prepare.disabled = false;
+        prepare.focus();
+      }),
+    );
+    card.append(label, controls);
+    value.focus();
+  });
+  card.append(prepare, link(t("Check a deletion receipt", "查询删除回执"), `${prefix}/deletion-receipt`));
+  return card;
+}
+
+async function showAccountSecurity(codes) {
+  const [sessions, mfa] = await Promise.all([api("/account/sessions"), api("/account/mfa")]);
+  output.replaceChildren();
+  const state = element("section", undefined, "card result-card");
+  state.append(element("h2", t("Two-factor authentication", "双重验证")));
+  const statusText = mfa.data.enabled
+    ? t("Authenticator enabled", "验证器已启用")
+    : t("Authenticator disabled", "验证器未启用");
+  state.append(element("p", statusText));
+  const oneTime = element("div", undefined, "security-secrets");
+  oneTime.setAttribute("aria-live", "polite");
+  function showCodes(codes) {
+    oneTime.replaceChildren(element("h3", t("Save these one-time recovery codes", "请保存这些一次性恢复码")));
+    const list = element("ul");
+    for (const code of codes) list.append(element("li", code));
+    oneTime.append(
+      list,
+      button(t("Hide recovery codes", "隐藏恢复码"), () => oneTime.replaceChildren()),
+    );
+  }
+  if (mfa.data.enabled) {
+    state.append(
+      element(
+        "p",
+        t(
+          `${mfa.data.recovery_codes_remaining} unused recovery codes`,
+          `剩余 ${mfa.data.recovery_codes_remaining} 个恢复码`,
+        ),
+        "small",
+      ),
+    );
+    const regenerate = button(t("Replace recovery codes", "更换恢复码"), () =>
+      run(async () => {
+        if (!confirm(t("Replace all unused recovery codes?", "更换全部未使用的恢复码？"))) return;
+        regenerate.disabled = true;
+        try {
+          const { data } = await post("/account/mfa/recovery-codes", {}, (await session())?.csrf_token);
+          showCodes(data.recovery_codes);
+        } finally {
+          regenerate.disabled = false;
+        }
+      }),
+    );
+    state.append(regenerate);
+    if (!mfa.data.required) {
+      const disable = button(t("Disable authenticator", "停用验证器"), () =>
+        run(async () => {
+          if (!confirm(t("Disable the authenticator and sign out?", "停用验证器并退出登录？"))) return;
+          await api("/account/mfa", {
+            method: "DELETE",
+            headers: { "X-CSRF-Token": (await session())?.csrf_token ?? "" },
+          });
+          location.assign(`${prefix}/login`);
+        }),
+      );
+      disable.className = "btn ghost";
+      state.append(disable);
+    }
+  } else {
+    const enable = button(t("Set up authenticator", "设置验证器"), () =>
+      run(async () => {
+        enable.disabled = true;
+        try {
+          const { data } = await post("/account/mfa/setup", {}, (await session())?.csrf_token);
+          const code = element("code", data.secret);
+          const proof = securityForm(
+            t("Activate authenticator", "启用验证器"),
+            [
+              {
+                name: "totp_code",
+                label: t("Authenticator code", "验证器验证码"),
+                type: "text",
+                autocomplete: "one-time-code",
+              },
+            ],
+            "/account/mfa/confirm",
+            (result) => showAccountSecurity(result.recovery_codes),
+          );
+          oneTime.replaceChildren(
+            element(
+              "p",
+              t(
+                "Enter this secret into your authenticator, then enter its current code.",
+                "将此密钥输入验证器，再填写当前验证码。",
+              ),
+            ),
+            code,
+            proof,
+          );
+        } finally {
+          enable.disabled = false;
+        }
+      }),
+    );
+    state.append(enable);
+  }
+  if (codes) showCodes(codes);
+  state.append(oneTime);
+
+  const signIns = accountTable(
+    t("Active sessions", "活动会话"),
+    [t("Device", "设备"), t("Started", "开始时间"), t("Expires", "到期"), t("Actions", "操作")],
+    sessions.data.map((row) => {
+      const revoke = button(
+        row.is_current ? t("Sign out", "退出登录") : t("Revoke session", "撤销会话"),
+        () =>
+          run(async () => {
+            if (!confirm(t("End this session?", "结束此会话？"))) return;
+            await api(`/account/sessions/${row.id}`, {
+              method: "DELETE",
+              headers: { "X-CSRF-Token": (await session())?.csrf_token ?? "" },
+            });
+            if (row.is_current) location.assign(`${prefix}/login`);
+            else await showAccountSecurity();
+          }),
+      );
+      return [
+        row.is_current ? `${row.device_label} · ${t("Current", "当前")}` : row.device_label,
+        row.created_at,
+        row.expires_at,
+        revoke,
+      ];
+    }),
+  );
+  const credentials = element("section", undefined, "card result-card");
+  credentials.append(element("h2", t("Reauthenticate", "重新认证")));
+  const password = { name: "password", label: t("Password", "密码") };
+  const authFields = mfa.data.enabled
+    ? [
+        password,
+        {
+          name: "totp_code",
+          label: t("Authenticator code", "验证器验证码"),
+          type: "text",
+          autocomplete: "one-time-code",
+        },
+      ]
+    : [password];
+  credentials.append(
+    securityForm(t("Verify identity", "验证身份"), authFields, "/auth/reauthenticate", () =>
+      message(t("Identity verified.", "身份已验证。")),
+    ),
+  );
+  credentials.append(element("h2", t("Change password", "修改密码")));
+  credentials.append(
+    securityForm(
+      t("Update password", "更新密码"),
+      [
+        { name: "current_password", label: t("Current password", "当前密码") },
+        { name: "new_password", label: t("New password", "新密码"), autocomplete: "new-password" },
+      ],
+      "/account/password",
+      () => location.assign(`${prefix}/login`),
+    ),
+  );
+  output.append(state, signIns, credentials, accountDeletion());
+}
+
 if (page.startsWith("/account"))
   run(async () => {
     const user = await session();
@@ -1516,6 +1976,8 @@ if (page.startsWith("/account"))
     );
     if (page === "/account/usage") return showUsage();
     if (page === "/account/logs") return showLogs();
+    if (page === "/account/security") return showAccountSecurity();
+    if (page === "/account/billing") return showBilling();
     if (page === "/account/keys") {
       try {
         await showKeys();

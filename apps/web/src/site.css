@@ -691,6 +691,7 @@ body [hidden] {
   height: auto;
 }
 .key-form input[name="name"],
+.key-form.security-form input,
 .account-main input[readonly],
 .auth-card textarea,
 .auth-card select {
@@ -703,6 +704,13 @@ body [hidden] {
 }
 .auth-card textarea {
   resize: vertical;
+}
+.security-secrets {
+  overflow-wrap: anywhere;
+}
+.security-secrets ul {
+  padding-inline-start: 1.25rem;
+  font-family: ui-monospace, monospace;
 }
 .site-announcements p,
 .published-section p {

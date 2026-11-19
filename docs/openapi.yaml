@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.19.0
+  version: 1.20.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -6968,6 +6968,24 @@ paths:
       x-task: TASK-035
       x-roles: [admin]
       x-credit-policy: '0'
+  /billing/offers:
+    get:
+      operationId: listOfflineCheckoutOffers
+      summary: List the currently enabled synthetic checkout offers
+      security: *id009
+      parameters: [*content_language]
+      responses:
+        '200':
+          description: The same fixture configuration used by checkout.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OfflineOffersResponse'}
+        '401': *content_error
+        '403': *content_error
+        '503': *content_error
+      x-task: TASK-029
+      x-roles: [owner]
+      x-credit-policy: '0'
 components:
   securitySchemes:
     OfflinePayPalFixtureSignature:
@@ -9295,6 +9313,34 @@ components:
       - reason
       - evidence_ref
       - version
+      additionalProperties: false
+    OfflineOffersResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            offer_version: {type: string}
+            data_mode: {const: offline_fixture}
+            providers:
+              type: array
+              items: {type: string, enum: [stripe, paypal]}
+            offers:
+              type: array
+              items:
+                type: object
+                properties:
+                  plan_code: {type: string}
+                  amount_cents: {type: integer, minimum: 0}
+                  credits: {type: integer, minimum: 0}
+                  kind: {type: string, enum: [subscription, purchased]}
+                  currency: {const: USD}
+                required: [plan_code, amount_cents, credits, kind, currency]
+                additionalProperties: false
+          required: [offer_version, data_mode, providers, offers]
+          additionalProperties: false
+        meta: {$ref: '#/components/schemas/BasicMeta'}
+      required: [data, meta]
       additionalProperties: false
     PaymentReplayResponse:
       type: object

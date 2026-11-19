@@ -33,6 +33,9 @@ export const webPages = [
   "/account/usage",
   "/account/logs",
   "/account/keys",
+  "/account/security",
+  "/account/billing",
+  "/deletion-receipt",
   "/playground",
   "/support",
   "/categories",
@@ -75,6 +78,10 @@ export function renderPage(
     const value = url.searchParams.get(key);
     if (value && uuid.test(value)) draft.set(key, value);
   }
+  if (page === "/account/billing") {
+    const checkout = url.searchParams.get("checkout");
+    if (checkout && uuid.test(checkout)) draft.set("checkout", checkout);
+  }
   if (resultId) draft.set("result", resultId);
   const query = draft.size ? `?${draft}` : "";
   const resume = (path: string) => link(path) + query;
@@ -101,6 +108,9 @@ export function renderPage(
     "/account/usage": ["Usage", "用量"],
     "/account/logs": ["Request logs", "请求日志"],
     "/account/keys": ["API keys", "API 密钥"],
+    "/account/security": ["Account security", "账户安全"],
+    "/account/billing": ["Billing", "账单"],
+    "/deletion-receipt": ["Deletion receipt", "删除回执"],
     "/playground": ["API Playground", "API 调试台"],
     "/categories": ["Research categories", "研究类目"],
     "/data-availability": ["Data availability", "数据可用性"],
@@ -408,6 +418,24 @@ export function renderPage(
         <div data-results="" />
       </section>
     );
+  } else if (page === "/deletion-receipt") {
+    content = (
+      <section className="wrap auth-wrap">
+        <div className="card auth-card">
+          <h1>{title}</h1>
+          <form data-deletion-receipt="" method="post">
+            <label>
+              {t("Private receipt", "私密回执")}
+              <input name="receipt" required minLength={43} maxLength={43} autoComplete="off" />
+            </label>
+            <button type="submit" className="btn brand">
+              {t("Check deletion status", "查看删除状态")}
+            </button>
+          </form>
+          {status}
+        </div>
+      </section>
+    );
   } else if (page === "/support") {
     content = (
       <section className="wrap auth-wrap">
@@ -642,7 +670,15 @@ export function renderPage(
         <aside className="docs-sidebar">
           <nav aria-label={t("Account navigation", "账户导航")}>
             {(
-              ["/account", "/account/queries", "/account/usage", "/account/logs", "/account/keys"] as const
+              [
+                "/account",
+                "/account/queries",
+                "/account/usage",
+                "/account/logs",
+                "/account/keys",
+                "/account/security",
+                "/account/billing",
+              ] as const
             ).map((target) => (
               <a key={target} aria-current={page === target ? "page" : undefined} href={link(target)}>
                 {headings[target]?.[zh ? 1 : 0]}
