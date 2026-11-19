@@ -60,6 +60,34 @@ const reason = z.string().trim().min(1).max(1000),
     z.strictObject({ command: z.literal("close"), reason, version }),
   ]);
 const invalid = () => new AppError("invalid_parameter", 400, "Invalid operation parameters.");
+const plainText = (maximum: number) =>
+  z
+    .string()
+    .trim()
+    .min(1)
+    .max(maximum)
+    .refine((entry) => !/[\p{Cc}\p{Cs}]/u.test(entry));
+const requestApproval = z.strictObject({
+  action: z.enum(["suspend", "restore"]),
+  credential_version: z.int().nonnegative(),
+  reason,
+});
+const approvalCommand = z.strictObject({
+  command: z.enum(["approve", "reject", "execute", "cancel"]),
+  version,
+  reason,
+});
+const noteInput = z.strictObject({ content: plainText(1000) });
+const openIncident = z.strictObject({
+  component: z.enum(["api", "collector", "query", "payments", "support"]),
+  title: plainText(140),
+  reason,
+});
+const incidentCommand = z.strictObject({
+  state: z.enum(["open", "monitoring", "resolved"]),
+  version,
+  reason,
+});
 async function body<T extends z.ZodType>(c: C, schema: T): Promise<z.infer<T>> {
   if (c.req.header("Content-Type")?.split(";")[0]?.trim().toLowerCase() !== "application/json")
     throw new AppError("invalid_parameter", 415, "Use application/json.");
@@ -271,5 +299,121 @@ export function mountOperations(
   );
   app.get("/admin/audit", async (c) =>
     c.json({ data: await service().audits(await identity(c), page(c)), meta: meta(c) }),
+  );
+  app.get("/admin/overview", async (c) =>
+    c.json({ data: await service().overview(await identity(c)), meta: meta(c) }),
+  );
+  app.get("/admin/settings", async (c) => {
+    const state = await service().overview(await identity(c));
+    if (state.role !== "admin") throw new AppError("forbidden", 403, "Administrator permission is required.");
+    return c.json({
+      data: {
+        as_of: state.as_of,
+        data_mode: config.dataMode,
+        collector_enabled: config.collectorEnabled,
+        payments_mode: config.paymentsMode,
+        payment_fixtures_enabled: config.paymentFixtures && Boolean(payments),
+      },
+      meta: meta(c),
+    });
+  });
+  app.get("/admin/users", async (c) =>
+    c.json({ data: await service().users(await identity(c), page(c)), meta: meta(c) }),
+  );
+  app.get("/admin/users/:id", async (c) =>
+    c.json({
+      data: await service().userCase(await identity(c), resource(c), c.get("requestId")),
+      meta: meta(c),
+    }),
+  );
+  app.post("/admin/users/:id/notes", async (c) =>
+    c.json(
+      {
+        data: await service().addUserNote(
+          await identity(c, true),
+          resource(c),
+          (await body(c, noteInput)).content,
+          key(c),
+          c.get("requestId"),
+        ),
+        meta: meta(c),
+      },
+      202,
+    ),
+  );
+  app.post("/admin/users/:id/approvals", async (c) =>
+    c.json(
+      {
+        data: await service().requestApproval(
+          await identity(c, true),
+          resource(c),
+          await body(c, requestApproval),
+          key(c),
+          c.get("requestId"),
+        ),
+        meta: meta(c),
+      },
+      202,
+    ),
+  );
+  app.get("/admin/approvals", async (c) =>
+    c.json({ data: await service().approvals(await identity(c), page(c)), meta: meta(c) }),
+  );
+  app.post("/admin/approvals/:id/commands", async (c) =>
+    c.json(
+      {
+        data: await service().approvalCommand(
+          await identity(c, true),
+          resource(c),
+          await body(c, approvalCommand),
+          key(c),
+          c.get("requestId"),
+        ),
+        meta: meta(c),
+      },
+      202,
+    ),
+  );
+  app.get("/admin/charges/:id", async (c) =>
+    c.json({
+      data: await service().chargeDetail(await identity(c), resource(c)),
+      meta: meta(c),
+    }),
+  );
+  app.get("/admin/incidents", async (c) =>
+    c.json({ data: await service().incidents(await identity(c), page(c)), meta: meta(c) }),
+  );
+  app.post("/admin/incidents", async (c) =>
+    c.json(
+      {
+        data: await service().incidentCommand(
+          await identity(c, true),
+          null,
+          await body(c, openIncident),
+          key(c),
+          c.get("requestId"),
+        ),
+        meta: meta(c),
+      },
+      202,
+    ),
+  );
+  app.get("/admin/incidents/:id", async (c) =>
+    c.json({ data: await service().incidentDetail(await identity(c), resource(c)), meta: meta(c) }),
+  );
+  app.post("/admin/incidents/:id", async (c) =>
+    c.json(
+      {
+        data: await service().incidentCommand(
+          await identity(c, true),
+          resource(c),
+          await body(c, incidentCommand),
+          key(c),
+          c.get("requestId"),
+        ),
+        meta: meta(c),
+      },
+      202,
+    ),
   );
 }

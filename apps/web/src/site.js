@@ -1750,11 +1750,117 @@ if (page === "/operations") {
   const recoveryAccess = api("/admin/recovery", { method: "GET" })
     .then(({ data }) => {
       recoveryTab.hidden = !data.payment_fixtures_enabled;
+      for (const tab of operatorTabs.filter((item) =>
+        ["users", "approvals", "incidents", "settings"].includes(item.dataset.opsView),
+      ))
+        tab.hidden = false;
       return true;
     })
     .catch(() => false);
   let generation = 0;
+  const operatorLink = (view, key, value) =>
+    `${prefix}/operations/${view}?${new URLSearchParams({ [key]: value })}`;
+  const stateLabel = (state) =>
+    ({
+      pending: t("Pending verification", "待核验"),
+      active: t("Active", "正常"),
+      suspended: t("Suspended", "已暂停"),
+      deleted: t("Deleted", "已删除"),
+      requested: t("Requested", "已申请"),
+      approved: t("Approved", "已批准"),
+      rejected: t("Rejected", "已拒绝"),
+      executed: t("Executed", "已执行"),
+      cancelled: t("Cancelled", "已取消"),
+      open: t("Open", "未恢复"),
+      monitoring: t("Monitoring", "观察中"),
+      resolved: t("Resolved", "已解决"),
+    })[state] ?? state;
+  const approvalAction = (action) =>
+    action === "suspend" ? t("Suspend account", "暂停账户") : t("Restore account", "恢复账户");
   const views = {
+    users: {
+      heading: t("Users", "用户"),
+      columns: [
+        t("Account", "账户"),
+        t("Email hint", "邮箱提示"),
+        t("State", "状态"),
+        t("Created", "创建时间"),
+      ],
+      row: (user) => [
+        link(user.id, operatorLink("users", "account", user.id)),
+        user.email_hint,
+        stateLabel(user.status),
+        user.created_at,
+      ],
+    },
+    approvals: {
+      heading: t("Account approvals", "账户审批"),
+      columns: [
+        t("Account", "账户"),
+        t("Action", "操作"),
+        t("State", "状态"),
+        t("Request and review", "申请与审校"),
+        t("Reason", "原因"),
+        t("Controls", "处理"),
+      ],
+      row: (entry) => {
+        const history = element("div");
+        history.append(element("p", entry.requested_at), element("p", entry.requested_by, "small"));
+        if (entry.reviewed_at)
+          history.append(element("p", entry.reviewed_at), element("p", entry.reviewed_by, "small"));
+        if (entry.executed_at)
+          history.append(element("p", entry.executed_at), element("p", entry.executed_by, "small"));
+        const tools = element("div");
+        const choices = [
+          ...(entry.can_review
+            ? [
+                ["approve", t("Approve request", "批准申请")],
+                ["reject", t("Reject request", "拒绝申请")],
+              ]
+            : []),
+          ...(entry.state === "approved"
+            ? [["execute", t("Execute approved action", "执行已批准操作")]]
+            : []),
+          ...(["requested", "approved"].includes(entry.state)
+            ? [["cancel", t("Cancel request", "取消申请")]]
+            : []),
+        ];
+        for (const [command, title] of choices)
+          tools.append(
+            recoveryForm("approvals", `/admin/approvals/${entry.id}/commands`, {
+              title,
+              confirmation: t("Confirm this audited approval action?", "确认执行此审批操作？"),
+              fields: { command, version: entry.version },
+              receipt: () => t("Approval updated", "审批已更新"),
+            }),
+          );
+        return [
+          link(entry.subject_user_id, operatorLink("users", "account", entry.subject_user_id)),
+          approvalAction(entry.action),
+          stateLabel(entry.state),
+          history,
+          entry.reason,
+          tools,
+        ];
+      },
+    },
+    incidents: {
+      heading: t("Incidents", "事件"),
+      columns: [
+        t("Title", "标题"),
+        t("Component", "组件"),
+        t("State", "状态"),
+        t("Updated", "更新时间"),
+        t("Controls", "操作"),
+      ],
+      row: (entry) => [
+        link(entry.title, operatorLink("incidents", "incident", entry.id)),
+        entry.component,
+        stateLabel(entry.state),
+        entry.updated_at,
+        incidentControls(entry),
+      ],
+    },
     sources: {
       heading: t("Sources", "数据源"),
       columns: [
@@ -1764,12 +1870,12 @@ if (page === "/operations") {
         t("Last observation", "最近观测"),
         t("Action", "操作"),
       ],
-      row: (source) => [
+      row: (source, canWrite) => [
         source.source_id,
         source.clearance_status,
         source.circuit_status,
         source.last_data_as_of,
-        sourceCommand(source),
+        canWrite ? sourceCommand(source) : null,
       ],
     },
     jobs: {
@@ -1812,7 +1918,9 @@ if (page === "/operations") {
         t("Action", "操作"),
       ],
       row: (entry, canWrite) => [
-        entry.charge_id,
+        canWrite
+          ? link(entry.charge_id, operatorLink("billing", "charge", entry.charge_id))
+          : entry.charge_id,
         entry.user_ref,
         entry.credits,
         entry.state,
@@ -1864,7 +1972,7 @@ if (page === "/operations") {
         t("Due (UTC)", "截止时间（UTC）"),
         t("Action", "操作"),
       ],
-      row: (entry, canWrite) => [
+      row: (entry) => [
         entry.id,
         {
           data_quality: t("Data quality", "数据质量"),
@@ -1876,7 +1984,7 @@ if (page === "/operations") {
         supportState(entry.status),
         entry.assigned_to_you ? t("You", "自己") : entry.assignee_ref,
         entry.due_at,
-        canWrite && (entry.assigned_to_you || entry.status === "received" || entry.can_take_over)
+        entry.assigned_to_you || entry.status === "received" || entry.can_take_over
           ? supportCase(entry)
           : null,
       ],
@@ -1893,6 +2001,163 @@ if (page === "/operations") {
       row: (entry) => [entry.action, entry.object_id, entry.request_id, entry.actor_ref, entry.created_at],
     },
   };
+  function incidentControls(entry) {
+    const tools = element("div");
+    for (const state of ["open", "monitoring", "resolved"].filter((item) => item !== entry.state))
+      tools.append(
+        recoveryForm("incidents", `/admin/incidents/${entry.id}`, {
+          title: stateLabel(state),
+          confirmation: t("Update the internal incident?", "更新此内部事件？"),
+          fields: { state, version: entry.version },
+          receipt: () => t("Incident updated", "事件已更新"),
+        }),
+      );
+    return tools;
+  }
+  function operatorForm(path, title, fields, after) {
+    const form = element("form", undefined, "key-form security-form");
+    form.append(element("h2", title));
+    for (const [name, labelText, maximum] of fields) {
+      const label = element("label", labelText);
+      const input = element(Array.isArray(maximum) ? "select" : "input");
+      if (Array.isArray(maximum)) {
+        for (const value of maximum) {
+          const option = element("option", value);
+          option.value = value;
+          input.append(option);
+        }
+      } else input.maxLength = maximum;
+      input.name = name;
+      input.required = true;
+      label.append(input);
+      form.append(label);
+    }
+    const submit = element("button", title, "btn brand");
+    submit.type = "submit";
+    form.append(submit);
+    let attempt;
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      run(async () => {
+        if (submit.disabled) return;
+        submit.disabled = true;
+        try {
+          const input = Object.fromEntries(new FormData(form));
+          const shape = JSON.stringify(input);
+          if (attempt?.shape !== shape) attempt = { shape, key: crypto.randomUUID() };
+          const { data } = await post(path, input, (await session())?.csrf_token, attempt.key);
+          await after(data.audit_id);
+        } finally {
+          submit.disabled = false;
+        }
+      });
+    });
+    return form;
+  }
+  function operatorDetail(view, data) {
+    const card = element("section", undefined, "card result-card");
+    if (view === "users") {
+      const account = data.account;
+      card.append(element("h2", t("User 360", "用户 360")));
+      card.append(
+        element("p", `${account.id} · ${account.email_hint ?? "—"} · ${stateLabel(account.status)}`),
+      );
+      card.append(
+        accountTable(
+          t("Account activity", "账户活动"),
+          [t("Sessions", "会话"), t("API keys", "API 密钥"), t("Queries", "查询"), t("Payments", "付款")],
+          [[data.sessions, data.api_keys, data.query_count, data.payment_count]],
+        ),
+      );
+      if (!data.operator && ["active", "suspended"].includes(account.status)) {
+        const action = account.status === "active" ? "suspend" : "restore";
+        card.append(
+          recoveryForm("approvals", `/admin/users/${account.id}/approvals`, {
+            title: approvalAction(action),
+            confirmation: t("Request an independent account review?", "提交独立账户审批？"),
+            fields: { action, credential_version: account.credential_version },
+            receipt: () => t("Approval requested", "已提交审批"),
+          }),
+        );
+      }
+      card.append(
+        accountTable(
+          t("Recent charges", "近期扣费"),
+          [t("Charge", "扣费"), t("State", "状态"), t("Created", "创建时间")],
+          data.charges.map((charge) => [
+            link(charge.id, operatorLink("billing", "charge", charge.id)),
+            charge.state,
+            charge.created_at,
+          ]),
+        ),
+      );
+      card.append(
+        accountTable(
+          t("Recent payment records", "近期付款记录"),
+          [t("Payment", "付款编号"), t("Provider", "渠道"), t("Amount", "金额"), t("State", "状态")],
+          data.payments.map((payment) => [
+            payment.id,
+            payment.provider,
+            amount(Number(payment.amount_cents)),
+            payment.state,
+          ]),
+        ),
+      );
+      card.append(
+        accountTable(
+          t("Support requests", "支持工单"),
+          [t("Request", "工单"), t("Category", "类别"), t("State", "状态")],
+          data.tickets.map((ticket) => [ticket.id, ticket.category, supportState(ticket.status)]),
+        ),
+      );
+      card.append(
+        accountTable(
+          t("Internal account notes", "内部账户笔记"),
+          [t("Note", "笔记"), t("Created", "创建时间")],
+          data.notes.map((note) => [note.content, note.created_at]),
+        ),
+      );
+      if (account.status !== "deleted")
+        card.append(
+          operatorForm(
+            `/admin/users/${account.id}/notes`,
+            t("Save account note", "保存账户笔记"),
+            [["content", t("Internal note", "内部笔记"), 1000]],
+            (audit) =>
+              showView("users", undefined, `${t("Account note saved", "已保存账户笔记")} · ${audit}`),
+          ),
+        );
+    } else if (view === "incidents") {
+      const entry = data.incident;
+      card.append(
+        element("h2", entry.title),
+        element("p", `${entry.component} · ${stateLabel(entry.state)}`),
+        incidentControls(entry),
+      );
+      card.append(
+        accountTable(
+          t("Incident timeline", "事件时间线"),
+          [t("State", "状态"), t("Time", "时间"), t("Request ID", "请求编号")],
+          data.timeline.map((event) => [stateLabel(event.state), event.created_at, event.request_id]),
+        ),
+      );
+    } else {
+      const charge = data.charge;
+      card.append(
+        element("h2", t("Charge detail", "扣费详情")),
+        element("p", `${charge.id} · ${charge.state} · ${charge.created_at}`),
+      );
+      card.append(link(t("Open account", "查看账户"), operatorLink("users", "account", charge.user_id)));
+      card.append(
+        accountTable(
+          t("Ledger entries", "账本流水"),
+          [t("Entry", "流水号"), t("Type", "类型"), t("Delta", "变动"), t("Balance after", "变动后余额")],
+          data.ledger.map((row) => [row.id, row.kind, row.delta, row.balance_after]),
+        ),
+      );
+    }
+    return card;
+  }
   function supportCase(entry) {
     const panel = element("details");
     panel.append(
@@ -2127,8 +2392,50 @@ if (page === "/operations") {
     }
     try {
       const params = cursor ? `?${new URLSearchParams({ cursor })}` : "";
-      const [response, canWrite] = await Promise.all([api(`/admin/${view}${params}`), recoveryAccess]);
+      const caseKey = { users: "account", incidents: "incident", billing: "charge" }[view];
+      const caseId = caseKey ? safeId(current().searchParams.get(caseKey)) : null;
+      const path = caseId
+        ? `/admin/${view === "billing" ? "charges" : view}/${caseId}`
+        : `/admin/${view}${params}`;
+      const [response, canWrite] = await Promise.all([api(path), recoveryAccess]);
       if (request !== generation) return;
+      if (caseId) {
+        message(notice);
+        output.append(operatorDetail(view, response.data));
+        return;
+      }
+      if (view === "overview" || view === "settings") {
+        const data = response.data;
+        const summary =
+          view === "overview"
+            ? [
+                [t("Active query jobs", "活动查询作业"), data.active_jobs],
+                [t("Open support requests", "未结工单"), data.open_support],
+                [t("Open incidents", "未解决事件"), data.open_incidents],
+                [t("Pending approvals", "待执行审批"), data.pending_approvals],
+              ]
+            : [
+                [t("Data mode", "数据模式"), data.data_mode],
+                [
+                  t("Live collection", "真实采集"),
+                  data.collector_enabled ? t("Enabled", "启用") : t("Disabled", "关闭"),
+                ],
+                [t("Payments mode", "支付模式"), data.payments_mode],
+                [
+                  t("Payment fixtures", "支付沙盒"),
+                  data.payment_fixtures_enabled ? t("Enabled", "启用") : t("Disabled", "关闭"),
+                ],
+              ];
+        message(notice);
+        output.append(
+          accountTable(
+            view === "overview" ? t("Operations overview", "运营概览") : t("Effective settings", "生效设置"),
+            [t("Item", "项目"), t("Value", "数值")],
+            [...summary, [t("As of", "截至"), data.as_of]],
+          ),
+        );
+        return;
+      }
       const { heading, columns, row } = views[view];
       const data = response.data;
       const rows = Array.isArray(data) ? data : data.items;
@@ -2152,6 +2459,20 @@ if (page === "/operations") {
         card.append(next);
       }
       message(notice);
+      if (!cursor && view === "incidents")
+        output.append(
+          operatorForm(
+            "/admin/incidents",
+            t("Open incident", "登记事件"),
+            [
+              ["component", t("Component", "组件"), ["api", "collector", "query", "payments", "support"]],
+              ["title", t("Incident title", "事件标题"), 140],
+              ["reason", t("Reason", "原因"), 1000],
+            ],
+            (audit) =>
+              showView("incidents", undefined, `${t("Incident registered", "已登记事件")} · ${audit}`),
+          ),
+        );
       output.append(card);
     } catch (error) {
       if (request !== generation) return;
@@ -2167,8 +2488,15 @@ if (page === "/operations") {
     }
   }
   for (const button of operatorTabs)
-    button.addEventListener("click", () => run(() => showView(button.dataset.opsView)));
-  run(() => showView("jobs"));
+    button.addEventListener("click", () =>
+      run(() => {
+        history.pushState(null, "", `${prefix}/operations/${button.dataset.opsView}`);
+        return showView(button.dataset.opsView);
+      }),
+    );
+  addEventListener("popstate", () => location.reload());
+  const initial = document.querySelector("[data-ops-tabs]").dataset.panel;
+  run(() => showView(operatorTabs.some((tab) => tab.dataset.opsView === initial) ? initial : "overview"));
 }
 
 async function showUsage() {

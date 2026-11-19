@@ -672,7 +672,6 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByText(`已处置 · ${firstReceipt}`).waitFor();
     await page.getByText("The fixture review is complete.", { exact: true }).waitFor();
     assert.ok(!page.url().includes(supportReceipt));
-    await reviewer.context.close();
     const onlineApp = app;
     app = createApp(loadConfig({ PORT: String(port) }), db, { auth: x.auth, query: x.query });
     try {
@@ -805,6 +804,42 @@ test("Chrome walks an empty account from cache miss and registration to explicit
       "ops.support.resolve",
     ])
       await editor.getByRole("cell", { name: action, exact: true }).waitFor();
+    await editor.goto(`${origin}/operations/users?account=${x.user}`);
+    await editor.getByRole("heading", { name: "User 360", exact: true }).waitFor();
+    await editor
+      .getByRole("textbox", { name: "Internal note", exact: true })
+      .fill("Synthetic browser account note");
+    await editor.getByRole("button", { name: "Save account note", exact: true }).click();
+    await editor.getByRole("cell", { name: "Synthetic browser account note" }).waitFor();
+    const requestApproval = editor
+      .locator("details")
+      .filter({ has: editor.getByText("Suspend account", { exact: true }) });
+    await requestApproval.getByText("Suspend account", { exact: true }).click();
+    await requestApproval
+      .getByRole("textbox", { name: "Reason", exact: true })
+      .fill("Synthetic case approval");
+    editor.once("dialog", (dialog) => dialog.accept());
+    await requestApproval.getByRole("button", { name: "Run command", exact: true }).click();
+    await editor.getByText(/Approval requested · Audit ID/).waitFor();
+    await reviewer.editor.goto(`${origin}/operations/approvals`);
+    const caseRow = reviewer.editor.getByRole("row").filter({ hasText: x.user });
+    for (const label of ["Approve request", "Execute approved action"]) {
+      const control = caseRow
+        .locator("details")
+        .filter({ has: reviewer.editor.getByText(label, { exact: true }) });
+      await control.getByText(label, { exact: true }).click();
+      await control.getByRole("textbox", { name: "Reason", exact: true }).fill("Independent browser review");
+      reviewer.editor.once("dialog", (dialog) => dialog.accept());
+      await control.getByRole("button", { name: "Run command", exact: true }).click();
+    }
+    await caseRow.getByRole("cell", { name: "Executed", exact: true }).waitFor();
+    await editor.goto(`${origin}/zh-CN/operations/users?account=${x.user}`);
+    await editor.getByRole("heading", { name: "用户 360", exact: true }).waitFor();
+    await editor.getByText(/已暂停/).waitFor();
+    await editor.getByRole("button", { name: "系统设置", exact: true }).click();
+    await editor.getByRole("cell", { name: "真实采集", exact: true }).waitFor();
+    assert.equal(new URL(editor.url()).pathname, "/zh-CN/operations/settings");
+    await reviewer.context.close();
     await author.context.close();
     await page.getByRole("button", { name: "Refresh order" }).click();
     await page.getByText(/paypal.*Confirmed/).waitFor();

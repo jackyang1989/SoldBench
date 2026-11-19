@@ -10,6 +10,20 @@ export type { EditorialEntry, EditorialView } from "./editorial.tsx";
 export const webCss = readFileSync(new URL("../src/site.css", import.meta.url), "utf8");
 export const webClient = readFileSync(new URL("../src/site.js", import.meta.url), "utf8");
 
+export const operationsPanels = [
+  "overview",
+  "users",
+  "approvals",
+  "incidents",
+  "sources",
+  "jobs",
+  "billing",
+  "recovery",
+  "support",
+  "audit",
+  "settings",
+] as const;
+
 const filters = [
   "q",
   "window_days",
@@ -105,13 +119,25 @@ export function renderPage(
   if (resultId) draft.set("result", resultId);
   const query = draft.size ? `?${draft}` : "";
   const resume = (path: string) => link(path) + query;
-  const other = editorial
-    ? (zh ? "" : "/zh-CN") + editorial.path + (editorial.path === "/worth" ? query : "")
-    : docs
-      ? docs.alternate
-      : page === "/share" || page === "/admin/content"
-        ? `${url.pathname}?lang=${zh ? "en" : "zh-CN"}`
-        : (zh ? "" : "/zh-CN") + (resultId ? `/results/${resultId}` : page) + query;
+  const operationParams = new URLSearchParams();
+  if (page === "/operations") {
+    for (const key of ["account", "charge", "incident"]) {
+      const value = url.searchParams.get(key);
+      if (value && uuid.test(value)) operationParams.set(key, value);
+    }
+  }
+  const other =
+    page === "/operations"
+      ? (zh ? "" : "/zh-CN") +
+        (zh ? url.pathname.slice("/zh-CN".length) : url.pathname) +
+        (operationParams.size ? `?${operationParams}` : "")
+      : editorial
+        ? (zh ? "" : "/zh-CN") + editorial.path + (editorial.path === "/worth" ? query : "")
+        : docs
+          ? docs.alternate
+          : page === "/share" || page === "/admin/content"
+            ? `${url.pathname}?lang=${zh ? "en" : "zh-CN"}`
+            : (zh ? "" : "/zh-CN") + (resultId ? `/results/${resultId}` : page) + query;
   const priceDraft = (key: string) => {
     const value = draft.get(key);
     if (!value || !/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) return "";
@@ -548,21 +574,26 @@ export function renderPage(
         <div className="account-main">
           <h1>{title}</h1>
           {status}
-          <div className="actions" data-ops-tabs="">
+          <div className="actions" data-ops-tabs="" data-panel={url.pathname.split("/").at(-1)}>
             {[
+              ["overview", t("Overview", "概览")],
+              ["users", t("Users", "用户")],
+              ["approvals", t("Approvals", "待审批")],
+              ["incidents", t("Incidents", "事件")],
               ["sources", t("Sources", "数据源")],
               ["jobs", t("Jobs", "作业")],
               ["billing", t("Reconciliation", "对账")],
               ["recovery", t("Payment recovery", "付款恢复")],
               ["support", t("Support queue", "支持工单")],
               ["audit", t("Audit log", "审计日志")],
+              ["settings", t("Settings", "系统设置")],
             ].map(([view, label]) => (
               <button
                 key={view}
                 className="btn ghost"
                 data-ops-view={view}
                 type="button"
-                hidden={view === "recovery"}
+                hidden={["recovery", "users", "approvals", "incidents", "settings"].includes(view ?? "")}
               >
                 {label}
               </button>

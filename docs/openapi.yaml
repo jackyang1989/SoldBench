@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.25.0
+  version: 1.26.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -7122,6 +7122,355 @@ paths:
       x-roles: [owner]
       x-credit-policy: '0'
 
+  /admin/overview:
+    get:
+      operationId: readOperationsOverview
+      summary: readOperationsOverview
+      security: *id009
+      parameters: [*content_language]
+      responses:
+        '200':
+          description: Private operations response, no query credit charge.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {$ref: '#/components/schemas/OperationsWorkbenchOverview'}
+                  meta: {$ref: '#/components/schemas/BasicMeta'}
+                required: [data, meta]
+                additionalProperties: false
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '409': *content_error
+      x-task: TASK-060
+      x-credit-policy: '0'
+      x-roles: [admin, support]
+  /admin/settings:
+    get:
+      operationId: readOperationsSettings
+      summary: readOperationsSettings
+      security: *id009
+      parameters: [*content_language]
+      responses:
+        '200':
+          description: Private operations response, no query credit charge.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {$ref: '#/components/schemas/OperationsWorkbenchSettings'}
+                  meta: {$ref: '#/components/schemas/BasicMeta'}
+                required: [data, meta]
+                additionalProperties: false
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '409': *content_error
+      x-task: TASK-060
+      x-credit-policy: '0'
+      x-roles: [admin]
+  /admin/users:
+    get:
+      operationId: listOperationsUsers
+      summary: listOperationsUsers
+      security: *id009
+      parameters: [*content_language, *id005, *id006]
+      responses:
+        '200':
+          description: Private operations response, no query credit charge.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      items: {type: array, maxItems: 100, items: {$ref: '#/components/schemas/OperatorAccount'}}
+                      next_cursor: {type: [string, 'null']}
+                    required: [items, next_cursor]
+                    additionalProperties: false
+                  meta: {$ref: '#/components/schemas/BasicMeta'}
+                required: [data, meta]
+                additionalProperties: false
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '409': *content_error
+      x-task: TASK-060
+      x-credit-policy: '0'
+      x-roles: [admin]
+  /admin/users/{id}:
+    get:
+      operationId: readOperationsUserCase
+      summary: readOperationsUserCase
+      security: *id009
+      parameters: [*content_language, {name: id, in: path, required: true, schema: *id002}]
+      responses:
+        '200':
+          description: Private operations response, no query credit charge.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {$ref: '#/components/schemas/OperatorAccountCase'}
+                  meta: {$ref: '#/components/schemas/BasicMeta'}
+                required: [data, meta]
+                additionalProperties: false
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '409': *content_error
+      x-task: TASK-060
+      x-credit-policy: '0'
+      x-roles: [admin]
+  /admin/users/{id}/notes:
+    post:
+      operationId: addOperationsUserNote
+      summary: addOperationsUserNote
+      security: *id009
+      parameters: [*content_language, {name: id, in: path, required: true, schema: *id002}, *id003, *id008]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/OperatorAccountNoteInput'}
+      responses:
+        '202':
+          description: Private operations response, no query credit charge.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CommandResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '409': *content_error
+      x-task: TASK-060
+      x-credit-policy: '0'
+      x-roles: [admin]
+  /admin/users/{id}/approvals:
+    post:
+      operationId: requestOperationsAccountApproval
+      summary: requestOperationsAccountApproval
+      security: *id009
+      parameters: [*content_language, {name: id, in: path, required: true, schema: *id002}, *id003, *id008]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/OperatorApprovalInput'}
+      responses:
+        '202':
+          description: Private operations response, no query credit charge.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CommandResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '409': *content_error
+      x-task: TASK-060
+      x-credit-policy: '0'
+      x-roles: [admin]
+  /admin/approvals:
+    get:
+      operationId: listOperationsAccountApprovals
+      summary: listOperationsAccountApprovals
+      security: *id009
+      parameters: [*content_language, *id005, *id006]
+      responses:
+        '200':
+          description: Private operations response, no query credit charge.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      items: {type: array, maxItems: 100, items: {$ref: '#/components/schemas/OperatorAccountApproval'}}
+                      next_cursor: {type: [string, 'null']}
+                    required: [items, next_cursor]
+                    additionalProperties: false
+                  meta: {$ref: '#/components/schemas/BasicMeta'}
+                required: [data, meta]
+                additionalProperties: false
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '409': *content_error
+      x-task: TASK-060
+      x-credit-policy: '0'
+      x-roles: [admin]
+  /admin/approvals/{id}/commands:
+    post:
+      operationId: transitionOperationsAccountApproval
+      summary: transitionOperationsAccountApproval
+      security: *id009
+      parameters: [*content_language, {name: id, in: path, required: true, schema: *id002}, *id003, *id008]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/OperatorApprovalCommand'}
+      responses:
+        '202':
+          description: Private operations response, no query credit charge.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CommandResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '409': *content_error
+      x-task: TASK-060
+      x-credit-policy: '0'
+      x-roles: [admin]
+  /admin/charges/{id}:
+    get:
+      operationId: readOperationsChargeDetail
+      summary: readOperationsChargeDetail
+      security: *id009
+      parameters: [*content_language, {name: id, in: path, required: true, schema: *id002}]
+      responses:
+        '200':
+          description: Private operations response, no query credit charge.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {$ref: '#/components/schemas/OperatorChargeDetail'}
+                  meta: {$ref: '#/components/schemas/BasicMeta'}
+                required: [data, meta]
+                additionalProperties: false
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '409': *content_error
+      x-task: TASK-060
+      x-credit-policy: '0'
+      x-roles: [admin]
+  /admin/incidents:
+    get:
+      operationId: listOperationsIncidents
+      summary: listOperationsIncidents
+      security: *id009
+      parameters: [*content_language, *id005, *id006]
+      responses:
+        '200':
+          description: Private operations response, no query credit charge.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      items: {type: array, maxItems: 100, items: {$ref: '#/components/schemas/OperatorIncident'}}
+                      next_cursor: {type: [string, 'null']}
+                    required: [items, next_cursor]
+                    additionalProperties: false
+                  meta: {$ref: '#/components/schemas/BasicMeta'}
+                required: [data, meta]
+                additionalProperties: false
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '409': *content_error
+      x-task: TASK-060
+      x-credit-policy: '0'
+      x-roles: [admin]
+    post:
+      operationId: openOperationsIncident
+      summary: openOperationsIncident
+      security: *id009
+      parameters: [*content_language, *id003, *id008]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/OperatorIncidentInput'}
+      responses:
+        '202':
+          description: Private operations response, no query credit charge.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CommandResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '409': *content_error
+      x-task: TASK-060
+      x-credit-policy: '0'
+      x-roles: [admin]
+  /admin/incidents/{id}:
+    get:
+      operationId: readOperationsIncident
+      summary: readOperationsIncident
+      security: *id009
+      parameters: [*content_language, {name: id, in: path, required: true, schema: *id002}]
+      responses:
+        '200':
+          description: Private operations response, no query credit charge.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {$ref: '#/components/schemas/OperatorIncidentDetail'}
+                  meta: {$ref: '#/components/schemas/BasicMeta'}
+                required: [data, meta]
+                additionalProperties: false
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '409': *content_error
+      x-task: TASK-060
+      x-credit-policy: '0'
+      x-roles: [admin]
+    post:
+      operationId: updateOperationsIncident
+      summary: updateOperationsIncident
+      security: *id009
+      parameters: [*content_language, {name: id, in: path, required: true, schema: *id002}, *id003, *id008]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/OperatorIncidentCommand'}
+      responses:
+        '202':
+          description: Private operations response, no query credit charge.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CommandResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '409': *content_error
+      x-task: TASK-060
+      x-credit-policy: '0'
+      x-roles: [admin]
   /admin/recovery:
     get:
       operationId: listOfflineRecoveryReceipts
@@ -9969,6 +10318,211 @@ components:
         meta: {$ref: '#/components/schemas/BasicMeta'}
       required: [data, meta]
       additionalProperties: false
+    OperationsWorkbenchOverview:
+      type: object
+      properties:
+        role: {enum: [admin, support]}
+        as_of: &operator_date {type: string, format: date-time}
+        active_jobs: &operator_count {type: integer, minimum: 0}
+        open_support: *operator_count
+        open_incidents: *operator_count
+        pending_approvals: {type: [integer, 'null'], minimum: 0}
+      required: [role, as_of, active_jobs, open_support, open_incidents, pending_approvals]
+      additionalProperties: false
+    OperationsWorkbenchSettings:
+      type: object
+      properties:
+        as_of: *operator_date
+        data_mode: {const: offline_fixture}
+        collector_enabled: {const: false}
+        payments_mode: {const: offline}
+        payment_fixtures_enabled: {type: boolean}
+      required: [as_of, data_mode, collector_enabled, payments_mode, payment_fixtures_enabled]
+      additionalProperties: false
+    OperatorAccount:
+      type: object
+      properties:
+        id: *id002
+        status: {enum: [pending, active, suspended, deleted]}
+        email_hint: {type: [string, 'null']}
+        created_at: *operator_date
+        credential_version: *operator_count
+      required: [id, status, email_hint, created_at, credential_version]
+      additionalProperties: false
+    OperatorAccountCase:
+      type: object
+      properties:
+        account: {$ref: '#/components/schemas/OperatorAccount'}
+        operator: {type: boolean}
+        sessions: *operator_count
+        api_keys: *operator_count
+        query_count: *operator_count
+        payment_count: *operator_count
+        charges:
+          type: array
+          maxItems: 10
+          items: &operator_charge
+            type: object
+            properties:
+              id: *id002
+              user_id: *id002
+              query_id: *id002
+              charged_credits: {const: 1}
+              state: {enum: [charged, refunded]}
+              created_at: *operator_date
+            required: [id, query_id, charged_credits, state, created_at]
+            additionalProperties: false
+        payments:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            properties:
+              id: *id002
+              provider: {type: string}
+              state: {type: string}
+              amount_cents: {type: string, pattern: '^[0-9]+$'}
+              currency: {const: USD}
+              created_at: *operator_date
+            required: [id, provider, state, amount_cents, currency, created_at]
+            additionalProperties: false
+        tickets:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            properties:
+              id: *id002
+              category: {enum: [data_quality, takedown, billing, account, other]}
+              status: {enum: [received, in_progress, resolved, closed]}
+              created_at: *operator_date
+            required: [id, category, status, created_at]
+            additionalProperties: false
+        notes:
+          type: array
+          maxItems: 20
+          items:
+            type: object
+            properties:
+              id: *id002
+              content: &operator_note {type: string, minLength: 1, maxLength: 1000}
+              created_at: *operator_date
+            required: [id, content, created_at]
+            additionalProperties: false
+        as_of: *operator_date
+      required: [account, operator, sessions, api_keys, query_count, payment_count, charges, payments, tickets, notes, as_of]
+      additionalProperties: false
+    OperatorChargeDetail:
+      type: object
+      properties:
+        charge:
+          allOf:
+          - *operator_charge
+          - {required: [user_id]}
+        ledger:
+          type: array
+          items:
+            type: object
+            properties:
+              id: *id002
+              wallet_id: *id002
+              kind: {type: string}
+              delta: {type: integer}
+              balance_after: *operator_count
+              created_at: *operator_date
+            required: [id, wallet_id, kind, delta, balance_after, created_at]
+            additionalProperties: false
+      required: [charge, ledger]
+      additionalProperties: false
+    OperatorAccountNoteInput:
+      type: object
+      properties:
+        content: *operator_note
+      required: [content]
+      additionalProperties: false
+    OperatorApprovalInput:
+      type: object
+      properties:
+        action: &operator_approval_action {enum: [suspend, restore]}
+        credential_version: *operator_count
+        reason: &operator_reason {type: string, minLength: 1, maxLength: 1000}
+      required: [action, credential_version, reason]
+      additionalProperties: false
+    OperatorApprovalCommand:
+      type: object
+      properties:
+        command: {enum: [approve, reject, execute, cancel]}
+        version: &operator_version {type: integer, minimum: 1}
+        reason: *operator_reason
+      required: [command, version, reason]
+      additionalProperties: false
+    OperatorAccountApproval:
+      type: object
+      properties:
+        id: *id002
+        subject_user_id: *id002
+        action: *operator_approval_action
+        state: {enum: [requested, approved, rejected, executed, cancelled]}
+        reason: {type: [string, 'null'], maxLength: 1000}
+        requested_by: *id002
+        requested_at: *operator_date
+        reviewed_by: &operator_nullable_id {anyOf: [*id002, {type: 'null'}]}
+        reviewed_at: &operator_nullable_date {type: [string, 'null'], format: date-time}
+        executed_by: *operator_nullable_id
+        executed_at: *operator_nullable_date
+        version: *operator_version
+        can_review: {type: boolean}
+      required: [id, subject_user_id, action, state, reason, requested_by, requested_at, reviewed_by, reviewed_at,
+                 executed_by, executed_at, version, can_review]
+      additionalProperties: false
+    OperatorIncidentInput:
+      type: object
+      properties:
+        component: &operator_component {enum: [api, collector, query, payments, support]}
+        title: &operator_incident_title {type: string, minLength: 1, maxLength: 140}
+        reason: *operator_reason
+      required: [component, title, reason]
+      additionalProperties: false
+    OperatorIncidentCommand:
+      type: object
+      properties:
+        state: &operator_incident_state {enum: [open, monitoring, resolved]}
+        version: *operator_version
+        reason: *operator_reason
+      required: [state, version, reason]
+      additionalProperties: false
+    OperatorIncident:
+      type: object
+      properties:
+        id: *id002
+        component: *operator_component
+        title: *operator_incident_title
+        state: *operator_incident_state
+        opened_at: *operator_date
+        updated_at: *operator_date
+        resolved_at: *operator_nullable_date
+        version: *operator_version
+      required: [id, component, title, state, opened_at, updated_at, resolved_at, version]
+      additionalProperties: false
+    OperatorIncidentDetail:
+      type: object
+      properties:
+        incident: {$ref: '#/components/schemas/OperatorIncident'}
+        timeline:
+          type: array
+          maxItems: 50
+          items:
+            type: object
+            properties:
+              action: {enum: [ops.incident.open, ops.incident.update]}
+              request_id: *id002
+              created_at: *operator_date
+              state: *operator_incident_state
+            required: [action, request_id, created_at, state]
+            additionalProperties: false
+      required: [incident, timeline]
+      additionalProperties: false
+
     CommandResponse:
       type: object
       properties:

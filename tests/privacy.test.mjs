@@ -100,6 +100,15 @@ test("deletion immediately removes access and anonymous publication before its w
     body: JSON.stringify({ query_id: x.queryId, name: "Private retained study" }),
   });
   assert.equal(saved.status, 200);
+  await db.query(
+    "INSERT INTO operator_account_notes(subject_user_id,author_id,content,created_at) VALUES($1,$2,'Private case notes',$3)",
+    [x.user, other.user, x.now()],
+  );
+  await db.query(
+    `INSERT INTO operator_account_approvals(subject_user_id,action,subject_credential_version,request_reason,requested_by,requested_at,updated_at)
+     VALUES($1,'suspend',0,'private approval reason',$2,$3,$3)`,
+    [x.user, other.user, x.now()],
+  );
   const supportToken = receipt();
   const supportStatus = () =>
     x.app.request("/support/receipt", { headers: { "X-Support-Receipt": supportToken } });
@@ -131,6 +140,18 @@ test("deletion immediately removes access and anonymous publication before its w
   assert.equal((await x.app.request(`/v1/sold/${x.queryId}`, { headers: x.headers })).status, 401);
   assert.equal((await x.app.request("/auth/me", { headers: actor.headers })).status, 401);
   assert.equal((await db.query("SELECT 1 FROM saved_research WHERE user_id=$1", [x.user])).rowCount, 0);
+  assert.equal(
+    (await db.query("SELECT 1 FROM operator_account_notes WHERE subject_user_id=$1", [x.user])).rowCount,
+    0,
+  );
+  assert.deepEqual(
+    (
+      await db.query("SELECT state,request_reason FROM operator_account_approvals WHERE subject_user_id=$1", [
+        x.user,
+      ])
+    ).rows,
+    [{ state: "cancelled", request_reason: null }],
+  );
   assert.equal((await supportStatus()).status, 404);
   assert.equal((await x.app.request(sharePath)).status, 410);
   const cache = await x.app.request("/web/search", {

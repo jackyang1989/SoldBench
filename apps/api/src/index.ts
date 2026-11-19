@@ -4,7 +4,7 @@ import type { PaymentLifecycle } from "@soldbench/billing";
 import { type Database, isDatabaseConnectionError } from "@soldbench/db";
 import type { QueryService } from "@soldbench/query";
 import { AppError, type Config } from "@soldbench/shared";
-import { renderPage, webClient, webCss, webPages } from "@soldbench/web";
+import { operationsPanels, renderPage, webClient, webCss, webPages } from "@soldbench/web";
 import { Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { mountAuth } from "./auth.ts";
@@ -122,6 +122,12 @@ export function createApp(
       if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)) return c.notFound();
       return c.html(renderPage(locale, "/results", new URL(c.req.url), id));
     });
+    for (const panel of operationsPanels) {
+      app.get(`${prefix}/operations/${panel}`, (c) => {
+        c.header("X-Robots-Tag", "noindex, nofollow, noarchive");
+        return c.html(renderPage(locale, "/operations", new URL(c.req.url)));
+      });
+    }
   }
   mountQueries(app, config, services.auth, services.query);
   mountMcp(app, config, services.auth, services.query);

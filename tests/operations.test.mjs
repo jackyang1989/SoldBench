@@ -110,12 +110,14 @@ async function actor(x, role, options = {}) {
     token = x.auth.crypto.token("sb_s_"),
     csrf = x.auth.crypto.hash("auth.csrf", token),
     email = `${role}-${randomUUID()}@example.test`;
-  const owner = (
-    await db.query(
-      "INSERT INTO users(email,password_hash,status,email_verified_at) VALUES($1,'fixture','active',$2) RETURNING id",
-      [email, now],
-    )
-  ).rows[0].id;
+  const owner =
+    options.userId ??
+    (
+      await db.query(
+        "INSERT INTO users(email,password_hash,status,email_verified_at) VALUES($1,'fixture','active',$2) RETURNING id",
+        [email, now],
+      )
+    ).rows[0].id;
   if (role !== "customer")
     await db.query("INSERT INTO admin_roles(user_id,role) VALUES($1,$2)", [owner, role]);
   if (role === "admin" && !options.withoutMfa)
@@ -710,6 +712,113 @@ test("a temporary failed query can be recovered safely; repeat requests do not s
   assert.equal(page.items.length, 1);
   assert.ok(!JSON.stringify(page).includes(x.q.q));
   assert.equal((await read(x, `/admin/jobs?cursor=${page.next_cursor}`, admin)).status, 400);
+});
+
+test("operations workbench binds account changes to independent approval, protects case notes and preserves wallet facts", async () => {
+  const x = await createProductFixture(db, roots);
+  const writer = await actor(x, "admin");
+  const reviewer = await actor(x, "admin");
+  const support = await actor(x, "support");
+  const noMfa = await actor(x, "admin", { withoutMfa: true });
+  const customer = await actor(x, "customer", { userId: x.user });
+  const path = `/admin/users/${x.user}`;
+  const project = async (endpoint, who = writer) => (await (await read(x, endpoint, who)).json()).data;
+  assert.equal((await read(x, path, support)).status, 403);
+  assert.equal((await read(x, path, noMfa)).status, 403);
+  assert.equal((await read(x, "/admin/settings", support)).status, 403);
+  assert.equal((await project("/admin/overview", support)).pending_approvals, null);
+  const lockedSettings = await project("/admin/settings");
+  assert.equal(lockedSettings.collector_enabled, false);
+  const view = await project(path);
+  assert.equal(view.account.status, "active");
+  assert.match(view.account.email_hint, /\*\*\*@/);
+  assert.ok(!JSON.stringify(view).includes("private-device"));
+  const charge = view.charges[0];
+  const ledgerPath = `/admin/charges/${charge.id}`;
+  const ledger = await project(ledgerPath);
+  assert.equal(ledger.ledger[0].kind, "consume");
+  assert.equal((await read(x, ledgerPath, support)).status, 403);
+  const noteKey = randomUUID();
+  const noteInput = { content: "Private operator evidence for a customer case" };
+  const noted = await post(x, `${path}/notes`, writer, noteInput, noteKey);
+  assert.equal(noted.status, 202);
+  const repeated = await post(x, `${path}/notes`, writer, noteInput, noteKey);
+  assert.equal(repeated.status, 202);
+  assert.deepEqual((await repeated.json()).data, (await noted.json()).data);
+  assert.equal((await project(path)).notes.length, 1);
+
+  const reason = "Controlled synthetic account access review";
+  const create = (action, version, who = writer) =>
+    post(x, `${path}/approvals`, who, { action, credential_version: version, reason });
+  const current = async () =>
+    (await project("/admin/approvals")).items.find(
+      (row) => row.subject_user_id === x.user && ["requested", "approved"].includes(row.state),
+    );
+  const command = (row, operation, who, key = randomUUID()) =>
+    post(
+      x,
+      `/admin/approvals/${row.id}/commands`,
+      who,
+      { command: operation, version: row.version, reason },
+      key,
+    );
+  assert.equal((await create("suspend", 1)).status, 409);
+  assert.equal((await create("suspend", 0, support)).status, 403);
+  assert.equal((await create("suspend", 0)).status, 202);
+  const requested = await current();
+  assert.equal(requested.can_review, false);
+  assert.equal((await command(requested, "approve", writer)).status, 403);
+  assert.equal((await command(requested, "execute", reviewer)).status, 409);
+  assert.equal((await command(requested, "approve", reviewer)).status, 202);
+  assert.equal((await command(requested, "cancel", writer)).status, 409);
+  const approved = await current();
+  await db.query("DELETE FROM admin_roles WHERE user_id=$1 AND role='admin'", [reviewer.owner]);
+  assert.equal((await command(approved, "execute", writer)).status, 403);
+  assert.equal((await project(path)).account.status, "active");
+  await db.query("INSERT INTO admin_roles(user_id,role) VALUES($1,'admin')", [reviewer.owner]);
+  const executionKey = randomUUID();
+  const executed = await command(approved, "execute", writer, executionKey);
+  assert.equal(executed.status, 202);
+  const applied = await executed.json();
+  assert.deepEqual(
+    (await (await command(approved, "execute", writer, executionKey)).json()).data,
+    applied.data,
+  );
+  assert.equal((await project(path)).account.status, "suspended");
+  assert.equal((await read(x, "/auth/me", customer)).status, 401);
+  assert.equal((await x.app.request(`/v1/sold/${x.queryId}`, { headers: x.headers })).status, 401);
+  assert.equal((await create("restore", 1)).status, 202);
+  assert.equal((await command(await current(), "approve", reviewer)).status, 202);
+  assert.equal((await command(await current(), "execute", writer)).status, 202);
+  assert.equal((await project(path)).account.status, "active");
+  assert.equal((await read(x, "/auth/me", customer)).status, 401);
+  assert.deepEqual(await project(ledgerPath), ledger);
+  const incidentInputs = { component: "collector", title: "Internal fixture incident", reason };
+  const opened = await post(x, "/admin/incidents", writer, incidentInputs);
+  assert.equal(opened.status, 202);
+  const incident = (await project("/admin/incidents")).items.find(
+    (entry) => entry.title === incidentInputs.title,
+  );
+  assert.equal(incident.state, "open");
+  const incidentPath = `/admin/incidents/${incident.id}`;
+  assert.equal((await post(x, incidentPath, writer, { state: "resolved", version: 1, reason })).status, 202);
+  assert.equal(
+    (await post(x, incidentPath, writer, { state: "monitoring", version: 1, reason })).status,
+    409,
+  );
+  const detail = await project(incidentPath);
+  assert.deepEqual(new Set(detail.timeline.map((row) => row.state)), new Set(["open", "resolved"]));
+  assert.doesNotMatch(await (await read(x, "/status")).text(), /Internal fixture incident/);
+  execFileSync("python3", ["tests/validate-response.py"], {
+    input: JSON.stringify([
+      ["OperationsWorkbenchSettings", lockedSettings],
+      ["OperatorAccountCase", await project(path)],
+      ["OperatorChargeDetail", ledger],
+      ["OperatorAccountApproval", approved],
+      ["OperatorIncidentDetail", detail],
+      ["CommandResponse", applied],
+    ]),
+  });
 });
 
 test("administrator compensation commits once and support sees only an opaque billing summary", async () => {

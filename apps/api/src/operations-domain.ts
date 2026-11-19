@@ -28,6 +28,11 @@ type SupportCommand = { reason: string; version: number } & (
   | { command: "resolve"; reply: string }
   | { command: "close" }
 );
+type ApprovalAction = "suspend" | "restore";
+type ApprovalTransition = "approve" | "reject" | "execute" | "cancel";
+type IncidentUpdate =
+  | { component: string; title: string; reason: string }
+  | { state: "open" | "monitoring" | "resolved"; version: number; reason: string };
 
 export class OperationsService {
   readonly collector: CollectorStore;
@@ -858,6 +863,388 @@ export class OperationsService {
       return this.commandView(
         await this.record(c, actor.userId, op, "charge", id, key, shape, reason, requestId, now, {
           credit_refunded: changed,
+        }),
+      );
+    });
+  }
+  async overview(actor: Identity) {
+    return transaction(this.service.db, async (c) => {
+      const now = await this.service.now(c);
+      const role = await this.role(c, actor, false, now);
+      const row = (
+        await c.query(
+          `SELECT (SELECT count(*)::int FROM query_jobs WHERE status IN ('queued','running')) AS active_jobs,
+          (SELECT count(*)::int FROM support_requests WHERE status IN ('received','in_progress') AND retention_until>$1) AS open_support,
+          (SELECT count(*)::int FROM operator_incidents WHERE state<>'resolved') AS open_incidents,
+          (SELECT count(*)::int FROM operator_account_approvals WHERE state IN ('requested','approved')) AS pending_approvals`,
+          [now],
+        )
+      ).rows[0];
+      return {
+        role,
+        as_of: now.toISOString(),
+        active_jobs: row.active_jobs,
+        open_support: row.open_support,
+        open_incidents: row.open_incidents,
+        pending_approvals: role === "admin" ? row.pending_approvals : null,
+      };
+    });
+  }
+  private userSummary(row: {
+    id: string;
+    status: string;
+    email: string | null;
+    created_at: Date;
+    credential_version: number;
+  }) {
+    const email = row.email?.split("@");
+    return {
+      id: row.id,
+      status: row.status,
+      email_hint: email?.length === 2 ? `${email[0]?.slice(0, 1)}***@${email[1]}` : null,
+      created_at: iso(row.created_at),
+      credential_version: row.credential_version,
+    };
+  }
+  async users(actor: Identity, paging: Page) {
+    return transaction(this.service.db, async (c) => {
+      await this.role(c, actor, true, await this.service.now(c));
+      const cursor = this.service.readCursor(actor.userId, "ops.users", paging.cursor);
+      const rows = (
+        await c.query(
+          `SELECT u.id,u.status,u.email,u.created_at,u.credential_version,${timeSql("u.created_at")}
+         FROM users u WHERE ($1::timestamptz IS NULL OR (u.created_at,u.id)<($1::timestamptz,$2::uuid))
+         ORDER BY u.created_at DESC,u.id DESC LIMIT $3`,
+          [cursor?.time ?? null, cursor?.id ?? null, paging.size + 1],
+        )
+      ).rows;
+      return this.page(rows, actor, "ops.users", paging.size, (row) => this.userSummary(row));
+    });
+  }
+  async userCase(actor: Identity, subject: string, requestId: string) {
+    return transaction(this.service.db, async (c) => {
+      const now = await this.service.now(c);
+      await c.query("SELECT id FROM users WHERE id=ANY($1::uuid[]) ORDER BY id FOR UPDATE", [
+        [actor.userId, subject],
+      ]);
+      await this.role(c, actor, true, now);
+      const user = (
+        await c.query(
+          `SELECT id,status,email,created_at,credential_version,EXISTS(SELECT 1 FROM admin_roles WHERE user_id=users.id) operator
+           FROM users WHERE id=$1 FOR SHARE`,
+          [subject],
+        )
+      ).rows[0];
+      if (!user) return fail("not_found", 404, "Account not found.");
+      const projection = (
+        await c.query(
+          `SELECT
+          (SELECT count(*)::int FROM sessions WHERE user_id=$1 AND revoked_at IS NULL AND expires_at>$2) AS sessions,
+          (SELECT count(*)::int FROM api_keys WHERE user_id=$1 AND revoked_at IS NULL) AS api_keys,
+          (SELECT count(*)::int FROM queries WHERE user_id=$1) AS query_count,
+          (SELECT count(*)::int FROM payments WHERE user_id=$1) AS payment_count,
+          (SELECT coalesce(jsonb_agg(c ORDER BY c.created_at DESC,c.id),'[]') FROM
+            (SELECT id,query_id,charged_credits,state,created_at FROM billing_charges
+              WHERE user_id=$1 ORDER BY created_at DESC,id LIMIT 10) c) AS charges,
+          (SELECT coalesce(jsonb_agg(r ORDER BY r.created_at DESC,r.id),'[]') FROM
+            (SELECT id,category,status,created_at FROM support_requests
+              WHERE user_id=$1 AND retention_until>$2 ORDER BY created_at DESC,id LIMIT 10) r) AS tickets,
+          (SELECT coalesce(jsonb_agg(n ORDER BY n.created_at DESC,n.id),'[]') FROM
+            (SELECT id,content,created_at FROM operator_account_notes
+              WHERE subject_user_id=$1 ORDER BY created_at DESC,id LIMIT 20) n) AS notes,
+          (SELECT coalesce(jsonb_agg(p ORDER BY p.created_at DESC,p.id),'[]') FROM
+            (SELECT id,provider,state,amount_cents::text,currency,created_at FROM payments
+              WHERE user_id=$1 ORDER BY created_at DESC,id LIMIT 10) p) AS payments`,
+          [subject, now],
+        )
+      ).rows[0];
+      await c.query(
+        "INSERT INTO audit_events(actor_id,action,object_type,object_id,request_id,created_at) VALUES($1,'ops.user.view','account',$2,$3,$4)",
+        [actor.userId, subject, requestId, now],
+      );
+      return {
+        account: this.userSummary(user),
+        operator: user.operator,
+        ...projection,
+        as_of: now.toISOString(),
+      };
+    });
+  }
+  async addUserNote(
+    actor: Identity,
+    subject: string,
+    content: string,
+    rawKey: string | undefined,
+    requestId: string,
+  ) {
+    const op = "ops.user.note",
+      key = this.commandKey(rawKey),
+      shape = this.crypto.hash("ops.command", JSON.stringify([subject, content]));
+    return transaction(this.service.db, async (c) => {
+      const now = await this.service.now(c);
+      await c.query("SELECT id FROM users WHERE id=ANY($1::uuid[]) ORDER BY id FOR UPDATE", [
+        [actor.userId, subject],
+      ]);
+      await this.role(c, actor, true, now);
+      const prior = await this.previous(c, actor.userId, op, key, shape);
+      if (prior) return this.commandView(prior);
+      const note = (
+        await c.query(
+          `INSERT INTO operator_account_notes(subject_user_id,author_id,content,created_at)
+          SELECT id,$2,$3,$4 FROM users WHERE id=$1 AND status<>'deleted' RETURNING id`,
+          [subject, actor.userId, content, now],
+        )
+      ).rows[0];
+      if (!note) return fail("not_found", 404, "Active account reference not found.");
+      return this.commandView(
+        await this.record(c, actor.userId, op, "account", subject, key, shape, content, requestId, now, {
+          note_id: note.id,
+        }),
+      );
+    });
+  }
+  async chargeDetail(actor: Identity, id: string) {
+    return transaction(this.service.db, async (c) => {
+      await this.role(c, actor, true, await this.service.now(c));
+      const charge = (
+        await c.query(
+          "SELECT id,user_id,query_id,charged_credits,state,created_at FROM billing_charges WHERE id=$1",
+          [id],
+        )
+      ).rows[0];
+      if (!charge) return fail("not_found", 404, "Charge not found.");
+      const ledger = (
+        await c.query(
+          "SELECT id,wallet_id,kind,delta,balance_after,created_at FROM credit_ledger WHERE charge_id=$1 ORDER BY created_at,id",
+          [id],
+        )
+      ).rows;
+      return { charge, ledger };
+    });
+  }
+  async approvals(actor: Identity, paging: Page) {
+    return transaction(this.service.db, async (c) => {
+      await this.role(c, actor, true, await this.service.now(c));
+      const cursor = this.service.readCursor(actor.userId, "ops.approvals", paging.cursor);
+      const rows = (
+        await c.query(
+          `SELECT *,${timeSql("updated_at")} FROM operator_account_approvals
+         WHERE ($1::timestamptz IS NULL OR (updated_at,id)<($1::timestamptz,$2::uuid))
+         ORDER BY updated_at DESC,id DESC LIMIT $3`,
+          [cursor?.time ?? null, cursor?.id ?? null, paging.size + 1],
+        )
+      ).rows;
+      return this.page(rows, actor, "ops.approvals", paging.size, (row) => ({
+        id: row.id,
+        subject_user_id: row.subject_user_id,
+        action: row.action,
+        state: row.state,
+        reason: row.request_reason,
+        requested_by: row.requested_by,
+        requested_at: iso(row.requested_at),
+        reviewed_by: row.reviewed_by,
+        reviewed_at: iso(row.reviewed_at),
+        executed_by: row.executed_by,
+        executed_at: iso(row.executed_at),
+        version: row.version,
+        can_review: actor.userId !== row.requested_by && row.state === "requested",
+      }));
+    });
+  }
+  async requestApproval(
+    actor: Identity,
+    subject: string,
+    input: { action: ApprovalAction; credential_version: number; reason: string },
+    rawKey: string | undefined,
+    requestId: string,
+  ) {
+    const op = "ops.approval.request",
+      key = this.commandKey(rawKey),
+      shape = this.crypto.hash("ops.command", JSON.stringify([subject, input]));
+    return transaction(this.service.db, async (c) => {
+      const now = await this.service.now(c);
+      await c.query("SELECT id FROM users WHERE id=ANY($1::uuid[]) ORDER BY id FOR UPDATE", [
+        [actor.userId, subject],
+      ]);
+      await this.role(c, actor, true, now);
+      const prior = await this.previous(c, actor.userId, op, key, shape);
+      if (prior) return this.commandView(prior);
+      await this.accountTarget(c, subject, input.action, input.credential_version);
+      const row = (
+        await c.query(
+          `INSERT INTO operator_account_approvals(subject_user_id,action,subject_credential_version,request_reason,requested_by,requested_at,updated_at)
+         VALUES($1,$2,$3,$4,$5,$6,$6) ON CONFLICT DO NOTHING RETURNING id`,
+          [subject, input.action, input.credential_version, input.reason, actor.userId, now],
+        )
+      ).rows[0];
+      if (!row) return fail("state_conflict", 409, "Open approval already exists for this account.");
+      return this.commandView(
+        await this.record(c, actor.userId, op, "approval", row.id, key, shape, input.reason, requestId, now, {
+          subject_user_id: subject,
+        }),
+      );
+    });
+  }
+  private async accountTarget(c: Transaction, subject: string, action: ApprovalAction, version: number) {
+    const row = (
+      await c.query(
+        `SELECT status,credential_version,EXISTS(SELECT 1 FROM admin_roles WHERE user_id=users.id) operator
+       FROM users WHERE id=$1`,
+        [subject],
+      )
+    ).rows[0];
+    if (!row || row.status === "deleted") return fail("not_found", 404, "Account not found.");
+    if (row.operator) fail("forbidden", 403, "This command is limited to customer accounts.");
+    if (row.credential_version !== version || row.status !== (action === "suspend" ? "active" : "suspended"))
+      fail("state_conflict", 409, "Account identity or state changed.");
+  }
+  async approvalCommand(
+    actor: Identity,
+    id: string,
+    input: { command: ApprovalTransition; version: number; reason: string },
+    rawKey: string | undefined,
+    requestId: string,
+  ) {
+    const op = `ops.approval.${input.command}`,
+      key = this.commandKey(rawKey),
+      shape = this.crypto.hash("ops.command", JSON.stringify([id, input]));
+    return transaction(this.service.db, async (c) => {
+      const now = await this.service.now(c);
+      const initial = (
+        await c.query(
+          "SELECT subject_user_id,requested_by,reviewed_by FROM operator_account_approvals WHERE id=$1",
+          [id],
+        )
+      ).rows[0];
+      await c.query("SELECT id FROM users WHERE id=ANY($1::uuid[]) ORDER BY id FOR UPDATE", [
+        [actor.userId, initial?.subject_user_id, initial?.requested_by, initial?.reviewed_by].filter(Boolean),
+      ]);
+      await this.role(c, actor, true, now);
+      const prior = await this.previous(c, actor.userId, op, key, shape);
+      if (prior) return this.commandView(prior);
+      const row = (await c.query("SELECT * FROM operator_account_approvals WHERE id=$1 FOR UPDATE", [id]))
+        .rows[0];
+      if (!row) return fail("not_found", 404, "Approval not found.");
+      if (row.version !== input.version) fail("state_conflict", 409, "Approval version changed.");
+      if (input.command === "execute") {
+        if (row.state !== "approved") fail("state_conflict", 409, "Approve before executing.");
+        const staff = await c.query(
+          `SELECT u.id FROM users u JOIN admin_roles r ON r.user_id=u.id AND r.role='admin'
+           JOIN user_mfa m ON m.user_id=u.id AND m.state='enabled' WHERE u.id=ANY($1::uuid[]) AND u.status='active'
+           ORDER BY u.id FOR SHARE OF r,m`,
+          [[row.requested_by, row.reviewed_by]],
+        );
+        if (staff.rowCount !== 2) fail("forbidden", 403, "Approval access is no longer valid.");
+        await this.accountTarget(c, row.subject_user_id, row.action, row.subject_credential_version);
+        const status = row.action === "suspend" ? "suspended" : "active";
+        await c.query(
+          "UPDATE users SET status=$2,credential_version=credential_version+1,updated_at=$3 WHERE id=$1",
+          [row.subject_user_id, status, now],
+        );
+        if (status === "suspended") {
+          for (const table of ["sessions", "api_keys"]) {
+            await c.query(`UPDATE ${table} SET revoked_at=$2 WHERE user_id=$1 AND revoked_at IS NULL`, [
+              row.subject_user_id,
+              now,
+            ]);
+          }
+        }
+        await c.query(
+          "UPDATE operator_account_approvals SET state='executed',executed_by=$2,executed_at=$3,updated_at=$3,version=version+1 WHERE id=$1",
+          [id, actor.userId, now],
+        );
+      } else if (input.command === "cancel") {
+        if (!["requested", "approved"].includes(row.state))
+          fail("state_conflict", 409, "Only open approvals can be cancelled.");
+        await c.query(
+          "UPDATE operator_account_approvals SET state='cancelled',updated_at=$2,version=version+1 WHERE id=$1",
+          [id, now],
+        );
+      } else {
+        if (row.state !== "requested") fail("state_conflict", 409, "Approval is no longer in review.");
+        if (row.requested_by === actor.userId)
+          fail("forbidden", 403, "A different administrator must review.");
+        if (input.command === "approve")
+          await this.accountTarget(c, row.subject_user_id, row.action, row.subject_credential_version);
+        await c.query(
+          "UPDATE operator_account_approvals SET state=$2,reviewed_by=$3,reviewed_at=$4,updated_at=$4,version=version+1 WHERE id=$1",
+          [id, input.command === "approve" ? "approved" : "rejected", actor.userId, now],
+        );
+      }
+      return this.commandView(
+        await this.record(c, actor.userId, op, "approval", id, key, shape, input.reason, requestId, now, {
+          subject_user_id: row.subject_user_id,
+          action: row.action,
+          previous_version: row.version,
+        }),
+      );
+    });
+  }
+  async incidents(actor: Identity, paging: Page) {
+    return transaction(this.service.db, async (c) => {
+      await this.role(c, actor, true, await this.service.now(c));
+      const cursor = this.service.readCursor(actor.userId, "ops.incidents", paging.cursor);
+      const rows = (
+        await c.query(
+          `SELECT *,${timeSql("updated_at")} FROM operator_incidents
+         WHERE ($1::timestamptz IS NULL OR (updated_at,id)<($1::timestamptz,$2::uuid))
+         ORDER BY updated_at DESC,id DESC LIMIT $3`,
+          [cursor?.time ?? null, cursor?.id ?? null, paging.size + 1],
+        )
+      ).rows;
+      return this.page(rows, actor, "ops.incidents", paging.size, ({ cursor_at: _cursor, ...row }) => row);
+    });
+  }
+  async incidentDetail(actor: Identity, id: string) {
+    return transaction(this.service.db, async (c) => {
+      await this.role(c, actor, true, await this.service.now(c));
+      const incident = (await c.query("SELECT * FROM operator_incidents WHERE id=$1", [id])).rows[0];
+      if (!incident) return fail("not_found", 404, "Incident not found.");
+      const timeline = (
+        await c.query(
+          `SELECT action,request_id,created_at,safe_diff->>'state' AS state FROM audit_events
+          WHERE object_type='incident' AND object_id=$1 AND action LIKE 'ops.incident.%' ORDER BY created_at DESC,id LIMIT 50`,
+          [id],
+        )
+      ).rows;
+      return { incident, timeline };
+    });
+  }
+  async incidentCommand(
+    actor: Identity,
+    id: string | null,
+    input: IncidentUpdate,
+    rawKey: string | undefined,
+    requestId: string,
+  ) {
+    const op = id ? "ops.incident.update" : "ops.incident.open";
+    const key = this.commandKey(rawKey),
+      shape = this.crypto.hash("ops.command", JSON.stringify([id, input]));
+    return transaction(this.service.db, async (c) => {
+      const now = await this.service.now(c);
+      await this.role(c, actor, true, now);
+      const prior = await this.previous(c, actor.userId, op, key, shape);
+      if (prior) return this.commandView(prior);
+      const row =
+        "component" in input
+          ? (
+              await c.query(
+                "INSERT INTO operator_incidents(component,title,opened_at,updated_at) VALUES($1,$2,$3,$3) RETURNING id,state,version",
+                [input.component, input.title, now],
+              )
+            ).rows[0]
+          : (
+              await c.query(
+                `UPDATE operator_incidents SET state=$3,updated_at=$4::timestamptz,resolved_at=CASE WHEN $3='resolved' THEN $4::timestamptz ELSE NULL END,version=version+1
+          WHERE id=$1 AND version=$2 AND state<>$3 RETURNING id,state,version`,
+                [id, input.version, input.state, now],
+              )
+            ).rows[0];
+      if (!row) return fail("state_conflict", 409, "Refresh the incident before updating its state.");
+      return this.commandView(
+        await this.record(c, actor.userId, op, "incident", row.id, key, shape, input.reason, requestId, now, {
+          state: row.state,
+          version: row.version,
         }),
       );
     });
