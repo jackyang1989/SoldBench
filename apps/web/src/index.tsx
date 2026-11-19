@@ -37,8 +37,11 @@ export const webPages = [
   "/support",
   "/categories",
   "/data-availability",
+  "/guides",
+  "/faq",
 ] as const;
-type Page = (typeof webPages)[number] | "/results" | "/share" | "/docs";
+type Page = (typeof webPages)[number] | "/results" | "/share" | "/docs" | "/admin/content";
+type PublishedSection = { slug: string; title: string; body: string };
 type SharedSummary = {
   data_as_of: string;
   expires_at: string;
@@ -57,6 +60,7 @@ export function renderPage(
   resultId?: string,
   shared?: SharedSummary,
   docs?: DocsView,
+  sections: PublishedSection[] = [],
 ): string {
   const zh = locale === "zh-CN";
   const t = (en: string, cn: string) => (zh ? cn : en);
@@ -76,7 +80,7 @@ export function renderPage(
   const resume = (path: string) => link(path) + query;
   const other = docs
     ? docs.alternate
-    : page === "/share"
+    : page === "/share" || page === "/admin/content"
       ? `${url.pathname}?lang=${zh ? "en" : "zh-CN"}`
       : (zh ? "" : "/zh-CN") + (resultId ? `/results/${resultId}` : page) + query;
   const priceDraft = (key: string) => {
@@ -102,6 +106,9 @@ export function renderPage(
     "/data-availability": ["Data availability", "数据可用性"],
     "/share": ["Shared price research", "分享的成交研究"],
     "/support": ["Support", "支持"],
+    "/guides": ["Research guides", "研究指南"],
+    "/faq": ["Frequently asked questions", "常见问题"],
+    "/admin/content": ["Content studio", "内容中心"],
   };
   const title = docs?.current.title ?? t(...(headings[page] ?? ["Search sold prices", "查询成交价"]));
   const nav = (
@@ -154,6 +161,16 @@ export function renderPage(
   if (page === "/") {
     content = (
       <>
+        {sections.length > 0 && (
+          <section className="wrap site-announcements" aria-label={t("Announcements", "公告")}>
+            {sections.map((entry) => (
+              <div className="notice" key={entry.slug}>
+                <strong>{entry.title}</strong>
+                <p>{entry.body}</p>
+              </div>
+            ))}
+          </section>
+        )}
         <section className="hero">
           <div className="wrap hero-grid">
             <div>
@@ -325,6 +342,70 @@ export function renderPage(
         </div>
         {status}
         <div className="grid3" data-results="" />
+      </section>
+    );
+  } else if (page === "/guides" || page === "/faq") {
+    content = (
+      <section className="wrap workbench">
+        <h1>{title}</h1>
+        {sections.length ? (
+          sections.map((entry) => (
+            <article className="card result-card published-section" id={entry.slug} key={entry.slug}>
+              <h2>{entry.title}</h2>
+              <p>{entry.body}</p>
+            </article>
+          ))
+        ) : (
+          <p className="notice">{t("Nothing has been published here yet.", "此处暂未发布内容。")}</p>
+        )}
+      </section>
+    );
+  } else if (page === "/admin/content") {
+    content = (
+      <section className="wrap workbench">
+        <h1>{title}</h1>
+        {status}
+        <div className="card auth-card">
+          <form data-content-draft="" method="post">
+            <h2>{t("Draft content", "编辑草稿")}</h2>
+            <label>
+              {t("Content type", "内容类型")}
+              <select name="kind" required>
+                <option value="announcement">{t("Announcement", "公告")}</option>
+                <option value="faq">FAQ</option>
+                <option value="guide">{t("Guide", "指南")}</option>
+              </select>
+            </label>
+            <label>
+              {t("Slug", "路径标识")}
+              <input name="slug" required maxLength={70} pattern="[a-z0-9]+(-[a-z0-9]+)*" />
+            </label>
+            <label>
+              English
+              <input name="en_title" required maxLength={140} />
+            </label>
+            <label>
+              {t("English body", "英文正文")}
+              <textarea name="en_body" required rows={3} maxLength={6000} />
+            </label>
+            <label>
+              简体中文
+              <input name="zh_title" required maxLength={140} />
+            </label>
+            <label>
+              {t("Chinese body", "中文正文")}
+              <textarea name="zh_body" required rows={3} maxLength={6000} />
+            </label>
+            <label>
+              {t("Change reason", "变更原因")}
+              <input name="reason" required maxLength={500} />
+            </label>
+            <button className="btn brand" type="submit">
+              {t("Save draft", "保存草稿")}
+            </button>
+          </form>
+        </div>
+        <div data-results="" />
       </section>
     );
   } else if (page === "/support") {
@@ -647,6 +728,8 @@ export function renderPage(
             <p>{t("Comparable sales research and pricing evidence.", "可比成交研究与价格证据。")}</p>
             <a href={link("/support")}>{t("Support", "支持")}</a>
             <a href={link("/data-availability")}>{t("Availability", "数据可用性")}</a>
+            <a href={link("/guides")}>{t("Guides", "指南")}</a>
+            <a href={link("/faq")}>FAQ</a>
           </footer>
         </body>
       </html>,

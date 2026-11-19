@@ -152,6 +152,87 @@ const billingCount = async (userId) =>
   (await db.query("SELECT count(*)::int n FROM credit_ledger WHERE user_id=$1 AND kind='refund'", [userId]))
     .rows[0].n;
 
+test("bilingual content remains private until independent approval and atomically publishes or restores an immutable revision", async () => {
+  const x = await createProductFixture(db, roots, { prepareQuery: false });
+  const writer = await actor(x, "admin"),
+    reviewer = await actor(x, "admin"),
+    support = await actor(x, "support");
+  const endpoint = "/admin/content/commands",
+    list = "/admin/content";
+  const reason = "Controlled synthetic publication review";
+  const draft = {
+    command: "draft",
+    kind: "announcement",
+    slug: "fixture-announce",
+    version: 0,
+    reason,
+    body: {
+      en: { title: "Fixture announcement V1", body: "Use this controlled flow <script> as plain text." },
+      "zh-CN": { title: "合成公告第一版", body: "中英文使用同一发布版本。" },
+    },
+  };
+  const current = async () =>
+    (await (await read(x, list, writer)).json()).data.find((row) => row.slug === draft.slug);
+  const send = (op, who, row, revision = row.latest_revision) =>
+    post(x, endpoint, who, { command: op, entry_id: row.id, version: row.version, revision, reason });
+  const page = async (path) => (await read(x, path, null)).text();
+  assert.equal((await read(x, list, support)).status, 403);
+  assert.equal((await read(x, list, null)).status, 401);
+  assert.equal((await post(x, endpoint, support, draft)).status, 403);
+  assert.equal((await post(x, endpoint, writer, { ...draft, body: { en: draft.body.en } })).status, 400);
+  assert.equal((await post(x, endpoint, writer, { ...draft, kind: "pricing" })).status, 400);
+  const key = randomUUID();
+  const initial = await post(x, endpoint, writer, draft, key);
+  assert.equal(initial.status, 202);
+  const receipt = await initial.json();
+  assert.deepEqual((await (await post(x, endpoint, writer, draft, key)).json()).data, receipt.data);
+  const first = await current();
+  assert.equal(first.latest_revision, 1);
+  assert.equal(first.published_revision, null);
+  assert.equal((await send("publish", writer, first)).status, 409);
+  assert.doesNotMatch(await page("/"), /Fixture announcement V1/);
+  assert.equal((await send("submit", writer, first)).status, 202);
+  assert.equal((await send("approve", writer, await current())).status, 403);
+  assert.equal((await send("approve", reviewer, await current())).status, 202);
+  assert.equal((await send("publish", reviewer, await current())).status, 202);
+  assert.match(await page("/"), /Fixture announcement V1/);
+  assert.match(await page("/"), /&lt;script&gt;/);
+  assert.match(await page("/zh-CN"), /合成公告第一版/);
+  const badUpdate = db.query("UPDATE site_content_revisions SET body='{}' WHERE entry_id=$1 AND revision=1", [
+    first.id,
+  ]);
+  await assert.rejects(badUpdate, /immutable/);
+  const change = {
+    ...draft,
+    version: (await current()).version,
+    body: { ...draft.body, en: { ...draft.body.en, title: "Fixture announcement V2" } },
+  };
+  assert.equal((await post(x, endpoint, writer, change)).status, 202);
+  assert.equal((await post(x, endpoint, writer, change)).status, 409);
+  assert.match(await page("/"), /Fixture announcement V1/);
+  assert.doesNotMatch(await page("/"), /Fixture announcement V2/);
+  assert.equal((await send("submit", writer, await current())).status, 202);
+  assert.equal((await send("approve", reviewer, await current())).status, 202);
+  assert.equal((await send("publish", reviewer, await current())).status, 202);
+  assert.match(await page("/"), /Fixture announcement V2/);
+  assert.equal((await send("rollback", reviewer, await current(), 1)).status, 202);
+  assert.match(await page("/"), /Fixture announcement V1/);
+  assert.deepEqual((await current()).publication_history, [2, 1]);
+  const studio = await x.app.request(`${list}?lang=zh-CN`, {
+    headers: { ...writer.headers, Accept: "text/html" },
+  });
+  assert.match(await studio.text(), /内容中心/);
+  assert.equal((await send("unpublish", reviewer, await current(), 1)).status, 202);
+  assert.doesNotMatch(await page("/"), /Fixture announcement V1/);
+  const view = await (await read(x, list, writer)).json();
+  execFileSync("python3", ["tests/validate-response.py"], {
+    input: JSON.stringify([
+      ["SiteContentList", view],
+      ["CommandResponse", receipt],
+    ]),
+  });
+});
+
 test("support intake is private, idempotent, rate limited and prunes expired original messages", async () => {
   const x = await createProductFixture(db, roots),
     key = randomUUID(),

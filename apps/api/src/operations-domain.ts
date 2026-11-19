@@ -4,6 +4,7 @@ import { CollectorStore } from "@soldbench/collector";
 import { type Transaction, transaction } from "@soldbench/db";
 import type { QueryService } from "@soldbench/query";
 import { AppError } from "@soldbench/shared";
+import type { SiteContentCommand } from "./site-content.ts";
 
 const fail = (code: string, status: number, message: string): never => {
   throw new AppError(code, status, message);
@@ -97,6 +98,137 @@ export class OperationsService {
       audit_id: id,
       ...(valid ? { probe_status: probe } : {}),
     };
+  }
+
+  async contentList(actor: Identity) {
+    return transaction(this.service.db, async (c) => {
+      await this.role(c, actor, true, await this.service.now(c));
+      return (
+        await c.query(
+          `SELECT e.id,e.kind,e.slug,e.version,e.latest_revision,e.published_revision,v.state,v.body,
+                (SELECT coalesce(jsonb_agg(r.revision ORDER BY r.revision DESC),'[]') FROM site_content_revisions r
+                 WHERE r.entry_id=e.id AND r.first_published_at IS NOT NULL) AS publication_history
+           FROM site_content_entries e JOIN site_content_revisions v ON (v.entry_id,v.revision)=(e.id,e.latest_revision)
+          ORDER BY e.updated_at DESC,e.id LIMIT 100`,
+        )
+      ).rows;
+    });
+  }
+
+  async contentCommand(
+    actor: Identity,
+    input: SiteContentCommand,
+    rawKey: string | undefined,
+    requestId: string,
+  ) {
+    const key = this.commandKey(rawKey);
+    const op = `ops.content.${input.command}`;
+    const shape = this.crypto.hash("ops.content_input", JSON.stringify(input));
+    return transaction(this.service.db, async (c) => {
+      const now = await this.service.now(c);
+      await this.role(c, actor, true, now);
+      const prior = await this.previous(c, actor.userId, op, key, shape);
+      if (prior) return this.commandView(prior);
+      if (input.command === "draft") {
+        await c.query(
+          "INSERT INTO site_content_entries(kind,slug,updated_at) VALUES($1,$2,$3) ON CONFLICT(kind,slug) DO NOTHING",
+          [input.kind, input.slug, now],
+        );
+      }
+      const entry = (
+        input.command === "draft"
+          ? await c.query("SELECT * FROM site_content_entries WHERE kind=$1 AND slug=$2 FOR UPDATE", [
+              input.kind,
+              input.slug,
+            ])
+          : await c.query("SELECT * FROM site_content_entries WHERE id=$1 FOR UPDATE", [input.entry_id])
+      ).rows[0];
+      if (!entry) fail("not_found", 404, "Content entry not found.");
+      if (entry.version !== input.version) fail("state_conflict", 409, "Content version changed.");
+      let revision = entry.latest_revision ?? 0;
+      if (input.command === "draft") {
+        revision += 1;
+        await c.query(
+          "INSERT INTO site_content_revisions(entry_id,revision,body,author_id,created_at) VALUES($1,$2,$3,$4,$5)",
+          [entry.id, revision, input.body, actor.userId, now],
+        );
+        await c.query("UPDATE site_content_entries SET latest_revision=$2 WHERE id=$1", [entry.id, revision]);
+      } else {
+        revision = input.revision;
+        const current = (
+          await c.query("SELECT * FROM site_content_revisions WHERE entry_id=$1 AND revision=$2 FOR UPDATE", [
+            entry.id,
+            revision,
+          ])
+        ).rows[0];
+        if (!current) fail("not_found", 404, "Content revision not found.");
+        if (["submit", "approve", "publish"].includes(input.command) && revision !== entry.latest_revision)
+          fail("state_conflict", 409, "Only the latest revision can move through review.");
+        switch (input.command) {
+          case "submit":
+            if (current.state !== "draft") fail("state_conflict", 409, "Submit a draft revision.");
+            await c.query(
+              "UPDATE site_content_revisions SET state='submitted' WHERE entry_id=$1 AND revision=$2",
+              [entry.id, revision],
+            );
+            break;
+          case "approve":
+            if (current.state !== "submitted")
+              fail("state_conflict", 409, "Submit a revision before review.");
+            if (current.author_id === actor.userId)
+              fail("forbidden", 403, "A different operator must approve this content.");
+            await c.query(
+              "UPDATE site_content_revisions SET state='approved',reviewer_id=$3 WHERE entry_id=$1 AND revision=$2",
+              [entry.id, revision, actor.userId],
+            );
+            break;
+          case "publish":
+          case "rollback":
+            if (
+              current.state !== "approved" ||
+              !current.reviewer_id ||
+              (input.command === "rollback" && !current.first_published_at)
+            )
+              fail("state_conflict", 409, "An approved revision is required.");
+            await c.query(
+              "UPDATE site_content_revisions SET first_published_at=coalesce(first_published_at,$3) WHERE entry_id=$1 AND revision=$2",
+              [entry.id, revision, now],
+            );
+            await c.query(
+              "UPDATE site_content_entries SET published_revision=$2,published_at=$3 WHERE id=$1",
+              [entry.id, revision, now],
+            );
+            break;
+          case "unpublish":
+            if (entry.published_revision !== revision)
+              fail("state_conflict", 409, "Only the active revision can be unpublished.");
+            await c.query(
+              "UPDATE site_content_entries SET published_revision=NULL,published_at=NULL WHERE id=$1",
+              [entry.id],
+            );
+            break;
+        }
+      }
+      await c.query("UPDATE site_content_entries SET version=version+1,updated_at=$2 WHERE id=$1", [
+        entry.id,
+        now,
+      ]);
+      return this.commandView(
+        await this.record(
+          c,
+          actor.userId,
+          op,
+          "site_content",
+          entry.id,
+          key,
+          shape,
+          input.reason,
+          requestId,
+          now,
+          { revision, version: entry.version + 1 },
+        ),
+      );
+    });
   }
 
   async support(

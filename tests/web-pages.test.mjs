@@ -358,6 +358,72 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     assert.match(snippet, /\$SOLDBENCH_API_KEY/);
     assert.ok(!snippet.includes(rotated));
     assert.equal((await charges()).rowCount, 1);
+    const operatorPage = async () => {
+      const operator = (
+        await db.query(
+          "INSERT INTO users(email,password_hash,status,email_verified_at) VALUES($1,'fixture','active',$2) RETURNING id",
+          [`operator-${randomUUID()}@example.test`, x.now()],
+        )
+      ).rows[0].id;
+      await db.query("INSERT INTO admin_roles(user_id,role) VALUES($1,'admin')", [operator]);
+      await db.query(
+        "INSERT INTO user_mfa(user_id,encrypted_secret,state,enabled_at,updated_at) VALUES($1,$2,'enabled',$3,$3)",
+        [operator, x.auth.crypto.seal("TEST_ONLY", operator), x.now()],
+      );
+      const token = x.auth.crypto.token("sb_s_"),
+        csrf = x.auth.crypto.hash("auth.csrf", token);
+      await db.query(
+        "INSERT INTO sessions(user_id,token_hash,csrf_hash,expires_at,authenticated_at,mfa_at,created_at) VALUES($1,$2,$3,$4,$5,$5,$5)",
+        [
+          operator,
+          x.auth.crypto.hash("auth.session", token),
+          x.auth.crypto.hash("auth.csrf-store", csrf),
+          new Date(Date.parse(x.now()) + 86400000),
+          x.now(),
+        ],
+      );
+      const context = await browser.newContext();
+      await context.route("**/*", (route) =>
+        new URL(route.request().url()).origin === origin ? route.continue() : route.abort(),
+      );
+      await context.addCookies([
+        { name: "soldbench_session", value: token, url: origin, httpOnly: true, sameSite: "Lax" },
+      ]);
+      const editor = await context.newPage();
+      editor.setDefaultTimeout(10000);
+      editor.on("pageerror", (error) => mistakes.push(error.message));
+      await editor.goto(`${origin}/admin/content`);
+      return { editor, context };
+    };
+    const author = await operatorPage();
+    const editor = author.editor;
+    await editor.getByLabel("Content type").selectOption("faq");
+    await editor.getByLabel("Slug").fill("browser-workflow");
+    await editor.getByLabel("English", { exact: true }).fill("Browser publication question");
+    await editor.getByLabel("English body").fill("Published only after review.");
+    await editor.getByLabel("简体中文", { exact: true }).fill("浏览器发布验证");
+    await editor.getByLabel("Chinese body").fill("经审核后发布。");
+    await editor.getByLabel("Change reason").fill("Offline draft and review test");
+    await editor.getByRole("button", { name: "Save draft" }).click();
+    await editor.getByRole("heading", { name: "Browser publication question" }).waitFor();
+    await page.goto(`${origin}/faq`);
+    await page.getByText("Nothing has been published here yet.").waitFor();
+    await editor.getByLabel("Change reason").fill("Submit the approved evidence for review");
+    await editor.getByRole("button", { name: "Submit for review" }).click();
+    await editor.getByRole("button", { name: "Approve", exact: true }).waitFor();
+    const reviewer = await operatorPage();
+    await reviewer.editor.getByLabel("Change reason").fill("Independently verify and publish fixture text");
+    await reviewer.editor.getByRole("button", { name: "Approve", exact: true }).click();
+    await reviewer.editor.getByRole("button", { name: "Publish", exact: true }).click();
+    await reviewer.editor.getByText(/Active revision 1/).waitFor();
+    await page.goto(`${origin}/zh-CN/faq`);
+    await page.getByRole("heading", { name: "浏览器发布验证" }).waitFor();
+    await reviewer.editor.getByRole("button", { name: "Unpublish" }).click();
+    await reviewer.editor.getByRole("button", { name: "Publish", exact: true }).waitFor();
+    await page.reload();
+    await page.getByText("此处暂未发布内容。").waitFor();
+    await author.context.close();
+    await reviewer.context.close();
     assert.deepEqual(mistakes, []);
     console.log(`Browser screenshots saved to ${captures}`);
   } finally {

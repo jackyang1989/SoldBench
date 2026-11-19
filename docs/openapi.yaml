@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.17.0
+  version: 1.18.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -6870,6 +6870,65 @@ paths:
       x-roles:
       - public
       x-credit-policy: '0'
+  /admin/content:
+    get:
+      operationId: listSiteContent
+      summary: List bilingual drafts and publication pointers
+      security: *id009
+      parameters:
+      - &content_language
+        name: Accept-Language
+        in: header
+        required: false
+        schema: {type: string, maxLength: 256}
+      - name: lang
+        in: query
+        required: false
+        schema: {type: string, enum: [en, zh-CN]}
+      responses:
+        '200':
+          description: Current operator content plus publication history. Browser HTML uses the same authorization.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SiteContentList'}
+            text/html:
+              schema: {type: string}
+        '403': &content_error
+          description: Request rejected. See the stable error code.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+      x-task: TASK-035
+      x-roles: [admin]
+      x-credit-policy: '0'
+  /admin/content/commands:
+    post:
+      operationId: updateSiteContent
+      summary: Save, review, publish, restore or withdraw bilingual content
+      security: *id009
+      parameters: [*content_language, *id003, *id008]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - $ref: '#/components/schemas/SiteContentDraft'
+              - $ref: '#/components/schemas/SiteContentTransition'
+      responses:
+        '202':
+          description: Audited content command receipt.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CommandResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '409': *content_error
+      x-task: TASK-035
+      x-roles: [admin]
+      x-credit-policy: '0'
 components:
   securitySchemes:
     OfflinePayPalFixtureSignature:
@@ -9197,6 +9256,65 @@ components:
       - reason
       - evidence_ref
       - version
+      additionalProperties: false
+    BilingualSiteText:
+      type: object
+      properties:
+        'en': &site_text
+          type: object
+          properties:
+            title: {type: string, minLength: 1, maxLength: 140}
+            body: {type: string, minLength: 1, maxLength: 6000}
+          required: [title, body]
+          additionalProperties: false
+        zh-CN: *site_text
+      required: [en, zh-CN]
+      additionalProperties: false
+    SiteContentDraft:
+      type: object
+      properties:
+        command: {const: draft}
+        kind: &site_content_kind {type: string, enum: [announcement, faq, guide]}
+        slug: &site_slug {type: string, pattern: '^[a-z0-9]+(-[a-z0-9]+)*$', maxLength: 70}
+        version: {type: integer, minimum: 0}
+        body: {$ref: '#/components/schemas/BilingualSiteText'}
+        reason: &site_reason {type: string, minLength: 1, maxLength: 500}
+      required: [command, kind, slug, version, body, reason]
+      additionalProperties: false
+    SiteContentTransition:
+      type: object
+      properties:
+        command: {type: string, enum: [submit, approve, publish, rollback, unpublish]}
+        entry_id: *id002
+        version: {type: integer, minimum: 0}
+        revision: &site_revision {type: integer, minimum: 1}
+        reason: *site_reason
+      required: [command, entry_id, version, revision, reason]
+      additionalProperties: false
+    SiteContentList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              id: *id002
+              kind: *site_content_kind
+              slug: *site_slug
+              version: *site_revision
+              latest_revision: *site_revision
+              published_revision:
+                anyOf:
+                - *site_revision
+                - {type: 'null'}
+              state: {type: string, enum: [draft, submitted, approved]}
+              body: {$ref: '#/components/schemas/BilingualSiteText'}
+              publication_history: {type: array, items: *site_revision}
+            required: [id, kind, slug, version, latest_revision, published_revision, state, body, publication_history]
+            additionalProperties: false
+        meta: {$ref: '#/components/schemas/BasicMeta'}
+      required: [data, meta]
       additionalProperties: false
     CommandResponse:
       type: object

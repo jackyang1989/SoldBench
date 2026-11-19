@@ -704,6 +704,14 @@ body [hidden] {
 .auth-card textarea {
   resize: vertical;
 }
+.site-announcements p,
+.published-section p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.published-section h2 {
+  margin-bottom: 8px;
+}
 @media (max-width: 820px) {
   .docs-layout,
   .account-layout {

@@ -1047,6 +1047,140 @@ if (support) {
   });
 }
 
+const contentForm = document.querySelector("[data-content-draft]");
+if (contentForm) {
+  let selected;
+  let draftAttempt;
+  const labels = {
+    submit: t("Submit for review", "送审"),
+    approve: t("Approve", "批准"),
+    publish: t("Publish", "发布"),
+    rollback: t("Restore version", "回滚版本"),
+    unpublish: t("Unpublish", "撤下"),
+  };
+  const command = async (input, key) => {
+    const { data } = await post("/admin/content/commands", input, (await session())?.csrf_token, key);
+    message(t(`Change recorded · ${data.audit_id}`, `变更已记录 · ${data.audit_id}`));
+    await loadContent();
+  };
+  async function loadContent() {
+    const { data } = await api("/admin/content");
+    output.replaceChildren();
+    for (const row of data) {
+      const card = element("article", undefined, "card result-card published-section");
+      card.append(element("h2", row.body[document.documentElement.lang].title));
+      const states = {
+        draft: t("Draft", "草稿"),
+        submitted: t("In review", "待审核"),
+        approved: t("Approved", "已批准"),
+      };
+      card.append(
+        element(
+          "p",
+          t(
+            `${row.slug} · ${states[row.state]} · Active revision ${row.published_revision ?? "—"}`,
+            `${row.slug} · ${states[row.state]} · 生效版本 ${row.published_revision ?? "—"}`,
+          ),
+          "small",
+        ),
+      );
+      const preview = element("details");
+      preview.append(element("summary", t("Preview both languages", "预览两个语言")));
+      for (const locale of ["en", "zh-CN"]) {
+        const section = element("div", undefined, "summary-note");
+        section.lang = locale;
+        section.append(element("h3", row.body[locale].title), element("p", row.body[locale].body));
+        preview.append(section);
+      }
+      card.append(preview);
+      const tools = element("div", undefined, "actions");
+      tools.append(
+        button(t("Edit latest", "编辑最新版本"), () => {
+          selected = row;
+          contentForm.elements.kind.value = row.kind;
+          contentForm.elements.slug.value = row.slug;
+          for (const [field, locale] of [
+            ["en", "en"],
+            ["zh", "zh-CN"],
+          ]) {
+            contentForm.elements[`${field}_title`].value = row.body[locale].title;
+            contentForm.elements[`${field}_body`].value = row.body[locale].body;
+          }
+          contentForm.elements.en_title.focus();
+        }),
+      );
+      const action = (operation, revision, label = labels[operation]) => {
+        const control = button(label, () =>
+          run(async () => {
+            const reason = contentForm.elements.reason.value.trim();
+            if (!reason) {
+              contentForm.elements.reason.reportValidity();
+              contentForm.elements.reason.focus();
+              return;
+            }
+            control.disabled = true;
+            try {
+              await command(
+                { command: operation, entry_id: row.id, version: row.version, revision, reason },
+                `content-${operation}-${row.id}-${row.version}-${revision}`,
+              );
+            } finally {
+              control.disabled = false;
+            }
+          }),
+        );
+        control.className = "btn ghost";
+        return control;
+      };
+      if (row.state === "draft") tools.append(action("submit", row.latest_revision));
+      if (row.state === "submitted") tools.append(action("approve", row.latest_revision));
+      if (row.state === "approved" && row.latest_revision !== row.published_revision)
+        tools.append(action("publish", row.latest_revision));
+      if (row.published_revision) tools.append(action("unpublish", row.published_revision));
+      for (const revision of row.publication_history.slice(0, 8)) {
+        if (revision !== row.published_revision)
+          tools.append(action("rollback", revision, `${labels.rollback} ${revision}`));
+      }
+      card.append(tools);
+      output.append(card);
+    }
+    if (!data.length) output.append(element("p", t("No content entries yet.", "暂无内容记录。"), "notice"));
+  }
+  contentForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const submit = contentForm.querySelector("button");
+    if (submit.disabled) return;
+    submit.disabled = true;
+    run(async () => {
+      try {
+        const fields = new FormData(contentForm);
+        const kind = fields.get("kind"),
+          slug = fields.get("slug").trim();
+        const input = {
+          command: "draft",
+          kind,
+          slug,
+          version: selected?.slug === slug && selected?.kind === kind ? selected.version : 0,
+          body: {
+            en: { title: fields.get("en_title"), body: fields.get("en_body") },
+            "zh-CN": { title: fields.get("zh_title"), body: fields.get("zh_body") },
+          },
+          reason: fields.get("reason"),
+        };
+        const shape = JSON.stringify(input);
+        if (draftAttempt?.shape !== shape) draftAttempt = { shape, key: crypto.randomUUID() };
+        await command(input, draftAttempt.key);
+        draftAttempt = undefined;
+        selected = undefined;
+        contentForm.reset();
+      } finally {
+        submit.disabled = false;
+      }
+    });
+  });
+  run(loadContent);
+}
+
 function accountTable(heading, columns, rows) {
   const card = element("section", undefined, "card result-card");
   card.append(element("h2", heading));

@@ -9,6 +9,7 @@ import { bodyLimit } from "hono/body-limit";
 import { getCookie } from "hono/cookie";
 import * as z from "zod";
 import { OperationsService } from "./operations-domain.ts";
+import { siteContentCommand } from "./site-content.ts";
 
 type Env = { Variables: { requestId: string } };
 type C = Context<Env>;
@@ -95,7 +96,10 @@ export function mountOperations(app: Hono<Env>, config: Config, auth?: AuthServi
     },
   });
   app.use("/support/requests", limit);
-  app.use("/admin/*", limit);
+  const contentLimit = bodyLimit({ maxSize: 80 * 1024 });
+  app.use("/admin/*", (c, next) =>
+    (c.req.path === "/admin/content/commands" ? contentLimit : limit)(c, next),
+  );
   app.use("/admin/*", async (c, next) => {
     c.header("Cache-Control", "private, no-store");
     c.header("X-Robots-Tag", "noindex, nofollow, noarchive");
@@ -116,6 +120,23 @@ export function mountOperations(app: Hono<Env>, config: Config, auth?: AuthServi
     }
     const requestId = await service().support(actor, peer, await body(c, ticket), key(c));
     return c.json({ data: { status: "accepted", request_id: requestId }, meta: meta(c) }, 202);
+  });
+  app.get("/admin/content", async (c) => {
+    const data = await service().contentList(await identity(c));
+    c.header("Vary", "Accept");
+    if (c.req.header("Accept")?.includes("text/html")) {
+      const url = new URL(c.req.url);
+      return c.html(
+        renderPage(url.searchParams.get("lang") === "zh-CN" ? "zh-CN" : "en", "/admin/content", url),
+      );
+    }
+    return c.json({ data, meta: meta(c) });
+  });
+  app.post("/admin/content/commands", async (c) => {
+    const actor = await identity(c, true);
+    const input = await body(c, siteContentCommand);
+    const data = await service().contentCommand(actor, input, key(c), c.get("requestId"));
+    return c.json({ data, meta: meta(c) }, 202);
   });
   app.get("/status", async (c) => {
     c.header("Vary", "Accept");

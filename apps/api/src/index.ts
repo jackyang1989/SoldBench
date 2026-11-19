@@ -15,6 +15,7 @@ import { mountOperations } from "./operations.ts";
 import { mountPayments } from "./payments.ts";
 import { mountPublicResults } from "./public-results.ts";
 import { mountQueries } from "./queries.ts";
+import { publishedSiteContent } from "./site-content.ts";
 
 export function createApp(
   config: Config,
@@ -75,7 +76,15 @@ export function createApp(
   ] as const) {
     for (const page of webPages) {
       const path = page === "/" ? prefix || "/" : prefix + page;
-      app.get(path, (c) => c.html(renderPage(locale, page, new URL(c.req.url))));
+      app.get(path, async (c) => {
+        const kind =
+          page === "/" ? "announcement" : page === "/guides" ? "guide" : page === "/faq" ? "faq" : null;
+        const rows = kind && services.query ? await publishedSiteContent(db, kind) : [];
+        const sections = rows.map((row) => ({ slug: row.slug, ...row.body[locale] }));
+        return c.html(
+          renderPage(locale, page, new URL(c.req.url), undefined, undefined, undefined, sections),
+        );
+      });
       if (page === "/" && prefix)
         app.get(`${prefix}/`, (c) => c.redirect(prefix + new URL(c.req.url).search, 308));
     }
