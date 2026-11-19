@@ -87,10 +87,26 @@ export function createApp(
       app.get(path, async (c) => {
         const kind =
           page === "/" ? "announcement" : page === "/guides" ? "guide" : page === "/faq" ? "faq" : null;
-        const rows = kind && services.query ? await publishedSiteContent(db, kind) : [];
-        const sections = rows.map((row) => ({ slug: row.slug, ...row.body[locale] }));
+        const rows =
+          kind && services.query
+            ? await publishedSiteContent(
+                db,
+                page === "/" ? [kind, "home", "navigation", "footer"] : [kind, "navigation", "footer"],
+              )
+            : [];
+        const sections = rows
+          .filter((row) => row.kind === kind)
+          .map((row) => ({ slug: row.slug, ...row.body[locale] }));
+        const blocks = rows
+          .filter((row) => row.kind === "home" || row.kind === "navigation" || row.kind === "footer")
+          .map((row) => ({
+            kind: row.kind,
+            slug: row.slug,
+            target: row.metadata.target,
+            ...row.body[locale],
+          }));
         return c.html(
-          renderPage(locale, page, new URL(c.req.url), undefined, undefined, undefined, sections),
+          renderPage(locale, page, new URL(c.req.url), undefined, undefined, undefined, sections, blocks),
         );
       });
       if (page === "/" && prefix)

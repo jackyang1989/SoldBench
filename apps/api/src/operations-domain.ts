@@ -5,7 +5,7 @@ import { CollectorStore } from "@soldbench/collector";
 import { type Transaction, transaction } from "@soldbench/db";
 import type { QueryService } from "@soldbench/query";
 import { AppError } from "@soldbench/shared";
-import { publishContentRevision, type SiteContentCommand } from "./site-content.ts";
+import { publishContentRevision, requiresPolicyRelease, type SiteContentCommand } from "./site-content.ts";
 
 const fail = (code: string, status: number, message: string): never => {
   throw new AppError(code, status, message);
@@ -189,7 +189,7 @@ export class OperationsService {
       await this.role(c, actor, true, await this.service.now(c));
       return (
         await c.query(
-          `SELECT e.id,e.kind,e.slug,e.version,e.latest_revision,e.published_revision,v.state,v.body,
+          `SELECT e.id,e.kind,e.slug,e.version,e.latest_revision,e.published_revision,v.state,v.body,v.metadata,
                 CASE WHEN s.entry_id IS NOT NULL THEN jsonb_build_object('revision',s.revision,'execute_at',s.execute_at,
                   'status',s.status,'failure_code',s.failure_code) END AS schedule,
                 (SELECT coalesce(jsonb_agg(r.revision ORDER BY r.revision DESC),'[]') FROM site_content_revisions r
@@ -237,8 +237,8 @@ export class OperationsService {
       if (input.command === "draft") {
         revision += 1;
         await c.query(
-          "INSERT INTO site_content_revisions(entry_id,revision,body,author_id,created_at) VALUES($1,$2,$3,$4,$5)",
-          [entry.id, revision, input.body, actor.userId, now],
+          "INSERT INTO site_content_revisions(entry_id,revision,body,author_id,created_at,metadata) VALUES($1,$2,$3,$4,$5,$6)",
+          [entry.id, revision, input.body, actor.userId, now, input.metadata ?? {}],
         );
         await c.query("UPDATE site_content_entries SET latest_revision=$2 WHERE id=$1", [entry.id, revision]);
       } else {
@@ -255,6 +255,18 @@ export class OperationsService {
           revision !== entry.latest_revision
         )
           fail("state_conflict", 409, "Only the latest revision can move through review.");
+        if (["publish", "rollback", "schedule"].includes(input.command)) {
+          if (requiresPolicyRelease(entry.kind))
+            fail("forbidden", 403, "Legal publication requires a separate release approval.");
+          if (current.state === "approved" && current.reviewer_id) {
+            const reviewer = await c.query(
+              `SELECT 1 FROM users u JOIN admin_roles r ON r.user_id=u.id AND r.role='admin'
+                JOIN user_mfa m ON m.user_id=u.id AND m.state='enabled' WHERE u.id=$1 AND u.status='active'`,
+              [current.reviewer_id],
+            );
+            if (!reviewer.rowCount) fail("forbidden", 403, "The reviewer's access has changed.");
+          }
+        }
         switch (input.command) {
           case "submit":
             if (current.state !== "draft") fail("state_conflict", 409, "Submit a draft revision.");

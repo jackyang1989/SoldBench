@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.23.0
+  version: 1.24.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -9595,13 +9595,90 @@ components:
       type: object
       properties:
         command: {const: draft}
-        kind: &site_content_kind {type: string, enum: [announcement, faq, guide]}
+        kind: &site_content_kind
+          type: string
+          enum: [announcement, faq, guide, blog, home, navigation, footer, pricing_copy, billing_copy,
+                 offer_copy, category_copy, comparison, changelog, status_copy, status_component,
+                 status_incident, about, terms, privacy]
         slug: &site_slug {type: string, pattern: '^[a-z0-9]+(-[a-z0-9]+)*$', maxLength: 70}
         version: {type: integer, minimum: 0}
         body: {$ref: '#/components/schemas/BilingualSiteText'}
+        metadata: &site_metadata
+          type: object
+          properties:
+            author: {type: string, minLength: 1, maxLength: 120}
+            related: {type: array, maxItems: 6, items: *site_slug}
+            position: {type: integer, minimum: 0, maximum: 1000}
+            target:
+              enum: [/, /search, /research, /pricing, /categories, /guides, /blog, /faq, /methodology,
+                     /data-availability, /support, /docs, /agents, /about, /changelog]
+            reference: {type: string, format: uri, pattern: '^https://[^/@]+(?:[/?#]|$)', maxLength: 500}
+            reference_key: *site_slug
+            policy_version: {type: string, minLength: 1, maxLength: 120}
+          additionalProperties: false
         reason: &site_reason {type: string, minLength: 1, maxLength: 500}
       required: [command, kind, slug, version, body, reason]
       additionalProperties: false
+      allOf:
+      - if: {properties: {kind: {enum: [announcement, faq, about]}}}
+        then:
+          properties:
+            metadata: {maxProperties: 0}
+      - if: {properties: {kind: {enum: [guide, blog]}}}
+        then:
+          properties:
+            metadata:
+              propertyNames: {enum: [author, related]}
+      - if: {properties: {kind: {enum: [home]}}}
+        then:
+          properties:
+            metadata:
+              propertyNames: {enum: [position, target]}
+      - if: {properties: {kind: {enum: [navigation, footer]}}}
+        then:
+          required: [metadata]
+          properties:
+            metadata:
+              propertyNames: {enum: [position, target]}
+              required: [target]
+      - if: {properties: {kind: {enum: [pricing_copy, billing_copy, category_copy, status_copy]}}}
+        then:
+          properties:
+            metadata:
+              propertyNames: {enum: [position]}
+      - if: {properties: {kind: {enum: [offer_copy, status_component]}}}
+        then:
+          required: [metadata]
+          properties:
+            metadata:
+              propertyNames: {enum: [position, reference_key]}
+              required: [reference_key]
+      - if: {properties: {kind: {enum: [comparison]}}}
+        then:
+          required: [metadata]
+          properties:
+            metadata:
+              propertyNames: {enum: [position, reference]}
+              required: [reference]
+      - if: {properties: {kind: {enum: [changelog]}}}
+        then:
+          properties:
+            metadata:
+              propertyNames: {enum: [reference]}
+      - if: {properties: {kind: {enum: [status_incident]}}}
+        then:
+          required: [metadata]
+          properties:
+            metadata:
+              propertyNames: {enum: [reference_key]}
+              required: [reference_key]
+      - if: {properties: {kind: {enum: [terms, privacy]}}}
+        then:
+          required: [metadata]
+          properties:
+            metadata:
+              propertyNames: {enum: [policy_version, reference]}
+              required: [policy_version]
     SiteContentTransition:
       type: object
       properties:
@@ -9642,6 +9719,7 @@ components:
                 - {type: 'null'}
               state: {type: string, enum: [draft, submitted, approved]}
               body: {$ref: '#/components/schemas/BilingualSiteText'}
+              metadata: *site_metadata
               publication_history: {type: array, items: *site_revision}
               schedule:
                 anyOf:
@@ -9654,7 +9732,7 @@ components:
                   required: [revision, execute_at, status, failure_code]
                   additionalProperties: false
                 - {type: 'null'}
-            required: [id, kind, slug, version, latest_revision, published_revision, state, body, publication_history]
+            required: [id, kind, slug, version, latest_revision, published_revision, state, body, metadata, publication_history]
             additionalProperties: false
         meta: {$ref: '#/components/schemas/BasicMeta'}
       required: [data, meta]

@@ -320,6 +320,119 @@ test("bilingual content remains private until independent approval and atomicall
   });
 });
 
+test("typed bilingual release projects only the active revision and never publishes unapproved legal copy", async () => {
+  const x = await createProductFixture(db, roots, { prepareQuery: false });
+  const writer = await actor(x, "admin");
+  const reviewer = await actor(x, "admin");
+  const endpoint = "/admin/content/commands";
+  const reason = "Exercise the typed publication workflow";
+  const draft = (kind, slug, metadata, version = 0, label = slug) => ({
+    command: "draft",
+    kind,
+    slug,
+    version,
+    reason,
+    metadata,
+    body: {
+      en: { title: label, body: "Editorial text" },
+      "zh-CN": { title: `中文 ${label}`, body: "编辑文案" },
+    },
+  });
+  const current = async (slug) =>
+    (await (await read(x, "/admin/content", writer)).json()).data.find((row) => row.slug === slug);
+  const change = async (command, slug, who = reviewer, extra = {}) => {
+    const row = await current(slug);
+    return post(x, endpoint, who, {
+      command,
+      entry_id: row.id,
+      version: row.version,
+      revision: row.latest_revision,
+      reason,
+      ...extra,
+    });
+  };
+  const review = async (slug) => {
+    assert.equal((await change("submit", slug, writer)).status, 202);
+    assert.equal((await change("approve", slug)).status, 202);
+  };
+  for (const input of [
+    draft("navigation", "bad-nav", { target: "//example.test/" }),
+    draft("navigation", "missing-nav", {}),
+    draft("comparison", "bad-comparison", { reference: "https://name:secret@example.test/" }),
+    draft("terms", "no-version", {}),
+    draft("offer_copy", "fake-price", { reference_key: "valid", cents: 100 }),
+    draft("status_component", "fake-healthy", { reference_key: "valid", state: "operational" }),
+  ])
+    assert.equal((await post(x, endpoint, writer, input)).status, 400, input.slug);
+
+  for (const [kind, slug, metadata] of [
+    ["home", "fixture-home-block", { position: 20, target: "/guides" }],
+    ["navigation", "fixture-nav-later", { position: 50, target: "/pricing" }],
+    ["navigation", "fixture-nav-first", { position: 2, target: "/search" }],
+    ["footer", "fixture-footer", { target: "/data-availability" }],
+    ["blog", "fixture-cms-article", { author: "Fixture editor", related: ["fixture-guide"] }],
+    ["comparison", "fixture-cms-comparison", { reference: "https://example.test/evidence" }],
+    ["changelog", "fixture-cms-release", {}],
+  ]) {
+    assert.equal((await post(x, endpoint, writer, draft(kind, slug, metadata))).status, 202, slug);
+    assert.deepEqual((await current(slug)).metadata, metadata);
+    await review(slug);
+    assert.equal((await change("publish", slug)).status, 202);
+  }
+  const home = await (await read(x, "/")).text();
+  assert.match(home, /fixture-home-block/);
+  assert.match(home, /href="\/search">fixture-nav-first/);
+  assert.ok(home.indexOf("fixture-nav-first") < home.indexOf("fixture-nav-later"));
+  assert.match(
+    await (await read(x, "/zh-CN/faq")).text(),
+    /href="\/zh-CN\/data-availability">中文 fixture-footer/,
+  );
+  const previous = await current("fixture-home-block");
+  assert.equal(
+    (
+      await post(
+        x,
+        endpoint,
+        writer,
+        draft("home", previous.slug, { target: "/search" }, previous.version, "Next block"),
+      )
+    ).status,
+    202,
+  );
+  assert.doesNotMatch(await (await read(x, "/")).text(), /Next block/);
+  assert.equal((await change("unpublish", previous.slug, reviewer, { revision: 1 })).status, 202);
+  assert.doesNotMatch(await (await read(x, "/")).text(), /fixture-home-block|Next block/);
+  await assert.rejects(
+    db.query("UPDATE site_content_revisions SET metadata='{}' WHERE entry_id=$1", [previous.id]),
+    /immutable/,
+  );
+
+  assert.equal(
+    (await post(x, endpoint, writer, draft("terms", "fixture-terms", { policy_version: "2026-11-19" })))
+      .status,
+    202,
+  );
+  await review("fixture-terms");
+  assert.equal((await change("publish", "fixture-terms")).status, 403);
+  assert.equal(
+    (
+      await change("schedule", "fixture-terms", reviewer, {
+        execute_at: new Date(Date.parse(x.now()) + 60000).toISOString(),
+      })
+    ).status,
+    403,
+  );
+
+  assert.equal(
+    (await post(x, endpoint, writer, draft("guide", "revoked-review-guide", { author: "Fixture editor" })))
+      .status,
+    202,
+  );
+  await review("revoked-review-guide");
+  await db.query("DELETE FROM admin_roles WHERE user_id=$1 AND role='admin'", [reviewer.owner]);
+  assert.equal((await change("publish", "revoked-review-guide", writer)).status, 403);
+});
+
 test("support intake is private, idempotent, rate limited and prunes expired original messages", async () => {
   const x = await createProductFixture(db, roots),
     key = randomUUID(),

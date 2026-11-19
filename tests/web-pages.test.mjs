@@ -457,7 +457,7 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     const author = await operatorPage();
     const editor = author.editor;
     await editor.getByLabel("Content type").selectOption("faq");
-    await editor.getByLabel("Slug").fill("browser-workflow");
+    await editor.getByLabel("Slug", { exact: true }).fill("browser-workflow");
     await editor.getByLabel("English", { exact: true }).fill("Browser publication question");
     await editor.getByLabel("English body").fill("Published only after review.");
     await editor.getByLabel("简体中文", { exact: true }).fill("浏览器发布验证");
@@ -497,6 +497,38 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByRole("heading", { name: "浏览器发布验证" }).waitFor();
     await reviewer.editor.reload();
     await reviewer.editor.getByText(/^Published on schedule · /).waitFor();
+    await editor.getByLabel("Content type").selectOption("navigation");
+    await editor.getByLabel("Slug", { exact: true }).fill("browser-navigation");
+    await editor.getByLabel("Site destination").selectOption("/guides");
+    await editor.getByLabel("Display order").fill("3");
+    await editor.getByLabel("English", { exact: true }).fill("Owned guide link");
+    await editor.getByLabel("English body").fill("Approved local navigation");
+    await editor.getByLabel("简体中文", { exact: true }).fill("站内指南链接");
+    await editor.getByLabel("Chinese body").fill("审核后的站内导航。");
+    await editor.getByLabel("Change reason").fill("Create a local navigation item");
+    await editor.getByRole("button", { name: "Save draft" }).click();
+    const newEntry = editor
+      .locator("article")
+      .filter({ has: editor.getByRole("heading", { name: "Owned guide link" }) });
+    await newEntry.getByRole("button", { name: "Edit latest" }).click();
+    assert.equal(await editor.getByLabel("Site destination").inputValue(), "/guides");
+    await newEntry.getByText("Preview both languages").click();
+    await newEntry.getByText("站内指南链接", { exact: true }).waitFor();
+    await editor.getByLabel("Change reason").fill("Submit navigation for review");
+    await newEntry.getByRole("button", { name: "Submit for review" }).click();
+    await newEntry.getByRole("button", { name: "Approve", exact: true }).waitFor();
+    await reviewer.editor.reload();
+    await reviewer.editor.getByLabel("Change reason").fill("Verify the local destination");
+    const approval = reviewer.editor
+      .locator("article")
+      .filter({ has: reviewer.editor.getByRole("heading", { name: "Owned guide link" }) });
+    await approval.getByRole("button", { name: "Approve", exact: true }).click();
+    await approval.getByRole("button", { name: "Publish", exact: true }).click();
+    await approval.getByText(/Active revision 1/).waitFor();
+    await page.goto(`${origin}/zh-CN`);
+    await page.getByText("菜单", { exact: true }).click();
+    const localLink = page.locator("details.mobile").getByRole("link", { name: "站内指南链接" });
+    assert.equal(await localLink.getAttribute("href"), "/zh-CN/guides");
     await editor.getByRole("link", { name: "Operations", exact: true }).click();
     await editor.getByRole("button", { name: "Sources", exact: true }).click();
     const sourceLine = editor.getByRole("row").filter({ hasText: x.source.sourceId });

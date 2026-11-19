@@ -8,34 +8,102 @@ const section = z.strictObject({
 });
 const reason = z.string().trim().min(1).max(500);
 const version = z.int().nonnegative();
-export const siteContentCommand = z.discriminatedUnion("command", [
-  z.strictObject({
-    command: z.literal("draft"),
-    kind: z.enum(["announcement", "faq", "guide"]),
-    slug: z
-      .string()
-      .max(70)
-      .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/),
-    version,
-    body: z.strictObject({ en: section, "zh-CN": section }),
-    reason,
-  }),
-  z.strictObject({
-    command: z.enum(["submit", "approve", "publish", "rollback", "unpublish", "cancel_schedule"]),
-    entry_id: z.uuid(),
-    revision: z.int().positive(),
-    version,
-    reason,
-  }),
-  z.strictObject({
-    command: z.literal("schedule"),
-    entry_id: z.uuid(),
-    revision: z.int().positive(),
-    version,
-    execute_at: z.iso.datetime(),
-    reason,
-  }),
+const slug = z
+  .string()
+  .max(70)
+  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/);
+const copy = z.string().trim().min(1).max(120).refine(hasValidText);
+const position = z.int().min(0).max(1000).optional();
+const target = z.enum([
+  "/",
+  "/search",
+  "/research",
+  "/pricing",
+  "/categories",
+  "/guides",
+  "/blog",
+  "/faq",
+  "/methodology",
+  "/data-availability",
+  "/support",
+  "/docs",
+  "/agents",
+  "/about",
+  "/changelog",
 ]);
+const reference = z
+  .url({ protocol: /^https$/ })
+  .max(500)
+  .refine((value) => {
+    const url = new URL(value);
+    return !url.username && !url.password;
+  });
+const article = z.strictObject({ author: copy.optional(), related: z.array(slug).max(6).optional() });
+const policy = z.strictObject({ policy_version: copy, reference: reference.optional() });
+const ordered = z.strictObject({ position });
+const empty = z.strictObject({});
+const metadataByKind = {
+  announcement: empty,
+  faq: empty,
+  guide: article,
+  blog: article,
+  home: z.strictObject({ position, target: target.optional() }),
+  navigation: z.strictObject({ position, target }),
+  footer: z.strictObject({ position, target }),
+  pricing_copy: ordered,
+  billing_copy: ordered,
+  offer_copy: z.strictObject({ position, reference_key: slug }),
+  category_copy: ordered,
+  comparison: z.strictObject({ position, reference }),
+  changelog: z.strictObject({ reference: reference.optional() }),
+  status_copy: ordered,
+  status_component: z.strictObject({ position, reference_key: slug }),
+  status_incident: z.strictObject({ reference_key: slug }),
+  about: empty,
+  terms: policy,
+  privacy: policy,
+};
+const contentKind = z.enum(
+  Object.keys(metadataByKind) as [keyof typeof metadataByKind, ...(keyof typeof metadataByKind)[]],
+);
+export type SiteContentKind = z.infer<typeof contentKind>;
+export const requiresPolicyRelease = (kind: SiteContentKind) => kind === "terms" || kind === "privacy";
+
+export const siteContentCommand = z
+  .discriminatedUnion("command", [
+    z.strictObject({
+      command: z.literal("draft"),
+      kind: contentKind,
+      slug,
+      version,
+      body: z.strictObject({ en: section, "zh-CN": section }),
+      metadata: z.record(z.string(), z.unknown()).optional(),
+      reason,
+    }),
+    z.strictObject({
+      command: z.enum(["submit", "approve", "publish", "rollback", "unpublish", "cancel_schedule"]),
+      entry_id: z.uuid(),
+      revision: z.int().positive(),
+      version,
+      reason,
+    }),
+    z.strictObject({
+      command: z.literal("schedule"),
+      entry_id: z.uuid(),
+      revision: z.int().positive(),
+      version,
+      execute_at: z.iso.datetime(),
+      reason,
+    }),
+  ])
+  .superRefine((input, context) => {
+    if (input.command !== "draft") return;
+    const fields = metadataByKind[input.kind].safeParse(input.metadata ?? {});
+    if (!fields.success) {
+      for (const issue of fields.error.issues)
+        context.addIssue({ ...issue, path: ["metadata", ...issue.path] });
+    }
+  });
 export type SiteContentCommand = z.infer<typeof siteContentCommand>;
 
 export async function publishContentRevision(c: Transaction, entry: string, revision: number, now: Date) {
@@ -72,7 +140,7 @@ export async function publishNextScheduledContent(db: Database, clock?: () => st
     );
     const scheduled = (
       await c.query(
-        `SELECT s.entry_id,s.revision,s.entry_version,v.state,v.reviewer_id,e.version,e.latest_revision,
+        `SELECT s.entry_id,s.revision,s.entry_version,v.state,v.reviewer_id,e.kind,e.version,e.latest_revision,
                 e.published_revision FROM site_content_schedules s JOIN site_content_entries e ON e.id=s.entry_id
           JOIN site_content_revisions v ON (v.entry_id,v.revision)=(s.entry_id,s.revision)
          WHERE s.id=$1 AND s.status='pending' FOR UPDATE OF e,s SKIP LOCKED`,
@@ -85,7 +153,8 @@ export async function publishNextScheduledContent(db: Database, clock?: () => st
       scheduled.entry_version !== scheduled.version ||
       scheduled.latest_revision !== scheduled.revision ||
       scheduled.published_revision === scheduled.revision ||
-      scheduled.state !== "approved"
+      scheduled.state !== "approved" ||
+      requiresPolicyRelease(scheduled.kind)
     )
       failure = "entry_changed";
     else if (!scheduled.reviewer_id || operators.rowCount !== actors.length)
@@ -117,13 +186,45 @@ export async function publishNextScheduledContent(db: Database, clock?: () => st
   });
 }
 
-export async function publishedSiteContent(db: Database, kind: "announcement" | "faq" | "guide") {
+export type PublishedSiteContent = {
+  kind: SiteContentKind;
+  slug: string;
+  revision: number;
+  published_at: Date;
+  body: Record<"en" | "zh-CN", { title: string; body: string }>;
+  metadata: {
+    author?: string;
+    related?: string[];
+    target?: z.infer<typeof target>;
+    position?: number;
+    reference?: string;
+    reference_key?: string;
+    policy_version?: string;
+  };
+};
+
+export async function publishedSiteContent(
+  db: Database,
+  requestedKinds: SiteContentKind | readonly SiteContentKind[],
+  slug?: string,
+) {
+  const kinds = (typeof requestedKinds === "string" ? [requestedKinds] : requestedKinds).filter(
+    (kind) => !requiresPolicyRelease(kind),
+  );
+  if (!kinds.length) return [];
   return (
-    await db.query(
-      `SELECT e.slug,v.body FROM site_content_entries e JOIN site_content_revisions v
-       ON (v.entry_id,v.revision)=(e.id,e.published_revision)
-      WHERE e.kind=$1 AND v.state='approved' ORDER BY e.published_at DESC,e.id LIMIT 40`,
-      [kind],
+    await db.query<PublishedSiteContent>(
+      `SELECT content.* FROM unnest($1::text[]) AS requested(kind)
+       CROSS JOIN LATERAL (
+         SELECT e.kind,e.slug,v.revision,e.published_at,v.body,v.metadata
+         FROM site_content_entries e JOIN site_content_revisions v
+           ON (v.entry_id,v.revision)=(e.id,e.published_revision)
+         WHERE e.kind=requested.kind AND e.published_revision IS NOT NULL
+           AND v.state='approved' AND ($2::text IS NULL OR e.slug=$2)
+         ORDER BY (v.metadata->'position') NULLS LAST,e.published_at DESC,e.slug LIMIT 40
+       ) AS content
+       ORDER BY content.kind,(content.metadata->'position') NULLS LAST,content.published_at DESC,content.slug`,
+      [[...new Set(kinds)], slug ?? null],
     )
   ).rows;
 }

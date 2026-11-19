@@ -49,6 +49,7 @@ export const webPages = [
 ] as const;
 type Page = (typeof webPages)[number] | "/results" | "/share" | "/docs" | "/admin/content";
 type PublishedSection = { slug: string; title: string; body: string };
+type SiteBlock = PublishedSection & { kind: string; target?: string };
 type SharedSummary = {
   data_as_of: string;
   expires_at: string;
@@ -68,6 +69,7 @@ export function renderPage(
   shared?: SharedSummary,
   docs?: DocsView,
   sections: PublishedSection[] = [],
+  blocks: SiteBlock[] = [],
 ): string {
   const zh = locale === "zh-CN";
   const t = (en: string, cn: string) => (zh ? cn : en);
@@ -131,8 +133,24 @@ export function renderPage(
     "/admin/content": ["Content studio", "内容中心"],
   };
   const title = docs?.current.title ?? t(...(headings[page] ?? ["Search sold prices", "查询成交价"]));
+  const isDestination = (target: string | undefined): target is string =>
+    !!target &&
+    ((webPages as readonly string[]).includes(target) || ["/docs", "/changelog"].includes(target));
+  const browseableLinks = (kind: "navigation" | "footer") =>
+    blocks.flatMap((block) =>
+      block.kind === kind && isDestination(block.target) ? (
+        <a key={block.slug} href={link(block.target)}>
+          {block.title}
+        </a>
+      ) : (
+        []
+      ),
+    );
+  const navigation = browseableLinks("navigation");
+  const footer = browseableLinks("footer");
   const nav = (
     <>
+      {navigation}
       <a href={link("/search")}>{t("Search", "查价")}</a>
       <a href={link("/categories")}>{t("Categories", "类目")}</a>
       <a href={link("/pricing")}>{t("Pricing", "定价")}</a>
@@ -193,6 +211,15 @@ export function renderPage(
             ))}
           </section>
         )}
+        {blocks
+          .filter((row) => row.kind === "home")
+          .map((row) => (
+            <section className="wrap published-section" key={row.slug}>
+              <h2>{row.title}</h2>
+              <p>{row.body}</p>
+              {isDestination(row.target) && <a href={link(row.target)}>{t("Learn more", "了解更多")}</a>}
+            </section>
+          ))}
         <section className="hero">
           <div className="wrap hero-grid">
             <div>
@@ -522,12 +549,115 @@ export function renderPage(
               <select name="kind" required>
                 <option value="announcement">{t("Announcement", "公告")}</option>
                 <option value="faq">FAQ</option>
-                <option value="guide">{t("Guide", "指南")}</option>
+                <option value="guide" data-fields="author related">
+                  {t("Guide", "指南")}
+                </option>
+                <option value="blog" data-fields="author related">
+                  {t("Blog article", "博客文章")}
+                </option>
+                <option value="home" data-fields="position target">
+                  {t("Home section", "首页内容")}
+                </option>
+                <option value="navigation" data-fields="position target" data-required="target">
+                  {t("Navigation", "主导航")}
+                </option>
+                <option value="footer" data-fields="position target" data-required="target">
+                  {t("Footer", "页脚")}
+                </option>
+                <option value="pricing_copy" data-fields="position">
+                  {t("Pricing notes", "定价说明")}
+                </option>
+                <option value="billing_copy" data-fields="position">
+                  {t("Billing rules copy", "计费规则文案")}
+                </option>
+                <option value="offer_copy" data-fields="position reference_key" data-required="reference_key">
+                  {t("Offer copy", "方案文案")}
+                </option>
+                <option value="category_copy" data-fields="position">
+                  {t("Category copy", "类目简介")}
+                </option>
+                <option value="comparison" data-fields="position reference" data-required="reference">
+                  {t("Comparison", "对比专题")}
+                </option>
+                <option value="changelog" data-fields="reference">
+                  {t("Changelog", "更新记录")}
+                </option>
+                <option value="status_copy" data-fields="position">
+                  {t("Status notes", "服务状态说明")}
+                </option>
+                <option
+                  value="status_component"
+                  data-fields="position reference_key"
+                  data-required="reference_key"
+                >
+                  {t("Status component", "服务组件说明")}
+                </option>
+                <option value="status_incident" data-fields="reference_key" data-required="reference_key">
+                  {t("Incident copy", "事件说明")}
+                </option>
+                <option value="about">{t("About", "关于")}</option>
+                <option value="terms" data-fields="policy_version reference" data-required="policy_version">
+                  {t("Terms version", "条款版次")}
+                </option>
+                <option value="privacy" data-fields="policy_version reference" data-required="policy_version">
+                  {t("Privacy version", "隐私政策版次")}
+                </option>
               </select>
             </label>
             <label>
               {t("Slug", "路径标识")}
               <input name="slug" required maxLength={70} pattern="[a-z0-9]+(-[a-z0-9]+)*" />
+            </label>
+            <label data-content-extra="author" hidden>
+              {t("Author display name", "作者显示名")}
+              <input name="author" maxLength={120} disabled />
+            </label>
+            <label data-content-extra="related" hidden>
+              {t("Related article slugs (comma-separated)", "相关文章路径标识（逗号分隔）")}
+              <input name="related" maxLength={430} disabled />
+            </label>
+            <label data-content-extra="position" hidden>
+              {t("Display order", "显示顺序")}
+              <input name="position" type="number" min={0} max={1000} disabled />
+            </label>
+            <label data-content-extra="target" hidden>
+              {t("Site destination", "站内目标")}
+              <select name="target" disabled>
+                <option value="">{t("Choose a page", "选择页面")}</option>
+                {[
+                  "/",
+                  "/search",
+                  "/research",
+                  "/pricing",
+                  "/categories",
+                  "/guides",
+                  "/blog",
+                  "/faq",
+                  "/methodology",
+                  "/data-availability",
+                  "/support",
+                  "/docs",
+                  "/agents",
+                  "/about",
+                  "/changelog",
+                ].map((destination) => (
+                  <option key={destination} value={destination}>
+                    {destination}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label data-content-extra="reference" hidden>
+              {t("Source URL (HTTPS)", "来源链接（HTTPS）")}
+              <input name="reference" type="url" maxLength={500} disabled />
+            </label>
+            <label data-content-extra="reference_key" hidden>
+              {t("Existing component, incident or offer key", "现有服务组件、事件或报价标识")}
+              <input name="reference_key" maxLength={70} pattern="[a-z0-9]+(-[a-z0-9]+)*" disabled />
+            </label>
+            <label data-content-extra="policy_version" hidden>
+              {t("Policy version", "政策版次")}
+              <input name="policy_version" maxLength={120} disabled />
             </label>
             <label>
               English
@@ -983,6 +1113,7 @@ export function renderPage(
             <a href={link("/guides")}>{t("Guides", "指南")}</a>
             <a href={link("/methodology")}>{t("Methodology", "价格研究方法")}</a>
             <a href={link("/faq")}>FAQ</a>
+            {footer}
           </footer>
         </body>
       </html>,

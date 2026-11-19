@@ -144,7 +144,33 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
       "0024_query_worker_heartbeat.sql",
     ]);
     assert.deepEqual(await migrate(db, "0025_site_content_schedule.sql"), ["0025_site_content_schedule.sql"]);
-    assert.deepEqual(await migrate(db), ["0026_support_case_workflow.sql"]);
+    assert.deepEqual(await migrate(db, "0026_support_case_workflow.sql"), ["0026_support_case_workflow.sql"]);
+    const legacyContent = await db.query(
+      "INSERT INTO site_content_entries(kind,slug,updated_at) VALUES('guide','legacy-guide',now()) RETURNING id",
+    );
+    const entry = legacyContent.rows[0].id;
+    const content = {
+      en: { title: "Legacy guide", body: "Retained" },
+      "zh-CN": { title: "旧指南", body: "保留" },
+    };
+    await db.query(
+      "INSERT INTO site_content_revisions(entry_id,revision,body,state,created_at) VALUES($1,1,$2,'approved',now())",
+      [entry, content],
+    );
+    await db.query(
+      "UPDATE site_content_entries SET latest_revision=1,published_revision=1,published_at=now(),version=1 WHERE id=$1",
+      [entry],
+    );
+    assert.deepEqual(await migrate(db), ["0027_site_content_types.sql"]);
+    assert.deepEqual(
+      (await db.query("SELECT body,metadata FROM site_content_revisions WHERE entry_id=$1", [entry])).rows,
+      [{ body: content, metadata: {} }],
+    );
+    assert.equal(
+      (await db.query("SELECT published_revision FROM site_content_entries WHERE id=$1", [entry])).rows[0]
+        .published_revision,
+      1,
+    );
     assert.deepEqual(await migrate(db), []);
     const mediaColumns = await db.query(
       "SELECT column_name FROM information_schema.columns WHERE table_name='listing_images'",

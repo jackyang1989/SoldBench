@@ -1449,6 +1449,21 @@ const contentForm = document.querySelector("[data-content-draft]");
 if (contentForm) {
   let selected;
   let draftAttempt;
+  const extras = [...contentForm.querySelectorAll("[data-content-extra]")];
+  function syncContentFields(metadata = {}) {
+    const option = contentForm.elements.kind.selectedOptions[0];
+    const visible = option.dataset.fields?.split(" ") ?? [];
+    const required = option.dataset.required?.split(" ") ?? [];
+    for (const label of extras) {
+      const name = label.dataset.contentExtra;
+      const field = contentForm.elements[name];
+      label.hidden = !visible.includes(name);
+      field.disabled = label.hidden;
+      field.required = required.includes(name);
+      field.value = Array.isArray(metadata[name]) ? metadata[name].join(", ") : (metadata[name] ?? "");
+    }
+  }
+  contentForm.elements.kind.addEventListener("change", () => syncContentFields());
   const labels = {
     submit: t("Submit for review", "送审"),
     approve: t("Approve", "批准"),
@@ -1492,12 +1507,15 @@ if (contentForm) {
         section.append(element("h3", row.body[locale].title), element("p", row.body[locale].body));
         preview.append(section);
       }
+      if (Object.keys(row.metadata).length)
+        preview.append(element("pre", JSON.stringify(row.metadata, null, 2)));
       card.append(preview);
       const tools = element("div", undefined, "actions");
       tools.append(
         button(t("Edit latest", "编辑最新版本"), () => {
           selected = row;
           contentForm.elements.kind.value = row.kind;
+          syncContentFields(row.metadata);
           contentForm.elements.slug.value = row.slug;
           for (const [field, locale] of [
             ["en", "en"],
@@ -1568,7 +1586,12 @@ if (contentForm) {
           ),
         );
       }
-      if (row.state === "approved" && row.latest_revision !== row.published_revision) {
+      const releaseApproval = row.kind === "terms" || row.kind === "privacy";
+      if (row.state === "approved" && releaseApproval)
+        card.append(
+          element("p", t("Awaiting separate legal release approval.", "等待独立政策发布批准。"), "notice"),
+        );
+      if (row.state === "approved" && !releaseApproval && row.latest_revision !== row.published_revision) {
         tools.append(action("publish", row.latest_revision));
         if (schedule?.status !== "pending") {
           const when = element("label", t("Publication time (UTC)", "发布时间（UTC）"));
@@ -1584,7 +1607,7 @@ if (contentForm) {
       if (schedule?.status === "pending") tools.append(action("cancel_schedule", schedule.revision));
       if (row.published_revision) tools.append(action("unpublish", row.published_revision));
       for (const revision of row.publication_history.slice(0, 8)) {
-        if (revision !== row.published_revision)
+        if (!releaseApproval && revision !== row.published_revision)
           tools.append(action("rollback", revision, `${labels.rollback} ${revision}`));
       }
       card.append(tools);
@@ -1602,6 +1625,19 @@ if (contentForm) {
         const fields = new FormData(contentForm);
         const kind = fields.get("kind"),
           slug = fields.get("slug").trim();
+        const metadata = {};
+        for (const label of extras) {
+          const name = label.dataset.contentExtra;
+          const value = fields.get(name)?.trim();
+          if (!value) continue;
+          if (name === "related")
+            metadata.related = value
+              .split(",")
+              .map((item) => item.trim())
+              .filter(Boolean);
+          else if (name === "position") metadata.position = Number(value);
+          else metadata[name] = value;
+        }
         const input = {
           command: "draft",
           kind,
@@ -1611,6 +1647,7 @@ if (contentForm) {
             en: { title: fields.get("en_title"), body: fields.get("en_body") },
             "zh-CN": { title: fields.get("zh_title"), body: fields.get("zh_body") },
           },
+          ...(Object.keys(metadata).length ? { metadata } : {}),
           reason: fields.get("reason"),
         };
         const shape = JSON.stringify(input);
@@ -1619,6 +1656,7 @@ if (contentForm) {
         draftAttempt = undefined;
         selected = undefined;
         contentForm.reset();
+        syncContentFields();
       } finally {
         submit.disabled = false;
       }
