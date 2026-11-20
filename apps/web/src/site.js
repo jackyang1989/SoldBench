@@ -2149,6 +2149,7 @@ if (page === "/operations") {
     refresh_enqueued: t("Jobs queued last cycle", "上轮入队作业"),
     refresh_recovered: t("Jobs recovered last cycle", "上轮恢复作业"),
     refresh_blocked: t("Dispatches blocked last cycle", "上轮受阻派发"),
+    refresh_missed: t("Expired slots closed last cycle", "上轮关闭的过期时段"),
     sale_evidence: t("Sale evidence", "成交证据"),
     effective_versions: t("Effective versions", "生效版本"),
     observed_parsers: t("Observed parsers", "观测到的解析器"),

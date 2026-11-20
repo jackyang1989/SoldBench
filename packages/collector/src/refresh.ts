@@ -218,6 +218,27 @@ export class CollectorRefresh {
       dispatchDeadline: o.deadline_at.toISOString(),
     };
   }
+  async settleOverdue(sourceId: string) {
+    return transaction(this.store.db, async (c) => {
+      await this.source(c, sourceId);
+      const now = await this.now(c);
+      // Keep an interrupted handoff with a committed job recoverable by its own profile.
+      const result = await c.query(
+        `WITH overdue AS (
+           SELECT o.id FROM collector_refresh_occurrences o
+           WHERE o.source_id=$1 AND o.deadline_at<=$2
+             AND (o.status='planned' OR (o.status='dispatching' AND o.lease_until<=$2))
+             AND NOT EXISTS (SELECT 1 FROM collector_jobs j
+               WHERE j.source_id=o.source_id AND j.run_key='refresh:'||o.id::text)
+           ORDER BY o.deadline_at,o.id LIMIT 100 FOR UPDATE OF o
+         )
+         UPDATE collector_refresh_occurrences o SET status='missed',failure_reason='scheduler_late',
+           lease_owner=NULL,lease_until=NULL,finished_at=$2 FROM overdue WHERE o.id=overdue.id`,
+        [sourceId, now],
+      );
+      return result.rowCount ?? 0;
+    });
+  }
   async dispatchNext(sourceId: string) {
     const claim = await transaction(this.store.db, async (c) => {
       await this.source(c, sourceId);

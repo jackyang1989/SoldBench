@@ -898,7 +898,7 @@ test("telemetry uses real offline runs, current evidence rights and versioned lo
       start,
       {
         spool: "unavailable",
-        scheduled: { materialized: 1, enqueued: 0, recovered: 0, blocked: 0 },
+        scheduled: { materialized: 1, enqueued: 0, recovered: 0, blocked: 0, missed: 2 },
         queues: {
           pages: { due: 65, artifactUnavailable: 10, uninspected: 2 },
           images: { due: 4, artifactUnavailable: 0, uninspected: 0 },
@@ -914,6 +914,7 @@ test("telemetry uses real offline runs, current evidence rights and versioned lo
   assert.equal(observed.page_jobs_uninspected, 2);
   assert.equal((await schedule()).refresh_enqueued, 0);
   assert.equal((await schedule()).refresh_materialized, 1);
+  assert.equal((await schedule()).refresh_missed, 2);
   const alert = rows((await get("monitoring")).data).find(
     ({ signal }) => signal === "overdue_collector_supervisors",
   );

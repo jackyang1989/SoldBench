@@ -234,7 +234,13 @@ async function run(args) {
         }
         let state = await sourceState(db, sourceId);
         const scheduled = refresh
-          ? { ...(await refresh.materialize(sourceId, 200)), enqueued: 0, recovered: 0, blocked: 0 }
+          ? {
+              ...(await refresh.materialize(sourceId, 200)),
+              missed: await refresh.settleOverdue(sourceId),
+              enqueued: 0,
+              recovered: 0,
+              blocked: 0,
+            }
           : null;
         if (scheduled && state === "ready") {
           for (let i = 0; i < 8 && !signal.aborted; i++) {

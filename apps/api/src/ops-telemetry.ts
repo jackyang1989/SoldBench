@@ -179,13 +179,15 @@ export async function telemetry(c: Transaction, now: Date, view: TelemetryView, 
           "refresh_enqueued",
           "refresh_recovered",
           "refresh_blocked",
+          "refresh_missed",
         ],
         `SELECT s.id source_id,plans.due refresh_due_plans,plans.next_due_at refresh_next_due_at,
            slots.pending refresh_pending_slots,slots.overdue refresh_overdue_slots,h.last_cycle_at,
            h.cycle_summary#>'{scheduled,materialized}' refresh_materialized,
            h.cycle_summary#>'{scheduled,enqueued}' refresh_enqueued,
            h.cycle_summary#>'{scheduled,recovered}' refresh_recovered,
-           h.cycle_summary#>'{scheduled,blocked}' refresh_blocked
+           h.cycle_summary#>'{scheduled,blocked}' refresh_blocked,
+           h.cycle_summary#>'{scheduled,missed}' refresh_missed
          FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id
          LEFT JOIN collector_supervisor_state h ON h.source_id=s.id AND h.last_cycle_at<=$1
          CROSS JOIN LATERAL (

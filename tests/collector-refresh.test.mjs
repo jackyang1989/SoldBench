@@ -133,13 +133,37 @@ test("a committed job followed by lost connection is recovered after lease expir
   };
   await assert.rejects(x.refresh.dispatchNext(x.sourceId), /connection_lost/);
   assert.equal((await occurrences(x))[0].status, "dispatching");
-  step(x, 61);
+  step(x, 121);
+  assert.equal(await x.refresh.settleOverdue(x.sourceId), 0);
   const r = await x.refresh.dispatchNext(x.sourceId);
   assert.equal(r.recovered, true);
   assert.equal((await occurrences(x))[0].status, "enqueued");
   assert.equal(
     (await db.query("SELECT count(*)::int n FROM collector_jobs WHERE source_id=$1", [x.sourceId])).rows[0].n,
     1,
+  );
+});
+
+test("expired unclaimed slots close while a source is paused, including concurrent settlement", async () => {
+  const x = await setup();
+  await x.refresh.create({ ...x.input, maxLagSeconds: 30 });
+  await x.refresh.materialize(x.sourceId);
+  await x.store.stop(x.sourceId, "scheduled_pause");
+  step(x, 29);
+  assert.equal(await x.refresh.settleOverdue(x.sourceId), 0);
+  step(x, 1);
+  const settled = await Promise.all(Array.from({ length: 8 }, () => x.refresh.settleOverdue(x.sourceId)));
+  assert.equal(
+    settled.reduce((sum, count) => sum + count, 0),
+    1,
+  );
+  const [missed] = await occurrences(x);
+  assert.equal(missed.status, "missed");
+  assert.equal(missed.failure_reason, "scheduler_late");
+  assert.equal(missed.job_id, null);
+  assert.equal(
+    (await db.query("SELECT count(*)::int n FROM collector_jobs WHERE source_id=$1", [x.sourceId])).rows[0].n,
+    0,
   );
 });
 test("unapproved config mutation without changing updated_at is rejected both by scheduled enqueue and existing lease", async () => {
