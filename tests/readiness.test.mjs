@@ -236,7 +236,11 @@ test("the same API and query worker recover after a dedicated PostgreSQL process
     }
     assert.fail(`${label}\n${logs}`);
   };
-  const call = (path) => fetch(origin + path, { signal: AbortSignal.timeout(8000) });
+  const call = (path, accept) =>
+    fetch(origin + path, {
+      headers: accept ? { Accept: accept } : undefined,
+      signal: AbortSignal.timeout(8000),
+    });
   try {
     startCluster(cluster);
     databaseRunning = true;
@@ -273,12 +277,35 @@ test("the same API and query worker recover after a dedicated PostgreSQL process
     const offline = await call("/ready");
     assert.equal(offline.status, 503);
     assert.equal(offline.headers.get("Retry-After"), "2");
+    for (const [path, language, title] of [
+      ["/", "en", "Service temporarily unavailable"],
+      ["/zh-CN/blog/local-release", "zh-CN", "服务暂时不可用"],
+    ]) {
+      const failed = await call(`${path}?token=temporary-fixture-secret`, "text/html");
+      assert.equal(failed.status, 503);
+      assert.equal(failed.headers.get("Retry-After"), "2");
+      assert.equal(failed.headers.get("Cache-Control"), "no-store");
+      assert.match(failed.headers.get("Content-Type"), /text\/html/);
+      assert.match(failed.headers.get("X-Robots-Tag"), /noindex/);
+      const html = await failed.text();
+      assert.ok(html.includes(`<html lang="${language}">`) && html.includes(`<h1>${title}</h1>`));
+      assert.doesNotMatch(html, /temporary-fixture-secret|ECONNREFUSED|ENOTDIR/);
+    }
+    const json = await call("/v1/data-status", "text/html");
+    assert.equal(json.status, 503);
+    assert.equal((await json.json()).error.code, "service_unavailable");
+    assert.equal(
+      (await call("/", "text/html;q=0, application/json")).headers.get("Content-Type").split(";")[0],
+      "application/json",
+    );
+    assert.equal((await call("/docs/en/quickstart", "text/html")).status, 200);
     startCluster(cluster);
     databaseRunning = true;
     await waitFor("worker recovered its original loop", () =>
       logs.includes("soldbench_query_worker_database_recovered"),
     );
     assert.equal((await (await call("/ready")).json()).query_worker, "recent");
+    assert.equal((await call("/", "text/html")).status, 200);
     assert.equal(logs.match(/"event":"query_worker_started"/g)?.length, 1);
   } finally {
     if (dev) {

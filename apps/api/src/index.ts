@@ -7,6 +7,7 @@ import { AppError, type Config } from "@soldbench/shared";
 import { operationsPanels, renderPage, webClient, webCss, webPages } from "@soldbench/web";
 import { Hono } from "hono";
 import { compress } from "hono/compress";
+import { parseAccept } from "hono/utils/accept";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { mountAuth } from "./auth.ts";
 import { mountCatalog } from "./catalog.ts";
@@ -20,6 +21,23 @@ import { mountQueries } from "./queries.ts";
 import { publishedSiteContent } from "./site-content.ts";
 
 export { publishNextScheduledContent } from "./site-content.ts";
+
+function documentLocale(method: string, pathname: string, accept?: string) {
+  const chinese = /^\/zh-CN(?:\/|$)/.test(pathname);
+  const path = chinese ? pathname.slice("/zh-CN".length) : pathname;
+  if (
+    method !== "GET" ||
+    !accept ||
+    !parseAccept(accept).some(({ type, q }) => type.toLowerCase() === "text/html" && q > 0) ||
+    /^\/(?:v1|web|auth|billing|webhooks|admin|assets|mcp|\.well-known)(?:\/|$)/.test(path) ||
+    /^\/(?:ready|health|docs\/search|docs\/implementation-status\.json|support\/receipt)(?:\/|$)/.test(
+      path,
+    ) ||
+    /^\/account\/(?:sessions|mfa|deletion-requests)(?:\/|$)/.test(path)
+  )
+    return undefined;
+  return chinese ? "zh-CN" : "en";
+}
 
 export function createApp(
   config: Config,
@@ -42,9 +60,17 @@ export function createApp(
   app.onError((error, c) => {
     const known = error instanceof AppError;
     const retry = known ? error.details?.retry_after : undefined;
+    const databaseUnavailable = !known && isDatabaseConnectionError(error);
     if (known && error.status === 429) c.header("Retry-After", String(retry ?? 900));
-    else if (!known && isDatabaseConnectionError(error)) c.header("Retry-After", "2");
-    else if (
+    else if (databaseUnavailable) {
+      c.header("Retry-After", "2");
+      c.header("Vary", "Accept", { append: true });
+      const locale = documentLocale(c.req.method, c.req.path, c.req.header("Accept"));
+      if (locale) {
+        c.header("X-Robots-Tag", "noindex, nofollow, noarchive");
+        return c.html(renderPage(locale, "/503", new URL(c.req.url)), 503);
+      }
+    } else if (
       known &&
       error.status === 503 &&
       typeof retry === "number" &&
@@ -139,14 +165,8 @@ export function createApp(
   mountOperations(app, config, services.auth, services.query, services.payments);
   mountPayments(app, config, services.auth, config.paymentFixtures ? services.payments : undefined);
   app.notFound((c) => {
-    const chinese = /^\/zh-CN(?:\/|$)/.test(c.req.path);
-    const path = chinese ? c.req.path.slice("/zh-CN".length) : c.req.path;
-    if (
-      c.req.method === "GET" &&
-      c.req.header("Accept")?.includes("text/html") &&
-      !/^\/(?:v1|web|billing|webhooks|admin|assets|mcp|\.well-known)(?:\/|$)/.test(path)
-    )
-      return editorialNotFound(c, chinese ? "zh-CN" : "en");
+    const locale = documentLocale(c.req.method, c.req.path, c.req.header("Accept"));
+    if (locale) return editorialNotFound(c, locale);
     return c.json(
       {
         error: {

@@ -81,7 +81,8 @@ type Page =
   | "/docs"
   | "/admin/content"
   | "/editorial"
-  | "/404";
+  | "/404"
+  | "/503";
 type PublishedSection = { slug: string; title: string; body: string };
 type SiteBlock = PublishedSection & { kind: string; target?: string };
 type SharedSummary = {
@@ -137,18 +138,21 @@ export function renderPage(
     const days = url.searchParams.get("days");
     if (days && /^[1-9][0-9]?$/.test(days) && Number(days) <= 30) operationParams.set("days", days);
   }
+  const failedPath = zh ? url.pathname.slice("/zh-CN".length) || "/" : url.pathname;
   const other =
     page === "/operations"
       ? (zh ? "" : "/zh-CN") +
         (zh ? url.pathname.slice("/zh-CN".length) : url.pathname) +
         (operationParams.size ? `?${operationParams}` : "")
-      : editorial
-        ? (zh ? "" : "/zh-CN") + editorial.path + (editorial.path === "/worth" ? query : "")
-        : docs
-          ? docs.alternate
-          : page === "/share" || page === "/admin/content"
-            ? `${url.pathname}?lang=${zh ? "en" : "zh-CN"}`
-            : (zh ? "" : "/zh-CN") + (resultId ? `/results/${resultId}` : page) + query;
+      : page === "/503"
+        ? (zh ? "" : "/zh-CN") + (/^\/(?:\/|share\/)/.test(failedPath) ? "/" : failedPath)
+        : editorial
+          ? (zh ? "" : "/zh-CN") + editorial.path + (editorial.path === "/worth" ? query : "")
+          : docs
+            ? docs.alternate
+            : page === "/share" || page === "/admin/content"
+              ? `${url.pathname}?lang=${zh ? "en" : "zh-CN"}`
+              : (zh ? "" : "/zh-CN") + (resultId ? `/results/${resultId}` : page) + query;
   const priceDraft = (key: string) => {
     const value = draft.get(key);
     if (!value || !/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) return "";
@@ -183,6 +187,7 @@ export function renderPage(
     "/agents": ["Agents and MCP", "Agent 与 MCP"],
     "/operations": ["Operations", "运营中心"],
     "/admin/content": ["Content studio", "内容中心"],
+    "/503": ["Service temporarily unavailable", "服务暂时不可用"],
   };
   const title =
     editorial?.title ?? docs?.current.title ?? t(...(headings[page] ?? ["Search sold prices", "查询成交价"]));
@@ -252,7 +257,17 @@ export function renderPage(
     page === "/search" || page === "/research" || page === "/results" || page === "/playground";
   const auth = ["/login", "/register", "/verify-email", "/forgot-password", "/reset-password"].includes(page);
   let content: ReactNode;
-  if (page === "/") {
+  if (page === "/503") {
+    content = (
+      <section className="wrap section editorial">
+        <h1>{title}</h1>
+        <p>{t("Reload this page in a few moments.", "请稍后重新加载当前页面。")}</p>
+        <a className="btn ghost" href={link("/docs")}>
+          {t("Open documentation", "打开开发文档")}
+        </a>
+      </section>
+    );
+  } else if (page === "/") {
     content = (
       <>
         {sections.length > 0 && (
