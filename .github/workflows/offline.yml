@@ -35,6 +35,7 @@ jobs:
           echo '/usr/lib/postgresql/16/bin' >> "$GITHUB_PATH"
           python -m pip install --requirement docs/contracts/requirements.txt
           npm ci
+          npm --prefix step0/collector-poc ci --ignore-scripts
       - name: Check offline application and contracts
         run: npm run check
       - name: Check full step0 fixtures
