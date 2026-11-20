@@ -245,8 +245,11 @@ try {
     media_path = root / ".local/collector-media" / source_id
     if cleared["media"]["retainedReferences"] != 0 or any(media_path.glob("*.webp")):
         raise ValueError("Restored primary image references remain after cleanup")
-    if before_billing is not None and json.loads(run("node", "scripts/billing-audit.mjs")) != before_billing:
-        raise ValueError("Restore changed billing integrity or ledger counts")
+    if before_billing is not None:
+        after_billing = json.loads(run("node", "scripts/billing-audit.mjs",
+                                       f"--expect-sha256={before_billing['financial_sha256']}"))
+        if after_billing != {**before_billing, "expected_snapshot_matches": True}:
+            raise ValueError("Restore changed billing integrity or financial facts")
     run(str(pg / "psql"), "--dbname", restored, "--set", "ON_ERROR_STOP=1", "--command",
         "DELETE FROM worker_heartbeats WHERE worker_kind='query'")
     boot()

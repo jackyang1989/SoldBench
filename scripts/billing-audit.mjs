@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { assertLocalDatabaseUrl, database, transaction } from "@soldbench/db";
 import { loadConfig } from "@soldbench/shared";
@@ -40,8 +41,38 @@ SELECT
   (SELECT count(*) FROM retained_result_hash) AS retained_result_hash
 `;
 
+const tables = [
+  "credit_wallets",
+  "credit_grants",
+  "credit_ledger",
+  "billing_charges",
+  "payments",
+  "credit_recoveries",
+];
+
+async function financialDigest(c) {
+  const digest = createHash("sha256").update("soldbench.billing-audit.financial.v1\n");
+  await c.query("SET LOCAL TIME ZONE 'UTC'");
+  for (const table of tables) {
+    digest.update(`table:${table}\n`);
+    await c.query(
+      `DECLARE audit_rows NO SCROLL CURSOR FOR SELECT to_jsonb(r)::text AS body FROM ${table} r ORDER BY id`,
+    );
+    for (;;) {
+      const { rows } = await c.query("FETCH FORWARD 512 FROM audit_rows");
+      if (!rows.length) break;
+      for (const { body } of rows) digest.update(`${Buffer.byteLength(body)}:`).update(body);
+    }
+    await c.query("CLOSE audit_rows");
+    digest.update("\n");
+  }
+  return digest.digest("hex");
+}
+
 async function run() {
-  if (process.argv.length !== 2) throw new Error("usage_billing_audit");
+  const [anchor, ...extra] = process.argv.slice(2);
+  const expected = /^--expect-sha256=([0-9a-f]{64})$/.exec(anchor ?? "")?.[1];
+  if (extra.length || (anchor !== undefined && !expected)) throw new Error("usage_billing_audit");
   const config = loadConfig(process.env);
   const url = config.databaseUrl ?? localDatabaseUrl();
   assertLocalDatabaseUrl(url, [
@@ -50,17 +81,25 @@ async function run() {
   ]);
   const db = database(url);
   try {
-    const { wallets, grants, charges, ledger_entries, ...differences } = await transaction(db, async (c) => {
-      await c.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
-      return (await c.query(checks)).rows[0];
-    });
-    const matched = Object.values(differences).every((count) => count === "0");
+    const { wallets, grants, charges, ledger_entries, financial_sha256, ...differences } = await transaction(
+      db,
+      async (c) => {
+        await c.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
+        const { rows } = await c.query(checks);
+        return { ...rows[0], financial_sha256: await financialDigest(c) };
+      },
+    );
+    const expected_snapshot_matches = expected ? expected === financial_sha256 : null;
+    const matched =
+      expected_snapshot_matches !== false && Object.values(differences).every((count) => count === "0");
     console.log(
       JSON.stringify({
         schema: "soldbench.billing-audit.v1",
         data_mode: config.dataMode,
         outcome: matched ? "matched" : "differences_found",
         counts: { wallets, grants, charges, ledger_entries },
+        financial_sha256,
+        expected_snapshot_matches,
         differences,
       }),
     );

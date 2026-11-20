@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { promisify } from "node:util";
 import { database, migrate } from "@soldbench/db";
@@ -31,6 +33,47 @@ test("recovery audit accepts real synthetic charges, refunds and deletion of ret
   await db.query("UPDATE queries SET result_state='forbidden' WHERE id=$1", [paid.queryId]);
   await db.query("DELETE FROM query_results WHERE query_id=$1", [paid.queryId]);
   assert.deepEqual(JSON.parse((await run(...command)).stdout), baseline);
+});
+
+test("an internally consistent restored backup is rejected against the later financial checkpoint", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "soldbench-finance-backup-"));
+  roots.push(dir);
+  const file = join(dir, "before.dump");
+  const { stdout } = await run("pg_config", ["--bindir"]);
+  const bin = stdout.trim();
+  const older = JSON.parse((await run(...command)).stdout);
+  await run(join(bin, "pg_dump"), ["--format=custom", "--file", file, process.env.DATABASE_URL]);
+  await createProductFixture(db, roots, { count: 8, extra: false });
+  const current = JSON.parse((await run(...command)).stdout);
+  assert.equal(current.outcome, "matched");
+  assert.notEqual(current.financial_sha256, older.financial_sha256);
+  await db.query("CREATE DATABASE soldbench_recovery_audit_restore");
+  try {
+    await db.query("ALTER DATABASE soldbench_recovery_audit_restore SET timezone TO 'Pacific/Auckland'");
+    const url = new URL(process.env.DATABASE_URL);
+    url.pathname = "/soldbench_recovery_audit_restore";
+    await run(join(bin, "pg_restore"), ["--exit-on-error", "--dbname", url.href, file]);
+    const env = { ...process.env, DATABASE_URL: url.href };
+    const [node, args] = command;
+    const restored = JSON.parse(
+      (await run(node, [...args, `--expect-sha256=${older.financial_sha256}`], { env })).stdout,
+    );
+    assert.deepEqual(restored, { ...older, expected_snapshot_matches: true });
+    await assert.rejects(
+      run(node, [...args, `--expect-sha256=${current.financial_sha256}`], { env }),
+      (error) => {
+        assert.equal(error.code, 2);
+        assert.deepEqual(JSON.parse(error.stdout), {
+          ...older,
+          outcome: "differences_found",
+          expected_snapshot_matches: false,
+        });
+        return true;
+      },
+    );
+  } finally {
+    await db.query("DROP DATABASE soldbench_recovery_audit_restore");
+  }
 });
 
 test("recovery audit refuses a mismatched grant, charge state, debit or retained result without changing rows", async () => {
