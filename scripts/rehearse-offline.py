@@ -49,19 +49,19 @@ def response(opener, origin, path):
         return result.read()
 
 
-def ready(opener, origin, processes):
-    end = time.monotonic() + 15
+def ready(opener, origin, processes, worker="recent", seconds=15):
+    end = time.monotonic() + seconds
     while time.monotonic() < end:
-        if any(process.poll() is not None for process in processes):
+        if any(process.poll() is not None for process in processes.values()):
             raise ValueError("API or query worker exited during runtime smoke")
         try:
             state = json.loads(response(opener, origin, "/ready"))
-            if state["query_worker"] == "recent":
+            if state["query_worker"] == worker:
                 return
         except (urllib.error.URLError, TimeoutError):
             pass
         time.sleep(0.1)
-    raise ValueError("Runtime did not become ready")
+    raise ValueError(f"Runtime did not report the expected worker state: {worker}")
 
 
 def stop(process):
@@ -75,7 +75,7 @@ def stop(process):
         process.wait(timeout=5)
 
 
-def check_clients(run, root, opener, origin):
+def check_clients(run, root, opener, origin, processes, start):
     setup = json.loads(run("node", "scripts/developer-demo.mjs"))
     if setup.get("collector_enabled") is not False:
         raise ValueError("Developer demo did not assert offline mode")
@@ -91,11 +91,44 @@ def check_clients(run, root, opener, origin):
         raise ValueError("Invalid local developer fixture")
     example = ("python3", "developer/examples/sold.py", "--claim")
     rest = json.loads(run(*example, additions=credentials))
+    if rest["n_price_verified"] != 8 or rest["credits_charged"] != 1:
+        raise ValueError("REST fixture did not settle once on first delivery")
+    authorization = {"Authorization": "Bearer " + credentials["SOLDBENCH_API_KEY"]}
+
+    def get(path):
+        request = urllib.request.Request(origin + path, headers=authorization)
+        with opener.open(request, timeout=5) as reply:
+            return json.load(reply)
+
+    result_path = "/v1/sold/" + rest["query_id"]
+    ledger_before = get("/v1/usage")["data"]
+    debits = [line["delta"] for line in ledger_before["ledger"] if line["query_id"] == rest["query_id"]]
+    if debits != [-1] or ledger_before["next_cursor"] is not None:
+        raise ValueError("Expected exactly one debit in the synthetic owner's complete ledger")
+
+    worker = processes.pop("worker")
+    worker.kill()
+    worker.wait(timeout=5)
+    ready(opener, origin, processes, worker="stale", seconds=34)
+    retained = get(result_path)
+    if (retained["data"]["query_id"] != rest["query_id"]
+            or retained["data"]["stats"]["median_cents"] != rest["median_cents"]
+            or retained["meta"]["credits_charged"] != 0):
+        raise ValueError("Delivered REST result was not retained during the worker outage")
+    start("worker")
+    ready(opener, origin, processes)
+
+    api = processes.pop("api")
+    api.kill()
+    api.wait(timeout=5)
+    if processes["worker"].poll() is not None:
+        raise ValueError("The query worker exited during the API outage")
+    start("api")
+    ready(opener, origin, processes)
     replay = json.loads(run(*example, "--transport=curl", additions=credentials))
-    if (rest["n_price_verified"] != 8 or rest["credits_charged"] != 1
-            or replay != {**rest, "credits_charged": 0}):
-        raise ValueError("REST fixture did not settle exactly once")
-    headers = {"Authorization": "Bearer " + credentials["SOLDBENCH_API_KEY"],
+    if replay != {**rest, "credits_charged": 0}:
+        raise ValueError("The restarted API did not replay the same result without a debit")
+    headers = {**authorization,
                "Content-Type": "application/json", "Accept": "application/json, text/event-stream",
                "MCP-Protocol-Version": "2025-11-25"}
 
@@ -122,8 +155,12 @@ def check_clients(run, root, opener, origin):
             or result["data"]["stats"]["median_cents"] != rest["median_cents"]
             or result["data"]["stats"]["n_price_verified"] != rest["n_price_verified"]):
         raise ValueError("MCP did not reuse delivered statistics free of charge")
+    if get("/v1/usage")["data"] != ledger_before:
+        raise ValueError("Outage recovery changed the synthetic owner's wallets or ledger")
     return {"verified_samples": rest["n_price_verified"], "initial_credits_charged": 1,
-            "curl_replay_credits_charged": 0, "mcp_stats_credits_charged": 0}
+            "curl_replay_credits_charged": 0, "mcp_stats_credits_charged": 0,
+            "worker_sigkill_retained_read": True, "api_sigkill_retained_worker": True,
+            "ledger_unchanged_after_recovery": True}
 
 
 def restore(run, root, environment, source_id, boot, shutdown):
@@ -217,18 +254,24 @@ def exercise(source, output, restore_backup=False, clients=False):
 
             run("npm", "ci", "--omit=dev", "--offline", "--no-audit", "--no-fund")
             run("node", "scripts/local-db.mjs", "start")
-            processes = []
+            processes = {}
 
             def shutdown():
                 while processes:
-                    stop(processes.pop())
+                    _, process = processes.popitem()
+                    stop(process)
 
             opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
+            def start(role):
+                entries = {"api": ["apps/api/dist/server.js"], "worker": ["scripts/query-worker.mjs", "--watch"]}
+                processes[role] = subprocess.Popen(
+                    ["node", *entries[role]], cwd=workspace, env=environment, stdout=log, stderr=log,
+                )
+
             def boot():
-                for entry in ("apps/api/dist/server.js", "scripts/query-worker.mjs"):
-                    args = ["node", entry] + (["--watch"] if entry.endswith("query-worker.mjs") else [])
-                    processes.append(subprocess.Popen(args, cwd=workspace, env=environment, stdout=log, stderr=log))
+                start("api")
+                start("worker")
                 ready(opener, origin, processes)
 
             try:
@@ -249,7 +292,7 @@ def exercise(source, output, restore_backup=False, clients=False):
                             "pages": media_facts[0], "primary_images": media_facts[1], "external_source_requests": media_facts[2],
                             "production_verified": False}
                 if clients:
-                    evidence["clients"] = check_clients(run, workspace, opener, origin)
+                    evidence["clients"] = check_clients(run, workspace, opener, origin, processes, start)
                 if restore_backup:
                     evidence["restore"] = restore(run, workspace, environment, demo["sourceId"], boot, shutdown)
                 return evidence
