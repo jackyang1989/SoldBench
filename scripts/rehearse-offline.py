@@ -90,15 +90,20 @@ def exercise(source, output):
             "HOST": "127.0.0.1", "PORT": str(port), "APP_ORIGIN": origin, "DATA_MODE": "offline_fixture",
             "COLLECTOR_ENABLED": "false", "PAYMENT_FIXTURES": "false", "PAYMENTS_MODE": "offline",
             "DB_STARTUP_MODE": "verify", "NPM_CONFIG_USERCONFIG": "/dev/null",
+            "LC_ALL": "C", "TMPDIR": directory,
         }
         with output.open("x", encoding="utf8") as log:
             def run(*command):
                 result = subprocess.run(command, cwd=workspace, env=environment, text=True, capture_output=True,
                                         timeout=60)
                 log.write(result.stdout + result.stderr)
-                log.flush()
                 if result.returncode:
+                    postgres_log = workspace / ".local/postgres/postgres.log"
+                    if postgres_log.is_file():
+                        log.write(postgres_log.read_text(encoding="utf8", errors="replace")[-16384:])
+                    log.flush()
                     raise ValueError(f"{command[0]} exited {result.returncode}; inspect the rehearsal log")
+                log.flush()
                 return result.stdout
 
             run("npm", "ci", "--omit=dev", "--offline", "--no-audit", "--no-fund")
