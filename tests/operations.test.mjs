@@ -866,6 +866,34 @@ test("telemetry uses real offline runs, current evidence rights and versioned lo
   assert.equal(rows(views.monitoring).find((row) => row.signal === "worker_heartbeat_age").state, "alert");
   assert.ok(rows(views.api).some((row) => row.operation === "sold_result" && row.requests >= 1));
   assert.ok(rows(views.collector).some((row) => row.source_id === source && row.outcome === "completed"));
+  const missingSupervisor = rows((await get(`collector?source=${source}`)).data, 1)[0];
+  assert.equal(missingSupervisor.phase, "unobserved");
+  assert.equal(missingSupervisor.page_jobs_due, null);
+  await db.query(
+    `INSERT INTO collector_supervisor_state(source_id,phase,checked_at,expected_progress_at,last_cycle_at,cycle_summary)
+     VALUES($1,'waiting',$2,$2,$2,$3)`,
+    [
+      source,
+      start,
+      {
+        spool: "unavailable",
+        queues: {
+          pages: { due: 65, artifactUnavailable: 10, uninspected: 2 },
+          images: { due: 4, artifactUnavailable: 0, uninspected: 0 },
+        },
+      },
+    ],
+  );
+  const observed = rows((await get(`collector?source=${source}`)).data, 1)[0];
+  assert.equal(observed.phase, "overdue");
+  assert.equal(observed.spool, "unavailable");
+  assert.equal(observed.page_jobs_due, 65);
+  assert.equal(observed.page_jobs_missing, 10);
+  assert.equal(observed.page_jobs_uninspected, 2);
+  const alert = rows((await get("monitoring")).data).find(
+    ({ signal }) => signal === "overdue_collector_supervisors",
+  );
+  assert.deepEqual([alert.value, alert.denominator, alert.state], [1, 1, "alert"]);
   const photo = (
     await db.query(
       "SELECT sale_event_id FROM listing_images WHERE source_id=$1 AND state='available' LIMIT 1",

@@ -105,6 +105,24 @@ const envelope = (sourceId) => ({
   sourceId,
 });
 
+async function recordProgress(
+  lock,
+  sourceId,
+  phase,
+  { expectedMs = null, jobId = null, lane = null, summary = null } = {},
+) {
+  await lock.query(
+    `WITH clock AS (SELECT clock_timestamp() AS t)
+     INSERT INTO collector_supervisor_state(source_id,phase,checked_at,expected_progress_at,last_cycle_at,job_id,lane,cycle_summary)
+     SELECT $1,$2,t,t+$3::int*interval '1 millisecond',CASE WHEN $6::jsonb IS NOT NULL THEN t END,$4,$5,$6 FROM clock
+     ON CONFLICT(source_id) DO UPDATE SET phase=excluded.phase,checked_at=excluded.checked_at,
+       expected_progress_at=excluded.expected_progress_at,job_id=excluded.job_id,lane=excluded.lane,
+       last_cycle_at=coalesce(excluded.last_cycle_at,collector_supervisor_state.last_cycle_at),
+       cycle_summary=coalesce(excluded.cycle_summary,collector_supervisor_state.cycle_summary)`,
+    [sourceId, phase, expectedMs, jobId, lane, summary ? JSON.stringify(summary) : null],
+  );
+}
+
 async function run(args) {
   const options = new Map();
   for (const arg of args) {
@@ -163,6 +181,7 @@ async function run(args) {
     const onLockEnd = () => ownership.abort(new Error("Connection terminated unexpectedly"));
     lock.on("error", onLockError);
     lock.on("end", onLockEnd);
+    let owned = false;
     try {
       const bound = await lock.query("SELECT pg_try_advisory_lock(hashtext($1),hashtext($2)) locked", [
         lockNamespace,
@@ -172,6 +191,7 @@ async function run(args) {
         console.log(JSON.stringify({ ...envelope(sourceId), state: "already_supervised" }));
         return;
       }
+      owned = true;
       if (retryDelay) {
         console.info("soldbench_collector_supervisor_database_recovered");
         retryDelay = 0;
@@ -181,6 +201,7 @@ async function run(args) {
       const cursors = {};
       let nextMaintenance = 0;
       while (!signal.aborted) {
+        await recordProgress(lock, sourceId, "scanning", { expectedMs: 30000 });
         const now = performance.now();
         const settled = await store.settleUnclaimable(sourceId);
         let maintenance = null;
@@ -239,6 +260,7 @@ async function run(args) {
         for (const [lane, { jobs }] of lanes) {
           for (const { id: jobId, path } of jobs) {
             if (state !== "ready" || signal.aborted) break;
+            await recordProgress(lock, sourceId, "dispatching", { expectedMs: maxMs + 5000, jobId, lane });
             const result = await launchCollector(
               [
                 `--fixture=${path}`,
@@ -292,23 +314,27 @@ async function run(args) {
             cursors[lane] =
               inspected.jobs.length === dispatchPerLane ? inspected.jobs.at(-1) : candidates.at(-1);
         }
-        console.log(
-          JSON.stringify({
-            ...envelope(sourceId),
-            state: state === "ready" && spoolState !== "ready" ? "spool_unavailable" : state,
-            spool: spoolState,
-            maintenance,
-            settled,
-            intake,
-            cycles,
-            queues,
-          }),
-        );
+        const summary = {
+          state: state === "ready" && spoolState !== "ready" ? "spool_unavailable" : state,
+          spool: spoolState,
+          settled,
+          intake,
+          queues,
+        };
+        await recordProgress(lock, sourceId, "waiting", { expectedMs: interval + 5000, summary });
+        console.log(JSON.stringify({ ...envelope(sourceId), ...summary, maintenance, cycles }));
         if (!watch) break;
         await wait(interval, signal);
       }
       if (!abort.signal.aborted) ownership.signal.throwIfAborted();
     } finally {
+      if (owned && !ownership.signal.aborted && (abort.signal.aborted || !watch)) {
+        try {
+          await recordProgress(lock, sourceId, "stopped");
+        } catch {
+          console.error("soldbench_collector_supervisor_stop_state_unavailable");
+        }
+      }
       // End ownership with the dedicated connection, including on a broken session.
       lock.release(true);
       lock.removeListener("error", onLockError);

@@ -23,9 +23,9 @@ const actionArguments = {
 };
 const allowed = new Set(["action", "source", "clock", "profile", ...actionArguments[action]]);
 if ([...args.keys()].some((key) => !allowed.has(key))) throw new Error("invalid_refresh_action_argument");
-loadConfig(process.env);
+const config = loadConfig(process.env);
 if (args.has("clock")) instant(args.get("clock"));
-const url = process.env.DATABASE_URL ?? localDatabaseUrl();
+const url = config.databaseUrl ?? localDatabaseUrl();
 assertLocalDatabaseUrl(url, [
   resolve(".local/postgres/socket"),
   ...(process.env.SOLDBENCH_TEST_SOCKET ? [process.env.SOLDBENCH_TEST_SOCKET] : []),

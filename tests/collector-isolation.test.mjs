@@ -212,6 +212,14 @@ test("supervisor stays running with offline spool absent, expires missing work a
     { MEDIA_ROOT: join(directory, "media") },
   );
   await waitFor(() => watcher.output.includes('"state":"spool_unavailable"'));
+  const posture = (
+    await db.query(
+      "SELECT cycle_summary,expected_progress_at FROM collector_supervisor_state WHERE source_id=$1",
+      [prepared.sourceId],
+    )
+  ).rows[0];
+  assert.equal(posture.cycle_summary.spool, "unavailable");
+  assert.ok(posture.expected_progress_at);
   await waitFor(async () => (await store.view(expired)).status === "failed");
   assert.equal(watcher.child.exitCode, null);
   assert.equal((await store.view(expired)).request_count, 0);
@@ -226,6 +234,15 @@ test("supervisor stays running with offline spool absent, expires missing work a
   assert.equal(images, 8);
   assert.equal(watcher.child.kill("SIGTERM"), true);
   assert.deepEqual(await watcher.exited, { code: 0, signal: null });
+  assert.deepEqual(
+    (
+      await db.query(
+        "SELECT phase,expected_progress_at,job_id FROM collector_supervisor_state WHERE source_id=$1",
+        [prepared.sourceId],
+      )
+    ).rows[0],
+    { phase: "stopped", expected_progress_at: null, job_id: null },
+  );
 });
 
 test("supervisor finds actionable work after a full page of missing packs and over 10000 archived entries", async () => {
@@ -453,6 +470,14 @@ test("supervisor stops an active child on ownership loss and recovers the same q
           AND query='SELECT pg_advisory_lock(hashtext(''soldbench:migrations''))'`,
           )
         ).rows[0],
+    );
+    assert.deepEqual(
+      (
+        await target.query("SELECT phase,job_id,lane FROM collector_supervisor_state WHERE source_id=$1", [
+          job.source_id,
+        ])
+      ).rows[0],
+      { phase: "dispatching", job_id: job.id, lane: "pages" },
     );
     assert.equal(
       (await target.query("SELECT pg_terminate_backend($1) stopped", [owner.pid])).rows[0].stopped,

@@ -162,6 +162,14 @@ test("API, query worker and collector start with a runtime-only role while migra
     }
     assert.equal(ready?.status, 200, errorOutput);
     await run(role, "scripts/query-worker.mjs", "--once");
+    await run(
+      role,
+      "scripts/collector-intake.mjs",
+      `--source=${demo.sourceId}`,
+      `--spool=${root}`,
+      `--fixture=${demo.artifactPath}`,
+    );
+    await run(role, "scripts/collector-refresh.mjs", `--source=${demo.sourceId}`, "--action=cycle");
     const collector = await run(
       role,
       "scripts/collector-supervisor.mjs",
@@ -169,6 +177,8 @@ test("API, query worker and collector start with a runtime-only role while migra
       `--spool=${root}`,
     );
     assert.equal(JSON.parse(collector.stdout).cycles[0].status, "completed");
+    await run(role, "scripts/collector-report.mjs", `--source=${demo.sourceId}`);
+    await run(role, "scripts/collector-maintenance.mjs");
     assert.equal((await (await fetch(`${role.APP_ORIGIN}/ready`)).json()).query_worker, "recent");
     assert.equal(
       (

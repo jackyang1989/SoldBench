@@ -58,7 +58,9 @@ export async function telemetry(c: Transaction, now: Date, view: TelemetryView, 
                 (SELECT count(*)::int FROM query_jobs WHERE status='queued' AND expires_at>$2
                   AND available_at<=$2-make_interval(secs=>$3)) AS overdue,
                 (SELECT count(*)::int FROM collector_runs WHERE started_at>=$1 AND completed_at<=$2) AS completed_runs,
-                (SELECT count(*)::int FROM collector_runs WHERE started_at>=$1 AND completed_at<=$2 AND outcome<>'completed') AS unsuccessful_runs`,
+                (SELECT count(*)::int FROM collector_runs WHERE started_at>=$1 AND completed_at<=$2 AND outcome<>'completed') AS unsuccessful_runs,
+                (SELECT count(*)::int FROM collector_supervisor_state WHERE checked_at<=$2) AS observed_supervisors,
+                (SELECT count(*)::int FROM collector_supervisor_state WHERE checked_at<=$2 AND expected_progress_at<=$2) AS overdue_supervisors`,
           [from, now, alertSettings.query_delay_seconds],
         )
       ).rows[0];
@@ -79,6 +81,12 @@ export async function telemetry(c: Transaction, now: Date, view: TelemetryView, 
                 : "within_budget",
           ],
           ["overdue_query_jobs", row.overdue, null, row.overdue ? "alert" : "within_budget"],
+          [
+            "overdue_collector_supervisors",
+            row.observed_supervisors ? row.overdue_supervisors : null,
+            row.observed_supervisors,
+            !row.observed_supervisors ? "unknown" : row.overdue_supervisors ? "alert" : "within_budget",
+          ],
           [
             "collector_failure_percent",
             failed,
@@ -126,6 +134,37 @@ export async function telemetry(c: Transaction, now: Date, view: TelemetryView, 
             AND r.started_at BETWEEN $1 AND $2 AND ($3::uuid IS NULL OR r.source_id=$3)
           ORDER BY r.started_at DESC,r.id LIMIT $4`,
         scope,
+      );
+      await table(
+        "collector_supervision",
+        [
+          "source_id",
+          "phase",
+          "checked_at",
+          "expected_progress_at",
+          "last_cycle_at",
+          "job_id",
+          "lane",
+          "spool",
+          "page_jobs_due",
+          "page_jobs_missing",
+          "page_jobs_uninspected",
+          "image_jobs_due",
+          "image_jobs_missing",
+          "image_jobs_uninspected",
+        ],
+        `SELECT s.id source_id,
+           CASE WHEN h.phase IS NULL THEN 'unobserved' WHEN h.expected_progress_at<=$1 THEN 'overdue' ELSE h.phase END phase,
+           h.checked_at,h.expected_progress_at,h.last_cycle_at,h.job_id,h.lane,h.cycle_summary->>'spool' spool,
+           h.cycle_summary#>'{queues,pages,due}' page_jobs_due,h.cycle_summary#>'{queues,pages,artifactUnavailable}' page_jobs_missing,
+           h.cycle_summary#>'{queues,pages,uninspected}' page_jobs_uninspected,h.cycle_summary#>'{queues,images,due}' image_jobs_due,
+           h.cycle_summary#>'{queues,images,artifactUnavailable}' image_jobs_missing,
+           h.cycle_summary#>'{queues,images,uninspected}' image_jobs_uninspected
+         FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id
+         LEFT JOIN collector_supervisor_state h ON h.source_id=s.id AND h.checked_at<=$1
+         WHERE s.access_method='offline_fixture' AND x.provider='synthetic_fixture' AND ($2::uuid IS NULL OR s.id=$2)
+         ORDER BY h.checked_at DESC NULLS LAST,s.id LIMIT $3`,
+        [now, input.source ?? null, input.limit],
       );
       break;
     case "records":
