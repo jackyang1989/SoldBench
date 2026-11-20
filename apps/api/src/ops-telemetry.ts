@@ -166,6 +166,42 @@ export async function telemetry(c: Transaction, now: Date, view: TelemetryView, 
          ORDER BY h.checked_at DESC NULLS LAST,s.id LIMIT $3`,
         [now, input.source ?? null, input.limit],
       );
+      await table(
+        "collector_schedule",
+        [
+          "source_id",
+          "refresh_due_plans",
+          "refresh_next_due_at",
+          "refresh_pending_slots",
+          "refresh_overdue_slots",
+          "last_cycle_at",
+          "refresh_materialized",
+          "refresh_enqueued",
+          "refresh_recovered",
+          "refresh_blocked",
+        ],
+        `SELECT s.id source_id,plans.due refresh_due_plans,plans.next_due_at refresh_next_due_at,
+           slots.pending refresh_pending_slots,slots.overdue refresh_overdue_slots,h.last_cycle_at,
+           h.cycle_summary#>'{scheduled,materialized}' refresh_materialized,
+           h.cycle_summary#>'{scheduled,enqueued}' refresh_enqueued,
+           h.cycle_summary#>'{scheduled,recovered}' refresh_recovered,
+           h.cycle_summary#>'{scheduled,blocked}' refresh_blocked
+         FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id
+         LEFT JOIN collector_supervisor_state h ON h.source_id=s.id AND h.last_cycle_at<=$1
+         CROSS JOIN LATERAL (
+           SELECT count(*) FILTER (WHERE next_due_at<=$1)::int due,min(next_due_at) next_due_at
+           FROM collector_refresh_plans p WHERE p.source_id=s.id AND p.created_at<=$1
+             AND (p.retired_at IS NULL OR p.next_due_at<p.retired_at)
+         ) plans
+         CROSS JOIN LATERAL (
+           SELECT count(*)::int pending,count(*) FILTER (WHERE o.deadline_at<=$1)::int overdue
+           FROM collector_refresh_occurrences o
+           WHERE o.source_id=s.id AND o.status IN ('planned','dispatching') AND o.scheduled_for<=$1 AND o.created_at<=$1
+         ) slots
+         WHERE s.access_method='offline_fixture' AND x.provider='synthetic_fixture' AND ($2::uuid IS NULL OR s.id=$2)
+         ORDER BY (plans.due>0 OR slots.pending>0) DESC,plans.next_due_at NULLS LAST,s.id LIMIT $3`,
+        [now, input.source ?? null, input.limit],
+      );
       break;
     case "records":
       await table(

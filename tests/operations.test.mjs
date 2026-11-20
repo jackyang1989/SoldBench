@@ -5,6 +5,7 @@ import { rm } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { publishNextScheduledContent } from "@soldbench/api";
 import { AccountPrivacy } from "@soldbench/auth";
+import { CollectorRefresh, CollectorStore } from "@soldbench/collector";
 import { database, migrate } from "@soldbench/db";
 import { createProductFixture } from "./helpers/product.mjs";
 
@@ -869,6 +870,26 @@ test("telemetry uses real offline runs, current evidence rights and versioned lo
   const missingSupervisor = rows((await get(`collector?source=${source}`)).data, 1)[0];
   assert.equal(missingSupervisor.phase, "unobserved");
   assert.equal(missingSupervisor.page_jobs_due, null);
+  const clock = { now: start };
+  const refresh = new CollectorRefresh(new CollectorStore(db, () => clock.now));
+  await refresh.create({
+    ...x.source,
+    query: new URLSearchParams({ q: "Synthetic schedule operations" }),
+    key: randomUUID(),
+    intervalSeconds: 60,
+    maxLagSeconds: 30,
+  });
+  const schedule = async () => rows((await get(`collector?source=${source}`)).data, 2)[0];
+  const beforeScheduling = await schedule();
+  assert.equal(beforeScheduling.refresh_due_plans, 1);
+  assert.equal(beforeScheduling.refresh_pending_slots, 0);
+  assert.equal(beforeScheduling.refresh_enqueued, null);
+  await refresh.materialize(source);
+  const pending = await schedule();
+  assert.equal(pending.refresh_due_plans, 0);
+  assert.equal(pending.refresh_pending_slots, 1);
+  assert.equal(pending.refresh_overdue_slots, 1);
+  assert.equal(pending.refresh_next_due_at, new Date(Date.parse(start) + 60_000).toISOString());
   await db.query(
     `INSERT INTO collector_supervisor_state(source_id,phase,checked_at,expected_progress_at,last_cycle_at,cycle_summary)
      VALUES($1,'waiting',$2,$2,$2,$3)`,
@@ -877,6 +898,7 @@ test("telemetry uses real offline runs, current evidence rights and versioned lo
       start,
       {
         spool: "unavailable",
+        scheduled: { materialized: 1, enqueued: 0, recovered: 0, blocked: 0 },
         queues: {
           pages: { due: 65, artifactUnavailable: 10, uninspected: 2 },
           images: { due: 4, artifactUnavailable: 0, uninspected: 0 },
@@ -890,6 +912,8 @@ test("telemetry uses real offline runs, current evidence rights and versioned lo
   assert.equal(observed.page_jobs_due, 65);
   assert.equal(observed.page_jobs_missing, 10);
   assert.equal(observed.page_jobs_uninspected, 2);
+  assert.equal((await schedule()).refresh_enqueued, 0);
+  assert.equal((await schedule()).refresh_materialized, 1);
   const alert = rows((await get("monitoring")).data).find(
     ({ signal }) => signal === "overdue_collector_supervisors",
   );
