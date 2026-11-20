@@ -95,6 +95,33 @@ B1/B3，见 DEC-02/07、TASK-029/035/043 和 AT-037/038/040/054。当前实现�
 
 操作记录含 UTC 对账区间与渠道时区、期初/期末余额、三方笔数和金额分、差异分类、归属人、下一检查点与复核人。每个差异保留受控交易引用，库/工单提取物中隐藏商户密钥、付款工具与客户证件。核算渠道可结算余额时，从期初余额加确认收入、释放和其他入项，减退款、争议损失、费用、代扣、冻结和已出款，匹配期末；按渠道报表项目归类以免手续费或冻结款重复扣除。支付聚合币种和银行到账币种不同时，用供应商转换明细和银行实际扣费逐笔桥接，无法解释的尾差单列。
 
+### 离线渠道付款投影复核
+
+运行 `PAYMENT_FIXTURES=true npm run payment:reconcile -- /absolute/path/statement.json`。脚本仅连接已允许的本机 PostgreSQL socket，以只读事务查询渠道付款。输入由独立的合成渠道记账生成，须提供以下字段。
+
+```json
+{
+  "schema": "soldbench.payment-statement.fixture.v1",
+  "environment": "offline_fixture",
+  "provider": "stripe",
+  "merchant": "fixture_stripe_soldbench",
+  "currency": "USD",
+  "from": "2026-09-18T00:00:00.000Z",
+  "until": "2026-09-19T00:00:00.000Z",
+  "payments": [
+    {
+      "provider_payment_id": "fixture_payment_001",
+      "created_at": "2026-09-18T12:00:00.000Z",
+      "state": "confirmed",
+      "amount_cents": 1000,
+      "refunded_cents": 0
+    }
+  ]
+}
+```
+
+PayPal 使用 `paypal` 与 `fixture_paypal_soldbench`。单份文件对应一个渠道和商户。区间按本地付款投影第一次记录的 `created_at` 左闭右开选取，状态与累计退款分使用对账时的快照。支持 `confirmed`、`disputed`、`refunded`。每份最多 20,000 笔、4 MiB。输出现金笔数、毛额、累计退款分、文件 SHA-256 和差异交易的引用摘要。退出 0 表示匹配，2 表示有差异，1 表示输入或运行错误。此命令覆盖 A 与 B 的本机付款投影对比。钱包余额仍按独立账本核对。实际付款到账日、部分退款权益处理、手续费与银行批次仍需真实渠道和财务证据。
+
 ### 异常处置与受控恢复
 
 | 触发 | 当班动作 | 恢复/结案证明 |

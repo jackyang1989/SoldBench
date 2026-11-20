@@ -143,6 +143,118 @@ async function confirm(x, fact, type) {
 }
 const month = (date) => new Date(date).toISOString();
 
+test("the read-only reconciliation CLI matches both fixture providers and reports exact discrepancies", async (t) => {
+  const x = fixture();
+  const root = await mkdtemp(join(tmpdir(), "soldbench-payment-reconciliation-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const file = join(root, "statement.json");
+  const from = "2026-09-18T00:00:00.000Z";
+  const until = "2026-09-19T00:00:00.000Z";
+  async function makePayment(provider, date) {
+    x.clock.now = new Date(date);
+    const customer = await user(x);
+    const id = checkoutId(
+      await x.payments.checkout(customer.owner, terms(provider, "purchased_1500"), randomUUID()),
+    );
+    const fact = tx(x, provider, id);
+    const type = provider === "stripe" ? "payment_intent_succeeded" : "capture_completed";
+    assert.equal((await confirm(x, fact, type)).status, "applied");
+    return { fact, customer };
+  }
+  const { fact: stripe, customer } = await makePayment("stripe", from);
+  const { fact: paypal } = await makePayment("paypal", from);
+  assert.equal(
+    (await confirm(x, { ...paypal, status: "refunded", revision: 2 }, "capture_refunded")).status,
+    "applied",
+  );
+  await makePayment("stripe", until);
+  const env = { ...process.env, PAYMENT_FIXTURES: "true" };
+  async function reconcile(statement, expectedExit, override = env) {
+    await writeFile(file, JSON.stringify(statement), { mode: 0o600 });
+    return new Promise((done, fail) =>
+      execFile(
+        process.execPath,
+        ["scripts/payment-reconcile.mjs", file],
+        { env: override },
+        (error, stdout, stderr) => {
+          try {
+            assert.equal(error?.code ?? 0, expectedExit, stderr);
+            done(JSON.parse(stdout || stderr));
+          } catch (cause) {
+            fail(cause);
+          }
+        },
+      ),
+    );
+  }
+  const statement = {
+    schema: "soldbench.payment-statement.fixture.v1",
+    provider: "stripe",
+    environment: "offline_fixture",
+    merchant: merchant("stripe"),
+    currency: "USD",
+    from,
+    until,
+    payments: [
+      {
+        provider_payment_id: stripe.object_id,
+        created_at: from,
+        state: "confirmed",
+        amount_cents: 1000,
+        refunded_cents: 0,
+      },
+    ],
+  };
+  const original = statement.payments[0];
+  const matched = await reconcile(statement, 0);
+  assert.equal(matched.outcome, "matched");
+  assert.deepEqual(matched.local, { payment_count: 1, gross_cents: 1000, refunded_cents: 0 });
+  assert.deepEqual(matched.local, matched.statement);
+  assert.equal(matched.bank_settlement_verified, false);
+  assert.match(matched.statement_sha256, /^[a-f0-9]{64}$/);
+  const refunded = await reconcile(
+    {
+      ...statement,
+      provider: "paypal",
+      merchant: merchant("paypal"),
+      payments: [
+        { ...original, provider_payment_id: paypal.object_id, state: "refunded", refunded_cents: 1000 },
+      ],
+    },
+    0,
+  );
+  assert.deepEqual(refunded.local, { payment_count: 1, gross_cents: 1000, refunded_cents: 1000 });
+  const extra = { ...original, provider_payment_id: "fixture_missing_locally" };
+  const split = await reconcile({ ...statement, payments: [extra, { ...original, amount_cents: 1100 }] }, 2);
+  assert.equal(split.outcome, "differences_found");
+  assert.deepEqual(split.differences.map(({ reason }) => reason).sort(), [
+    "missing_locally",
+    "payment_fields_differ",
+  ]);
+  assert.deepEqual(split.differences.find(({ reason }) => reason === "payment_fields_differ").fields, [
+    "amount_cents",
+  ]);
+  assert.doesNotMatch(JSON.stringify(split), /fixture_missing_locally|tx_/);
+  assert.equal(
+    (await reconcile({ ...statement, payments: [] }, 2)).differences[0].reason,
+    "missing_in_statement",
+  );
+  assert.equal(
+    (await reconcile({ ...statement, payments: [original, original] }, 1)).error,
+    "duplicate_statement_payment",
+  );
+  assert.equal(
+    (await reconcile({ ...statement, merchant: merchant("paypal") }, 1)).error,
+    "invalid_statement_scope",
+  );
+  assert.equal(
+    (await reconcile(statement, 1, { ...env, PAYMENT_FIXTURES: "false" })).error,
+    "enable_local_payment_fixtures_first",
+  );
+  assert.deepEqual(await counts(customer.owner), { p: 1, g: 1, s: 0 });
+  assert.deepEqual(await x.billing.reconcile(customer.owner), []);
+});
+
 test("an authorized operator restores a late offline confirmation once from the original verified notification", async (t) => {
   const x = fixture(),
     customer = await user(x),
