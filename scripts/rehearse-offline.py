@@ -200,6 +200,8 @@ def restore(run, root, environment, source_id, boot, shutdown, verify_restored=N
     checkpoint = root / "current-restrictions.json"
     older = root / "previous-restrictions.json"
     old_export = json.loads(run("node", "scripts/privacy-recovery.mjs", "export", str(older)))
+    audit = root / "scripts/billing-audit.mjs"
+    before_billing = json.loads(run("node", "scripts/billing-audit.mjs")) if audit.is_file() else None
     timestamp = time.monotonic()
     run(str(pg / "pg_dump"), "--format=custom", "--file", str(snapshot), authority)
     revoke = """
@@ -243,6 +245,8 @@ try {
     media_path = root / ".local/collector-media" / source_id
     if cleared["media"]["retainedReferences"] != 0 or any(media_path.glob("*.webp")):
         raise ValueError("Restored primary image references remain after cleanup")
+    if before_billing is not None and json.loads(run("node", "scripts/billing-audit.mjs")) != before_billing:
+        raise ValueError("Restore changed billing integrity or ledger counts")
     run(str(pg / "psql"), "--dbname", restored, "--set", "ON_ERROR_STOP=1", "--command",
         "DELETE FROM worker_heartbeats WHERE worker_kind='query'")
     boot()
@@ -254,6 +258,7 @@ try {
         "isolated_restore_to_ready_ms": ready_elapsed,
         "old_signed_checkpoint_rejected": True,
         "source_revocation_replays": applied["sources_quarantined"], "media_cleanup_completed": True,
+        "billing_integrity_verified": True if before_billing is not None else None,
         "authorized_snapshot_verified_after_restore": True if verify_restored is not None else None,
         "production_recovery_objectives_verified": False,
     }

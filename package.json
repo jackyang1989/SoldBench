@@ -41,6 +41,7 @@
     "developer:demo": "npm run build && node --env-file-if-exists=.env scripts/developer-demo.mjs",
     "payment:fixture": "npm run build && node --env-file-if-exists=.env scripts/payment-fixture.mjs",
     "payment:reconcile": "npm run build && node --env-file-if-exists=.env scripts/payment-reconcile.mjs",
+    "billing:audit": "npm run build && node --env-file-if-exists=.env scripts/billing-audit.mjs",
     "public:fixture": "npm run build && node --env-file-if-exists=.env scripts/public-fixture.mjs",
     "privacy:recovery": "npm run build && node --env-file-if-exists=.env scripts/privacy-recovery.mjs",
     "test:readiness": "npm run build && node scripts/test.mjs tests/readiness.test.mjs tests/collector-isolation.test.mjs"

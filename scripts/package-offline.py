@@ -31,6 +31,7 @@ LEGACY_FILES = (
 FIXED_FILES = (*LEGACY_FILES, "scripts/developer-demo.mjs",
                "developer/examples/sold.py", "developer/examples/sold.sh", "developer/examples/sold.ts")
 REQUIRED = {LEGACY_SCHEMA: set(LEGACY_FILES), SCHEMA: set(FIXED_FILES)}
+OPTIONAL_FILES = ("scripts/billing-audit.mjs",)
 
 
 def sha(value):
@@ -38,7 +39,7 @@ def sha(value):
 
 
 def runtime_path(name):
-    return (name in FIXED_FILES or
+    return (name in FIXED_FILES or name in OPTIONAL_FILES or
             re.fullmatch(r"(?:apps|packages)/[a-z-]+/(?:package\.json|dist/[a-z][a-z0-9-]*\.(?:js|d\.ts))", name) or
             name == "apps/api/dist/developer/assets.json" or
             re.fullmatch(r"packages/db/migrations/[0-9]{4}_[a-z0-9_]+\.sql", name))
@@ -54,7 +55,7 @@ def clean_revision():
 
 
 def inventory():
-    files = {ROOT / name for name in FIXED_FILES}
+    files = {ROOT / name for name in (*FIXED_FILES, *OPTIONAL_FILES)}
     for workspace in ("apps", "packages"):
         for package in sorted((ROOT / workspace).glob("*/package.json")):
             files.add(package)
