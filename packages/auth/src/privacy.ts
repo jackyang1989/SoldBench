@@ -73,8 +73,12 @@ export class AccountPrivacy {
       when,
     ]);
     await c.query(
-      "UPDATE auth_mail_outbox SET status='cancelled' WHERE user_id=$1 AND status='queued_offline'",
-      [userId],
+      `WITH closed AS (
+         UPDATE auth_mail_outbox SET status='cancelled',offline_closed_at=coalesce(offline_closed_at,$2),encrypted_payload=''::bytea
+         WHERE user_id=$1 AND (status<>'cancelled' OR octet_length(encrypted_payload)>0) RETURNING id
+       ) UPDATE outbox SET processed_at=coalesce(processed_at,$2)
+         WHERE kind='auth.mail_queued' AND event_key IN (SELECT 'auth-mail:'||id FROM closed)`,
+      [userId, when],
     );
     await c.query("DELETE FROM anonymous_cache_publications WHERE user_id=$1", [userId]);
     await c.query("DELETE FROM saved_research WHERE user_id=$1", [userId]);

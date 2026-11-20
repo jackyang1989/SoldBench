@@ -32,6 +32,7 @@
     "collector:intake": "npm run build && node --env-file-if-exists=.env scripts/collector-intake.mjs",
     "collector:supervise": "npm run build && node --env-file-if-exists=.env scripts/collector-supervisor.mjs",
     "query:worker": "npm run build && node --env-file-if-exists=.env scripts/query-worker.mjs",
+    "auth:mail": "npm run build && node --env-file-if-exists=.env scripts/offline-mail.mjs",
     "collector:media": "npm run build && node --env-file-if-exists=.env scripts/collector-worker.mjs --media-only=true",
     "collector:report": "npm run build && node --env-file-if-exists=.env scripts/collector-report.mjs",
     "collector:refresh": "npm run build && node --env-file-if-exists=.env scripts/collector-refresh.mjs",

@@ -3,7 +3,7 @@ import { type Database, type Transaction, transaction } from "@soldbench/db";
 import { AppError, type Locale } from "@soldbench/shared";
 import { generateSecret, generateURI, verify } from "otplib";
 import { AuthCrypto, type AuthSecrets, hashPassword, verifyPassword } from "./crypto.ts";
-export const AUTH_VERSION = "1.0.0";
+export const AUTH_VERSION = "1.1.0";
 const scopes = ["sold:read", "jobs:read", "usage:read"];
 type User = {
   id: string;

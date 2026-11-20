@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { publishNextScheduledContent } from "@soldbench/api";
-import { AccountPrivacy, AuthService, localAuthSecrets } from "@soldbench/auth";
+import { AccountPrivacy, AuthService, localAuthSecrets, OfflineMailQueue } from "@soldbench/auth";
 import { BillingService, localPaymentKeys, PaymentLifecycle } from "@soldbench/billing";
 import { assertLocalDatabaseUrl, database, isDatabaseConnectionError, prepareDatabase } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
@@ -27,6 +27,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => abort.abort
 try {
   await prepareDatabase(db, config.databaseStartup);
   const auth = new AuthService(db, localAuthSecrets(resolve(config.localStateRoot)), config.origin),
+    mailbox = new OfflineMailQueue(auth),
     billing = new BillingService(db),
     payments = config.paymentFixtures
       ? new PaymentLifecycle(billing, config.origin, localPaymentKeys(resolve(config.localStateRoot)))
@@ -41,6 +42,7 @@ try {
     nextPublicationCheck = 0,
     nextPaymentAttempt = 0,
     nextPrivacyAttempt = 0,
+    nextMailAttempt = 0,
     retryDelay = 0;
   async function runCycle() {
     if (Date.now() >= nextMaintenance) {
@@ -78,6 +80,17 @@ try {
       }
     }
     if (deletion) console.log(JSON.stringify({ data_mode: "offline_fixture", deletion_job: deletion }));
+    let mail;
+    if (Date.now() >= nextMailAttempt) {
+      try {
+        mail = await mailbox.workOnce();
+      } catch (error) {
+        if (isDatabaseConnectionError(error)) throw error;
+        console.error("soldbench_offline_mail_processing_failed");
+        nextMailAttempt = Date.now() + 1000;
+      }
+    }
+    if (mail) console.log(JSON.stringify({ data_mode: "offline_fixture", mock_mail: mail }));
     if (Date.now() >= nextPublicationCheck) {
       try {
         const publication = await publishNextScheduledContent(db);
@@ -96,7 +109,7 @@ try {
       );
       nextHeartbeat = Date.now() + 5000;
     }
-    return Boolean(result || event || deletion);
+    return Boolean(result || event || deletion || mail);
   }
   while (!abort.signal.aborted) {
     let busy;
