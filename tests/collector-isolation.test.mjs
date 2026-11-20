@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import {
+  CollectorRefresh,
   CollectorStore,
   createFixtureArtifact,
   digest,
@@ -111,6 +112,84 @@ test("bounded launcher executes an owned worker and reports its actual final cyc
   assert.equal(report.cycle.pageCount, 2);
   assert.equal(report.limits.v8HeapMb, 128);
   assert.throws(() => process.kill(report.workerPid, 0), /ESRCH/);
+});
+
+test("supervisor schedules eligible offline plans once and processes the published response", async () => {
+  const spool = await root();
+  const now = (await db.query("SELECT clock_timestamp() t")).rows[0].t.toISOString();
+  const source = await provisionFixtureSource(db, now);
+  const store = new CollectorStore(db);
+  const profilePath = "tests/fixtures/html/profile.json";
+  const profile = JSON.parse(await readFile(profilePath, "utf8"));
+  const htmlStore = new CollectorStore(db, undefined, { htmlProfile: profile });
+  const setup = (keyword) => ({
+    ...source,
+    query: new URLSearchParams({ q: keyword }),
+    key: randomUUID(),
+    intervalSeconds: 3600,
+    maxLagSeconds: 300,
+  });
+  const jsonPlan = await new CollectorRefresh(store).create(setup("Synthetic collector JSON"));
+  const htmlPlan = await new CollectorRefresh(htmlStore).create(setup("Synthetic collector HTML"));
+  const command = [`--source=${source.sourceId}`, `--spool=${spool}`, "--refresh=true"];
+  const run = (...flags) =>
+    start("scripts/collector-supervisor.mjs", [...command, ...flags], { MEDIA_ROOT: spool });
+  const first = run("--watch=true", "--interval-ms=250");
+  await waitFor(() => first.output.includes('"enqueued":1'));
+  const competing = run();
+  assert.equal((await competing.exited).code, 0);
+  assert.equal(JSON.parse(competing.output).state, "already_supervised");
+  assert.equal(JSON.parse(first.output.trim().split("\n")[0]).queues.pages.artifactUnavailable, 1);
+  const occurrences = async () =>
+    (
+      await db.query(
+        "SELECT plan_id,status,job_id FROM collector_refresh_occurrences WHERE source_id=$1 ORDER BY plan_id",
+        [source.sourceId],
+      )
+    ).rows;
+  const initial = await occurrences();
+  assert.equal(initial.length, 2);
+  assert.equal(initial.find((row) => row.plan_id === htmlPlan).status, "planned");
+  const jobId = initial.find((row) => row.plan_id === jsonPlan).job_id;
+  const job = await store.view(jobId);
+  assert.equal(job.status, "queued");
+  const identity = {
+    sourceId: source.sourceId,
+    jobId,
+    queryHash: job.query_hash,
+    asOf: job.as_of.toISOString(),
+  };
+  const response = fixtureResponse({
+    schema: "soldbench.synthetic-page.v1",
+    synthetic: true,
+    sourceId: identity.sourceId,
+    queryHash: identity.queryHash,
+    asOf: identity.asOf,
+    cursor: "start",
+    nextCursor: null,
+    records: [],
+    empty: true,
+  });
+  const producer = await root();
+  const path = join(producer, "scheduled-response.json");
+  await publishFixtureFile(path, createFixtureArtifact(identity, new Map([["page:start", [response]]])));
+  const intake = start("scripts/collector-intake.mjs", [
+    `--source=${source.sourceId}`,
+    `--spool=${spool}`,
+    `--fixture=${path}`,
+  ]);
+  assert.equal((await intake.exited).code, 0, intake.errors);
+  await waitFor(async () => (await store.view(jobId)).status === "completed");
+  assert.equal(first.child.kill("SIGTERM"), true);
+  assert.equal((await first.exited).code, 0, first.errors);
+  const html = run(`--refresh-profile=${profilePath}`);
+  assert.equal((await html.exited).code, 0, html.errors);
+  assert.equal(JSON.parse(html.output).scheduled.enqueued, 1);
+  const final = await occurrences();
+  assert.equal(final.length, 2);
+  assert.equal(final.find((row) => row.plan_id === jsonPlan).job_id, jobId);
+  assert.equal(final.find((row) => row.plan_id === htmlPlan).status, "enqueued");
+  assert.equal((await store.view(jobId)).request_count, 1);
 });
 
 test("fixture intake replays equal content and leaves a conflicting file untouched", async () => {

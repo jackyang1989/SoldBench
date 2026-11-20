@@ -1,9 +1,9 @@
-import { lstatSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { CollectorRefresh, CollectorStore } from "@soldbench/collector";
 import { instant } from "@soldbench/core";
 import { assertLocalDatabaseUrl, database, prepareDatabase } from "@soldbench/db";
 import { loadConfig } from "@soldbench/shared";
+import { readRefreshProfile } from "./collector-fixture-file.mjs";
 import { localDatabaseUrl } from "./local-db.mjs";
 
 const args = new Map();
@@ -30,12 +30,7 @@ assertLocalDatabaseUrl(url, [
   resolve(".local/postgres/socket"),
   ...(process.env.SOLDBENCH_TEST_SOCKET ? [process.env.SOLDBENCH_TEST_SOCKET] : []),
 ]);
-let profile;
-if (args.has("profile")) {
-  const path = resolve(args.get("profile"));
-  if (!lstatSync(path).isFile() || lstatSync(path).size > 65536) throw new Error("invalid_refresh_profile");
-  profile = JSON.parse(readFileSync(path, "utf8"));
-}
+const profile = args.has("profile") ? await readRefreshProfile(resolve(args.get("profile"))) : undefined;
 const db = database(url);
 try {
   await prepareDatabase(db, config.databaseStartup);

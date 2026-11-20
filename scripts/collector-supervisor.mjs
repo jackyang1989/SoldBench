@@ -1,11 +1,16 @@
 import { lstat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { CollectorStore, FixtureTransport, OfflineCollectorWorker } from "@soldbench/collector";
+import {
+  CollectorRefresh,
+  CollectorStore,
+  FixtureTransport,
+  OfflineCollectorWorker,
+} from "@soldbench/collector";
 import { assertLocalDatabaseUrl, database, isDatabaseConnectionError, prepareDatabase } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
 import { loadConfig } from "@soldbench/shared";
-import { fixtureJobId } from "./collector-fixture-file.mjs";
+import { fixtureJobId, readRefreshProfile } from "./collector-fixture-file.mjs";
 import { resumeFixtureIntake } from "./collector-intake.mjs";
 import { launchCollector } from "./collector-launcher.mjs";
 import { localDatabaseUrl } from "./local-db.mjs";
@@ -126,15 +131,20 @@ async function recordProgress(
 async function run(args) {
   const options = new Map();
   for (const arg of args) {
-    const entry = /^--(source|spool|watch|interval-ms|max-ms)=(.+)$/.exec(arg);
+    const entry = /^--(source|spool|watch|refresh|refresh-profile|interval-ms|max-ms)=(.+)$/.exec(arg);
     if (!entry || options.has(entry[1])) throw new Error("invalid_collector_supervisor_argument");
     options.set(entry[1], entry[2]);
   }
   const sourceId = options.get("source"),
     watch = options.get("watch"),
+    refreshEnabled = options.get("refresh"),
     interval = Number(options.get("interval-ms") ?? 2000),
     maxMs = Number(options.get("max-ms") ?? 60000);
-  if (!fixtureJobId.test(sourceId ?? "") || (watch !== undefined && watch !== "true"))
+  if (
+    !fixtureJobId.test(sourceId ?? "") ||
+    [watch, refreshEnabled].some((flag) => flag !== undefined && flag !== "true") ||
+    (options.has("refresh-profile") && !refreshEnabled)
+  )
     throw new Error("invalid_collector_supervisor_argument");
   if (
     !/^\d+$/.test(options.get("interval-ms") ?? "2000") ||
@@ -152,6 +162,9 @@ async function run(args) {
     resolve(".local/postgres/socket"),
     ...(process.env.SOLDBENCH_TEST_SOCKET ? [process.env.SOLDBENCH_TEST_SOCKET] : []),
   ]);
+  const profile = options.has("refresh-profile")
+    ? await readRefreshProfile(resolve(options.get("refresh-profile")))
+    : undefined;
   const db = database(url),
     abort = new AbortController(),
     stop = () => abort.abort();
@@ -163,6 +176,11 @@ async function run(args) {
     });
   const env = { ...process.env, DATABASE_URL: url, COLLECTOR_DEMO_DIR: spool };
   const store = new CollectorStore(db);
+  const refresh = refreshEnabled
+    ? new CollectorRefresh(
+        profile === undefined ? store : new CollectorStore(db, undefined, { htmlProfile: profile }),
+      )
+    : null;
   const maintenanceWorker = new OfflineCollectorWorker(
     store,
     new FixtureTransport(new Map()),
@@ -215,6 +233,19 @@ async function run(args) {
           nextMaintenance = Date.now() + 60000;
         }
         let state = await sourceState(db, sourceId);
+        const scheduled = refresh
+          ? { ...(await refresh.materialize(sourceId, 200)), enqueued: 0, recovered: 0, blocked: 0 }
+          : null;
+        if (scheduled && state === "ready") {
+          for (let i = 0; i < 8 && !signal.aborted; i++) {
+            const slot = await refresh.dispatchNext(sourceId);
+            if (!slot) break;
+            if (slot.recovered) scheduled.recovered++;
+            else if (slot.status === "enqueued") scheduled.enqueued++;
+            else scheduled.blocked++;
+          }
+        }
+        if (signal.aborted) break;
         let intake = null;
         let spoolState = "ready";
         const rows = await dueJobs(db, sourceId, cursors);
@@ -319,6 +350,7 @@ async function run(args) {
           spool: spoolState,
           settled,
           intake,
+          ...(scheduled && { scheduled }),
           queues,
         };
         await recordProgress(lock, sourceId, "waiting", { expectedMs: interval + 5000, summary });

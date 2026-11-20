@@ -15,11 +15,11 @@ export async function syncDirectory(path) {
   }
 }
 
-export async function readFixtureFile(path) {
+async function readBoundedFile(path, maxBytes, invalid, changed) {
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     const stat = await file.stat();
-    if (!stat.isFile() || stat.size > 16 * 1024 * 1024) throw new Error("fixture_artifact_file_invalid");
+    if (!stat.isFile() || stat.size > maxBytes) throw new Error(invalid);
     const bytes = Buffer.alloc(stat.size + 1);
     let total = 0;
     while (total < bytes.length) {
@@ -27,11 +27,28 @@ export async function readFixtureFile(path) {
       if (!read.bytesRead) break;
       total += read.bytesRead;
     }
-    if (total !== stat.size) throw new Error("fixture_artifact_file_changed");
-    return loadFixtureArtifact(bytes.subarray(0, total));
+    if (total !== stat.size) throw new Error(changed);
+    return bytes.subarray(0, total);
   } finally {
     await file.close();
   }
+}
+
+export async function readFixtureFile(path) {
+  return loadFixtureArtifact(
+    await readBoundedFile(
+      path,
+      16 * 1024 * 1024,
+      "fixture_artifact_file_invalid",
+      "fixture_artifact_file_changed",
+    ),
+  );
+}
+
+export async function readRefreshProfile(path) {
+  return JSON.parse(
+    await readBoundedFile(path, 65536, "invalid_refresh_profile", "refresh_profile_file_changed"),
+  );
 }
 
 export async function publishFixtureFile(path, artifact) {

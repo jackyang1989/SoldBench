@@ -224,8 +224,13 @@ export class CollectorRefresh {
       const now = await this.now(c);
       const rows = (
         await c.query<Occurrence>(
-          "SELECT o.*,p.config_id,p.query_hash,p.config_hash,p.job_ttl_seconds,p.collector_version,p.parser_version,p.profile_hash,p.permission_epoch,p.retired_at FROM collector_refresh_occurrences o JOIN collector_refresh_plans p ON p.id=o.plan_id WHERE o.source_id=$1 AND (o.status='planned' OR o.status='dispatching' AND o.lease_until<=$2) ORDER BY o.scheduled_for,o.id LIMIT 100 FOR UPDATE OF o",
-          [sourceId, now],
+          `SELECT o.*,p.config_id,p.query_hash,p.config_hash,p.job_ttl_seconds,p.collector_version,p.parser_version,
+                 p.profile_hash,p.permission_epoch,p.retired_at
+           FROM collector_refresh_occurrences o JOIN collector_refresh_plans p ON p.id=o.plan_id
+           WHERE o.source_id=$1 AND p.profile_hash IS NOT DISTINCT FROM $3
+             AND (o.status='planned' OR o.status='dispatching' AND o.lease_until<=$2)
+           ORDER BY o.scheduled_for,o.id LIMIT 100 FOR UPDATE OF o`,
+          [sourceId, now, this.store.profileHash],
         )
       ).rows;
       for (const o of rows) {
@@ -251,9 +256,7 @@ export class CollectorRefresh {
               ? "refresh_attempts_exhausted"
               : o.retired_at
                 ? "plan_retired"
-                : o.collector_version !== COLLECTOR_VERSION ||
-                    o.parser_version !== PARSER_VERSION ||
-                    o.profile_hash !== this.store.profileHash
+                : o.collector_version !== COLLECTOR_VERSION || o.parser_version !== PARSER_VERSION
                   ? "refresh_version_changed"
                   : null;
         if (reason) {
