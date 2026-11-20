@@ -5,7 +5,12 @@ import { rm } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { publishNextScheduledContent } from "@soldbench/api";
 import { AccountPrivacy } from "@soldbench/auth";
-import { CollectorRefresh, CollectorStore } from "@soldbench/collector";
+import {
+  CollectorRefresh,
+  CollectorStore,
+  FixtureTransport,
+  OfflineCollectorWorker,
+} from "@soldbench/collector";
 import { database, migrate } from "@soldbench/db";
 import { createProductFixture } from "./helpers/product.mjs";
 
@@ -992,7 +997,34 @@ test("telemetry uses real offline runs, current evidence rights and versioned lo
   x.clock.value = new Date(Date.parse(end) + 25 * 3600000).toISOString();
   operator = await actor(x, "admin");
   assert.equal(rows((await get(`coverage?source=${source}`)).data)[0].freshness, "stale_acceptable");
+  const monitoring = async (signal) =>
+    rows((await get("monitoring")).data).find((row) => row.signal === signal);
+  const cleanup = async () => rows((await get(`collector?source=${source}`)).data, 4)[0];
+  const baseline = (await monitoring("media_cleanup_due")).value;
+  assert.equal((await cleanup()).media_cleanup_due, 0);
   await x.store.revokeSource(source, "Exercise telemetry revocation");
+  const stopped = rows((await get(`collector?source=${source}`)).data, 1)[0];
+  assert.equal(stopped.phase, "stopped");
+  assert.equal(stopped.expected_progress_at, null);
+  const afterRevocation = await monitoring("overdue_collector_supervisors");
+  assert.deepEqual(
+    [afterRevocation.value, afterRevocation.denominator, afterRevocation.state],
+    [null, 0, "unknown"],
+  );
+  const due = await monitoring("media_cleanup_due");
+  assert.equal(due.value, baseline + 1);
+  assert.equal(due.state, "alert");
+  assert.deepEqual(await cleanup(), {
+    source_id: source,
+    source_status: "revoked",
+    media_cleanup_due: 1,
+    oldest_media_cleanup_due: x.now(),
+  });
+  const worker = new OfflineCollectorWorker(x.store, new FixtureTransport(new Map()), x.query.media);
+  assert.equal((await worker.runMaintenance(source)).cleanupProcessed, 1);
+  assert.equal((await monitoring("media_cleanup_due")).value, baseline);
+  assert.equal((await cleanup()).media_cleanup_due, 0);
+  assert.equal((await cleanup()).oldest_media_cleanup_due, null);
   assert.equal(rows((await get(`records?source=${source}&days=7`)).data).length, 0);
   const blocked = rows((await get(`coverage?source=${source}`)).data)[0];
   assert.equal(blocked.data_as_of, null);

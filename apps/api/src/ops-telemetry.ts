@@ -25,9 +25,11 @@ export type AlertSettings = {
 };
 const asCell = (value: Cell | Date | undefined): Cell =>
   value instanceof Date ? value.toISOString() : (value ?? null);
-const allowedSource = `s.status='active' AND s.access_method='offline_fixture' AND x.provider='synthetic_fixture'
-  AND x.status IN ('draft','reviewed','active') AND (x.effective_at IS NULL OR x.effective_at<=$2)
-  AND (x.expires_at IS NULL OR x.expires_at>$2)`;
+const sourceAvailableAt = (clock: "$1" | "$2") => `s.status='active' AND s.access_method='offline_fixture'
+  AND x.provider='synthetic_fixture' AND x.status IN ('draft','reviewed','active')
+  AND (x.effective_at IS NULL OR x.effective_at<=${clock})
+  AND (x.expires_at IS NULL OR x.expires_at>${clock})`;
+const allowedSource = sourceAvailableAt("$2");
 
 export async function telemetry(c: Transaction, now: Date, view: TelemetryView, input: TelemetryInput) {
   const from = new Date(now.getTime() - input.days * 86400000);
@@ -54,13 +56,23 @@ export async function telemetry(c: Transaction, now: Date, view: TelemetryView, 
       if (!alertSettings) throw new Error("operator_alert_settings_missing");
       const row = (
         await c.query(
-          `SELECT (SELECT last_cycle_at FROM worker_heartbeats WHERE worker_kind='query' AND last_cycle_at<=$2) AS heartbeat,
+          `WITH expected_supervisors AS (
+               SELECT h.expected_progress_at FROM collector_supervisor_state h
+               JOIN sources s ON s.id=h.source_id JOIN source_clearances x ON x.id=s.source_clearance_id
+               WHERE ${allowedSource} AND h.checked_at<=$2 AND h.expected_progress_at IS NOT NULL
+             )
+             SELECT (SELECT last_cycle_at FROM worker_heartbeats WHERE worker_kind='query' AND last_cycle_at<=$2) AS heartbeat,
                 (SELECT count(*)::int FROM query_jobs WHERE status='queued' AND expires_at>$2
                   AND available_at<=$2-make_interval(secs=>$3)) AS overdue,
                 (SELECT count(*)::int FROM collector_runs WHERE started_at>=$1 AND completed_at<=$2) AS completed_runs,
                 (SELECT count(*)::int FROM collector_runs WHERE started_at>=$1 AND completed_at<=$2 AND outcome<>'completed') AS unsuccessful_runs,
-                (SELECT count(*)::int FROM collector_supervisor_state WHERE checked_at<=$2) AS observed_supervisors,
-                (SELECT count(*)::int FROM collector_supervisor_state WHERE checked_at<=$2 AND expected_progress_at<=$2) AS overdue_supervisors`,
+                (SELECT count(*)::int FROM expected_supervisors) AS observed_supervisors,
+                (SELECT count(*)::int FROM expected_supervisors WHERE expected_progress_at<=$2) AS overdue_supervisors,
+                (SELECT count(*)::int FROM outbox o
+                   JOIN sources s ON s.id::text=o.payload->>'sourceId'
+                   JOIN source_clearances x ON x.id=s.source_clearance_id
+                 WHERE o.kind='collector.media_cleanup' AND o.processed_at IS NULL AND o.available_at<=$2
+                   AND s.access_method='offline_fixture' AND x.provider='synthetic_fixture') AS media_cleanup_due`,
           [from, now, alertSettings.query_delay_seconds],
         )
       ).rows[0];
@@ -86,6 +98,12 @@ export async function telemetry(c: Transaction, now: Date, view: TelemetryView, 
             row.observed_supervisors ? row.overdue_supervisors : null,
             row.observed_supervisors,
             !row.observed_supervisors ? "unknown" : row.overdue_supervisors ? "alert" : "within_budget",
+          ],
+          [
+            "media_cleanup_due",
+            row.media_cleanup_due,
+            null,
+            row.media_cleanup_due ? "alert" : "within_budget",
           ],
           [
             "collector_failure_percent",
@@ -154,8 +172,10 @@ export async function telemetry(c: Transaction, now: Date, view: TelemetryView, 
           "image_jobs_uninspected",
         ],
         `SELECT s.id source_id,
-           CASE WHEN h.phase IS NULL THEN 'unobserved' WHEN h.expected_progress_at<=$1 THEN 'overdue' ELSE h.phase END phase,
-           h.checked_at,h.expected_progress_at,h.last_cycle_at,h.job_id,h.lane,h.cycle_summary->>'spool' spool,
+           CASE WHEN NOT (${sourceAvailableAt("$1")}) THEN 'stopped' WHEN h.phase IS NULL THEN 'unobserved'
+                WHEN h.expected_progress_at<=$1 THEN 'overdue' ELSE h.phase END phase,
+           h.checked_at,CASE WHEN ${sourceAvailableAt("$1")} THEN h.expected_progress_at END AS expected_progress_at,
+           h.last_cycle_at,h.job_id,h.lane,h.cycle_summary->>'spool' spool,
            h.cycle_summary#>'{queues,pages,due}' page_jobs_due,h.cycle_summary#>'{queues,pages,artifactUnavailable}' page_jobs_missing,
            h.cycle_summary#>'{queues,pages,uninspected}' page_jobs_uninspected,h.cycle_summary#>'{queues,images,due}' image_jobs_due,
            h.cycle_summary#>'{queues,images,artifactUnavailable}' image_jobs_missing,
@@ -222,6 +242,20 @@ export async function telemetry(c: Transaction, now: Date, view: TelemetryView, 
          LEFT JOIN collector_supervisor_state h ON h.source_id=s.id AND h.last_cycle_at<=$1
          WHERE s.access_method='offline_fixture' AND x.provider='synthetic_fixture' AND ($2::uuid IS NULL OR s.id=$2)
          ORDER BY h.last_cycle_at DESC NULLS LAST,s.id LIMIT $3`,
+        [now, input.source ?? null, input.limit],
+      );
+      await table(
+        "collector_media_cleanup",
+        ["source_id", "source_status", "media_cleanup_due", "oldest_media_cleanup_due"],
+        `SELECT s.id source_id,s.status source_status,b.pending media_cleanup_due,b.oldest oldest_media_cleanup_due
+         FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id
+         CROSS JOIN LATERAL (
+           SELECT count(*)::int pending,min(o.available_at) oldest FROM outbox o
+           WHERE o.kind='collector.media_cleanup' AND o.processed_at IS NULL AND o.available_at<=$1
+             AND o.payload->>'sourceId'=s.id::text
+         ) b
+         WHERE s.access_method='offline_fixture' AND x.provider='synthetic_fixture' AND ($2::uuid IS NULL OR s.id=$2)
+         ORDER BY (b.pending>0) DESC,b.oldest NULLS LAST,s.id LIMIT $3`,
         [now, input.source ?? null, input.limit],
       );
       break;
