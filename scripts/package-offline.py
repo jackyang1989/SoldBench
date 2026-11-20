@@ -13,21 +13,24 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA = "soldbench.offline-runtime.v1"
+SCHEMA = "soldbench.offline-runtime.v2"
+LEGACY_SCHEMA = "soldbench.offline-runtime.v1"
 MANIFEST = "runtime-manifest.json"
 MAX_BYTES = 32 * 1024 * 1024
 OPERATOR_SCRIPTS = """
 collector-demo collector-fixture-file collector-handoff collector-html-demo collector-intake
 collector-launcher collector-maintenance collector-refresh collector-report collector-supervisor
-collector-worker dev developer-demo local-db migrate offline-mail payment-fixture payment-reconcile privacy-recovery
+collector-worker dev local-db migrate offline-mail payment-fixture payment-reconcile privacy-recovery
 public-fixture query-worker
 """.split()
-FIXED_FILES = (
+LEGACY_FILES = (
     "package.json", "package-lock.json", "apps/web/src/site.css", "apps/web/src/site.js",
-    "developer/examples/sold.py", "developer/examples/sold.sh", "developer/examples/sold.ts",
     "tests/fixtures/html/profile.json", "tests/fixtures/html/search.html", "v14_gameboy_58_verified.json",
     "scripts/package-offline.py", *(f"scripts/{name}.mjs" for name in OPERATOR_SCRIPTS),
 )
+FIXED_FILES = (*LEGACY_FILES, "scripts/developer-demo.mjs",
+               "developer/examples/sold.py", "developer/examples/sold.sh", "developer/examples/sold.ts")
+REQUIRED = {LEGACY_SCHEMA: set(LEGACY_FILES), SCHEMA: set(FIXED_FILES)}
 
 
 def sha(value):
@@ -124,12 +127,13 @@ def verify(path):
                 manifest = json.loads(data)
             else:
                 found[name] = {"sha256": sha(data), "bytes": len(data)}
-    if (not isinstance(manifest, dict) or manifest.get("schema") != SCHEMA
+    schema = manifest.get("schema") if isinstance(manifest, dict) else None
+    if (not isinstance(schema, str) or schema not in REQUIRED
             or manifest.get("mode") != "offline_fixture" or manifest.get("collector_enabled") is not False
             or manifest.get("payments_mode") != "offline" or manifest.get("files") != found
             or not isinstance(manifest.get("revision"), str)
             or not re.fullmatch(r"[0-9a-f]{40}", manifest["revision"])
-            or not set(FIXED_FILES).issubset(found)
+            or not REQUIRED[schema].issubset(found)
             or not {"apps/api/dist/server.js", "apps/api/dist/developer/assets.json",
                     "packages/db/dist/index.js", "packages/db/migrations/0001_baseline.sql"}.issubset(found)):
         raise ValueError("Runtime manifest mismatch")
@@ -137,7 +141,7 @@ def verify(path):
         digest = hashlib.sha256()
         for block in iter(lambda: handle.read(1024 * 128), b""):
             digest.update(block)
-    return {"mode": "offline_fixture", "revision": manifest["revision"],
+    return {"mode": "offline_fixture", "schema": schema, "revision": manifest["revision"],
             "files": len(found), "sha256": digest.hexdigest()}
 
 

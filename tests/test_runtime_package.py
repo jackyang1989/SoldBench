@@ -56,6 +56,22 @@ class RuntimePackageTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "Unexpected or duplicate"):
                     BUNDLE.verify(self.path)
 
+    def test_verifies_the_previous_roll_back_format_without_current_examples(self):
+        for name in set(BUNDLE.FIXED_FILES) - set(BUNDLE.LEGACY_FILES):
+            self.files.pop(name)
+            self.manifest["files"].pop(name)
+        self.bundle()
+        with self.assertRaisesRegex(ValueError, "manifest mismatch"):
+            BUNDLE.verify(self.path)
+        self.manifest["schema"] = BUNDLE.LEGACY_SCHEMA
+        self.bundle()
+        self.assertEqual(BUNDLE.verify(self.path)["schema"], BUNDLE.LEGACY_SCHEMA)
+        self.files.pop("package-lock.json")
+        self.manifest["files"].pop("package-lock.json")
+        self.bundle()
+        with self.assertRaisesRegex(ValueError, "manifest mismatch"):
+            BUNDLE.verify(self.path)
+
     def test_rejects_a_manifest_that_claims_the_collector_is_enabled(self):
         self.manifest["collector_enabled"] = True
         self.bundle()

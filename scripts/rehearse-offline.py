@@ -261,6 +261,8 @@ try {
 
 def exercise(source, output, restore_backup=False, clients=False):
     original = BUNDLE.verify(source)
+    if clients and original["schema"] != BUNDLE.SCHEMA:
+        raise ValueError("Use the original client rehearsal for a v1 runtime archive")
     with tempfile.TemporaryDirectory(prefix="sb-run-", dir="/tmp") as directory:
         workspace = Path(directory) / "soldbench"
         workspace.mkdir(mode=0o700)
