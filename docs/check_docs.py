@@ -2,11 +2,13 @@
 """Check documentation links, task DAG/windows, ID coverage and original fixture."""
 from pathlib import Path
 import hashlib
-import csv
 import re
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs'
+sys.path.insert(0, str(ROOT / 'step0/tools'))
+from readiness import prepare_report
 
 
 def require(ok, message):
@@ -98,9 +100,11 @@ for line in capability_rows:
     refs = set(re.findall(r'TASK-\d{3}', line))
     tests = set(re.findall(r'AT-\d{3}', line))
     require(refs and refs <= tasks.keys() and tests and tests <= ats, f'Unscheduled competitive gap: {line}')
-with (ROOT / 'step0/source-capabilities.csv').open(newline='') as handle:
-    capability_fields = {row['field'] for row in csv.DictReader(handle)}
-require({'title', 'listing_url', 'primary_image_candidate', 'primary_image_role', 'primary_image_evidence_binding', 'seller_source_identity', 'seller_public_handle', 'condition_id', 'condition_mapping_context', 'shipping_context', 'source_reported_match_count', 'source_reported_match_count_context', 'source_record_unit', 'query_capture_context'} <= capability_fields, 'Search capture checklist missing required fields')
+source_gaps = [gap for gap in prepare_report()['gaps'] if gap['expectedFieldCount'] is not None]
+require(bool(source_gaps), 'Expected the eBay US source checklist')
+for gap in source_gaps:
+    require(gap['fieldChecklistComplete'],
+            f"Source checklist {gap['source']} missing fields: {', '.join(gap['missingFields'])}")
 print('PASS: 24 competitive capability groups have scheduled TASK and AT references.')
 print(f'PASS: {len(files)} Markdown files, {links} local links, {len(tasks)} tasks, E1–E{total}, '
       f'{len(features)} features, {len(pages)} pages, {len(ats)} acceptance cases, '

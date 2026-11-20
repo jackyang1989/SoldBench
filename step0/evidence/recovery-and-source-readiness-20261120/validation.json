@@ -1,0 +1,59 @@
+{
+  "captured_at": "2026-11-20T05:36:52+00:00",
+  "application_commit": "a4d110e",
+  "environment": {
+    "mode": "offline_fixture",
+    "node": "22.23.3",
+    "database": "isolated PostgreSQL 16.15",
+    "browser": "Chrome 157.0.8103.81, loopback",
+    "real_data": false,
+    "real_payments": false
+  },
+  "checks": {
+    "npm run check": {
+      "exit_code": 0,
+      "test_files": 28,
+      "tests": 279,
+      "pass": 279,
+      "fail": 0,
+      "skipped": 0
+    },
+    "openapi_compatibility": {
+      "exit_code": 0,
+      "tests": 5
+    },
+    "npm run test:step0": {
+      "exit_code": 0,
+      "checks_passed": 20
+    },
+    "python3 scripts/check-developer-assets.py": {
+      "exit_code": 0
+    }
+  },
+  "source_readiness": {
+    "candidate": "ebay_us_candidate",
+    "field_rows": 45,
+    "fields_unverified": 45,
+    "fields_with_rights_material_gaps": 45,
+    "primary_image_rights_or_terms_missing": 7,
+    "collector_enabled": false,
+    "stage_verdict": "NOT_ISSUED"
+  },
+  "remote_ci": {
+    "run_of": "a4d110e",
+    "run_id": 44681904797,
+    "conclusion": "startup_failure",
+    "jobs_created": 0,
+    "run_log_available": false
+  },
+  "sha256": {
+    "scripts/privacy-recovery.mjs": "e19ed8ac4a4d858fa2339c6813f48466ff68e9d7103a18ec0eab55e0e1f40008",
+    "apps/api/src/index.ts": "3277b60aeab63a61b33e670b2a0bc33b7227d77af02e45e3d776483864e0afda",
+    "apps/web/src/index.tsx": "1be44d105d5a5e65f055015b7009e1b80867c95cdd6b7e4cc3bb83393ec5baf6",
+    "scripts/payment-reconcile.mjs": "b77c6a451b5289d443e64428519946639b1de4513462ea2b4bf432c651f2715a",
+    "apps/api/src/server.ts": "ea9a2680927ceac835d78e6450e4f127732d3e320cfca9039e569f8675ba15ed",
+    "packages/db/src/index.ts": "4d2d1ce2b2b23610b31a6bbace6ac0697c00cbbdd7a363b6d6502947815baf92",
+    "scripts/query-worker.mjs": "9313cf1ac2dbb5505df61ffc5aacaf6a885e740e6df9bf9b8ff37097e859515f",
+    "step0/tools/readiness.py": "c98a5d46a5f07a478945e029ebab18379ba0d25f9adfa52922b687a53493528c"
+  }
+}

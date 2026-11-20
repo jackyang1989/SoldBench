@@ -8,7 +8,7 @@
 
 现可准备申请业务说明、离线框架/字段表、需求/成本及测试计划。未获准时没有14天线上成功率结论；账号、公开网页、技术可访问都不作为授权材料。
 
-已准备45项 [字段能力清单](source-capabilities.csv)，当前全部unverified。`python3 step0/tools/readiness.py`列出逐项权利、期限、速率及字段证据缺口。该工具仅检查资料状态，审批原件及实际字段需责任人复核。获准测试的计划与报告口径见 [连续验证准备](online-validation-plan.md)。
+已准备 45 项[字段能力清单](source-capabilities.csv)，当前全部未核验。`python3 step0/tools/readiness.py` 对每个 eBay US 候选检查 45 个字段名，分别报告缺行、已有行但无实测、逐字段权利材料缺项和主图专项缺项。把字段设为 `available_verified` 仍须填写它自己的权利材料。当前工具只检查登记和引用是否齐备，权利原件、期限与实际用途由责任人复核。获准测试的计划与报告口径见[连续验证准备](online-validation-plan.md)。
 
 ### 主图单独授权
 

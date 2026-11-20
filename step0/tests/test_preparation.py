@@ -82,9 +82,15 @@ class PreparationTests(unittest.TestCase):
         report = prepare_report()
         self.assertFalse(report['collectorEnabled'])
         self.assertEqual(report['stageVerdict'], 'NOT_ISSUED')
-        self.assertIn('automatic_access', report['gaps'][0]['missingRightsOrTerms'])
-        self.assertIn('sale_event_id', report['gaps'][0]['unverifiedFields'])
-        images = report['gaps'][0]['primaryImages']
+        gap = report['gaps'][0]
+        self.assertIn('automatic_access', gap['missingRightsOrTerms'])
+        self.assertIn('sale_event_id', gap['unverifiedFields'])
+        self.assertEqual(gap['expectedFieldCount'], 45)
+        self.assertEqual(gap['recordedFieldCount'], 45)
+        self.assertTrue(gap['fieldChecklistComplete'])
+        self.assertEqual(gap['missingFields'], [])
+        self.assertIn('approved_uses', gap['fieldRightsGaps']['sale_event_id'])
+        images = gap['primaryImages']
         self.assertTrue(set(MEDIA_RIGHTS).issubset(images['missingRightsOrTerms']))
         self.assertEqual(images['missingFields'], [])
         self.assertEqual(set(images['unverifiedFields']), set(PRIMARY_FIELDS))
@@ -113,9 +119,15 @@ class PreparationTests(unittest.TestCase):
             for field in fields:
                 if field['field'] in PRIMARY_FIELDS:
                     field.update(availability='available_verified', evidence_ref='mock-signed-terms')
-            incomplete = [field for field in fields if field['field'] != 'primary_image_dimensions']
+            incomplete = [field for field in fields
+                          if field['field'] not in {'primary_image_dimensions', 'sale_event_id'}]
             write(root, 'source-capabilities.csv', fc, incomplete)
-            initial = prepare_report(root)['gaps'][0]['primaryImages']
+            gap = prepare_report(root)['gaps'][0]
+            self.assertFalse(gap['fieldChecklistComplete'])
+            self.assertEqual(gap['recordedFieldCount'], 43)
+            self.assertEqual(gap['missingFields'], ['sale_event_id', 'primary_image_dimensions'])
+            self.assertNotIn('sale_event_id', gap['unverifiedFields'])
+            initial = gap['primaryImages']
             self.assertEqual(initial['missingRightsOrTerms'],
                              ['media_redistribution', 'media_retention_days', 'media_evidence_ref'])
             self.assertEqual(initial['missingFields'], ['primary_image_dimensions'])
@@ -131,6 +143,8 @@ class PreparationTests(unittest.TestCase):
             report = prepare_report(root)
             self.assertEqual(report['gaps'][0]['primaryImages'],
                              {'missingRightsOrTerms': [], 'missingFields': [], 'unverifiedFields': []})
+            self.assertIn('rights_evidence_ref',
+                          report['gaps'][0]['fieldRightsGaps']['primary_image_evidence_binding'])
             self.assertFalse(report['approvalEvidenceValidated'])
             self.assertFalse(report['collectorEnabled'])
             self.assertEqual(report['stageVerdict'], 'NOT_ISSUED')
