@@ -59,6 +59,7 @@ export async function collectorHealth(
     const media = await mediaHealth(
       c,
       sourceId,
+      from,
       now,
       source.permission_epoch,
       source.media_store_identity,

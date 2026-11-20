@@ -918,12 +918,13 @@ test("collector report distinguishes referenced, physically verified, missing an
       .png()
       .toBuffer();
   const raw = fixtureResponse(
-    page(
-      x,
-      [0, 1, 2].map((i) =>
+    page(x, [
+      ...[0, 1, 2].map((i) =>
         listing(x, i, { primaryImage: { role: "primary", url: i === 2 ? otherUrl : sharedUrl } }),
       ),
-    ),
+      listing(x, 3),
+      listing(x, 4),
+    ]),
   );
   const runner = worker(
     x,
@@ -934,10 +935,17 @@ test("collector report distinguishes referenced, physically verified, missing an
     ]),
   );
   assert.equal((await runner.runOne(x.sourceId)).status, "completed");
+  // A legacy record may still have evidence even if its image metadata is absent.
+  await db.query(
+    `DELETE FROM listing_images i USING sold_listings l
+     WHERE i.listing_id=l.id AND i.source_id=$1 AND l.external_listing_id='listing-4' AND i.state='missing'`,
+    [x.sourceId],
+  );
   const keys = (
-    await db.query("SELECT DISTINCT object_key FROM listing_images WHERE source_id=$1 ORDER BY object_key", [
-      x.sourceId,
-    ])
+    await db.query(
+      "SELECT DISTINCT object_key FROM listing_images WHERE source_id=$1 AND object_key IS NOT NULL ORDER BY object_key",
+      [x.sourceId],
+    )
   ).rows;
   assert.equal(keys.length, 2);
   const shell = (path, ...flags) => {
@@ -955,6 +963,22 @@ test("collector report distinguishes referenced, physically verified, missing an
   const withoutProbe = shell(x.root);
   assert.equal(withoutProbe.media.retainedReferences, 3);
   assert.equal(withoutProbe.media.eligibleObjects, 2);
+  assert.deepEqual(withoutProbe.media.primaryImageCoverage, {
+    denominator: "sale_event_observations_in_report_window",
+    observations: 5,
+    eligibleObservations: 3,
+    eligibleRate: 0.6,
+    byState: [
+      { state: "available", observations: 3, eligible: 3 },
+      { state: "missing", observations: 1, eligible: 0 },
+      { state: "untracked", observations: 1, eligible: 0 },
+    ],
+  });
+  const afterCapture = new Date(Date.parse(current) + 1).toISOString();
+  const outsideWindow = shell(x.root, `--from=${afterCapture}`).media;
+  assert.equal(outsideWindow.eligibleObjects, 2);
+  assert.equal(outsideWindow.primaryImageCoverage.observations, 0);
+  assert.equal(outsideWindow.primaryImageCoverage.eligibleRate, null);
   assert.equal(withoutProbe.media.probe.status, "not_requested");
   assert.equal(withoutProbe.media.probe.checkedObjects, 0);
   const bounded = shell(x.root, "--check-media=1").media.probe;
@@ -1004,6 +1028,8 @@ test("collector report distinguishes referenced, physically verified, missing an
   assert.equal(fieldWithheld.probe.status, "permission_unavailable");
   assert.equal(fieldWithheld.probe.checkedObjects, 0);
   assert.equal(fieldWithheld.eligibleObjects, 0);
+  assert.equal(fieldWithheld.primaryImageCoverage.observations, 5);
+  assert.equal(fieldWithheld.primaryImageCoverage.eligibleRate, 0);
   await x.store.revokeSource(x.sourceId, "report_revoked");
   const blocked = shell(x.root, "--check-media=2").media;
   assert.equal(blocked.revocationCleanup.pendingEvents, 1);

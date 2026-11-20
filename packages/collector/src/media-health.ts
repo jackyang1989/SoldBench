@@ -4,6 +4,7 @@ import type { PrivateMediaStore } from "@soldbench/media";
 export async function mediaHealth(
   c: Transaction,
   sourceId: string,
+  from: Date,
   now: Date,
   epoch: string,
   storageIdentity: string | null,
@@ -17,9 +18,10 @@ export async function mediaHealth(
       eligible_references: number;
       eligible_objects: number;
       samples: { object_key: string; read_until: string }[];
+      observed_images: { state: string; observations: number; eligible: number }[];
     }>(
       `WITH retained AS (
-          SELECT i.object_key,LEAST(i.retention_until,o.retention_until,$6::timestamptz) AS read_until,
+          SELECT i.id,i.object_key,LEAST(i.retention_until,o.retention_until,$6::timestamptz) AS read_until,
             ($4::boolean AND i.state='available' AND i.permission_epoch=$3
             AND i.retention_until>$2 AND o.retention_until>$2
             AND NOT EXISTS(SELECT 1 FROM collector_quarantines q WHERE q.affected_event_id=i.sale_event_id)
@@ -28,13 +30,25 @@ export async function mediaHealth(
           WHERE i.source_id=$1 AND i.object_key IS NOT NULL AND i.created_at<=$2 AND o.captured_at<=$2
         ), eligible_objects AS (
           SELECT object_key,max(read_until) AS read_until FROM retained WHERE eligible GROUP BY object_key
+        ), observed_images AS (
+          SELECT coalesce(i.state,'untracked') AS state,
+            count(*)::int AS observations,count(*) FILTER (WHERE r.eligible)::int AS eligible
+          FROM source_observations o
+          JOIN sale_event_evidence e ON e.source_id=o.source_id AND e.observation_id=o.id
+          LEFT JOIN listing_images i ON i.source_id=e.source_id AND i.observation_id=e.observation_id
+            AND i.listing_id=e.listing_id AND i.sale_event_id=e.sale_event_id AND i.role='primary'
+            AND i.created_at<=$2
+          LEFT JOIN retained r ON r.id=i.id
+          WHERE o.source_id=$1 AND o.captured_at>=$7 AND o.captured_at<=$2
+          GROUP BY 1
         )
         SELECT count(*)::int retained_references,count(*) FILTER(WHERE eligible)::int eligible_references,
           (SELECT count(*)::int FROM eligible_objects) AS eligible_objects,
           (SELECT coalesce(jsonb_agg(sample),'[]'::jsonb)
-            FROM (SELECT * FROM eligible_objects ORDER BY object_key LIMIT $5) sample) AS samples
+            FROM (SELECT * FROM eligible_objects ORDER BY object_key LIMIT $5) sample) AS samples,
+          (SELECT coalesce(jsonb_agg(m ORDER BY m.state),'[]'::jsonb) FROM observed_images m) AS observed_images
         FROM retained`,
-      [sourceId, now, epoch, mayRead, probe?.limit ?? 0, clearanceExpiresAt],
+      [sourceId, now, epoch, mayRead, probe?.limit ?? 0, clearanceExpiresAt, from],
     )
   ).rows[0];
   if (!inventory) throw new Error("collector_media_inventory_missing");
@@ -85,12 +99,21 @@ export async function mediaHealth(
       }
     }
   }
+  const observations = inventory.observed_images.reduce((sum, row) => sum + row.observations, 0);
+  const eligible = inventory.observed_images.reduce((sum, row) => sum + row.eligible, 0);
   return {
     storeBinding: storageIdentity ? "bound" : "unbound",
     retainedReferences: inventory.retained_references,
     eligibleReferences: inventory.eligible_references,
     excludedReferences: inventory.retained_references - inventory.eligible_references,
     eligibleObjects: inventory.eligible_objects,
+    primaryImageCoverage: {
+      denominator: "sale_event_observations_in_report_window",
+      observations,
+      eligibleObservations: eligible,
+      eligibleRate: observations ? eligible / observations : null,
+      byState: inventory.observed_images,
+    },
     revocationCleanup: { pendingEvents: pending.n, oldestPendingAt: pending.oldest?.toISOString() ?? null },
     probe: result,
   };
