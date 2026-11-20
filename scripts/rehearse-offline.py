@@ -241,6 +241,14 @@ try {
     cleanup = json.loads(run("node", "scripts/collector-maintenance.mjs", "--require-clear"))
     if cleanup["cleanupProcessed"] != 1 or cleanup["cleanupPending"] != 0:
         raise ValueError("Restored source media cleanup did not finish")
+    spool_removed = None
+    if (root / "scripts/collector-spool-cleanup.mjs").is_file():
+        spool = root / ".local"
+        purged = json.loads(run("node", "scripts/collector-spool-cleanup.mjs",
+                                f"--source={source_id}", f"--spool={spool}"))
+        spool_removed = purged["removed"]
+        if spool_removed != 1 or purged["unverified"] != 0:
+            raise ValueError("Restored source response package cleanup did not finish")
     cleared = json.loads(run(*inspect))
     media_path = root / ".local/collector-media" / source_id
     if cleared["media"]["retainedReferences"] != 0 or any(media_path.glob("*.webp")):
@@ -262,6 +270,7 @@ try {
         "old_signed_checkpoint_rejected": True,
         "source_revocation_replays": applied["sources_quarantined"], "media_cleanup_completed": True,
         "billing_integrity_verified": True if before_billing is not None else None,
+        "response_packages_removed": spool_removed,
         "authorized_snapshot_verified_after_restore": True if verify_restored is not None else None,
         "production_recovery_objectives_verified": False,
     }

@@ -484,14 +484,17 @@ export class CollectorStore {
       ]);
     }
   }
-  async bindFixtureArtifact(input: {
-    jobId: string;
-    sourceId: string;
-    queryHash: string;
-    asOf: string;
-    hash: string;
-    pageHashes: ReadonlyMap<string, ReadonlySet<string>>;
-  }) {
+  async bindFixtureArtifact(
+    input: {
+      jobId: string;
+      sourceId: string;
+      queryHash: string;
+      asOf: string;
+      hash: string;
+      pageHashes: ReadonlyMap<string, ReadonlySet<string>>;
+    },
+    persist?: () => Promise<void>,
+  ) {
     if (!/^[a-f0-9]{64}$/.test(input.hash)) throw new Error("invalid_fixture_artifact_hash");
     await transaction(this.db, async (c) => {
       const source = await this.source(c, input.sourceId);
@@ -516,9 +519,11 @@ export class CollectorStore {
       const pages = await c.query("SELECT cursor,raw_hash FROM collector_pages WHERE job_id=$1", [job.id]);
       if (pages.rows.some((page) => !input.pageHashes.get(page.cursor)?.has(page.raw_hash)))
         throw new Error("fixture_artifact_committed_page_mismatch");
-      if (run.fixture_artifact_hash) return;
       const now = await this.now(c);
-      if (job.expires_at <= now || !["queued", "running", "retry"].includes(job.status)) {
+      if (
+        !run.fixture_artifact_hash &&
+        (job.expires_at <= now || !["queued", "running", "retry"].includes(job.status))
+      ) {
         const retry = await c.query(
           `SELECT 1 FROM collector_image_jobs WHERE source_id=$1 AND parent_job_id=$2
              AND status IN ('retry','running') AND expires_at>$3 LIMIT 1`,
@@ -526,6 +531,10 @@ export class CollectorStore {
         );
         if (!retry.rowCount) throw new Error("fixture_artifact_job_inactive");
       }
+      // Disk publication takes the same source lock as pause/revocation. A staged copy is recoverable
+      // even if filesystem publication succeeded and the database transaction did not commit.
+      await persist?.();
+      if (run.fixture_artifact_hash) return;
       await c.query("UPDATE collector_runs SET fixture_artifact_hash=$2 WHERE id=$1", [
         job.collector_run_id,
         input.hash,

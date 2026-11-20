@@ -26,6 +26,7 @@
     "db:encrypt-image-urls": "npm run build && node --env-file-if-exists=.env scripts/encrypt-image-source-urls.mjs",
     "collector:demo": "npm run build && node --env-file-if-exists=.env scripts/collector-demo.mjs",
     "collector:maintain": "npm run build && node --env-file-if-exists=.env scripts/collector-maintenance.mjs",
+    "collector:spool-cleanup": "npm run build && node --env-file-if-exists=.env scripts/collector-spool-cleanup.mjs",
     "collector:worker": "npm run build && node --env-file-if-exists=.env scripts/collector-worker.mjs",
     "collector:html-demo": "npm run build && node --env-file-if-exists=.env scripts/collector-html-demo.mjs",
     "collector:run": "npm run build && node --env-file-if-exists=.env scripts/collector-launcher.mjs",

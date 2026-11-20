@@ -266,6 +266,49 @@ test("fixture intake replays equal content and leaves a conflicting file untouch
   assert.deepEqual(await readFile(receipt.artifactPath), input);
 });
 
+test("revocation blocks new fixture publication and removes only source-bound response files", async () => {
+  const spool = await root(),
+    first = await preparedDemo(spool),
+    other = await preparedDemo(spool),
+    laterSpool = await root();
+  const original = await readFile(first.artifactPath);
+  const loaded = loadFixtureArtifact(original);
+  const pending = join(spool, "collector-incoming", first.sourceId, `${first.jobId}.${loaded.hash}.json`);
+  await publishFixtureFile(pending, loaded.artifact);
+  const unverified = join(spool, `collector-fixture-${first.jobId}.json`);
+  await writeFile(unverified, "Unverified bytes", { mode: 0o600 });
+  const cleanup = () =>
+    start("scripts/collector-spool-cleanup.mjs", [`--source=${first.sourceId}`, `--spool=${spool}`]);
+  const active = cleanup();
+  assert.equal((await active.exited).code, 1);
+  assert.match(active.errors, /collector_spool_source_not_revoked/);
+  assert.deepEqual(await readFile(first.artifactPath), original);
+  await new CollectorStore(db).revokeSource(first.sourceId, "response_package_revocation_fixture");
+  const intake = start("scripts/collector-intake.mjs", [
+    `--source=${first.sourceId}`,
+    `--spool=${laterSpool}`,
+    `--fixture=${first.artifactPath}`,
+  ]);
+  assert.equal((await intake.exited).code, 1);
+  assert.match(intake.errors, /source_inactive/);
+  assert.deepEqual(await readdir(join(laterSpool, "collector-incoming", first.sourceId)), []);
+  const revoked = cleanup();
+  assert.equal((await revoked.exited).code, 2, revoked.errors);
+  const report = JSON.parse(revoked.output);
+  assert.equal(report.scope, "configured_spool_only");
+  assert.equal(report.removed, 2);
+  assert.equal(report.unverified, 1);
+  await assert.rejects(readFile(first.artifactPath), /ENOENT/);
+  await assert.rejects(readFile(pending), /ENOENT/);
+  assert.equal(await readFile(unverified, "utf8"), "Unverified bytes");
+  assert.ok((await readFile(other.artifactPath)).length > 0);
+  await rm(unverified);
+  const retry = cleanup();
+  assert.equal((await retry.exited).code, 0, retry.errors);
+  assert.equal(JSON.parse(retry.output).removed, 0);
+  assert.equal((await new CollectorStore(db).view(first.jobId)).request_count, 0);
+});
+
 test("offline supervisor recovers an intake interrupted before the artifact database binding", async () => {
   const directory = await root();
   const now = new Date().toISOString();
