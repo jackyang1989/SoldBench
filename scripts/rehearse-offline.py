@@ -299,8 +299,8 @@ def exercise(source, output, restore_backup=False, clients=False):
                 return result.stdout
 
             run("npm", "ci", "--omit=dev", "--offline", "--no-audit", "--no-fund")
-            run("node", "scripts/local-db.mjs", "start")
             processes = {}
+            postgres_pid = workspace / ".local/postgres/data/postmaster.pid"
 
             def shutdown():
                 while processes:
@@ -321,6 +321,7 @@ def exercise(source, output, restore_backup=False, clients=False):
                 ready(opener, origin, processes)
 
             try:
+                run("node", "scripts/local-db.mjs", "start")
                 environment["DATABASE_URL"] = json.loads((workspace / ".local/database.json").read_text())["url"]
                 migration = json.loads(run("node", "scripts/migrate.mjs"))
                 boot()
@@ -348,8 +349,11 @@ def exercise(source, output, restore_backup=False, clients=False):
                     )
                 return evidence
             finally:
-                shutdown()
-                run("node", "scripts/local-db.mjs", "stop")
+                try:
+                    shutdown()
+                finally:
+                    if postgres_pid.exists():
+                        run("node", "scripts/local-db.mjs", "stop")
 
 
 def main():

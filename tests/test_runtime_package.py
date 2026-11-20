@@ -1,15 +1,20 @@
 import importlib.util
 import io
 import json
+import subprocess
 import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("package_offline", ROOT / "scripts/package-offline.py")
 BUNDLE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(BUNDLE)
+REHEARSAL_SPEC = importlib.util.spec_from_file_location("rehearse_offline", ROOT / "scripts/rehearse-offline.py")
+REHEARSAL = importlib.util.module_from_spec(REHEARSAL_SPEC)
+REHEARSAL_SPEC.loader.exec_module(REHEARSAL)
 
 
 class RuntimePackageTests(unittest.TestCase):
@@ -71,6 +76,29 @@ class RuntimePackageTests(unittest.TestCase):
         self.bundle()
         with self.assertRaisesRegex(ValueError, "manifest mismatch"):
             BUNDLE.verify(self.path)
+
+    def test_stops_a_partially_started_database_before_removing_its_directory(self):
+        self.bundle()
+        commands = []
+        log = self.path.with_suffix(".log")
+
+        def run(command, *, cwd, **_):
+            commands.append(command)
+            pid = cwd / ".local/postgres/data/postmaster.pid"
+            if command == ("node", "scripts/local-db.mjs", "start"):
+                pid.parent.mkdir(parents=True)
+                pid.touch()
+                return subprocess.CompletedProcess(command, 1, "", "database creation failed")
+            if command == ("node", "scripts/local-db.mjs", "stop"):
+                self.assertTrue(pid.is_file())
+                pid.unlink()
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        with patch.object(REHEARSAL.subprocess, "run", side_effect=run):
+            with self.assertRaisesRegex(ValueError, "node exited 1"):
+                REHEARSAL.exercise(self.path, log)
+        self.assertEqual(commands[-1], ("node", "scripts/local-db.mjs", "stop"))
+        self.assertIn("database creation failed", log.read_text())
 
     def test_rejects_a_manifest_that_claims_the_collector_is_enabled(self):
         self.manifest["collector_enabled"] = True
