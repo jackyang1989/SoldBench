@@ -88,6 +88,42 @@ test("unknown pre-midnight reservation is conservatively consumed on the origina
   assert.deepEqual(await budget(x, "2026-11-18", "bytes"), { cap: "1000", used: "0", reserved: "1000" });
   await assert.rejects(x.store.check(old), /lease_lost/);
 });
+
+test("terminal sweep settles lost lease budget once and preserves a live job without artifacts", async () => {
+  const x = await setup({ dailyBytes: 1000, concurrency: 2 });
+  const enqueue = (label, ttlSeconds) =>
+    x.store.enqueue({
+      sourceId: x.sourceId,
+      configId: x.configId,
+      queryHash: label.repeat(64),
+      runKey: randomUUID(),
+      asOf: x.clock.value,
+      ttlSeconds,
+    });
+  const expired = await enqueue("a", 20);
+  const lost = await x.store.claim(x.sourceId, 20, expired);
+  const dispatch = await x.store.reserve(lost, "page", 700, "page:start");
+  await x.store.fixtureResponseIndex(lost, dispatch);
+  const notExpired = await enqueue("b", 300);
+  const live = await x.store.claim(x.sourceId, 300, notExpired);
+  x.clock.value = "2026-11-18T00:00:05.000Z";
+  const sweeps = await Promise.all([
+    x.store.settleUnclaimable(x.sourceId),
+    x.store.settleUnclaimable(x.sourceId),
+  ]);
+  assert.equal(
+    sweeps.reduce((n, result) => n + result.pagesClosed, 0),
+    1,
+  );
+  assert.deepEqual(await budget(x, "2026-11-17", "bytes"), { cap: "1000", used: "700", reserved: "0" });
+  const parent = await x.store.view(expired);
+  assert.equal(parent.status, "failed");
+  assert.equal(parent.lease_owner, null);
+  assert.equal(parent.bytes_reserved, "0");
+  assert.equal(parent.page_count, 0);
+  await assert.rejects(x.store.check(lost), /lease_lost/);
+  await x.store.check(live);
+});
 test("policy expires without preventing settlement of already dispatched bytes, and cannot be changed or deleted", async () => {
   const x = await setup({ budgetPolicyDays: 1 }, "2026-11-17T00:00:00.000Z");
   x.clock.value = "2026-11-17T23:59:50.000Z";

@@ -153,7 +153,7 @@ npm run collector:html-demo -- --prepare-only
 npm run collector:supervise -- --source=SOURCE_UUID --spool=.local --watch=true
 ```
 
-省略 `--watch=true` 时只执行一轮。请让 API、页面采集、主图补采与维护使用同一 `MEDIA_ROOT`。输出区分缺包、暂缓、实际领取和媒体结果。按一次任务成功判断时，读取对应 PG 状态、主图及清理证据。响应包由各作业单独准备，周期刷新生成的缺包作业保留在队列。详见[采集管线契约](docs/采集管线实施契约.md#18-单来源离线自动运行)。
+省略 `--watch=true` 时只执行一轮。API、页面采集、主图补采与维护使用同一 `MEDIA_ROOT`。输出区分缺包、暂缓、实际领取和媒体结果。周期刷新生成的缺包作业等待到达截止时间，可用 `npm run collector:intake -- --source=SOURCE_UUID --spool=.local --fixture=ARTIFACT_FILE` 补交已有作业的离线包。监听模式在目录暂时不可用时保留进程，目录恢复后继续。详见[采集管线契约](docs/采集管线实施契约.md#18-单来源离线自动运行)。
 
 监听中 PG 连接中断时，运行器停止已派子进程并等待重连，恢复后重查来源及所有权。值班核对 `soldbench_collector_supervisor_database_unavailable`、`soldbench_collector_supervisor_database_recovered`，再核对相同作业的检查点和主图结果。
 

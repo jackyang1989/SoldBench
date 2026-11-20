@@ -1476,6 +1476,27 @@ test("retention expiry, changed evidence and revoked sources prevent every later
   assert.equal((await z.runner.retryImages(z.sourceId)).length, 0);
   assert.equal(z.transport.calls.filter((k) => k.startsWith("image:")).length, 1);
 });
+test("expired image lease closes its task and accounting without a transport or new claim", async () => {
+  const x = await retryCase([503, 200]);
+  clock = "2026-11-16T12:00:31Z";
+  const old = await x.store.claimImageRetry(x.sourceId);
+  const image = await mediaRow(x);
+  const dispatch = await x.store.reserve(old, "image", 1024, `image:${x.url}`, image.id);
+  await x.store.fixtureResponseIndex(old, dispatch);
+  const calls = x.transport.calls.length;
+  clock = "2026-11-17T12:00:01Z";
+  assert.deepEqual(await x.store.settleUnclaimable(x.sourceId), { pagesClosed: 0, imageRetriesClosed: 1 });
+  assert.deepEqual(await x.store.settleUnclaimable(x.sourceId), { pagesClosed: 0, imageRetriesClosed: 0 });
+  assert.equal((await mediaRow(x)).state, "expired");
+  assert.equal((await x.store.view(x.jobId)).status, "completed");
+  assert.equal((await x.store.view(x.jobId)).bytes_reserved, "0");
+  assert.equal(x.transport.calls.length, calls);
+  assert.equal(
+    (await db.query("SELECT state FROM collector_dispatches WHERE id=$1", [dispatch])).rows[0].state,
+    "abandoned",
+  );
+  await assert.rejects(x.store.settle(old, dispatch, 10), /lease_lost/);
+});
 test("image retry authorization refusal opens the source circuit and stops all pending media", async () => {
   const x = await retryCase([503, 403]);
   clock = "2026-11-16T12:00:31Z";

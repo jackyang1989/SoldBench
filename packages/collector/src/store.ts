@@ -377,14 +377,7 @@ export class CollectorStore {
           await this.abandon(c, job);
           const crashAttempt = job.status === "running" ? 1 : 0;
           if (job.expires_at <= now || job.attempts + crashAttempt >= 3) {
-            await c.query(
-              "UPDATE collector_runs SET outcome='failed',stop_reason='expired_or_attempts_exhausted',completed_at=$2 WHERE id=$1",
-              [job.collector_run_id, now],
-            );
-            await c.query(
-              "UPDATE collector_jobs SET status='failed',error_code='expired_or_attempts_exhausted',finished_at=$2 WHERE id=$1",
-              [job.id, now],
-            );
+            await this.finishUnclaimableJob(c, job, now);
             continue;
           }
           const token = randomUUID();
@@ -398,10 +391,75 @@ export class CollectorStore {
       return null;
     });
   }
-  private async abandon(c: Transaction, job: Job) {
+  private async finishUnclaimableJob(c: Transaction, job: Job, now: Date) {
+    await c.query(
+      "UPDATE collector_runs SET outcome='failed',stop_reason='expired_or_attempts_exhausted',completed_at=$2 WHERE id=$1",
+      [job.collector_run_id, now],
+    );
+    await c.query(
+      `UPDATE collector_jobs SET status='failed',error_code='expired_or_attempts_exhausted',finished_at=$2,
+         lease_owner=NULL,lease_until=NULL,version=version+1 WHERE id=$1`,
+      [job.id, now],
+    );
+  }
+  /** Terminal bookkeeping can proceed without a response artifact or a new transport lease. */
+  async settleUnclaimable(sourceId: string) {
+    return transaction(this.db, async (c) => {
+      const { rows } = await c.query(
+        `SELECT s.access_method,p.provider FROM sources s JOIN source_clearances p ON p.id=s.source_clearance_id
+         WHERE s.id=$1 FOR UPDATE OF s`,
+        [sourceId],
+      );
+      if (rows[0]?.access_method !== "offline_fixture" || rows[0].provider !== "synthetic_fixture")
+        throw new Error("network_collector_not_enabled");
+      const now = await this.now(c);
+      const { rows: jobs } = await c.query<Job>(
+        `SELECT * FROM collector_jobs WHERE source_id=$1
+         AND (status IN ('queued','retry') OR (status='running' AND lease_until<=$2))
+         AND (expires_at<=$2 OR attempts+CASE WHEN status='running' THEN 1 ELSE 0 END>=3)
+         ORDER BY expires_at,id LIMIT 50 FOR UPDATE`,
+        [sourceId, now],
+      );
+      for (const job of jobs) {
+        await this.abandon(c, job);
+        await this.finishUnclaimableJob(c, job, now);
+      }
+      const { rows: photos } = await c.query<{
+        id: string;
+        parent_job_id: string;
+        image_id: string;
+        lease_owner: string | null;
+        reason: string;
+        terminal: string;
+      }>(
+        `SELECT t.id,t.parent_job_id,t.image_id,t.lease_owner,
+           CASE WHEN t.expires_at<=$2 THEN 'image_retry_expired'
+                WHEN t.attempts>=3 THEN 'image_retry_exhausted' ELSE 'image_retry_source_or_evidence_changed' END reason,
+           CASE WHEN t.expires_at<=$2 THEN 'expired' ELSE 'failed' END terminal
+         FROM collector_image_jobs t JOIN collector_jobs j ON j.id=t.parent_job_id AND j.source_id=t.source_id
+         WHERE t.source_id=$1 AND (t.status='retry' OR (t.status='running' AND t.lease_until<=$2))
+           AND (t.expires_at<=$2 OR t.attempts>=3 OR j.status IN ('failed','cancelled','expired'))
+         ORDER BY t.expires_at,t.id LIMIT 50 FOR UPDATE OF j,t`,
+        [sourceId, now],
+      );
+      for (const task of photos) {
+        if (task.lease_owner) {
+          const parent = (
+            await c.query<Job>("SELECT * FROM collector_jobs WHERE id=$1", [task.parent_job_id])
+          ).rows[0];
+          if (!parent) missingRow();
+          await this.abandon(c, parent, task.lease_owner);
+        }
+        await this.finishImageRetry(c, task.id, task.image_id, task.terminal, task.reason, now);
+      }
+      return { pagesClosed: jobs.length, imageRetriesClosed: photos.length };
+    });
+  }
+  private async abandon(c: Transaction, job: Job, leaseOwner?: string) {
     const reservations = await c.query(
-      "SELECT * FROM collector_dispatches WHERE job_id=$1 AND state='reserved' FOR UPDATE",
-      [job.id],
+      `SELECT * FROM collector_dispatches WHERE job_id=$1 AND state='reserved'
+       AND ($2::text IS NULL OR lease_owner=$2) FOR UPDATE`,
+      [job.id, leaseOwner ?? null],
     );
     for (const r of reservations.rows) {
       await c.query("UPDATE collector_runs SET bytes_unconfirmed=bytes_unconfirmed+$2 WHERE id=$1", [
@@ -1468,16 +1526,14 @@ export class CollectorStore {
             : current.attempts >= 3
               ? "image_retry_exhausted"
               : "image_retry_source_or_evidence_changed";
-          await c.query(
-            "UPDATE collector_image_jobs SET status=$2,lease_owner=NULL,lease_until=NULL,failure_reason=$3,finished_at=$4 WHERE id=$1",
-            [current.id, expired ? "expired" : "failed", reason, now],
+          await this.finishImageRetry(
+            c,
+            current.id,
+            current.image_id,
+            expired ? "expired" : "failed",
+            reason,
+            now,
           );
-          if (image?.state === "pending")
-            await c.query("UPDATE listing_images SET state=$2,failure_reason=$3 WHERE id=$1", [
-              current.image_id,
-              expired ? "expired" : "failed",
-              reason,
-            ]);
           continue;
         }
         if (job.status !== "completed") continue;
@@ -1503,6 +1559,24 @@ export class CollectorStore {
       }
       return null;
     });
+  }
+  private async finishImageRetry(
+    c: Transaction,
+    id: string,
+    imageId: string,
+    status: string,
+    reason: string,
+    now: Date,
+  ) {
+    await c.query(
+      "UPDATE collector_image_jobs SET status=$2,lease_owner=NULL,lease_until=NULL,failure_reason=$3,finished_at=$4 WHERE id=$1",
+      [id, status, reason, now],
+    );
+    await c.query("UPDATE listing_images SET state=$2,failure_reason=$3 WHERE id=$1 AND state='pending'", [
+      imageId,
+      status,
+      reason,
+    ]);
   }
   async deferImageRetry(lease: Lease, reason: string, delaySeconds = 30) {
     if (!lease.imageTaskId || !Number.isSafeInteger(delaySeconds) || delaySeconds < 1 || delaySeconds > 86400)

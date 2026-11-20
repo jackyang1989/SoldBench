@@ -30,10 +30,15 @@ try {
     cleanupProcessed: 0,
     unmatchedMediaStores: 0,
     failedSources: 0,
+    pagesClosed: 0,
+    imageRetriesClosed: 0,
   };
   for (const source of sources.rows) {
     totals.sources++;
     try {
+      const settled = await store.settleUnclaimable(source.id);
+      totals.pagesClosed += settled.pagesClosed;
+      totals.imageRetriesClosed += settled.imageRetriesClosed;
       const result = await worker.runMaintenance(source.id);
       totals.expired += result.expired;
       totals.orphans += result.orphans;

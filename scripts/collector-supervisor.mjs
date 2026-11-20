@@ -12,6 +12,21 @@ import { localDatabaseUrl } from "./local-db.mjs";
 
 const lockNamespace = "soldbench.offline-collector-supervisor";
 const maxArtifactEntries = 10000;
+const spoolErrors = new Set([
+  "ENOENT",
+  "ENOTDIR",
+  "EACCES",
+  "EPERM",
+  "EIO",
+  "EMFILE",
+  "ENFILE",
+  "ENOSPC",
+  "EROFS",
+  "ESTALE",
+  "ELOOP",
+  "fixture_spool_not_directory",
+  "fixture_spool_entry_limit_exceeded",
+]);
 
 async function availableArtifacts(directory) {
   if (!(await lstat(directory)).isDirectory()) throw new Error("fixture_spool_not_directory");
@@ -118,8 +133,9 @@ async function run(args) {
       if (error.name !== "AbortError") throw error;
     });
   const env = { ...process.env, DATABASE_URL: url, COLLECTOR_DEMO_DIR: spool };
+  const store = new CollectorStore(db);
   const maintenanceWorker = new OfflineCollectorWorker(
-    new CollectorStore(db),
+    store,
     new FixtureTransport(new Map()),
     new PrivateMediaStore(resolve(config.mediaRoot)),
   );
@@ -154,6 +170,7 @@ async function run(args) {
       let nextMaintenance = 0;
       while (!signal.aborted) {
         const now = performance.now();
+        const settled = await store.settleUnclaimable(sourceId);
         let maintenance = null;
         if (Date.now() >= nextMaintenance) {
           try {
@@ -165,9 +182,20 @@ async function run(args) {
           nextMaintenance = Date.now() + 60000;
         }
         let state = await sourceState(db, sourceId);
-        const intake =
-          state === "ready" ? await resumeFixtureIntake(db, spool, sourceId, pendingDeferred, signal) : null;
-        const paths = await availableArtifacts(spool);
+        let intake = null;
+        let spoolState = "ready";
+        let paths = new Map();
+        try {
+          if (state === "ready")
+            intake = await resumeFixtureIntake(db, spool, sourceId, pendingDeferred, signal);
+          paths = await availableArtifacts(spool);
+        } catch (error) {
+          if (!watch || !spoolErrors.has(error.code ?? error.message)) throw error;
+          spoolState =
+            (error.code ?? error.message) === "fixture_spool_entry_limit_exceeded"
+              ? "scan_limit"
+              : "unavailable";
+        }
         for (const [id, until] of deferred) if (until <= now || !paths.has(id)) deferred.delete(id);
         const rows = await dueJobs(db, sourceId, paths, deferred);
         const cycles = [];
@@ -227,8 +255,10 @@ async function run(args) {
         console.log(
           JSON.stringify({
             ...envelope(sourceId),
-            state,
+            state: state === "ready" && spoolState !== "ready" ? "spool_unavailable" : state,
+            spool: spoolState,
             maintenance,
+            settled,
             intake,
             cycles,
             queues,

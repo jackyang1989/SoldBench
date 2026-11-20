@@ -191,6 +191,43 @@ test("offline supervisor recovers an intake interrupted before the artifact data
   assert.equal((await store.view(jobId)).request_count, 1);
 });
 
+test("supervisor stays running with offline spool absent, expires missing work and resumes when files return", async () => {
+  const directory = await root();
+  const spool = join(directory, "spool");
+  const prepared = await preparedDemo(directory);
+  const artifact = loadFixtureArtifact(await readFile(prepared.artifactPath)).artifact;
+  const store = new CollectorStore(db, undefined, { htmlProfile: artifact.htmlProfile });
+  const original = await store.view(prepared.jobId);
+  const expired = await store.enqueue({
+    sourceId: original.source_id,
+    configId: original.config_id,
+    queryHash: digest("never delivered"),
+    runKey: randomUUID(),
+    asOf: artifact.asOf,
+    ttlSeconds: 1,
+  });
+  const watcher = start(
+    "scripts/collector-supervisor.mjs",
+    [`--source=${prepared.sourceId}`, `--spool=${spool}`, "--watch=true", "--interval-ms=250"],
+    { MEDIA_ROOT: join(directory, "media") },
+  );
+  await waitFor(() => watcher.output.includes('"state":"spool_unavailable"'));
+  await waitFor(async () => (await store.view(expired)).status === "failed");
+  assert.equal(watcher.child.exitCode, null);
+  assert.equal((await store.view(expired)).request_count, 0);
+  await mkdir(spool);
+  await rename(prepared.artifactPath, join(spool, `collector-html-fixture-${original.id}.json`));
+  await waitFor(async () => (await store.view(original.id)).status === "completed");
+  const images = (
+    await db.query("SELECT count(*)::int n FROM listing_images WHERE source_id=$1 AND state='available'", [
+      prepared.sourceId,
+    ])
+  ).rows[0].n;
+  assert.equal(images, 8);
+  assert.equal(watcher.child.kill("SIGTERM"), true);
+  assert.deepEqual(await watcher.exited, { code: 0, signal: null });
+});
+
 test("offline supervisor serves the available queue, resumes primary images, and purges the withdrawn source", async () => {
   const directory = await root(),
     prepared = await preparedDemo(directory),
