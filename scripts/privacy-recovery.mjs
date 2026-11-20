@@ -14,7 +14,7 @@ if (!["export", "replay"].includes(action) || !path || rest.length)
 if (action === "replay" && process.env.PRIVACY_RESTORE_ISOLATED !== "true")
   throw new Error("require_isolated_restore_database");
 const fingerprint = (bytes) => createHash("sha256").update(bytes).digest("hex");
-const checkpointSchema = "soldbench.offline-recovery.v2";
+const checkpointSchema = "soldbench.offline-recovery.v3";
 const capabilities = [
   ["api_keys", "id", "uuid", "revoked_at"],
   ["sessions", "id", "uuid", "revoked_at"],
@@ -25,6 +25,82 @@ const capabilities = [
 const maxFileBytes = 12 * 1024 * 1024;
 const digest = /^[a-f0-9]{64}$/;
 const sourceId = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
+const resetRequired = "restore_requires_credential_reset";
+
+async function accountScopes(c, crypto) {
+  const { rows } = await c.query(
+    `SELECT u.id, jsonb_build_object('email',u.email,'status',u.status,'password_hash',u.password_hash,
+       'credential_version',u.credential_version,'verified_at',u.email_verified_at,
+       'user_mfa',to_jsonb(m)-ARRAY['last_used_step','updated_at'],
+       'admin_mfa',to_jsonb(a)-ARRAY['last_used_step','updated_at'],'role',r.role)::text scope,
+       m.last_used_step::text AS user_step,a.last_used_step::text AS admin_step,
+       (u.status='suspended' AND u.password_hash=$1) reset_required
+     FROM users u LEFT JOIN user_mfa m ON m.user_id=u.id
+     LEFT JOIN admin_mfa a ON a.user_id=u.id LEFT JOIN admin_roles r ON r.user_id=u.id
+     WHERE u.status<>'deleted' ORDER BY u.id LIMIT 25001`,
+    [resetRequired],
+  );
+  if (rows.length > 25000) throw new Error("privacy_recovery_accounts_require_partitioning");
+  return rows.map(({ id, scope, user_step, admin_step, reset_required }) => ({
+    id,
+    resetRequired: reset_required,
+    proof: {
+      subject: crypto.hash("recovery.account", id),
+      digest: crypto.hash("recovery.account.credentials", scope),
+      user_step,
+      admin_step,
+    },
+  }));
+}
+
+async function reconcileAccounts(c, crypto, latest, now) {
+  const approved = new Map(latest.map((proof) => [proof.subject, proof]));
+  const reset = [];
+  let mfaCountersAdvanced = 0;
+  for (const account of await accountScopes(c, crypto)) {
+    const current = approved.get(account.proof.subject);
+    if (current?.digest === account.proof.digest) {
+      for (const [table, column] of [
+        ["user_mfa", "user_step"],
+        ["admin_mfa", "admin_step"],
+      ]) {
+        const step = current[column];
+        if (step === null) continue;
+        const result = await c.query(
+          `UPDATE ${table} SET last_used_step=$2 WHERE user_id=$1 AND (last_used_step IS NULL OR last_used_step<$2)`,
+          [account.id, step],
+        );
+        mfaCountersAdvanced += result.rowCount;
+      }
+    } else if (!account.resetRequired) reset.push(account.id);
+  }
+  if (reset.length) {
+    await c.query(
+      `UPDATE users SET status='suspended',password_hash=$2,updated_at=$3,credential_version=credential_version+1
+       WHERE id=ANY($1::uuid[])`,
+      [reset, resetRequired, now],
+    );
+    for (const table of ["sessions", "api_keys", "shares"])
+      await c.query(
+        `UPDATE ${table} SET revoked_at=$2 WHERE user_id=ANY($1::uuid[]) AND revoked_at IS NULL`,
+        [reset, now],
+      );
+    await c.query(
+      "UPDATE auth_tokens SET consumed_at=$2 WHERE user_id=ANY($1::uuid[]) AND consumed_at IS NULL",
+      [reset, now],
+    );
+    await c.query(
+      `WITH closed AS (UPDATE auth_mail_outbox SET status='cancelled',offline_closed_at=coalesce(offline_closed_at,$2),
+         encrypted_payload=''::bytea WHERE user_id=ANY($1::uuid[]) RETURNING id)
+       UPDATE outbox SET processed_at=coalesce(processed_at,$2) WHERE kind='auth.mail_queued'
+       AND event_key IN (SELECT 'auth-mail:'||id FROM closed)`,
+      [reset, now],
+    );
+    for (const table of ["user_mfa", "admin_mfa", "admin_roles", "anonymous_cache_publications"])
+      await c.query(`DELETE FROM ${table} WHERE user_id=ANY($1::uuid[])`, [reset]);
+  }
+  return { accounts_quarantined: reset.length, mfa_counters_advanced: mfaCountersAdvanced };
+}
 
 async function readCheckpoint(filePath) {
   const expected = process.env.PRIVACY_RECOVERY_MANIFEST_SHA256;
@@ -65,7 +141,7 @@ async function activeCapabilities(c, crypto, table, id, invalidatedAt) {
   const condition = invalidatedAt ? `k.${invalidatedAt} IS NULL` : "TRUE";
   const { rows } = await c.query(
     `SELECT k.${id} AS id, (to_jsonb(k) - ARRAY['last_used_at','last_seen_at','updated_at'])::text AS scope
-       FROM ${table} k JOIN users u ON u.id=k.user_id WHERE u.status='active' AND ${condition}
+       FROM ${table} k JOIN users u ON u.id=k.user_id WHERE u.status IN ('active','pending') AND ${condition}
        ORDER BY k.${id} LIMIT 25001`,
   );
   if (rows.length > 25000) throw new Error("privacy_recovery_capabilities_require_partitioning");
@@ -73,6 +149,24 @@ async function activeCapabilities(c, crypto, table, id, invalidatedAt) {
 }
 
 function verifyScope(checkpoint) {
+  const validStep = (value) =>
+    value === null ||
+    (typeof value === "string" && /^\d{1,19}$/.test(value) && BigInt(value) <= 9223372036854775807n);
+  const accounts = checkpoint.accounts;
+  if (
+    !Array.isArray(accounts) ||
+    accounts.length > 25000 ||
+    accounts.some(
+      (proof) =>
+        !proof ||
+        !digest.test(proof.subject ?? "") ||
+        !digest.test(proof.digest ?? "") ||
+        !validStep(proof.user_step) ||
+        !validStep(proof.admin_step),
+    ) ||
+    new Set(accounts.map(({ subject }) => subject)).size !== accounts.length
+  )
+    throw new Error("invalid_privacy_recovery_account_scope");
   if (
     !Array.isArray(checkpoint.sources) ||
     checkpoint.sources.length > 10000 ||
@@ -115,6 +209,7 @@ try {
     await migrate(db);
     const body = await transaction(db, async (c) => {
       await c.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
+      await c.query("SET LOCAL TIME ZONE 'UTC'");
       const { rows } = await c.query("SELECT statement_timestamp() captured_at");
       const state = {};
       for (const [table, id, , invalidatedAt] of capabilities)
@@ -126,6 +221,7 @@ try {
         data_mode: "offline_fixture",
         captured_at: rows[0].captured_at,
         account: await privacy.exportManifest(c),
+        accounts: (await accountScopes(c, auth.crypto)).map(({ proof }) => proof),
         sources: await sourceScopes(c, auth.crypto),
         capabilities: state,
       });
@@ -148,6 +244,7 @@ try {
     verifyScope(checkpoint);
     await migrate(db);
     const revoked = await transaction(db, async (c) => {
+      await c.query("SET LOCAL TIME ZONE 'UTC'");
       const now = (await c.query("SELECT clock_timestamp() now")).rows[0].now;
       if (
         !Number.isFinite(Date.parse(checkpoint.captured_at)) ||
@@ -189,6 +286,7 @@ try {
       }
       return {
         ...(await privacy.replayManifest(checkpoint.account, c)),
+        ...(await reconcileAccounts(c, auth.crypto, checkpoint.accounts, now)),
         sources_quarantined: changed,
         capabilities_removed: removed,
       };

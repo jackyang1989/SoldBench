@@ -348,6 +348,23 @@ test("anchored CLI recovery reapplies deletion, capability revocation and source
       auth.crypto.hash("auth.api-key", revokedKey),
     ],
   );
+  const changingEmail = `restore-${randomUUID()}@example.test`;
+  const oldPassword = "Old backup credential 725!";
+  const signInContext = { clientId: randomUUID(), requestId: randomUUID(), locale: "en" };
+  await auth.register(
+    { email: changingEmail, password: oldPassword, terms_version: "offline-v1" },
+    signInContext,
+  );
+  const changedUser = (
+    await db.query("UPDATE users SET status='active',email_verified_at=now() WHERE email=$1 RETURNING id", [
+      changingEmail,
+    ])
+  ).rows[0].id;
+  await db.query("INSERT INTO admin_roles(user_id,role) VALUES($1,'support')", [changedUser]);
+  await db.query(
+    "INSERT INTO user_mfa(user_id,encrypted_secret,state,last_used_step,updated_at) VALUES($1,$2,'enabled',100,now())",
+    [keep.user, auth.crypto.seal({ secret: "fixture" }, `auth.mfa:${keep.user}`)],
+  );
   const backup = join(root, "before.dump"),
     file = join(root, "tombstones.json"),
     stalePath = join(root, "previous-checkpoint.json"),
@@ -371,6 +388,12 @@ test("anchored CLI recovery reapplies deletion, capability revocation and source
     auth.crypto.hash("auth.api-key", revokedKey),
   ]);
   await db.query("UPDATE sessions SET revoked_at=now() WHERE id=$1", [revokedSession.sessionId]);
+  await db.query(
+    "UPDATE users SET password_hash='changed-after-backup',credential_version=credential_version+1 WHERE id=$1",
+    [changedUser],
+  );
+  await db.query("DELETE FROM admin_roles WHERE user_id=$1", [changedUser]);
+  await db.query("UPDATE user_mfa SET last_used_step=101 WHERE user_id=$1", [keep.user]);
   const original = await restricted.app.request(`/v1/sold/${restricted.queryId}`, {
     headers: restricted.headers,
   });
@@ -383,7 +406,15 @@ test("anchored CLI recovery reapplies deletion, capability revocation and source
   assert.match(exported.sha256, /^[a-f0-9]{64}$/);
   assert.equal((await stat(file)).mode & 0o777, 0o600);
   const written = await readFile(file, "utf8");
-  for (const secret of [value, x.user, keep.user, revokedKey, revokedSession.token])
+  for (const secret of [
+    value,
+    x.user,
+    keep.user,
+    revokedKey,
+    revokedSession.token,
+    changingEmail,
+    changedUser,
+  ])
     assert.ok(!written.includes(secret));
   const old = new URL(process.env.DATABASE_URL);
   await db.query(`CREATE DATABASE "${name}"`);
@@ -402,6 +433,7 @@ test("anchored CLI recovery reapplies deletion, capability revocation and source
       /invalid_privacy_manifest_signature/,
     );
     assert.equal((await cloneAuth.keyIdentity(oldKey, "sold:read")).userId, x.user);
+    assert.ok(await cloneAuth.login(changingEmail, oldPassword, signInContext));
     const options = {
       env: {
         ...env,
@@ -422,7 +454,7 @@ test("anchored CLI recovery reapplies deletion, capability revocation and source
       privacyCli("replay", stalePath, options),
       /privacy_recovery_checkpoint_digest_mismatch/,
     );
-    const tampered = written.replace("soldbench.offline-recovery.v2", "soldbench.offline-recovery.v9");
+    const tampered = written.replace("soldbench.offline-recovery.v3", "soldbench.offline-recovery.v9");
     await writeFile(tamperedPath, tampered, { mode: 0o600 });
     await assert.rejects(
       privacyCli("replay", tamperedPath, {
@@ -459,6 +491,25 @@ test("anchored CLI recovery reapplies deletion, capability revocation and source
     const replay = JSON.parse((await privacyCli("replay", file, options)).stdout);
     assert.equal(replay.requests_restored, 1);
     assert.equal(replay.sources_quarantined, 1);
+    assert.equal(replay.accounts_quarantined, 1);
+    assert.equal(replay.mfa_counters_advanced, 1);
+    await assert.rejects(cloneAuth.login(changingEmail, oldPassword, signInContext));
+    const isolated = (
+      await restored.query(
+        `SELECT status,password_hash,(SELECT role FROM admin_roles WHERE user_id=u.id) role FROM users u WHERE id=$1`,
+        [changedUser],
+      )
+    ).rows[0];
+    assert.deepEqual(isolated, {
+      status: "suspended",
+      password_hash: "restore_requires_credential_reset",
+      role: null,
+    });
+    assert.equal(
+      (await restored.query("SELECT last_used_step FROM user_mfa WHERE user_id=$1", [keep.user])).rows[0]
+        .last_used_step,
+      "101",
+    );
     assert.equal(
       (await (await status(cloneApp, value, created.request.request_id)).json()).data.state,
       "completed",
@@ -491,6 +542,8 @@ test("anchored CLI recovery reapplies deletion, capability revocation and source
     const repeated = JSON.parse((await privacyCli("replay", file, options)).stdout);
     assert.equal(repeated.requests_restored, 0);
     assert.equal(repeated.sources_quarantined, 0);
+    assert.equal(repeated.accounts_quarantined, 0);
+    assert.equal(repeated.mfa_counters_advanced, 0);
     assert.equal(
       (
         await restored.query(
