@@ -1,6 +1,7 @@
 import { type Database, transaction } from "@soldbench/db";
 
 export type FrozenSchedule = { start_at: Date; interval_seconds: number; retired_at: Date | null };
+export const COLLECTOR_RUN_EVIDENCE_SCHEMA = "soldbench.collector-run-evidence.v1";
 const dayMs = 86400000;
 const maxSlots = 5000;
 
@@ -161,7 +162,7 @@ export async function collectorRunEvidence(
       });
     if (facts.size) throw new Error("collector_evidence_occurrence_outside_frozen_plan");
     return {
-      schema: "soldbench.collector-run-evidence.v1",
+      schema: COLLECTOR_RUN_EVIDENCE_SCHEMA,
       mode: "offline_fixture",
       onlineVerified: false,
       externalNetworkRequests: 0,

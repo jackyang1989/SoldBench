@@ -193,6 +193,64 @@ def check_clients(run, root, opener, origin, processes, start):
     }, verify_restored
 
 
+def collector_recovery_probe(run, root):
+    if not (root / "scripts/collector-evidence-file.mjs").is_file():
+        return None
+    prepare = """
+import { CollectorRefresh, CollectorStore, FixtureTransport, fixtureResponse,
+         OfflineCollectorWorker, provisionFixtureSource } from '@soldbench/collector';
+import { database } from '@soldbench/db';
+import { PrivateMediaStore } from '@soldbench/media';
+const db = database(process.env.DATABASE_URL);
+try {
+  const { rows: [{ day }] } = await db.query("SELECT date_trunc('day', now(), 'UTC') AS day");
+  const at = offset => new Date(day.getTime() + offset * 1000).toISOString();
+  let clock = at(-86460);
+  const source = await provisionFixtureSource(db, clock);
+  const store = new CollectorStore(db, () => clock);
+  const refresh = new CollectorRefresh(store);
+  const plan = await refresh.create({ ...source, query: new URLSearchParams({ q: 'Synthetic recovery probe' }),
+    key: 'rehearsal-schedule-evidence', intervalSeconds: 60, maxLagSeconds: 30 });
+  await refresh.materialize(source.sourceId);
+  const { jobId } = await refresh.dispatchNext(source.sourceId);
+  const job = await store.view(jobId);
+  clock = at(-86399);
+  const page = fixtureResponse({ schema: 'soldbench.synthetic-page.v1', synthetic: true,
+    sourceId: source.sourceId, queryHash: job.query_hash, asOf: job.as_of.toISOString(),
+    cursor: 'start', nextCursor: null, empty: true, records: [] });
+  const worker = new OfflineCollectorWorker(store,
+    new FixtureTransport(new Map([['page:start', [page]]])), new PrivateMediaStore('.local/collector-media'));
+  if ((await worker.runOne(source.sourceId, { jobId })).status !== 'completed')
+    throw new Error('collector_recovery_fixture_not_completed');
+  await refresh.retire(source.sourceId, plan);
+  console.log(JSON.stringify({ source: source.sourceId, from: at(-172800).slice(0, 10), until: at(0).slice(0, 10) }));
+} finally {
+  await db.end();
+}
+"""
+    scope = json.loads(run("node", "--input-type=module", "--eval", prepare))
+    command = ("node", "scripts/collector-evidence.mjs", *(f"--{key}={value}" for key, value in scope.items()))
+    archive_path = root / ".local/collector-recovery-evidence.json"
+    export = json.loads(run(*command, f"--output={archive_path}"))
+    before = json.loads(archive_path.read_bytes())
+    slots = before["slots"]
+    if (export["slots"] != 2 or len(slots) != 2 or not slots[0]["completed_with_page_evidence"]
+            or slots[0]["committed_pages"] != 1 or slots[0]["page_attempts"] != 1
+            or slots[0]["page_started_on_time"] is not False or slots[1]["occurrence"] is not None):
+        raise ValueError("Collector evidence did not retain the missed and cross-day slots")
+
+    def verify_restored():
+        verified = json.loads(run(*command, f"--verify={archive_path}", f"--expect-sha256={export['sha256']}"))
+        after = json.loads(run(*command))
+        baseline = {key: value for key, value in before.items() if key != "captured_at"}
+        after.pop("captured_at")
+        if not verified["verified"] or baseline != after:
+            raise ValueError("Restored collector evidence differs from the archived observations")
+        return {"slots": 2, "completed": 1, "missed": 1, "archive_digest_verified": True}
+
+    return verify_restored
+
+
 def restore(run, root, environment, source_id, boot, shutdown, verify_restored=None):
     pg = Path(run("pg_config", "--bindir").strip())
     authority = environment["DATABASE_URL"]
@@ -202,6 +260,7 @@ def restore(run, root, environment, source_id, boot, shutdown, verify_restored=N
     old_export = json.loads(run("node", "scripts/privacy-recovery.mjs", "export", str(older)))
     audit = root / "scripts/billing-audit.mjs"
     before_billing = json.loads(run("node", "scripts/billing-audit.mjs")) if audit.is_file() else None
+    verify_collector = collector_recovery_probe(run, root)
     timestamp = time.monotonic()
     run(str(pg / "pg_dump"), "--format=custom", "--file", str(snapshot), authority)
     revoke = """
@@ -258,6 +317,7 @@ try {
                                        f"--expect-sha256={before_billing['financial_sha256']}"))
         if after_billing != {**before_billing, "expected_snapshot_matches": True}:
             raise ValueError("Restore changed billing integrity or financial facts")
+    collector_evidence = verify_collector() if verify_collector is not None else None
     run(str(pg / "psql"), "--dbname", restored, "--set", "ON_ERROR_STOP=1", "--command",
         "DELETE FROM worker_heartbeats WHERE worker_kind='query'")
     boot()
@@ -270,6 +330,7 @@ try {
         "old_signed_checkpoint_rejected": True,
         "source_revocation_replays": applied["sources_quarantined"], "media_cleanup_completed": True,
         "billing_integrity_verified": True if before_billing is not None else None,
+        "collector_evidence": collector_evidence,
         "response_packages_removed": spool_removed,
         "authorized_snapshot_verified_after_restore": True if verify_restored is not None else None,
         "production_recovery_objectives_verified": False,

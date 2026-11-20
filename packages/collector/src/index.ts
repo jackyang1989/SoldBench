@@ -9,6 +9,6 @@ export * from "./integrity.ts";
 export * from "./provision-fixture.ts";
 export * from "./record-evidence.ts";
 export * from "./refresh.ts";
-export { collectorRunEvidence } from "./run-evidence.ts";
+export { COLLECTOR_RUN_EVIDENCE_SCHEMA, collectorRunEvidence } from "./run-evidence.ts";
 export * from "./store.ts";
 export * from "./worker.ts";

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, rm, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
@@ -462,21 +462,41 @@ test("read-only evidence connects slots, cross-day dispatch and primary media wi
   assert.equal(evidence.externalNetworkRequests, 0);
   assert.equal(evidence.onlineVerified, false);
   assert.equal((await occurrences(x)).length, 3);
-  const cli = JSON.parse(
-    execFileSync(
-      process.execPath,
-      [
-        "--import",
-        "./scripts/test-network.mjs",
-        "scripts/collector-evidence.mjs",
-        `--source=${x.sourceId}`,
-        `--from=${from}`,
-        `--until=${until}`,
-      ],
-      { encoding: "utf8" },
-    ),
-  );
+  const run = (flags = [], env = process.env) =>
+    JSON.parse(
+      execFileSync(
+        process.execPath,
+        ["--import", "./scripts/test-network.mjs", "scripts/collector-evidence.mjs", ...flags],
+        { encoding: "utf8", env, stdio: "pipe" },
+      ),
+    );
+  const scope = [`--source=${x.sourceId}`, `--from=${from}`, `--until=${until}`];
+  const cli = run(scope);
   assert.deepEqual(cli.slots, JSON.parse(JSON.stringify(evidence.slots)));
+  const archive = join(x.root, "evidence.json");
+  const published = run([...scope, `--output=${archive}`]);
+  const bytes = await readFile(archive);
+  assert.equal(published.slots, 4);
+  assert.equal((await stat(archive)).mode & 0o777, 0o600);
+  assert.deepEqual(JSON.parse(bytes).slots, cli.slots);
+  assert.throws(() => run([...scope, `--output=${archive}`]), /EEXIST/);
+  assert.deepEqual(await readFile(archive), bytes);
+  const verification = [`--verify=${archive}`, `--expect-sha256=${published.sha256}`];
+  const noDb = { ...process.env, DATABASE_URL: "postgresql://outside.invalid/denied" };
+  assert.equal(run([...scope, ...verification], noDb).verified, true);
+  assert.throws(
+    () => run([`--source=${other.sourceId}`, ...scope.slice(1), ...verification], noDb),
+    /collector_evidence_scope_mismatch/,
+  );
+  assert.throws(
+    () => run([scope[0], `--from=${at(-3 * 86_400).slice(0, 10)}`, scope[2], ...verification], noDb),
+    /collector_evidence_scope_mismatch/,
+  );
+  const alias = join(x.root, "alias.json");
+  await symlink(archive, alias);
+  assert.throws(() => run([...scope, `--verify=${alias}`, verification[1]], noDb), /ELOOP/);
+  await appendFile(archive, "\n");
+  assert.throws(() => run([...scope, ...verification], noDb), /collector_evidence_digest_mismatch/);
   await assert.rejects(collectorRunEvidence(db, x.sourceId, from, at(86_400).slice(0, 10)), /not_closed/);
   await assert.rejects(
     collectorRunEvidence(db, x.sourceId, "2026-02-30", until),

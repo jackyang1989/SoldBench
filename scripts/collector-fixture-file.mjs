@@ -15,7 +15,7 @@ export async function syncDirectory(path) {
   }
 }
 
-async function readBoundedFile(path, maxBytes, invalid, changed) {
+export async function readBoundedFile(path, maxBytes, invalid, changed) {
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     const stat = await file.stat();
@@ -62,12 +62,16 @@ export async function readFixtureTemplate(path) {
 }
 
 export async function publishFixtureFile(path, artifact) {
+  const body = Buffer.from(JSON.stringify(artifact));
+  if (body.length > 16 * 1024 * 1024) throw new Error("fixture_artifact_too_large");
+  await publishCollectorFile(path, body);
+}
+
+export async function publishCollectorFile(path, body) {
   const temporary = `${path}.${randomUUID()}.tmp`;
   const file = await open(temporary, "wx", 0o600);
   try {
     try {
-      const body = Buffer.from(JSON.stringify(artifact));
-      if (body.length > 16 * 1024 * 1024) throw new Error("fixture_artifact_too_large");
       await file.writeFile(body);
       await file.sync();
     } finally {
