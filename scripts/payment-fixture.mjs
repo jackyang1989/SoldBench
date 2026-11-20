@@ -5,6 +5,8 @@ import { resolve } from "node:path";
 import {
   BillingService,
   factSchema,
+  fixtureEnvelopeBytes,
+  fixtureReplayBatch,
   fixtureSignature,
   localPaymentKeys,
   merchant,
@@ -22,7 +24,6 @@ const root = resolve(config.localStateRoot);
 const batch = action === "replay-batch";
 const replay = action === "replay" || batch;
 const mode = "offline_fixture";
-const replaySchema = "soldbench.payment-replay.fixture.v1";
 
 async function readFixture(path) {
   const expected = process.env.PAYMENT_REPLAY_SHA256;
@@ -33,7 +34,7 @@ async function readFixture(path) {
     replay ? constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK : "r",
   );
   try {
-    const limit = batch ? 256 * 1024 : 8192;
+    const limit = batch ? fixtureReplayBatch.bytes : 8192;
     const stat = await source.stat();
     if (!stat.isFile() || stat.size > limit || (replay && stat.mode & 0o077))
       throw new Error("invalid_fixture_input");
@@ -67,16 +68,14 @@ function notification(input) {
     throw new Error("invalid_fixture_notification");
   const fact = factSchema.parse({ ...body, environment: mode, merchant: merchant(body.provider) });
   const id = eventId ?? randomUUID();
-  const raw = Buffer.from(
-    JSON.stringify({
-      id,
-      type: eventType,
-      environment: fact.environment,
-      merchant: fact.merchant,
-      object_id: fact.object_id,
-      revision: fact.revision,
-    }),
-  );
+  const raw = fixtureEnvelopeBytes({
+    id,
+    type: eventType,
+    environment: fact.environment,
+    merchant: fact.merchant,
+    object_id: fact.object_id,
+    revision: fact.revision,
+  });
   return { fact, id, raw };
 }
 
@@ -125,11 +124,11 @@ if (action === "init" && !file) {
   const input = await readFixture(file);
   if (
     batch &&
-    (input?.schema !== replaySchema ||
+    (input?.schema !== fixtureReplayBatch.schema ||
       Object.keys(input).length !== 2 ||
       !Array.isArray(input.events) ||
       input.events.length < 1 ||
-      input.events.length > 100)
+      input.events.length > fixtureReplayBatch.entries)
   )
     throw new Error("invalid_payment_replay_batch");
   const entries = (batch ? input.events : [input]).map(notification);

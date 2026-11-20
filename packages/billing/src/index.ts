@@ -415,6 +415,8 @@ export { localPaymentKeys } from "./local-payment-keys.ts";
 export {
   type FixtureKeys,
   factSchema,
+  fixtureEnvelopeBytes,
+  fixtureReplayBatch,
   fixtureSignature,
   merchant,
   type Provider,

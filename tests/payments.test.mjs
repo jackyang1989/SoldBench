@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -821,17 +821,21 @@ test("restoring a backup replays only named Stripe and PayPal receipts and grant
     const keys = localPaymentKeys(root);
     const original = new PaymentLifecycle(new BillingService(db), config.origin, keys);
     const fixtures = [];
-    const stage = async ({ fact, event_type, event_id }, capture = true) => {
+    const stage = async ({ fact, event_type, event_id }, capture = true, indentation) => {
       if (capture) await original.stageFixture(fact);
       const bytes = Buffer.from(
-        JSON.stringify({
-          id: event_id,
-          type: event_type,
-          environment: fact.environment,
-          merchant: fact.merchant,
-          object_id: fact.object_id,
-          revision: fact.revision,
-        }),
+        JSON.stringify(
+          {
+            id: event_id,
+            type: event_type,
+            environment: fact.environment,
+            merchant: fact.merchant,
+            object_id: fact.object_id,
+            revision: fact.revision,
+          },
+          null,
+          indentation,
+        ),
       );
       await original.receive(
         fact.provider,
@@ -861,6 +865,7 @@ test("restoring a backup replays only named Stripe and PayPal receipts and grant
     await stage(unrelated, false);
     const bin = (await run("pg_config", ["--bindir"])).stdout.trim();
     const backup = join(root, "before-payment.dump");
+    const began = (await db.query("SELECT clock_timestamp() AS t")).rows[0].t.toISOString();
     await run(join(bin, "pg_dump"), ["--format=custom", "--file", backup, process.env.DATABASE_URL]);
     for (const entry of fixtures) {
       await stage(entry);
@@ -996,6 +1001,54 @@ test("restoring a backup replays only named Stripe and PayPal receipts and grant
       outcome: "completed",
       blocking_entry: null,
     });
+    const until = (
+      await db.query("SELECT clock_timestamp()+interval '1 second' AS t")
+    ).rows[0].t.toISOString();
+    const exported = join(root, "exported.json");
+    const exportArgs = [
+      "--import",
+      "./scripts/test-network.mjs",
+      "scripts/payment-replay-export.mjs",
+      exported,
+      began,
+      until,
+    ];
+    const report = JSON.parse((await run(process.execPath, exportArgs, { env: local })).stdout);
+    assert.equal(report.exported, true);
+    assert.equal(report.count, 4);
+    assert.equal((await stat(exported)).mode & 0o777, 0o600);
+    const manifest = await readFile(exported);
+    assert.equal(createHash("sha256").update(manifest).digest("hex"), report.sha256);
+    assert.deepEqual(
+      JSON.parse(manifest).events.map((entry) => entry.event_id),
+      [...fixtures, ...refunds].map((entry) => entry.event_id),
+    );
+    await assert.rejects(run(process.execPath, exportArgs, { env: local }), /EEXIST/);
+    assert.deepEqual(await readFile(exported), manifest);
+    const replay = JSON.parse(
+      (
+        await run(process.execPath, [...cli, "replay-batch", exported], {
+          env: { ...local, DATABASE_URL: url.href, PAYMENT_REPLAY_SHA256: report.sha256 },
+        })
+      ).stdout,
+    );
+    assert.equal(replay.already_applied, 4);
+    assert.deepEqual(await projection(restored), refundFacts);
+    const differentlyFormatted = { ...fixtures[0], event_id: randomUUID() };
+    await stage(differentlyFormatted, true, 2);
+    assert.equal(
+      (await original.workOnce({ provider: "stripe", eventId: differentlyFormatted.event_id })).status,
+      "applied",
+    );
+    const rejected = join(root, "not-exported.json");
+    const later = (
+      await db.query("SELECT clock_timestamp()+interval '1 second' AS t")
+    ).rows[0].t.toISOString();
+    await assert.rejects(
+      run(process.execPath, [...exportArgs.slice(0, 3), rejected, began, later], { env: local }),
+      /original_fixture_notification_bytes_unavailable/,
+    );
+    await assert.rejects(stat(rejected), /ENOENT/);
   } finally {
     await restored?.end();
     if (created) await db.query(`DROP DATABASE ${name}`);

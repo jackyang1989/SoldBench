@@ -44,6 +44,15 @@ const envelopeSchema = z.strictObject({
   revision,
 });
 export type Envelope = z.infer<typeof envelopeSchema>;
+export const fixtureReplayBatch = {
+  schema: "soldbench.payment-replay.fixture.v1",
+  entries: 100,
+  bytes: 256 * 1024,
+};
+
+export function fixtureEnvelopeBytes({ id, type, environment, merchant, object_id, revision }: Envelope) {
+  return Buffer.from(JSON.stringify({ id, type, environment, merchant, object_id, revision }));
+}
 const accepted = {
   stripe: new Set([
     "invoice_paid",
