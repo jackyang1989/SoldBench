@@ -3,7 +3,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { arch, availableParallelism, platform, tmpdir, totalmem } from "node:os";
 import { join } from "node:path";
@@ -186,10 +186,12 @@ test("the live API serves delivered results through a stalled and killed query w
     );
     assert.equal((await read(live, `/v1/sold/${x.queryId}`)).status, 200);
     await poll("replacement completed the queued query", async () => {
-      const job = await read(live, `/v1/jobs/${request.job_id}`);
-      assert.equal(job.status, 200);
-      return (await job.json()).data.status === "completed";
+      const { rows } = await db.query("SELECT status FROM query_jobs WHERE id=$1", [request.job_id]);
+      return rows[0]?.status === "completed";
     });
+    const completed = await read(live, `/v1/jobs/${request.job_id}`);
+    assert.equal(completed.status, 200);
+    assert.equal((await completed.json()).data.status, "completed");
     await poll("replacement heartbeat", async () => (await readiness()).query_worker === "recent");
     assert.equal((await readiness()).query_queue, "within_budget");
     assert.deepEqual(await counts(x), original);
@@ -655,6 +657,101 @@ test("measure private primary-image bytes over real HTTP and verify independent 
   statuses[1] = 404;
   await measure("expired_and_withdrawn");
   assert.deepEqual(await Promise.all(owners.map(counts)), before);
+});
+
+test("a restored media directory and its objects are verified separately from paid results", async () => {
+  const x = await create({ count: 8, extra: false });
+  const sold = `/v1/sold/${x.queryId}`;
+  const initial = (await (await read(x, sold)).json()).data;
+  const image = initial.comps[0].primary_image;
+  assert.equal(image.state, "available");
+  const baseline = await counts(x);
+  const store = x.query.media;
+  const backup = await mkdtemp(join(tmpdir(), "soldbench-media-restore-"));
+  roots.push(backup);
+  const original = join(backup, "original");
+  const {
+    rows: [row],
+  } = await db.query("SELECT object_key FROM listing_images WHERE id=$1", [image.url.split("/").at(-1)]);
+  const correctBytes = await readFile(join(store.root, row.object_key));
+  const originalIdentity = await store.storageIdentity();
+
+  // The copied object has the same checksum. Its directory still cannot impersonate the bound store.
+  await rename(store.root, original);
+  try {
+    await cp(original, store.root, { recursive: true });
+    assert.notEqual(await store.storageIdentity(), originalIdentity);
+    const disabled = await read(x, sold);
+    assert.equal(disabled.status, 200);
+    const result = await disabled.json();
+    assert.equal(result.meta.credits_charged, 0);
+    assert.deepEqual(result.data.stats, initial.stats);
+    assert.deepEqual(result.data.comps[0].primary_image, {
+      state: "failed",
+      url: null,
+      width: null,
+      height: null,
+    });
+    const imageRead = await read(x, image.url);
+    assert.equal(imageRead.status, 404);
+    assert.match(imageRead.headers.get("Cache-Control"), /no-store/);
+    assert.equal((await imageRead.json()).error.code, "not_found");
+    assert.deepEqual(await readFile(join(store.root, row.object_key)), correctBytes);
+  } finally {
+    await rm(store.root, { recursive: true, force: true });
+    await rename(original, store.root);
+  }
+
+  const correctPath = join(store.root, row.object_key);
+  try {
+    await writeFile(correctPath, Buffer.from("damaged"));
+    const damaged = await read(x, image.url);
+    assert.equal(damaged.status, 404);
+    assert.equal((await damaged.json()).error.code, "not_found");
+  } finally {
+    await writeFile(correctPath, correctBytes);
+  }
+  const restored = await read(x, image.url);
+  assert.equal(restored.status, 200);
+  assert.deepEqual(Buffer.from(await restored.arrayBuffer()), correctBytes);
+  assert.deepEqual((await (await read(x, sold)).json()).data.comps[0].primary_image, image);
+  assert.deepEqual(await counts(x), baseline);
+  assert.deepEqual(await x.billing.reconcile(x.user), []);
+});
+
+test("image delivery observes both object and source deadlines after reading bytes", async (t) => {
+  for (const expiry of ["object", "source"]) {
+    await t.test(expiry, async () => {
+      const x = await create({ count: 8, extra: false });
+      const image = (await (await read(x, `/v1/sold/${x.queryId}`)).json()).data.comps[0].primary_image;
+      const expires = new Date(Date.parse(x.now()) + 1000).toISOString();
+      if (expiry === "object") {
+        await db.query("UPDATE listing_images SET retention_until=$2 WHERE id=$1", [
+          image.url.split("/").at(-1),
+          expires,
+        ]);
+      } else {
+        await db.query(
+          "UPDATE source_clearances SET expires_at=$2 WHERE id=(SELECT source_clearance_id FROM sources WHERE id=$1)",
+          [x.source.sourceId, expires],
+        );
+      }
+      const store = x.query.media;
+      const get = store.get.bind(store);
+      let fetched = false;
+      store.get = async (...args) => {
+        const bytes = await get(...args);
+        fetched = true;
+        x.clock.value = expires;
+        return bytes;
+      };
+      const response = await read(x, image.url);
+      assert.equal(fetched, true);
+      assert.equal(response.status, 404);
+      assert.match(response.headers.get("Cache-Control"), /no-store/);
+      assert.equal((await response.json()).error.code, "not_found");
+    });
+  }
 });
 
 test("an in-flight revoked snapshot can recover on a new authorized watermark without reviving the old result", async () => {

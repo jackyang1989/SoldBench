@@ -774,17 +774,22 @@ export class QueryService {
     >();
     if (!eventIds.length) return images;
     const { rows } = await c.query(
-      `SELECT i.sale_event_id,i.id,i.state,i.retention_until,i.permission_epoch,i.width,i.height,src.permission_epoch AS current_epoch
+      `SELECT i.sale_event_id,i.id,i.state,i.retention_until,i.permission_epoch,i.width,i.height,
+              src.permission_epoch AS current_epoch,src.media_store_identity AS storage_identity
        FROM listing_images i JOIN sources src ON src.id=i.source_id
        JOIN query_snapshot_records s ON (s.sale_event_id,s.observation_id,s.listing_id,s.source_id)=(i.sale_event_id,i.observation_id,i.listing_id,i.source_id)
        WHERE s.query_id=$1 AND s.sale_event_id=ANY($2::uuid[]) AND i.role='primary'`,
       [id, eventIds],
     );
+    const storage = rows.some((image) => image.state === "available")
+      ? await this.media.storageIdentity().catch(() => null)
+      : null;
     for (const image of rows) {
       let state = image.state;
       if (state === "available") {
         if (image.permission_epoch !== image.current_epoch) state = "revoked";
-        else if (!(image.retention_until > now)) state = "expired";
+        else if (!image.retention_until || image.retention_until <= now) state = "expired";
+        else if (!storage || (image.storage_identity && image.storage_identity !== storage)) state = "failed";
       }
       const available = state === "available";
       images.set(image.sale_event_id, {
@@ -930,16 +935,7 @@ export class QueryService {
         )
       ).rows;
       if (!links.length) fail("not_found", 404, "Image not found.");
-      // A withdrawn linked query cannot be bypassed through another cached result.
-      for (const link of links) {
-        try {
-          await this.assertSnapshotRights(c, link.id, now);
-        } catch (error) {
-          if (error instanceof AppError && ["forbidden", "source_unavailable"].includes(error.code))
-            fail("not_found", 404, "Image not found.");
-          throw error;
-        }
-      }
+      await this.assertImageSnapshotRights(c, links, now);
       const i = (await c.query("SELECT * FROM listing_images WHERE id=$1 FOR SHARE", [imageId])).rows[0];
       if (!i) fail("not_found", 404, "Image not found.");
       for (const link of links) {
@@ -958,14 +954,45 @@ export class QueryService {
         !i.object_key
       )
         fail("not_found", 404, "Image not found.");
+      let bytes: Buffer;
       try {
-        return await this.media.get(i.object_key, source.media_store_identity ?? undefined);
+        bytes = await this.media.get(i.object_key, source.media_store_identity ?? undefined);
       } catch (error) {
-        if (error instanceof Error && "code" in error && error.code === "ENOENT")
+        if (
+          error instanceof Error &&
+          ([
+            "media_store_mismatch",
+            "media_hash_mismatch",
+            "invalid_media_object",
+            "unsafe_media_directory",
+          ].includes(error.message) ||
+            ("code" in error && ["ENOENT", "ENOTDIR", "ELOOP"].includes(String(error.code))))
+        )
           fail("not_found", 404, "Image not found.");
         throw error;
       }
+
+      // The locks prevent concurrent rights changes, but an expiry can pass during object I/O.
+      const afterRead = await this.now(c);
+      if (afterRead >= i.retention_until) fail("not_found", 404, "Image not found.");
+      if (afterRead.getTime() !== now.getTime()) {
+        await this.auth.assertIdentityLocked(c, identity, "sold:read", afterRead);
+        await this.assertImageSnapshotRights(c, links, afterRead);
+      }
+      return bytes;
     });
+  }
+  private async assertImageSnapshotRights(c: Transaction, links: { id: string }[], clock: Date) {
+    // A withdrawn linked query cannot be bypassed through another cached result.
+    for (const link of links) {
+      try {
+        await this.assertSnapshotRights(c, link.id, clock);
+      } catch (error) {
+        if (error instanceof AppError && ["forbidden", "source_unavailable"].includes(error.code))
+          fail("not_found", 404, "Image not found.");
+        throw error;
+      }
+    }
   }
   makeCursor(owner: string, kind: string, row: { id: string; cursor_at: string }) {
     const data = Buffer.from(JSON.stringify({ owner, kind, id: row.id, time: row.cursor_at })).toString(
