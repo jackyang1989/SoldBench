@@ -15,7 +15,7 @@ import { PrivateMediaStore } from "@soldbench/media";
 import { loadConfig } from "@soldbench/shared";
 import { load } from "cheerio/slim";
 import sharp from "sharp";
-import { publishFixtureFile } from "./collector-fixture-file.mjs";
+import { intakeFixture } from "./collector-intake.mjs";
 import { localDatabaseUrl } from "./local-db.mjs";
 
 const flags = new Set(process.argv.slice(2));
@@ -135,16 +135,7 @@ try {
     ),
     loaded = loadFixtureArtifact(Buffer.from(JSON.stringify(artifact)));
   mkdirSync(directory, { recursive: true, mode: 0o700 });
-  const artifactPath = join(directory, `collector-html-fixture-${jobId}.json`);
-  await store.bindFixtureArtifact({
-    jobId,
-    sourceId: source.sourceId,
-    queryHash,
-    asOf: now,
-    hash: loaded.hash,
-    pageHashes: loaded.pageHashes,
-  });
-  await publishFixtureFile(artifactPath, artifact);
+  const artifactPath = await intakeFixture(db, directory, source.sourceId, loaded);
   let transport = loaded.transport;
   if (flags.has("--http")) {
     const responses = new Map(),

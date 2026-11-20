@@ -5,10 +5,11 @@ import { CollectorStore, FixtureTransport, OfflineCollectorWorker } from "@soldb
 import { assertLocalDatabaseUrl, database, isDatabaseConnectionError, migrate } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
 import { loadConfig } from "@soldbench/shared";
+import { fixtureJobId } from "./collector-fixture-file.mjs";
+import { resumeFixtureIntake } from "./collector-intake.mjs";
 import { launchCollector } from "./collector-launcher.mjs";
 import { localDatabaseUrl } from "./local-db.mjs";
 
-const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const lockNamespace = "soldbench.offline-collector-supervisor";
 const maxArtifactEntries = 10000;
 
@@ -19,7 +20,7 @@ async function availableArtifacts(directory) {
   for await (const file of await opendir(directory)) {
     if (++inspected > maxArtifactEntries) throw new Error("fixture_spool_entry_limit_exceeded");
     const id = /^collector-(?:html-)?fixture-(.+)\.json$/.exec(file.name)?.[1];
-    if (!uuid.test(id ?? "")) continue;
+    if (!fixtureJobId.test(id ?? "")) continue;
     // A second name or a symlink is ambiguous. Leave the affected job unclaimed.
     paths.set(id, !paths.has(id) && file.isFile() ? join(directory, file.name) : null);
   }
@@ -89,7 +90,7 @@ async function run(args) {
     watch = options.get("watch"),
     interval = Number(options.get("interval-ms") ?? 2000),
     maxMs = Number(options.get("max-ms") ?? 60000);
-  if (!uuid.test(sourceId ?? "") || (watch !== undefined && watch !== "true"))
+  if (!fixtureJobId.test(sourceId ?? "") || (watch !== undefined && watch !== "true"))
     throw new Error("invalid_collector_supervisor_argument");
   if (
     !/^\d+$/.test(options.get("interval-ms") ?? "2000") ||
@@ -148,12 +149,11 @@ async function run(args) {
         console.info("soldbench_collector_supervisor_database_recovered");
         retryDelay = 0;
       }
-      const deferred = new Map();
+      const deferred = new Map(),
+        pendingDeferred = new Map();
       let nextMaintenance = 0;
       while (!signal.aborted) {
-        const paths = await availableArtifacts(spool);
         const now = performance.now();
-        for (const [id, until] of deferred) if (until <= now || !paths.has(id)) deferred.delete(id);
         let maintenance = null;
         if (Date.now() >= nextMaintenance) {
           try {
@@ -164,8 +164,12 @@ async function run(args) {
           }
           nextMaintenance = Date.now() + 60000;
         }
-        const rows = await dueJobs(db, sourceId, paths, deferred);
         let state = await sourceState(db, sourceId);
+        const intake =
+          state === "ready" ? await resumeFixtureIntake(db, spool, sourceId, pendingDeferred, signal) : null;
+        const paths = await availableArtifacts(spool);
+        for (const [id, until] of deferred) if (until <= now || !paths.has(id)) deferred.delete(id);
+        const rows = await dueJobs(db, sourceId, paths, deferred);
         const cycles = [];
         for (const lane of rows) {
           for (const jobId of lane.jobs) {
@@ -225,6 +229,7 @@ async function run(args) {
             ...envelope(sourceId),
             state,
             maintenance,
+            intake,
             cycles,
             queues,
           }),

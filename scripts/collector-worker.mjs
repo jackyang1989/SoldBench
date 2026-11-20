@@ -1,11 +1,11 @@
-import { constants, lstatSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
-import { open } from "node:fs/promises";
+import { lstatSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { CollectorStore, loadFixtureArtifact, OfflineCollectorWorker } from "@soldbench/collector";
+import { CollectorStore, OfflineCollectorWorker } from "@soldbench/collector";
 import { instant } from "@soldbench/core";
 import { assertLocalDatabaseUrl, database, migrate } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
 import { loadConfig } from "@soldbench/shared";
+import { readFixtureFile } from "./collector-fixture-file.mjs";
 import { localDatabaseUrl } from "./local-db.mjs";
 
 const args = new Map();
@@ -29,23 +29,7 @@ if (
 const config = loadConfig(process.env);
 if (args.has("clock")) instant(args.get("clock"));
 const path = resolve(args.get("fixture"));
-const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-let loaded;
-try {
-  const stat = await file.stat();
-  if (!stat.isFile() || stat.size > 16 * 1024 * 1024) throw new Error("fixture_artifact_file_invalid");
-  const bytes = Buffer.alloc(stat.size + 1);
-  let total = 0;
-  while (total < bytes.length) {
-    const read = await file.read(bytes, total, bytes.length - total, total);
-    if (!read.bytesRead) break;
-    total += read.bytesRead;
-  }
-  if (total !== stat.size) throw new Error("fixture_artifact_file_changed");
-  loaded = loadFixtureArtifact(bytes.subarray(0, total));
-} finally {
-  await file.close();
-}
+const loaded = await readFixtureFile(path);
 const artifact = loaded.artifact;
 if (args.has("expected-job") && args.get("expected-job") !== artifact.jobId)
   throw new Error("fixture_artifact_expected_job_mismatch");

@@ -10,9 +10,11 @@ import {
   createFixtureArtifact,
   digest,
   fixtureResponse,
+  loadFixtureArtifact,
   provisionFixtureSource,
 } from "@soldbench/collector";
 import { database, migrate } from "@soldbench/db";
+import { publishFixtureFile } from "../scripts/collector-fixture-file.mjs";
 import { workerEnvironment } from "../scripts/collector-launcher.mjs";
 import { initializeCluster, startCluster, stopCluster, urlFor } from "../scripts/local-db.mjs";
 
@@ -109,6 +111,84 @@ test("bounded launcher executes an owned worker and reports its actual final cyc
   assert.equal(report.cycle.pageCount, 2);
   assert.equal(report.limits.v8HeapMb, 128);
   assert.throws(() => process.kill(report.workerPid, 0), /ESRCH/);
+});
+
+test("fixture intake replays equal content and leaves a conflicting file untouched", async () => {
+  const producer = await root();
+  const spool = await root();
+  const prepared = await preparedDemo(producer);
+  const input = await readFile(prepared.artifactPath);
+  const original = loadFixtureArtifact(input);
+  const args = [`--source=${prepared.sourceId}`, `--spool=${spool}`, `--fixture=${prepared.artifactPath}`];
+  const [a, b] = [start("scripts/collector-intake.mjs", args), start("scripts/collector-intake.mjs", args)];
+  assert.equal((await a.exited).code, 0, a.errors);
+  assert.equal((await b.exited).code, 0, b.errors);
+  const receipt = JSON.parse(a.output);
+  assert.deepEqual(receipt, JSON.parse(b.output));
+  assert.equal(receipt.artifactHash, original.hash);
+  assert.equal((await readFile(receipt.artifactPath)).toString(), input.toString());
+  assert.equal((await new CollectorStore(db).view(prepared.jobId)).lease_count, 0);
+
+  const modified = JSON.parse(input);
+  modified.frames.reverse();
+  await writeFile(prepared.artifactPath, JSON.stringify(modified));
+  const conflicting = start("scripts/collector-intake.mjs", args);
+  assert.equal((await conflicting.exited).code, 1);
+  assert.equal(JSON.parse(conflicting.errors).error, "fixture_artifact_changed");
+  assert.deepEqual(await readFile(receipt.artifactPath), input);
+});
+
+test("offline supervisor recovers an intake interrupted before the artifact database binding", async () => {
+  const directory = await root();
+  const now = new Date().toISOString();
+  const source = await provisionFixtureSource(db, now);
+  const store = new CollectorStore(db);
+  const queryHash = digest("staged fixture recovery");
+  const jobId = await store.enqueue({ ...source, queryHash, asOf: now, runKey: randomUUID() });
+  const artifact = createFixtureArtifact(
+    { sourceId: source.sourceId, jobId, queryHash, asOf: now },
+    new Map([
+      [
+        "page:start",
+        [
+          fixtureResponse({
+            schema: "soldbench.synthetic-page.v1",
+            synthetic: true,
+            sourceId: source.sourceId,
+            queryHash,
+            cursor: "start",
+            nextCursor: null,
+            asOf: now,
+            empty: true,
+            records: [],
+          }),
+        ],
+      ],
+    ]),
+  );
+  const { hash } = loadFixtureArtifact(Buffer.from(JSON.stringify(artifact)));
+  const pendingDirectory = join(directory, "collector-incoming", source.sourceId);
+  await mkdir(pendingDirectory, { recursive: true, mode: 0o700 });
+  await publishFixtureFile(join(pendingDirectory, `${jobId}.${hash}.json`), artifact);
+  const run = start(
+    "scripts/collector-supervisor.mjs",
+    [`--source=${source.sourceId}`, `--spool=${directory}`],
+    { MEDIA_ROOT: join(directory, "media") },
+  );
+  assert.equal((await run.exited).code, 0, run.errors);
+  const result = JSON.parse(run.output);
+  assert.equal(result.intake.published, 1);
+  assert.equal(result.cycles[0].claimed, true);
+  assert.equal((await store.view(jobId)).page_count, 1);
+  assert.deepEqual(await readdir(pendingDirectory), []);
+  const replay = start(
+    "scripts/collector-supervisor.mjs",
+    [`--source=${source.sourceId}`, `--spool=${directory}`],
+    { MEDIA_ROOT: join(directory, "media") },
+  );
+  assert.equal((await replay.exited).code, 0, replay.errors);
+  assert.deepEqual(JSON.parse(replay.output).cycles, []);
+  assert.equal((await store.view(jobId)).request_count, 1);
 });
 
 test("offline supervisor serves the available queue, resumes primary images, and purges the withdrawn source", async () => {
