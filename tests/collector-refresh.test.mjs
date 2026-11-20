@@ -350,6 +350,10 @@ test("continuous evidence retains empty UTC days, missed work and actual cross-m
     ],
     ["2026-11-18", 1, 1, 0, 1],
   );
+  assert.deepEqual(
+    [scheduled.firstPageDispatched, scheduled.firstPageDispatchedOnTime, dispatched.firstPageDispatched],
+    [1, 0, 0],
+  );
   const cli = JSON.parse(
     execFileSync(
       process.execPath,
@@ -368,6 +372,33 @@ test("continuous evidence retains empty UTC days, missed work and actual cross-m
   assert.equal(cli.onlineVerified, false);
   assert.equal(cli.measuredCostCents, null);
   assert.equal(cli.networkRequests, 0);
+});
+
+test("health separates a timely lease and reservation from late first-page dispatch", async () => {
+  const x = await setup();
+  await x.refresh.create({ ...x.input, maxLagSeconds: 30 });
+  await x.refresh.materialize(x.sourceId);
+  const { jobId } = await x.refresh.dispatchNext(x.sourceId);
+  const lease = await x.store.claim(x.sourceId, 120, jobId);
+  assert.ok(lease);
+  const id = await x.store.reserve(lease, "page", 1024, "page:start");
+  const from = x.clock.value;
+  const read = (now = x.clock.value) => collectorHealth(db, x.sourceId, { from, now });
+  const before = await read();
+  assert.deepEqual(before.scheduleExecutionRate, { numerator: 1, denominator: 1, ratio: 1 });
+  assert.deepEqual(before.scheduleOnTimeRate, { numerator: 1, denominator: 1, ratio: 1 });
+  assert.deepEqual(before.scheduleFirstPageDispatchRate, { numerator: 0, denominator: 1, ratio: 0 });
+  assert.deepEqual(before.scheduleOnTimeFirstPageDispatchRate, { numerator: 0, denominator: 1, ratio: 0 });
+  assert.equal(before.refresh.claimedWithoutPageDispatch, 1);
+  assert.equal(before.dispatches.reserved, 1);
+  step(x, 31);
+  assert.equal(await x.store.fixtureResponseIndex(lease, id), 0);
+  const after = await read();
+  assert.deepEqual(after.scheduleFirstPageDispatchRate, { numerator: 1, denominator: 1, ratio: 1 });
+  assert.deepEqual(after.scheduleOnTimeFirstPageDispatchRate, { numerator: 0, denominator: 1, ratio: 0 });
+  assert.equal(after.refresh.claimedWithoutPageDispatch, 0);
+  assert.equal(after.pageSemanticCompletion.numerator, 0);
+  assert.equal((await read(from)).scheduleFirstPageDispatchRate.numerator, 0);
 });
 
 test("read-only evidence connects slots, cross-day dispatch and primary media without hiding missed work", async () => {
@@ -403,17 +434,30 @@ test("read-only evidence connects slots, cross-day dispatch and primary media wi
     },
     primaryImage: { role: "primary", url },
   };
+  const withoutPhoto = (key) => ({
+    ...record,
+    listingId: `fixture-evidence-${key}`,
+    candidate: { ...record.candidate, eventKey: `fixture-evidence-${key}` },
+    primaryImage: undefined,
+  });
   assert.equal(
     (
       await complete(
         x,
         jobId,
-        [record],
+        [record, withoutPhoto("missing"), withoutPhoto("untracked")],
         [[`image:${url}`, [{ status: 200, contentType: "image/png", bytes: image }]]],
       )
     ).status,
     "completed",
   );
+  // Reproduce an observation persisted by the collector before image metadata existed.
+  const removed = await db.query(
+    `DELETE FROM listing_images i USING sold_listings l
+       WHERE i.source_id=$1 AND l.id=i.listing_id AND l.external_listing_id='fixture-evidence-untracked'`,
+    [x.sourceId],
+  );
+  assert.equal(removed.rowCount, 1);
   await x.refresh.retire(x.sourceId, plan);
   const waiting = await x.refresh.create({
     ...x.input,
@@ -443,7 +487,8 @@ test("read-only evidence connects slots, cross-day dispatch and primary media wi
   assert.equal(late.page_started_on_time, false);
   assert.equal(late.completed_with_page_evidence, true);
   assert.deepEqual([late.page_attempts, late.image_attempts, late.committed_pages], [1, 1, 1]);
-  assert.deepEqual(late.primary_image_states_at_snapshot, { available: 1 });
+  assert.equal(late.primary_image_observations, 3);
+  assert.deepEqual(late.primary_image_states_at_snapshot, { available: 1, missing: 1, untracked: 1 });
   assert.equal(late.bytes.unconfirmed, "0");
   assert.ok(BigInt(late.bytes.settled) > BigInt(image.length));
   assert.equal(blocked.scheduled_at, at(-86_400));
@@ -458,6 +503,7 @@ test("read-only evidence connects slots, cross-day dispatch and primary media wi
   assert.equal(claimed.first_page_request_at, null);
   assert.equal(claimed.page_started_on_time, null);
   assert.equal(claimed.completed_with_page_evidence, false);
+  assert.equal(claimed.primary_image_observations, 0);
   assert.ok(!JSON.stringify(evidence).includes(url));
   assert.equal(evidence.externalNetworkRequests, 0);
   assert.equal(evidence.onlineVerified, false);
@@ -549,6 +595,8 @@ test("a full 120-query schedule records all 1680 slots after a thirteen-day outa
       [missed.planned, missed.materialized, missed.stoppedOccurrences, missed.started, missed.pageAttempts],
       [120, 120, 120, 0, 0],
     );
+  assert.equal(observed.firstPageDispatchedOnTime, 120);
+  assert.ok(outage.every((day) => day.firstPageDispatched === 0 && day.claimedWithoutPageDispatch === 0));
   t.diagnostic(JSON.stringify({ mode: "offline_fixture", planned: 1680, completed: 120, missed: 1560 }));
 });
 

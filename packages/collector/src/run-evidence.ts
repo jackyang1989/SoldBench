@@ -49,12 +49,15 @@ WITH slots AS MATERIALIZED (
   FROM collector_pages p JOIN slots s ON s.matched_job_id=p.job_id AND s.source_id=p.source_id
   GROUP BY p.job_id
 ), image_counts AS (
-  SELECT p.job_id,i.state,count(*)::int n
+  SELECT p.job_id,coalesce(i.state,'untracked') AS state,count(*)::int n
   FROM collector_pages p JOIN slots s ON s.matched_job_id=p.job_id AND s.source_id=p.source_id
-  JOIN listing_images i ON i.observation_id=p.observation_id AND i.source_id=p.source_id AND i.role='primary'
-  GROUP BY p.job_id,i.state
+  JOIN sale_event_evidence e ON e.observation_id=p.observation_id AND e.source_id=p.source_id
+  LEFT JOIN listing_images i ON i.observation_id=e.observation_id AND i.source_id=e.source_id
+    AND i.sale_event_id=e.sale_event_id AND i.listing_id=e.listing_id AND i.role='primary'
+  GROUP BY p.job_id,coalesce(i.state,'untracked')
 ), images AS (
-  SELECT job_id,jsonb_object_agg(state,n) AS image_states FROM image_counts GROUP BY job_id
+  SELECT job_id,sum(n)::int AS image_observations,jsonb_object_agg(state,n) AS image_states
+  FROM image_counts GROUP BY job_id
 )
 SELECT s.plan_id,s.scheduled_for,s.id AS occurrence_id,s.status AS occurrence_state,s.finished_at AS occurrence_finished_at,
        s.matched_job_id AS job_id,s.job_status,s.claimed_at,s.job_finished_at,
@@ -62,6 +65,7 @@ SELECT s.plan_id,s.scheduled_for,s.id AS occurrence_id,s.status AS occurrence_st
        d.first_page_request_at,coalesce(d.page_attempts,0) AS page_attempts,coalesce(d.image_attempts,0) AS image_attempts,
        coalesce(d.open_reservations,0) AS open_reservations,coalesce(d.settled_bytes,'0') AS settled_bytes,
        coalesce(d.unconfirmed_bytes,'0') AS unconfirmed_bytes,coalesce(p.committed_pages,0) AS committed_pages,
+       coalesce(i.image_observations,0) AS image_observations,
        coalesce(i.image_states,'{}'::jsonb) AS image_states
 FROM slots s
 LEFT JOIN collector_runs r ON r.id=s.collector_run_id AND r.source_id=s.source_id
@@ -157,6 +161,7 @@ export async function collectorRunEvidence(
           committed_pages: fact?.committed_pages ?? 0,
           bytes: { settled: fact?.settled_bytes ?? "0", unconfirmed: fact?.unconfirmed_bytes ?? "0" },
           open_reservations: fact?.open_reservations ?? 0,
+          primary_image_observations: fact?.image_observations ?? 0,
           primary_image_states_at_snapshot: fact?.image_states ?? {},
         };
       });

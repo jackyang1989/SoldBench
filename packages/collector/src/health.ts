@@ -14,6 +14,15 @@ function scheduledCount(plans: FrozenSchedule[], from: number, through: number) 
   }, 0);
 }
 
+function firstPageDispatches(cutoff: "$3" | "$4") {
+  return `LEFT JOIN (
+       SELECT d.job_id,min(d.dispatched_at) AS first_page_at
+       FROM collector_dispatches d
+       WHERE d.source_id=$1 AND d.kind='page' AND d.dispatched_at >= $2 AND d.dispatched_at <= ${cutoff}
+       GROUP BY d.job_id
+     ) d ON d.job_id=j.id`;
+}
+
 /** Internal aggregate facts, deliberately excludes item text, URLs, credentials and prices. */
 export async function collectorHealth(
   db: Database,
@@ -142,13 +151,22 @@ export async function collectorHealth(
     const planned = scheduledCount(plans, from.getTime(), now.getTime());
     const execution = (
       await c.query(
-        "SELECT count(*)::int materialized,count(*) FILTER(WHERE j.started_at IS NOT NULL AND j.started_at<=$3)::int started,count(*) FILTER(WHERE j.started_at IS NOT NULL AND j.started_at<=o.deadline_at AND j.started_at<=$3)::int on_time FROM collector_refresh_occurrences o LEFT JOIN collector_jobs j ON j.source_id=o.source_id AND j.run_key=('refresh:'||o.id::text) WHERE o.source_id=$1 AND o.scheduled_for>=$2 AND o.scheduled_for<=$3",
+        `SELECT count(*)::int materialized,
+           count(*) FILTER(WHERE j.started_at<=$3)::int started,
+           count(*) FILTER(WHERE j.started_at<=o.deadline_at AND j.started_at<=$3)::int on_time,
+           count(*) FILTER(WHERE d.first_page_at IS NOT NULL)::int first_page_dispatched,
+           count(*) FILTER(WHERE d.first_page_at<=o.deadline_at)::int first_page_dispatched_on_time,
+           count(*) FILTER(WHERE j.started_at<=$3 AND d.first_page_at IS NULL)::int claimed_without_page_dispatch
+         FROM collector_refresh_occurrences o
+         LEFT JOIN collector_jobs j ON j.source_id=o.source_id AND j.run_key=('refresh:'||o.id::text)
+         ${firstPageDispatches("$3")}
+         WHERE o.source_id=$1 AND o.scheduled_for>=$2 AND o.scheduled_for<=$3 AND o.created_at<=$3`,
         [sourceId, from, now],
       )
     ).rows[0];
     const refreshStates = (
       await c.query(
-        "SELECT status,count(*)::int n FROM collector_refresh_occurrences WHERE source_id=$1 AND scheduled_for>=$2 AND scheduled_for<=$3 GROUP BY status ORDER BY status",
+        "SELECT status,count(*)::int n FROM collector_refresh_occurrences WHERE source_id=$1 AND scheduled_for>=$2 AND scheduled_for<=$3 AND created_at<=$3 GROUP BY status ORDER BY status",
         [sourceId, from, now],
       )
     ).rows;
@@ -187,12 +205,17 @@ export async function collectorHealth(
       firstPassPageJobs: fraction(counts.first_pass_page_jobs, counts.enqueued),
       scheduleExecutionRate: plans.length ? fraction(execution.started, planned) : null,
       scheduleOnTimeRate: plans.length ? fraction(execution.on_time, planned) : null,
+      scheduleFirstPageDispatchRate: plans.length ? fraction(execution.first_page_dispatched, planned) : null,
+      scheduleOnTimeFirstPageDispatchRate: plans.length
+        ? fraction(execution.first_page_dispatched_on_time, planned)
+        : null,
       scheduleDenominator: plans.length ? "frozen_refresh_plan" : "no_frozen_schedule_evidence",
       refresh: {
         frozenPlans: plans.length,
         planned,
         materialized: execution.materialized,
         unmaterialized: Math.max(0, planned - execution.materialized),
+        claimedWithoutPageDispatch: execution.claimed_without_page_dispatch,
         states: refreshStates,
       },
       freshWatermarks: fraction(watermarks.fresh, watermarks.total),
@@ -243,11 +266,15 @@ async function readDailyEvidence(
        count(*)::int materialized,
        count(*) FILTER (WHERE j.started_at<=$4)::int started,
        count(*) FILTER (WHERE j.started_at<=$4 AND j.started_at<=o.deadline_at)::int on_time,
+       count(*) FILTER (WHERE d.first_page_at IS NOT NULL)::int first_page_dispatched,
+       count(*) FILTER (WHERE d.first_page_at<=o.deadline_at)::int first_page_dispatched_on_time,
+       count(*) FILTER (WHERE j.started_at<=$4 AND d.first_page_at IS NULL)::int claimed_without_page_dispatch,
        count(*) FILTER (WHERE j.status='completed' AND j.finished_at<=$4)::int completed,
        count(*) FILTER (WHERE j.status IN ('failed','expired','cancelled') AND j.finished_at<=$4)::int failed_jobs,
        count(*) FILTER (WHERE o.status IN ('blocked','missed') AND o.finished_at<=$4)::int stopped_occurrences
      FROM collector_refresh_occurrences o
      LEFT JOIN collector_jobs j ON j.source_id=o.source_id AND j.run_key=('refresh:'||o.id::text)
+     ${firstPageDispatches("$4")}
      WHERE o.source_id=$1 AND o.scheduled_for>=$2 AND o.scheduled_for<$3 AND o.created_at<=$4
      GROUP BY 1`,
     parameters,
@@ -276,6 +303,9 @@ async function readDailyEvidence(
         unmaterialized: Math.max(0, planned - (row?.materialized ?? 0)),
         started: row?.started ?? 0,
         onTime: row?.on_time ?? 0,
+        firstPageDispatched: row?.first_page_dispatched ?? 0,
+        firstPageDispatchedOnTime: row?.first_page_dispatched_on_time ?? 0,
+        claimedWithoutPageDispatch: row?.claimed_without_page_dispatch ?? 0,
         completed: row?.completed ?? 0,
         failedJobs: row?.failed_jobs ?? 0,
         stoppedOccurrences: row?.stopped_occurrences ?? 0,
