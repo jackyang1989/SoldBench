@@ -344,6 +344,53 @@ test("continuous evidence retains empty UTC days, missed work and actual cross-m
   assert.equal(cli.networkRequests, 0);
 });
 
+test("a full 120-query schedule records all 1680 slots after a thirteen-day outage", async (t) => {
+  const x = await setup({ dailyJobs: 120 });
+  const first = Date.parse("2026-11-18T00:00:00.000Z");
+  const day = 86_400_000;
+  const slot = 8 * 3_600_000;
+  const clockAt = (offset) => new Date(first + offset).toISOString();
+  for (let i = 0; i < 120; i++) {
+    await x.refresh.create({
+      ...x.input,
+      query: new URLSearchParams({ q: `Synthetic campaign model ${i + 1}` }),
+      key: `synthetic-campaign-model-${i + 1}`,
+      startAt: clockAt((i % 3) * slot),
+      intervalSeconds: day / 1000,
+    });
+  }
+  for (let block = 0; block < 3; block++) {
+    x.clock.value = clockAt(block * slot);
+    assert.deepEqual(await x.refresh.materialize(x.sourceId), { materialized: 40, more: false });
+    for (let i = 0; i < 40; i++) {
+      const next = await x.refresh.dispatchNext(x.sourceId);
+      assert.ok(next?.jobId);
+      assert.equal((await complete(x, next.jobId)).status, "completed");
+    }
+    assert.equal(await x.refresh.dispatchNext(x.sourceId), null);
+  }
+  x.clock.value = clockAt(14 * day - 1);
+  assert.deepEqual(await x.refresh.materialize(x.sourceId), { materialized: 1000, more: true });
+  assert.deepEqual(await x.refresh.materialize(x.sourceId), { materialized: 560, more: false });
+  assert.deepEqual(await x.refresh.materialize(x.sourceId), { materialized: 0, more: false });
+  assert.equal(await x.refresh.dispatchNext(x.sourceId), null);
+  const evidence = await collectorHealth(db, x.sourceId, { now: clockAt(14 * day), dailyDays: 14 });
+  assert.equal(evidence.onlineVerified, false);
+  assert.equal(evidence.networkRequests, 0);
+  assert.equal(evidence.daily.days.length, 14);
+  const [observed, ...outage] = evidence.daily.days;
+  assert.deepEqual(
+    [observed.planned, observed.materialized, observed.onTime, observed.completed, observed.pageAttempts],
+    [120, 120, 120, 120, 120],
+  );
+  for (const missed of outage)
+    assert.deepEqual(
+      [missed.planned, missed.materialized, missed.stoppedOccurrences, missed.started, missed.pageAttempts],
+      [120, 120, 120, 0, 0],
+    );
+  t.diagnostic(JSON.stringify({ mode: "offline_fixture", planned: 1680, completed: 120, missed: 1560 }));
+});
+
 test("refresh lease cannot be reused for a different run key, TTL or source", async () => {
   for (const field of ["runKey", "ttlSeconds", "sourceId"]) {
     const x = await setup(),

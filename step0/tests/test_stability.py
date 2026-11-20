@@ -1,9 +1,13 @@
+import json
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from stability_report import plan, summarize
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'tools'))
+from stability_report import campaign_plan, plan, summarize
 
 
 class StabilityTests(unittest.TestCase):
@@ -74,14 +78,60 @@ class StabilityTests(unittest.TestCase):
 
     def test_online_reference_and_mode_separation(self):
         tasks = self.tasks()
-        row = self.row(tasks[0])
+        digest = campaign_plan('2026-12-01')['campaign_sha256']
+        row = self.row(tasks[1])
         row['mode'] = 'authorized_online'
         with self.assertRaisesRegex(ValueError, 'evidence'):
             summarize(tasks, [row])
         row['evidence_ref'] = 'synthetic-unit-test-evidence-only'
-        self.assertFalse(summarize(tasks, [row])['externalEvidenceVerified'])
+        with self.assertRaisesRegex(ValueError, 'campaign digest'):
+            summarize(tasks, [row], digest)
+        row['campaign_sha256'] = digest
+        self.assertFalse(summarize(tasks, [row], digest)['externalEvidenceVerified'])
+        too_early = {**row, 'started_at': '2026-12-01T07:59:59Z'}
+        with self.assertRaisesRegex(ValueError, 'before its frozen UTC slot'):
+            summarize(tasks, [too_early], digest)
         with self.assertRaisesRegex(ValueError, 'mixed'):
-            summarize(tasks, [row, self.row(tasks[1])])
+            summarize(tasks, [row, self.row(tasks[0])], digest)
+
+    def test_cli_rejects_changed_campaign_or_corpus_and_requires_freeze_for_online_rows(self):
+        with tempfile.TemporaryDirectory(prefix='soldbench-stability-campaign-') as directory:
+            root = Path(directory)
+            saved, corpus, results = (root / name for name in ('plan.json', 'corpus.csv', 'results.jsonl'))
+            original = (ROOT / 'corpus.csv').read_bytes()
+            corpus.write_bytes(original)
+
+            def cli(*args):
+                return subprocess.run([sys.executable, str(ROOT / 'tools/stability_report.py'),
+                                       '--corpus', str(corpus), *map(str, args)], capture_output=True, text=True)
+
+            start = ('--start', '2026-12-01')
+            exported = cli(*start, '--freeze-plan', saved)
+            self.assertEqual(exported.returncode, 0, exported.stderr)
+            manifest = json.loads(saved.read_text())
+            self.assertEqual(manifest['campaign_sha256'], exported.stdout.strip())
+            self.assertEqual(len(manifest['tasks']), 1680)
+            self.assertNotEqual(cli(*start, '--freeze-plan', saved).returncode, 0)
+            results.write_text(json.dumps({**self.row(manifest['tasks'][0]), 'mode': 'authorized_online',
+                                           'campaign_sha256': manifest['campaign_sha256'],
+                                           'evidence_ref': 'synthetic-controlled-ref'}) + '\n')
+            self.assertNotEqual(cli(*start, '--results', results).returncode, 0)
+            result = cli('--plan', saved, '--results', results)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = json.loads(result.stdout)
+            self.assertEqual(report['summary']['missing'], 1679)
+            self.assertEqual(report['stageVerdict'], 'NOT_ISSUED')
+            self.assertFalse(report['externalEvidenceVerified'])
+            corpus.write_bytes(original.replace(b'Charizard', b'Another model', 1))
+            wrong_corpus = cli('--plan', saved, '--results', results)
+            self.assertNotEqual(wrong_corpus.returncode, 0)
+            self.assertIn('differs from the frozen manifest', wrong_corpus.stderr)
+            corpus.write_bytes(original)
+            manifest['tasks'].pop()
+            saved.write_text(json.dumps(manifest))
+            wrong_plan = cli('--plan', saved, '--results', results)
+            self.assertNotEqual(wrong_plan.returncode, 0)
+            self.assertIn('differs from the frozen manifest', wrong_plan.stderr)
 
 
 if __name__ == '__main__':
