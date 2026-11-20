@@ -14,11 +14,13 @@ python3 step0/tools/stability_report.py --plan /path/to/campaign-plan.json --res
 
 本地 JSONL 每行包含 `task_id`、`mode`、`started_at`、`finished_at`、`attempts`、`first_semantic_success`、`semantic_success`、`billable`、`pages`、`bytes`、`cpu_ms`、`cost_cents`、`evidence_ref`。`task_id` 格式为 `YYYY-MM-DD/query_id`。一次完整任务只写一行终态，`attempts` 记录全部分页和重试请求总次数。`authorized_online` 批次须使用 `--plan`，每行提供对应的 `campaign_sha256` 和受控证据引用，任务实际启动不得早于冻结时段。冻结摘要仅用于绑定证据，真实批准和权利材料另行复核。
 
-semantic_success为预算和deadline内取得符合该query和结构的有效结果，HTTP200错误页必须填false。first_semantic_success表示全部所需页在第一次尝试即语义成功，需要原始分请求证据，不能从attempts总数反推，因为正常分页也会产生多次请求。billable另要求权利有效、新鲜且合格价格样本至少8条。字段完整性、实际价核验率与Precision/Recall由字段/金标报告另核验，不以成功标志替代。
+semantic_success 为预算和 deadline 内取得符合该 query 和结构的有效结果，HTTP 200 错误页必须填 false。语义成功至少提交一页，有效空结果也应保存一页证据。first_semantic_success 要求全部所需页第一次即语义成功，申请该标记时页面请求次数须与提交页数一致，并保留逐次请求证据。billable 另要求权利有效、新鲜且合格价格样本至少 8 条。字段完整性、实际价核验率与 Precision/Recall 由字段和金标报告另行核验。
 
 任务在准入守卫或熔断处停止时，保留启动和失败记录，attempts/pages为0，first_semantic_success/semantic_success/billable均false。该任务继续留在计划分母和启动数，不能从报表中删除。已提交页数不得大于请求次数。
 
 报告按日、类目、头尾输出计划/启动/首试语义成功/有界最终成功/可收费数、资源和成本。已报告任务的耗时P95、成本P50/P95及最贵ceil(5%×n)任务平均成本单列，费用分位数用Type7有理数。已报告任务只要一项成本未知，该组成本分布保留null。计划缺失任务使计划总成本保持null，已知观察成本及样本数仍透明列出。混合离线/在线记录直接拒绝。authorized_online输入必须带证据引用，报告保留externalEvidenceVerified=false等待独立核验，G0签署由创始人负责。
+
+报告的 `results_sha256` 绑定本次读取的原始结果 JSONL，含换行及空白行。外部独立保管摘要后，复核同一文件时可追加 `--expect-results-sha256=预存摘要`。摘要不符或同一 JSON 对象存在重复键时拒绝出报告。
 
 在获准样本校验中，图片需核对主图角色、同一成交/观察归属与可解析尺寸。另列主图缺失与实物可读分母，标记来源许可和解析版本。一次本地主图抽检不能替代真实源的字段证据。
 

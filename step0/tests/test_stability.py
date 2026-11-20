@@ -1,3 +1,4 @@
+import hashlib
 import json
 import subprocess
 import sys
@@ -61,6 +62,7 @@ class StabilityTests(unittest.TestCase):
         row = self.row(tasks[0])
         for changes in [{'task_id': 'unknown'}, {'attempts': 0}, {'attempts': 1}, {'semantic_success': 1},
                         {'semantic_success': False}, {'started_at': '2026-12-02T00:00:00Z'},
+                        {'started_at': '2026-12-01Z'}, {'started_at': '2026-12-01 00:00:00Z'},
                         {'finished_at': '2026-11-30T00:00:00Z'}, {'bytes': -1}, {'cost_cents': -1}]:
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 summarize(tasks, [{**row, **changes}])
@@ -75,6 +77,18 @@ class StabilityTests(unittest.TestCase):
         self.assertEqual(result['started'], 1)
         self.assertEqual(result['attempts'], 0)
         self.assertEqual(result['final_semantic_success'], 0)
+
+    def test_semantic_success_requires_page_evidence_and_first_pass_has_no_retries(self):
+        tasks = self.tasks()
+        row = self.row(tasks[0])
+        with self.assertRaisesRegex(ValueError, 'requires at least one committed page'):
+            summarize(tasks, [{**row, 'pages': 0}])
+        with self.assertRaisesRegex(ValueError, 'First-pass success cannot include extra page attempts'):
+            summarize(tasks, [{**row, 'attempts': 3}])
+        empty_valid_page = {**row, 'pages': 1, 'attempts': 1, 'billable': False}
+        self.assertEqual(summarize(tasks, [empty_valid_page])['summary']['first_semantic_success'], 1)
+        self.assertEqual(summarize(tasks, [{**row, 'attempts': 3, 'first_semantic_success': False}])
+                         ['summary']['final_semantic_success'], 1)
 
     def test_online_reference_and_mode_separation(self):
         tasks = self.tasks()
@@ -122,6 +136,21 @@ class StabilityTests(unittest.TestCase):
             self.assertEqual(report['summary']['missing'], 1679)
             self.assertEqual(report['stageVerdict'], 'NOT_ISSUED')
             self.assertFalse(report['externalEvidenceVerified'])
+            original_results = results.read_bytes()
+            expected_digest = hashlib.sha256(original_results).hexdigest()
+            self.assertEqual(report['results_sha256'], expected_digest)
+            self.assertEqual(cli('--plan', saved, '--results', results,
+                                 '--expect-results-sha256', expected_digest).returncode, 0)
+            results.write_bytes(original_results + b'\n')
+            changed_results = cli('--plan', saved, '--results', results,
+                                  '--expect-results-sha256', expected_digest)
+            self.assertNotEqual(changed_results.returncode, 0)
+            self.assertIn('independently recorded digest', changed_results.stderr)
+            results.write_bytes(original_results.replace(b'"pages": ', b'"pages": 0, "pages": '))
+            duplicate = cli('--plan', saved, '--results', results)
+            self.assertNotEqual(duplicate.returncode, 0)
+            self.assertIn('Duplicate JSON property: pages', duplicate.stderr)
+            results.write_bytes(original_results)
             corpus.write_bytes(original.replace(b'Charizard', b'Another model', 1))
             wrong_corpus = cli('--plan', saved, '--results', results)
             self.assertNotEqual(wrong_corpus.returncode, 0)

@@ -8,7 +8,7 @@ import os
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
-from stability_report import plan, summarize
+from stability_report import plan, read_terminal_records, summarize
 
 ROOT = Path(__file__).resolve().parents[2]
 POC = ROOT / 'step0/collector-poc'
@@ -35,9 +35,9 @@ def run(output):
         (output / (profile + '.log')).write_text(result.stdout + result.stderr)
         if result.returncode:
             raise RuntimeError(profile + ' failed: ' + result.stderr)
-        with (output / profile / 'results.jsonl').open() as handle:
-            rows = [json.loads(line) for line in handle if line.strip()]
+        rows, results_digest = read_terminal_records(output / profile / 'results.jsonl')
         analyzed = summarize(tasks, rows)
+        analyzed['results_sha256'] = results_digest
         campaign = json.loads((output / profile / 'campaign-summary.json').read_text())
         if analyzed['summary']['started'] != 168 or len(rows) != 168 or any(row['actualChargePerformed'] for row in rows):
             raise ValueError('Incomplete or invalid campaign output')

@@ -5,6 +5,7 @@ import csv
 import hashlib
 import io
 import json
+import re
 from datetime import date, datetime, timedelta, timezone
 from fractions import Fraction
 from pathlib import Path
@@ -46,6 +47,15 @@ def json_digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 
+def unique_object(pairs):
+    document = {}
+    for key, value in pairs:
+        if key in document:
+            raise ValueError(f'Duplicate JSON property: {key}')
+        document[key] = value
+    return document
+
+
 def campaign_plan(start, corpus=ROOT / 'corpus.csv'):
     first = date.fromisoformat(start)
     corpus_bytes = corpus.read_bytes()
@@ -58,7 +68,7 @@ def campaign_plan(start, corpus=ROOT / 'corpus.csv'):
 
 def load_campaign(path, corpus):
     with path.open() as handle:
-        manifest = json.load(handle)
+        manifest = json.load(handle, object_pairs_hook=unique_object)
     if (not isinstance(manifest, dict) or manifest.get('schema') != PLAN_SCHEMA
             or not isinstance(manifest.get('start'), str)):
         raise ValueError('Unknown campaign plan schema')
@@ -67,8 +77,30 @@ def load_campaign(path, corpus):
     return manifest
 
 
+def read_terminal_records(path):
+    records = []
+    digest = hashlib.sha256()
+    with path.open('rb') as handle:
+        for number, line in enumerate(handle, 1):
+            digest.update(line)
+            if not line.strip():
+                continue
+            if len(records) >= 1680:
+                raise ValueError('Results exceed the 14-day plan')
+            try:
+                row = json.loads(line.decode('utf-8'), object_pairs_hook=unique_object)
+            except ValueError as error:
+                raise ValueError(f'Invalid terminal record on line {number}: {error}') from error
+            if not isinstance(row, dict):
+                raise ValueError(f'Terminal record on line {number} must be an object')
+            records.append(row)
+    return records, digest.hexdigest()
+
+
 def utc(value):
-    if not isinstance(value, str) or not value.endswith('Z'):
+    if not isinstance(value, str) or not re.fullmatch(
+        r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?Z', value
+    ):
         raise ValueError('Task times require UTC timestamps ending in Z')
     result = datetime.fromisoformat(value[:-1] + '+00:00')
     return result.astimezone(timezone.utc)
@@ -114,6 +146,10 @@ def summarize(tasks, records, campaign_sha256=None):
             count(row[field], field)
         if row['pages'] > attempts:
             raise ValueError('Committed pages cannot exceed request attempts')
+        if row['semantic_success'] and not row['pages']:
+            raise ValueError('Semantic success requires at least one committed page')
+        if row['first_semantic_success'] and row['pages'] != attempts:
+            raise ValueError('First-pass success cannot include extra page attempts')
         if row['cost_cents'] is not None:
             decimal(row['cost_cents'], 'cost_cents')
         results[task_id] = row
@@ -170,24 +206,24 @@ if __name__ == '__main__':
     parser.add_argument('--corpus', type=Path, default=ROOT / 'corpus.csv')
     parser.add_argument('--freeze-plan', type=Path)
     parser.add_argument('--results', type=Path)
+    parser.add_argument('--expect-results-sha256')
     args = parser.parse_args()
     if args.freeze_plan and (args.plan or args.results):
         parser.error('--freeze-plan requires --start and excludes --results')
+    if args.expect_results_sha256 is not None:
+        if not args.results or not re.fullmatch(r'[0-9a-f]{64}', args.expect_results_sha256):
+            parser.error('--expect-results-sha256 requires --results and a lowercase SHA-256')
     campaign = load_campaign(args.plan, args.corpus) if args.plan else campaign_plan(args.start, args.corpus)
     if args.freeze_plan:
         with args.freeze_plan.open('x') as handle:
             handle.write(json.dumps(campaign, indent=2) + '\n')
         print(campaign['campaign_sha256'])
         raise SystemExit(0)
-    records = []
-    if args.results:
-        with args.results.open() as handle:
-            for line in handle:
-                if line.strip():
-                    records.append(json.loads(line))
-                if len(records) > 1680:
-                    raise ValueError('Results exceed the 14-day plan')
+    records, results_digest = read_terminal_records(args.results) if args.results else ([], None)
+    if args.expect_results_sha256 is not None and results_digest != args.expect_results_sha256:
+        raise ValueError('Terminal records differ from the independently recorded digest')
     report = summarize(campaign['tasks'], records, campaign['campaign_sha256'] if args.plan else None)
     report['corpus_sha256'] = campaign['corpus_sha256']
     report['campaign_sha256'] = campaign['campaign_sha256']
+    report['results_sha256'] = results_digest
     print(json.dumps(report, indent=2))
