@@ -62,6 +62,8 @@ SoldBench 是一个面向**个人卖家、收藏品交易商、二手商家、�
 
 继续采集时先看[逐日执行证据](采集管线实施契约.md#19-逐日采集执行证据)和主图段落。六类客户回归入口为 `node scripts/test.mjs tests/customer-journeys.test.mjs`，修改公共搜索、扣费、证据、导出或 MCP 后用该命令验证真实本机会话和账本。比较研究见 [同口径盲审](../step0/quality-plan.md)，价格复算见 [满额成本](../step0/unit-economics/README.md)。这些入口全部可在现有离线模式执行，真实数据和放行证据按原 TASK 追踪。
 
+离线响应包经 `collector:intake` 入站，PG 绑定之前的中断可由监听进程接管。缺包到期由维护事务收口，目录恢复后看同一 PID 的 `spool`、`settled` 和 `queues`。队列展示保护 `due` 与 `scanned` 的分母区别。先用 `node scripts/test.mjs tests/collector-isolation.test.mjs tests/collector-budget.test.mjs tests/collector-pipeline.test.mjs` 复跑进程、预算和主图证据，再进入实际来源/宿主签收。恢复和限额细节见[采集契约 §20–22](采集管线实施契约.md#20-离线响应包入站和中断恢复)。
+
 ## 7. 必读的竞品差距实施基线
 
 竞品补齐的既有基线为 DEC-13。[竞品能力实施规格与路线图](竞品能力实施规格与路线图.md)24组CP是实施入口，原范围为首发203、扩展116人日。DEC-15 补齐整站原型后的当期排期与状态见台账。首发增加详情/单结果导出/TOTP恢复码/请求日志/完整开发者交付和六类客户验收；此前§6和旧文档“以后评审/未排期”表述由此覆盖。每个Agent须检查当前CP对应TASK/AT再动工，不能只根据旧43任务或156人日估算执行。

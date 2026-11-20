@@ -1,4 +1,4 @@
-import { lstat, opendir } from "node:fs/promises";
+import { lstat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { CollectorStore, FixtureTransport, OfflineCollectorWorker } from "@soldbench/collector";
@@ -11,7 +11,8 @@ import { launchCollector } from "./collector-launcher.mjs";
 import { localDatabaseUrl } from "./local-db.mjs";
 
 const lockNamespace = "soldbench.offline-collector-supervisor";
-const maxArtifactEntries = 10000;
+const candidatesPerLane = 64;
+const dispatchPerLane = 4;
 const spoolErrors = new Set([
   "ENOENT",
   "ENOTDIR",
@@ -25,21 +26,21 @@ const spoolErrors = new Set([
   "ESTALE",
   "ELOOP",
   "fixture_spool_not_directory",
-  "fixture_spool_entry_limit_exceeded",
 ]);
 
-async function availableArtifacts(directory) {
-  if (!(await lstat(directory)).isDirectory()) throw new Error("fixture_spool_not_directory");
-  const paths = new Map();
-  let inspected = 0;
-  for await (const file of await opendir(directory)) {
-    if (++inspected > maxArtifactEntries) throw new Error("fixture_spool_entry_limit_exceeded");
-    const id = /^collector-(?:html-)?fixture-(.+)\.json$/.exec(file.name)?.[1];
-    if (!fixtureJobId.test(id ?? "")) continue;
-    // A second name or a symlink is ambiguous. Leave the affected job unclaimed.
-    paths.set(id, !paths.has(id) && file.isFile() ? join(directory, file.name) : null);
-  }
-  return new Map([...paths].filter(([, file]) => file !== null));
+async function availableArtifact(directory, jobId) {
+  const entries = await Promise.all(
+    ["collector-fixture", "collector-html-fixture"].map(async (kind) => {
+      const path = join(directory, `${kind}-${jobId}.json`);
+      const stat = await lstat(path).catch((error) => {
+        if (error.code !== "ENOENT") throw error;
+      });
+      return stat ? { path, regular: stat.isFile() } : null;
+    }),
+  );
+  // Two names or a symlink remain ambiguous even when one candidate is valid.
+  const present = entries.filter(Boolean);
+  return present.length === 1 && present[0].regular ? present[0].path : null;
 }
 
 async function sourceState(db, sourceId) {
@@ -64,10 +65,10 @@ async function sourceState(db, sourceId) {
   return source.dispatch_state;
 }
 
-async function dueJobs(db, sourceId, paths, deferred) {
+async function dueJobs(db, sourceId, cursors) {
   return (
     await db.query(
-      `WITH ready AS (
+      `WITH ready AS MATERIALIZED (
         SELECT 'pages' AS lane,j.id,j.available_at FROM collector_jobs j WHERE j.source_id=$1
          AND (j.status IN ('queued','retry') OR (j.status='running' AND j.lease_until<=now()))
          AND j.available_at<=now()
@@ -77,11 +78,21 @@ async function dueJobs(db, sourceId, paths, deferred) {
           AND ((t.status='retry' AND (t.available_at<=now() OR t.expires_at<=now())) OR (t.status='running' AND t.lease_until<=now()))
           AND (t.expires_at<=now() OR j.status IN ('completed','failed','cancelled','expired'))
          GROUP BY t.parent_job_id
-      ) SELECT lane,count(*)::int AS due,count(*) FILTER(WHERE id=ANY($2::uuid[]))::int AS backed,
-         count(*) FILTER(WHERE id=ANY($2::uuid[]) AND id=ANY($3::uuid[]))::int AS deferred,
-         coalesce((array_agg(id ORDER BY available_at,id) FILTER(WHERE id=ANY($2::uuid[]) AND NOT id=ANY($3::uuid[])))[1:4],'{}'::uuid[]) AS jobs
-       FROM ready GROUP BY lane ORDER BY lane DESC`,
-      [sourceId, [...paths.keys()], [...deferred.keys()]],
+      ), lanes(lane,after_at,after_id) AS (VALUES
+        ('pages',$2::timestamptz,$3::uuid), ('images',$4::timestamptz,$5::uuid)
+      ) SELECT l.lane,(SELECT count(*)::int FROM ready r WHERE r.lane=l.lane) AS due,
+         ARRAY(SELECT jsonb_build_object('id',r.id,'availableAt',r.available_at::text) FROM ready r WHERE r.lane=l.lane
+           ORDER BY CASE WHEN l.after_at IS NULL OR (r.available_at,r.id)>(l.after_at,l.after_id) THEN 0 ELSE 1 END,
+                    r.available_at,r.id LIMIT $6) AS candidates
+       FROM lanes l ORDER BY l.lane DESC`,
+      [
+        sourceId,
+        ...["pages", "images"].flatMap((lane) => [
+          cursors[lane]?.availableAt ?? null,
+          cursors[lane]?.id ?? null,
+        ]),
+        candidatesPerLane,
+      ],
     )
   ).rows;
 }
@@ -167,6 +178,7 @@ async function run(args) {
       }
       const deferred = new Map(),
         pendingDeferred = new Map();
+      const cursors = {};
       let nextMaintenance = 0;
       while (!signal.aborted) {
         const now = performance.now();
@@ -184,30 +196,55 @@ async function run(args) {
         let state = await sourceState(db, sourceId);
         let intake = null;
         let spoolState = "ready";
-        let paths = new Map();
+        const rows = await dueJobs(db, sourceId, cursors);
+        for (const [id, until] of deferred) if (until <= now) deferred.delete(id);
+        const lanes = new Map();
         try {
+          if (!(await lstat(spool)).isDirectory()) throw new Error("fixture_spool_not_directory");
           if (state === "ready")
             intake = await resumeFixtureIntake(db, spool, sourceId, pendingDeferred, signal);
-          paths = await availableArtifacts(spool);
+          for (const row of rows) {
+            let withArtifact = 0;
+            let deferredCount = 0;
+            const jobs = [];
+            const paths = await Promise.all(
+              row.candidates.map((candidate) => availableArtifact(spool, candidate.id)),
+            );
+            for (const [index, candidate] of row.candidates.entries()) {
+              const path = paths[index];
+              if (!path) continue;
+              withArtifact++;
+              if (deferred.has(candidate.id)) deferredCount++;
+              else if (jobs.length < dispatchPerLane) jobs.push({ ...candidate, path });
+            }
+            const scanned = row.candidates.length;
+            lanes.set(row.lane, {
+              jobs,
+              counts: {
+                due: row.due,
+                scanned,
+                uninspected: row.due - scanned,
+                withArtifact,
+                artifactUnavailable: scanned - withArtifact,
+                deferred: deferredCount,
+              },
+            });
+          }
         } catch (error) {
           if (!watch || !spoolErrors.has(error.code ?? error.message)) throw error;
-          spoolState =
-            (error.code ?? error.message) === "fixture_spool_entry_limit_exceeded"
-              ? "scan_limit"
-              : "unavailable";
+          spoolState = "unavailable";
+          lanes.clear();
         }
-        for (const [id, until] of deferred) if (until <= now || !paths.has(id)) deferred.delete(id);
-        const rows = await dueJobs(db, sourceId, paths, deferred);
         const cycles = [];
-        for (const lane of rows) {
-          for (const jobId of lane.jobs) {
+        for (const [lane, { jobs }] of lanes) {
+          for (const { id: jobId, path } of jobs) {
             if (state !== "ready" || signal.aborted) break;
             const result = await launchCollector(
               [
-                `--fixture=${paths.get(jobId)}`,
+                `--fixture=${path}`,
                 `--expected-job=${jobId}`,
                 `--max-ms=${maxMs}`,
-                ...(lane.lane === "images" ? ["--media-only=true"] : []),
+                ...(lane === "images" ? ["--media-only=true"] : []),
               ],
               env,
               signal,
@@ -229,7 +266,7 @@ async function run(args) {
             if (!cycle?.claimed) deferred.set(jobId, performance.now() + (cycle ? 5000 : 30000));
             cycles.push({
               jobId,
-              lane: lane.lane,
+              lane: lane,
               status: cycle?.status ?? null,
               claimed: cycle?.claimed ?? false,
               exitCode: result.exitCode,
@@ -241,16 +278,19 @@ async function run(args) {
         }
         if (signal.aborted) break;
         const queues = {};
-        for (const lane of ["pages", "images"]) {
-          const counts = rows.find((row) => row.lane === lane);
-          const due = counts?.due ?? 0,
-            withArtifact = counts?.backed ?? 0;
-          queues[lane] = {
+        for (const { lane, due, candidates } of rows) {
+          const inspected = lanes.get(lane);
+          queues[lane] = inspected?.counts ?? {
             due,
-            withArtifact,
-            artifactUnavailable: due - withArtifact,
-            deferred: counts?.deferred ?? 0,
+            scanned: 0,
+            uninspected: due,
+            withArtifact: 0,
+            artifactUnavailable: 0,
+            deferred: 0,
           };
+          if (inspected)
+            cursors[lane] =
+              inspected.jobs.length === dispatchPerLane ? inspected.jobs.at(-1) : candidates.at(-1);
         }
         console.log(
           JSON.stringify({

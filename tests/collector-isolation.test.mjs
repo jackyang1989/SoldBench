@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
@@ -224,6 +224,54 @@ test("supervisor stays running with offline spool absent, expires missing work a
     ])
   ).rows[0].n;
   assert.equal(images, 8);
+  assert.equal(watcher.child.kill("SIGTERM"), true);
+  assert.deepEqual(await watcher.exited, { code: 0, signal: null });
+});
+
+test("supervisor finds actionable work after a full page of missing packs and over 10000 archived entries", async () => {
+  const directory = await root();
+  const prepared = await preparedDemo(directory);
+  const artifact = loadFixtureArtifact(await readFile(prepared.artifactPath)).artifact;
+  const store = new CollectorStore(db, undefined, { htmlProfile: artifact.htmlProfile });
+  const original = await store.view(prepared.jobId);
+  for (let i = 0; i < 10001; i += 100) {
+    await Promise.all(
+      Array.from({ length: Math.min(100, 10001 - i) }, (_, offset) =>
+        link(prepared.artifactPath, join(directory, `archive-${i + offset}`)),
+      ),
+    );
+  }
+  const earlier = [];
+  for (let i = 0; i < 65; i++) {
+    earlier.push(
+      await store.enqueue({
+        sourceId: original.source_id,
+        configId: original.config_id,
+        queryHash: digest(`missing pack ${i}`),
+        runKey: randomUUID(),
+        asOf: artifact.asOf,
+      }),
+    );
+  }
+  await db.query("UPDATE collector_jobs SET available_at=now()-interval '1 hour' WHERE id=ANY($1::uuid[])", [
+    earlier,
+  ]);
+  const watcher = start(
+    "scripts/collector-supervisor.mjs",
+    [`--source=${prepared.sourceId}`, `--spool=${directory}`, "--watch=true", "--interval-ms=250"],
+    { MEDIA_ROOT: join(directory, "media") },
+  );
+  await waitFor(async () => (await store.view(original.id)).status === "completed");
+  assert.equal((await store.view(original.id)).request_count, 10);
+  const first = JSON.parse(watcher.output.trim().split("\n")[0]);
+  assert.deepEqual(first.queues.pages, {
+    due: 66,
+    scanned: 64,
+    uninspected: 2,
+    withArtifact: 0,
+    artifactUnavailable: 64,
+    deferred: 0,
+  });
   assert.equal(watcher.child.kill("SIGTERM"), true);
   assert.deepEqual(await watcher.exited, { code: 0, signal: null });
 });

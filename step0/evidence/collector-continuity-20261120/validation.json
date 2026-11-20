@@ -1,0 +1,55 @@
+{
+  "captured_at": "2026-11-20T01:24:01+00:00",
+  "baseline_commit": "1bd341b",
+  "environment": {
+    "node": "22.23.3",
+    "database": "isolated PostgreSQL 16.15",
+    "browser": "local Chrome",
+    "data_mode": "offline_fixture",
+    "collector_enabled": false,
+    "external_network_requests": 0,
+    "clock": "fixed UTC for lease and budget tests, actual time for local process recovery"
+  },
+  "checks": {
+    "npm run check": {
+      "exit_code": 0,
+      "test_files": 27,
+      "tests": 273,
+      "pass": 273,
+      "fail": 0,
+      "skipped": 0
+    },
+    "npm run test:step0": {
+      "exit_code": 0,
+      "checks_passed": 20
+    },
+    "python3 docs/check_docs.py": {
+      "exit_code": 0
+    }
+  },
+  "collector_recovery_cases": {
+    "concurrent_same_artifact": "same checksum, one final artifact and no earlier lease",
+    "durable_artifact_before_database_binding": "same supervisor launch binds and executes one page; second cycle makes zero extra requests",
+    "missing_spool_directory": "same PID closes a missing expired job and processes two pages and eight primary images after directory returns",
+    "lost_page_and_image_task": "old UTC reservations settled once; stale tokens cannot write; valid page lease preserved",
+    "candidate_rotation": {
+      "archived_entries": 10001,
+      "older_missing_jobs": 65,
+      "maximum_inspected_per_lane": 64,
+      "completed_pages": 2,
+      "completed_primary_images": 8
+    }
+  },
+  "independent_review": "PENDING",
+  "stage_verdict": "NOT_ISSUED",
+  "real_ebay_stability": "UNVERIFIED",
+  "sha256": {
+    "packages/collector/src/store.ts": "10c8a28da26bd05c8dc6e612de4d9f55744aef14494710cdfeff82b36f4bf830",
+    "scripts/collector-supervisor.mjs": "16781ac1c988e54d0e94f8584937274d495490bd59b2846cad3b5b098274c065",
+    "scripts/collector-intake.mjs": "91f3c15288015f52f28f5fc808758d5b12ef0d8e9b172b9ee050bdedc117edba",
+    "scripts/collector-maintenance.mjs": "558b8d2e7034eeded7eacda40c788b26b6a1b8c595d16bf3d7d1103c2d597cca",
+    "tests/collector-isolation.test.mjs": "34106348c585efad7302ce4498721ec803ea6673b66c733fc2a5febdf1b33c08",
+    "tests/collector-budget.test.mjs": "20ff0f68435056cf16340315a0b75f704506aa22ce3837b44534f3134fb695b4",
+    "tests/collector-pipeline.test.mjs": "059998cd5427e43de6f9667a10bc19d9fefb55fe9d7fe52be6f86eb538f5bcd7"
+  }
+}
