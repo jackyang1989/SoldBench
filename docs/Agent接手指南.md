@@ -64,6 +64,8 @@ SoldBench 是一个面向**个人卖家、收藏品交易商、二手商家、�
 
 离线响应包经 `collector:intake` 入站，PG 绑定之前的中断可由监听进程接管。缺包到期由维护事务收口，目录恢复后看同一 PID 的 `spool`、`settled` 和 `queues`。队列展示保护 `due` 与 `scanned` 的分母区别。先用 `node scripts/test.mjs tests/collector-isolation.test.mjs tests/collector-budget.test.mjs tests/collector-pipeline.test.mjs` 复跑进程、预算和主图证据，再进入实际来源/宿主签收。恢复和限额细节见[采集契约 §20–22](采集管线实施契约.md#20-离线响应包入站和中断恢复)。
 
+独立运行演练先用迁移角色升级 PG，再用 `DB_STARTUP_MODE=verify` 启动各进程。事务邮件通过 `auth:mail` 的离线入口查看本机回执，变更 API 前使用 `docs/contracts/check_compatibility.py` 比较冻结契约。实际环境设置、回退与移动端取样命令见[发布与恢复手册](发布、回滚与撤权恢复手册.md)。
+
 ## 7. 必读的竞品差距实施基线
 
 竞品补齐的既有基线为 DEC-13。[竞品能力实施规格与路线图](竞品能力实施规格与路线图.md)24组CP是实施入口，原范围为首发203、扩展116人日。DEC-15 补齐整站原型后的当期排期与状态见台账。首发增加详情/单结果导出/TOTP恢复码/请求日志/完整开发者交付和六类客户验收；此前§6和旧文档“以后评审/未排期”表述由此覆盖。每个Agent须检查当前CP对应TASK/AT再动工，不能只根据旧43任务或156人日估算执行。

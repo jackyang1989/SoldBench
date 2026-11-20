@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
+import { gunzipSync } from "node:zlib";
 import { serve } from "@hono/node-server";
 import { createApp, publishNextScheduledContent } from "@soldbench/api";
 import { fixtureSignature, merchant, PaymentLifecycle } from "@soldbench/billing";
@@ -11,6 +12,7 @@ import { database, migrate } from "@soldbench/db";
 import { PublicResults } from "@soldbench/query";
 import { loadConfig } from "@soldbench/shared";
 import { generate } from "otplib";
+import { measureMobileWeb } from "./helpers/mobile-web.mjs";
 import { createProductFixture } from "./helpers/product.mjs";
 
 const db = database(process.env.DATABASE_URL),
@@ -91,6 +93,16 @@ test("prototype-based pages serve both languages, valid private deep links and s
   ]) {
     const response = await x.app.request(`/assets/soldbench.${extension}`);
     assert.match(response.headers.get("content-type"), new RegExp(mime));
+    assert.match(response.headers.get("vary"), /Accept-Encoding/i);
+    const path = `/assets/soldbench.${extension}`;
+    const compressed = await x.app.request(path, { headers: { "Accept-Encoding": "gzip" } });
+    assert.equal(compressed.headers.get("content-encoding"), "gzip");
+    const raw = Buffer.from(await response.arrayBuffer());
+    const zipped = Buffer.from(await compressed.arrayBuffer());
+    assert.ok(zipped.length < raw.length);
+    assert.deepEqual(gunzipSync(zipped), raw);
+    const identity = await x.app.request(path, { headers: { "Accept-Encoding": "identity, gzip;q=0" } });
+    assert.equal(identity.headers.get("content-encoding"), null);
   }
 });
 
@@ -116,6 +128,9 @@ test("Chrome walks an empty account from cache miss and registration to explicit
       query: x.query,
       payments,
     });
+    if (process.env.SOLDBENCH_MEASURE_MOBILE === "true") {
+      console.log(JSON.stringify(await measureMobileWeb(browser, origin)));
+    }
     await db.query(
       `UPDATE source_clearances SET permitted_fields=permitted_fields || '{"public_cache":["aggregate"],"public_share":["aggregate"]}'::jsonb WHERE id=(SELECT source_clearance_id FROM sources WHERE id=$1)`,
       [x.source.sourceId],

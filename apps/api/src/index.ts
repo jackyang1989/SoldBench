@@ -6,6 +6,7 @@ import type { QueryService } from "@soldbench/query";
 import { AppError, type Config } from "@soldbench/shared";
 import { operationsPanels, renderPage, webClient, webCss, webPages } from "@soldbench/web";
 import { Hono } from "hono";
+import { compress } from "hono/compress";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { mountAuth } from "./auth.ts";
 import { mountCatalog } from "./catalog.ts";
@@ -75,6 +76,7 @@ export function createApp(
     );
     return c.json({ status: "ready", data_mode: config.dataMode, ...rows[0] });
   });
+  for (const path of ["/assets/soldbench.css", "/assets/soldbench.js"]) app.use(path, compress());
   app.get("/assets/soldbench.css", (c) => c.body(webCss, 200, { "Content-Type": "text/css; charset=utf-8" }));
   app.get("/assets/soldbench.js", (c) =>
     c.body(webClient, 200, { "Content-Type": "text/javascript; charset=utf-8" }),
