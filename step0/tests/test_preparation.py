@@ -1,4 +1,6 @@
 import csv
+from datetime import datetime, timezone
+import hashlib
 import json
 import sys
 import tempfile
@@ -163,6 +165,72 @@ class PreparationTests(unittest.TestCase):
                 writer = csv.DictWriter(handle, fieldnames=columns)
                 writer.writeheader(); writer.writerows(rows)
             with self.assertRaisesRegex(ValueError, 'network_enabled'):
+                prepare_report(root)
+
+    def test_source_and_fields_report_invalid_or_expired_terms_from_the_exact_csv_bytes(self):
+        def write(root, name, update):
+            with (ROOT / name).open(newline='') as handle:
+                reader = csv.DictReader(handle)
+                columns, rows = reader.fieldnames, list(reader)
+            update(rows)
+            target = root / name
+            with target.open('w', encoding='utf-8-sig', newline='') as handle:
+                writer = csv.DictWriter(handle, fieldnames=columns)
+                writer.writeheader()
+                writer.writerows(rows)
+            return hashlib.sha256(target.read_bytes()).hexdigest()
+
+        def source(rows):
+            rows[0].update(status='APPROVED', approved_entrypoint='test-entrypoint',
+                           evidence_ref='unknown', rate_cap='0', concurrency_cap='3.5', retention_days='8',
+                           allowed_access_method='offline_fixture', effective_at='2026-01-01T00:00:00Z',
+                           expires_at='2026-11-21T00:00:00+00:00')
+
+        def fields(rows):
+            rows[0].update(rights_effective_at='2025-12-31T23:59:59Z',
+                           rights_expires_at='2027-01-01T00:00:00Z',
+                           retention_days='-1', approval_status='revoked')
+            rows[1].update(rights_effective_at='2026-02-30T00:00:00Z',
+                           rights_expires_at='2026-11-21T00:00:00-07:00')
+            rows[2].update(rights_effective_at='2026-06-01T00:00:00Z',
+                           rights_expires_at='2026-05-01T00:00:00Z', retention_days='0')
+
+        with tempfile.TemporaryDirectory(prefix='soldbench-readiness-terms-') as directory:
+            root = Path(directory)
+            source_name = 'source-clearance.csv'
+            field_name = 'source-capabilities.csv'
+            expected = {source_name: write(root, source_name, source), field_name: write(root, field_name, fields)}
+            report = prepare_report(root, as_of=datetime(2026, 11, 21, tzinfo=timezone.utc))
+            self.assertEqual(report['sha256'], expected)
+            self.assertFalse(report['approvalEvidenceValidated'])
+            self.assertFalse(report['collectorEnabled'])
+            self.assertEqual(report['stageVerdict'], 'NOT_ISSUED')
+            gap = report['gaps'][0]
+            self.assertIn('evidence_ref', gap['missingRightsOrTerms'])
+            self.assertEqual(gap['sourceTermIssues'], {
+                'expires_at': 'expired', 'rate_cap': 'positive_integer_required',
+                'concurrency_cap': 'positive_integer_required', 'allowed_access_method': 'offline_fixture_only',
+            })
+            self.assertEqual(gap['fieldTermIssues']['listing_id'], {
+                'rights_effective_at': 'starts_before_source', 'rights_expires_at': 'extends_past_source',
+                'retention_days': 'nonnegative_integer_required', 'approval_status': 'inactive',
+            })
+            self.assertEqual(gap['fieldTermIssues']['sale_event_id'], {
+                'rights_effective_at': 'utc_timestamp_required', 'rights_expires_at': 'utc_timestamp_required',
+            })
+            self.assertEqual(gap['fieldTermIssues']['event_identity_evidence'],
+                             {'rights_expires_at': 'must_follow_effective_at'})
+
+    def test_preparation_does_not_silently_drop_duplicate_headers_or_extra_cells(self):
+        with tempfile.TemporaryDirectory(prefix='soldbench-readiness-csv-') as directory:
+            root = Path(directory)
+            name = 'source-clearance.csv'
+            rows = (ROOT / name).read_text().splitlines()
+            (root / name).write_text(f'{rows[0]},status\n{rows[1]},APPROVED\n')
+            with self.assertRaisesRegex(ValueError, 'duplicate headers'):
+                prepare_report(root)
+            (root / name).write_text(f'{rows[0]}\n{rows[1]},APPROVED\n')
+            with self.assertRaisesRegex(ValueError, 'inconsistent row length'):
                 prepare_report(root)
 
 
