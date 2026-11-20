@@ -1,0 +1,141 @@
+{
+  "schema": "soldbench.full-quota-input.v1",
+  "evidence_kind": "assumed",
+  "observed_from": "2026-11-01T00:00:00Z",
+  "observed_until": "2026-12-01T00:00:00Z",
+  "plan": {
+    "code": "fixture",
+    "policy_version": "fixture-v1",
+    "customers": 2,
+    "credits_per_customer": 10
+  },
+  "workload": [
+    {
+      "cohort": "paid",
+      "outcome": "charged",
+      "path": "first",
+      "limit": 200,
+      "with_media": true,
+      "projected_units": 2
+    },
+    {
+      "cohort": "paid",
+      "outcome": "charged",
+      "path": "cache",
+      "limit": 50,
+      "with_media": false,
+      "projected_units": 18
+    },
+    {
+      "cohort": "free",
+      "outcome": "failed",
+      "path": "first",
+      "limit": 1,
+      "with_media": false,
+      "projected_units": 10
+    }
+  ],
+  "observations": [
+    {
+      "cohort": "paid",
+      "outcome": "charged",
+      "path": "first",
+      "limit": 200,
+      "with_media": true,
+      "unit_id": "synthetic-1",
+      "observed_at": "2026-11-15T00:00:00Z",
+      "costs": {
+        "network_cash_cents": "1",
+        "compute_cash_cents": "0",
+        "storage_cash_cents": "0",
+        "other_cash_cents": "0"
+      }
+    },
+    {
+      "cohort": "paid",
+      "outcome": "charged",
+      "path": "first",
+      "limit": 200,
+      "with_media": true,
+      "unit_id": "synthetic-2",
+      "observed_at": "2026-11-15T00:00:00Z",
+      "costs": {
+        "network_cash_cents": "2",
+        "compute_cash_cents": "0",
+        "storage_cash_cents": "0",
+        "other_cash_cents": "0"
+      }
+    },
+    {
+      "cohort": "paid",
+      "outcome": "charged",
+      "path": "first",
+      "limit": 200,
+      "with_media": true,
+      "unit_id": "synthetic-3",
+      "observed_at": "2026-11-15T00:00:00Z",
+      "costs": {
+        "network_cash_cents": "5",
+        "compute_cash_cents": "0",
+        "storage_cash_cents": "0",
+        "other_cash_cents": "0"
+      }
+    },
+    {
+      "cohort": "paid",
+      "outcome": "charged",
+      "path": "cache",
+      "limit": 50,
+      "with_media": false,
+      "unit_id": "synthetic-4",
+      "observed_at": "2026-11-15T00:00:00Z",
+      "costs": {
+        "network_cash_cents": "0.25",
+        "compute_cash_cents": "0",
+        "storage_cash_cents": "0",
+        "other_cash_cents": "0"
+      }
+    },
+    {
+      "cohort": "free",
+      "outcome": "failed",
+      "path": "first",
+      "limit": 1,
+      "with_media": false,
+      "unit_id": "synthetic-5",
+      "observed_at": "2026-11-15T00:00:00Z",
+      "costs": {
+        "network_cash_cents": "3",
+        "compute_cash_cents": "0",
+        "storage_cash_cents": "0",
+        "other_cash_cents": "0"
+      }
+    }
+  ],
+  "monthly_finance": {
+    "schema": "soldbench.unit-economics.v1",
+    "scenario": "synthetic-full-quota",
+    "evidence_kind": "assumed",
+    "evidence_ref": null,
+    "customers": 2,
+    "billable_queries": null,
+    "gross_price_cents": "2900",
+    "payment_transactions": 2,
+    "payment_rate": "0.05",
+    "payment_fixed_cents": "50",
+    "refund_rate": "0.02",
+    "tax_leakage_rate": "0.00",
+    "dispute_cost_cents": "0",
+    "target_margin": "0.50",
+    "costs": {
+      "infra_cash_cents": "10000",
+      "access_license_cash_cents": "20000",
+      "network_cash_cents": null,
+      "compute_cash_cents": null,
+      "storage_cash_cents": null,
+      "other_cash_cents": null,
+      "maintenance_labor_cents": "60000",
+      "support_labor_cents": "10000"
+    }
+  }
+}

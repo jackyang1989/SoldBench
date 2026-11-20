@@ -35,6 +35,8 @@ def main():
         ('dependency-inventory', [sys.executable, 'step0/tools/dependency_inventory.py']),
         ('economics-unmeasured', [sys.executable, 'step0/tools/unit_economics.py', 'step0/unit-economics/unmeasured.json']),
         ('economics-scenarios', [sys.executable, 'step0/tools/unit_economics.py', 'step0/unit-economics/scenarios.json']),
+        ('economics-full-quota', [sys.executable, 'step0/tools/full_quota_cost.py',
+                                 'step0/unit-economics/full-quota-fixture.json']),
         ('stability-no-records', [sys.executable, 'step0/tools/stability_report.py', '--start', '2026-12-01']),
         ('golden', [sys.executable, 'step0/tools/verify_fixture.py']),
         ('documentation', [sys.executable, 'docs/check_docs.py']),

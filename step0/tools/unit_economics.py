@@ -41,7 +41,7 @@ def exact(value, money=False):
     return result
 
 
-def calculate(data):
+def calculate(data, *, projected_variable_costs=None):
     if data.get('schema') != 'soldbench.unit-economics.v1':
         raise ValueError('Unsupported cost input schema')
     kind = data.get('evidence_kind')
@@ -52,8 +52,13 @@ def calculate(data):
     costs = data.get('costs')
     if not isinstance(costs, dict) or set(costs) - set(COSTS):
         raise ValueError('Invalid cost categories')
+    projected = {} if projected_variable_costs is None else projected_variable_costs
+    if (set(projected) - set(VARIABLE) or
+            any(not isinstance(value, Fraction) or value < 0 or costs.get(key) is not None
+                for key, value in projected.items())):
+        raise ValueError('Invalid or duplicate projected variable costs')
     missing = [key for key in INPUTS if data.get(key) is None]
-    missing += ['costs.' + key for key in COSTS if costs.get(key) is None]
+    missing += ['costs.' + key for key in COSTS if key not in projected and costs.get(key) is None]
     report = {'schema': 'soldbench.unit-economics-report.v1', 'scenario': data.get('scenario'),
               'evidence_kind': kind, 'evidence_ref': data.get('evidence_ref'), 'missing': missing,
               'priceApproved': False, 'stabilityVerified': False, 'stageVerdict': 'NOT_ISSUED'}
@@ -76,7 +81,7 @@ def calculate(data):
         raise ValueError('Rates must leave positive proceeds and target margin must be below one')
     fee = decimal(data['payment_fixed_cents'], 'payment_fixed_cents') * transactions
     disputes = decimal(data['dispute_cost_cents'], 'dispute_cost_cents')
-    values = {key: decimal(costs[key], key) for key in COSTS}
+    values = {key: projected[key] if key in projected else decimal(costs[key], key) for key in COSTS}
     fixed, variable, labor = [sum((values[key] for key in keys), Fraction()) for keys in (FIXED, VARIABLE, LABOR)]
     gross = price * customers
     proceeds = gross * (1 - rate - refund - tax) - fee - disputes
