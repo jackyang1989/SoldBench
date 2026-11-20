@@ -2,7 +2,7 @@ import { lstat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { CollectorStore, FixtureTransport, OfflineCollectorWorker } from "@soldbench/collector";
-import { assertLocalDatabaseUrl, database, isDatabaseConnectionError, migrate } from "@soldbench/db";
+import { assertLocalDatabaseUrl, database, isDatabaseConnectionError, prepareDatabase } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
 import { loadConfig } from "@soldbench/shared";
 import { fixtureJobId } from "./collector-fixture-file.mjs";
@@ -152,7 +152,7 @@ async function run(args) {
   );
   let retryDelay = 0;
   async function supervise() {
-    await migrate(db);
+    await prepareDatabase(db, config.databaseStartup);
     if (abort.signal.aborted) return;
     await sourceState(db, sourceId);
     if (abort.signal.aborted) return;

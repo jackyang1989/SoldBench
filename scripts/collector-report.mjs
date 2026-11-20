@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { collectorHealth } from "@soldbench/collector";
-import { assertLocalDatabaseUrl, database, migrate } from "@soldbench/db";
+import { assertLocalDatabaseUrl, database, prepareDatabase } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
 import { loadConfig } from "@soldbench/shared";
 import { localDatabaseUrl } from "./local-db.mjs";
@@ -26,7 +26,7 @@ assertLocalDatabaseUrl(url, [
 ]);
 const db = database(url);
 try {
-  await migrate(db);
+  await prepareDatabase(db, config.databaseStartup);
   console.log(
     JSON.stringify(
       await collectorHealth(db, args.get("source"), {

@@ -2,7 +2,7 @@ import { lstat, mkdir, opendir, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CollectorStore } from "@soldbench/collector";
-import { assertLocalDatabaseUrl, database, isDatabaseConnectionError, migrate } from "@soldbench/db";
+import { assertLocalDatabaseUrl, database, isDatabaseConnectionError, prepareDatabase } from "@soldbench/db";
 import { loadConfig } from "@soldbench/shared";
 import {
   fixtureJobId,
@@ -151,7 +151,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     ]);
     const loaded = await readFixtureFile(resolve(options.get("fixture")));
     db = database(url);
-    await migrate(db);
+    await prepareDatabase(db, config.databaseStartup);
     const path = await intakeFixture(
       db,
       resolve(options.get("spool") ?? process.env.COLLECTOR_DEMO_DIR ?? ".local"),

@@ -10,6 +10,9 @@ export function loadConfig(env: Record<string, string | undefined>) {
   if (env.PAYMENT_FIXTURES && !["true", "false"].includes(env.PAYMENT_FIXTURES))
     throw new Error("Invalid PAYMENT_FIXTURES");
   if (env.NODE_ENV === "production") throw new Error("Production release gates have not been signed");
+  const databaseStartup = env.DB_STARTUP_MODE ?? "migrate";
+  if (databaseStartup !== "migrate" && databaseStartup !== "verify")
+    throw new Error("invalid_database_startup_mode");
   const port = Number(env.PORT ?? 3000);
   if (!Number.isSafeInteger(port) || port < 1 || port > 65535) throw new Error("Invalid PORT");
   const host = env.HOST ?? "127.0.0.1";
@@ -35,6 +38,7 @@ export function loadConfig(env: Record<string, string | undefined>) {
     paymentFixtures: env.PAYMENT_FIXTURES === "true",
     collectorEnabled: false as const,
     databaseUrl: env.DATABASE_URL ?? null,
+    databaseStartup: databaseStartup as "migrate" | "verify",
     localStateRoot: env.LOCAL_STATE_ROOT ?? ".local",
     mediaRoot: env.MEDIA_ROOT ?? `${env.COLLECTOR_DEMO_DIR ?? ".local"}/collector-media`,
   };

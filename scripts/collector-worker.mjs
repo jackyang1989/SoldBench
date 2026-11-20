@@ -2,7 +2,7 @@ import { lstatSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { CollectorStore, OfflineCollectorWorker } from "@soldbench/collector";
 import { instant } from "@soldbench/core";
-import { assertLocalDatabaseUrl, database, migrate } from "@soldbench/db";
+import { assertLocalDatabaseUrl, database, prepareDatabase } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
 import { loadConfig } from "@soldbench/shared";
 import { readFixtureFile } from "./collector-fixture-file.mjs";
@@ -72,7 +72,7 @@ const writeHeartbeat = (value) => {
   renameSync(temporary, heartbeat);
 };
 try {
-  await migrate(db);
+  await prepareDatabase(db, config.databaseStartup);
   const store = new CollectorStore(db, clock, { htmlProfile: artifact.htmlProfile }),
     job = await store.view(artifact.jobId);
   const source = (

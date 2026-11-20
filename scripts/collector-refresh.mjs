@@ -2,7 +2,7 @@ import { lstatSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { CollectorRefresh, CollectorStore } from "@soldbench/collector";
 import { instant } from "@soldbench/core";
-import { assertLocalDatabaseUrl, database, migrate } from "@soldbench/db";
+import { assertLocalDatabaseUrl, database, prepareDatabase } from "@soldbench/db";
 import { loadConfig } from "@soldbench/shared";
 import { localDatabaseUrl } from "./local-db.mjs";
 
@@ -38,7 +38,7 @@ if (args.has("profile")) {
 }
 const db = database(url);
 try {
-  await migrate(db);
+  await prepareDatabase(db, config.databaseStartup);
   const store = new CollectorStore(db, args.has("clock") ? () => args.get("clock") : undefined, {
       htmlProfile: profile,
     }),

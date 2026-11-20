@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { serve } from "@hono/node-server";
 import { AuthService, localAuthSecrets } from "@soldbench/auth";
 import { BillingService, localPaymentKeys, PaymentLifecycle } from "@soldbench/billing";
-import { assertLocalDatabaseUrl, database, migrate } from "@soldbench/db";
+import { assertLocalDatabaseUrl, database, prepareDatabase } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
 import { QueryService } from "@soldbench/query";
 import { loadConfig } from "@soldbench/shared";
@@ -15,7 +15,7 @@ assertLocalDatabaseUrl(config.databaseUrl, [
   ...(process.env.SOLDBENCH_TEST_SOCKET ? [process.env.SOLDBENCH_TEST_SOCKET] : []),
 ]);
 const db = database(config.databaseUrl);
-await migrate(db);
+await prepareDatabase(db, config.databaseStartup);
 const auth = new AuthService(db, localAuthSecrets(resolve(config.localStateRoot)), config.origin);
 const billing = new BillingService(db);
 const payments = config.paymentFixtures

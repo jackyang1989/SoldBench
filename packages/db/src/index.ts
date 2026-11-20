@@ -6,6 +6,19 @@ import pg from "pg";
 
 export type Database = pg.Pool;
 export type Transaction = pg.PoolClient;
+export type DatabaseStartupMode = "migrate" | "verify";
+const migrationDirectory = fileURLToPath(new URL("../migrations/", import.meta.url));
+
+function migrationNames() {
+  return readdirSync(migrationDirectory)
+    .filter((name) => /^\d{4}_.+\.sql$/.test(name))
+    .sort();
+}
+
+function migrationContent(name: string) {
+  const raw = readFileSync(migrationDirectory + name, "utf8");
+  return { raw, hash: createHash("sha256").update(raw).digest("hex") };
+}
 const connectionCodes = new Set([
   "ECONNREFUSED",
   "ECONNRESET",
@@ -76,17 +89,11 @@ export async function migrate(db: Database, through?: string): Promise<string[]>
     await client.query(
       "CREATE TABLE IF NOT EXISTS soldbench_migrations (name text PRIMARY KEY, sha256 text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())",
     );
-    const directory = fileURLToPath(new URL("../migrations/", import.meta.url));
-    // Compiled index is in dist while migrations remain beside src.
-    const migrationNames = readdirSync(directory)
-      .filter((name) => /^\d{4}_.+\.sql$/.test(name))
-      .sort();
-    if (through && !migrationNames.includes(through))
-      throw new Error(`Unknown migration boundary: ${through}`);
-    for (const name of migrationNames) {
+    const names = migrationNames();
+    if (through && !names.includes(through)) throw new Error(`Unknown migration boundary: ${through}`);
+    for (const name of names) {
       if (through && name > through) break;
-      const raw = readFileSync(directory + name, "utf8");
-      const hash = createHash("sha256").update(raw).digest("hex");
+      const { raw, hash } = migrationContent(name);
       const existing = await client.query<{ sha256: string }>(
         "SELECT sha256 FROM soldbench_migrations WHERE name=$1",
         [name],
@@ -115,6 +122,30 @@ export async function migrate(db: Database, through?: string): Promise<string[]>
       client.release();
     }
   }
+}
+
+/** Runtime startup can verify the pre-migrated schema without DDL, locks, or migration privileges. */
+export async function prepareDatabase(db: Database, mode: DatabaseStartupMode): Promise<void> {
+  if (mode === "migrate") {
+    await migrate(db);
+    return;
+  }
+  if (mode !== "verify") throw new Error("invalid_database_startup_mode");
+  const { rows } = await db
+    .query<{ name: string; sha256: string }>("SELECT name,sha256 FROM soldbench_migrations ORDER BY name")
+    .catch((error: unknown) => {
+      if (error instanceof Error && "code" in error && error.code === "42P01")
+        throw new Error("database_schema_not_initialized");
+      throw error;
+    });
+  const installed = new Map(rows.map(({ name, sha256 }) => [name, sha256]));
+  for (const name of migrationNames()) {
+    if (!installed.has(name)) throw new Error(`Missing database migration: ${name}`);
+    if (installed.get(name) !== migrationContent(name).hash)
+      throw new Error(`Applied migration changed: ${name}`);
+    installed.delete(name);
+  }
+  if (installed.size) throw new Error("database_schema_newer_or_unknown");
 }
 
 /** Parse exactly as the PG client will, before any connect/DNS call. Used only

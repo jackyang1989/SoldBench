@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { CollectorStore, FixtureTransport, OfflineCollectorWorker } from "@soldbench/collector";
-import { assertLocalDatabaseUrl, database, migrate } from "@soldbench/db";
+import { assertLocalDatabaseUrl, database, prepareDatabase } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
 import { loadConfig } from "@soldbench/shared";
 import { localDatabaseUrl } from "./local-db.mjs";
@@ -13,7 +13,7 @@ assertLocalDatabaseUrl(url, [
 ]);
 const db = database(url);
 try {
-  await migrate(db);
+  await prepareDatabase(db, config.databaseStartup);
   const store = new CollectorStore(db),
     worker = new OfflineCollectorWorker(
       store,

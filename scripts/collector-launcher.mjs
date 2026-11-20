@@ -14,6 +14,7 @@ export function workerEnvironment(input) {
     "LC_ALL",
     "TZ",
     "DATABASE_URL",
+    "DB_STARTUP_MODE",
     "COLLECTOR_DEMO_DIR",
     "MEDIA_ROOT",
     "SOLDBENCH_TEST_SOCKET",

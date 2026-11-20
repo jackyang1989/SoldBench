@@ -4,7 +4,7 @@ import { setTimeout } from "node:timers/promises";
 import { publishNextScheduledContent } from "@soldbench/api";
 import { AccountPrivacy, AuthService, localAuthSecrets } from "@soldbench/auth";
 import { BillingService, localPaymentKeys, PaymentLifecycle } from "@soldbench/billing";
-import { assertLocalDatabaseUrl, database, isDatabaseConnectionError, migrate } from "@soldbench/db";
+import { assertLocalDatabaseUrl, database, isDatabaseConnectionError, prepareDatabase } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
 import { PublicResults, QueryService, RequestAuditService } from "@soldbench/query";
 import { loadConfig } from "@soldbench/shared";
@@ -25,7 +25,7 @@ const watch = args[0] === "--watch";
 const wait = (milliseconds) => setTimeout(milliseconds, undefined, { signal: abort.signal }).catch(() => {});
 for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => abort.abort());
 try {
-  await migrate(db);
+  await prepareDatabase(db, config.databaseStartup);
   const auth = new AuthService(db, localAuthSecrets(resolve(config.localStateRoot)), config.origin),
     billing = new BillingService(db),
     payments = config.paymentFixtures
