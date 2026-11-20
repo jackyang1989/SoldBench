@@ -414,6 +414,7 @@ export class BillingService {
 export { localPaymentKeys } from "./local-payment-keys.ts";
 export {
   type FixtureKeys,
+  factSchema,
   fixtureSignature,
   merchant,
   type Provider,

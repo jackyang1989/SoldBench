@@ -917,6 +917,85 @@ test("restoring a backup replays only named Stripe and PayPal receipts and grant
       ).rows[0].status,
       "received",
     );
+
+    const refunds = fixtures.map(({ fact }) => ({
+      fact: { ...fact, status: "refunded", revision: 2 },
+      event_type: fact.provider === "stripe" ? "charge_refunded" : "capture_refunded",
+      event_id: randomUUID(),
+    }));
+    const blocked = {
+      ...fixtures[0],
+      fact: { ...fixtures[0].fact, checkout_id: randomUUID(), object_id: randomUUID() },
+      event_id: randomUUID(),
+    };
+    const untouched = { ...fixtures[1], event_id: randomUUID() };
+    const batch = async (entries) => {
+      const file = join(root, "batch.json");
+      const body = JSON.stringify({
+        schema: "soldbench.payment-replay.fixture.v1",
+        events: entries.map(({ fact, ...event }) => ({ ...fact, ...event })),
+      });
+      await writeFile(file, body, { mode: 0o600 });
+      return run(process.execPath, [...cli, "replay-batch", file], {
+        env: {
+          ...local,
+          DATABASE_URL: url.href,
+          PAYMENT_REPLAY_SHA256: createHash("sha256").update(body).digest("hex"),
+        },
+      });
+    };
+    await assert.rejects(batch([refunds[0], refunds[0]]), /duplicate_payment_replay_notification/);
+    await assert.rejects(
+      batch([refunds[0], { ...refunds[1], event_type: "unsupported" }]),
+      /Unexpected fixture envelope/,
+    );
+    assert.deepEqual(await projection(restored), originalFacts);
+    for (const entry of refunds) {
+      await stage(entry);
+      assert.equal(
+        (await original.workOnce({ provider: entry.fact.provider, eventId: entry.event_id })).status,
+        "applied",
+      );
+    }
+    const refundFacts = await projection(db);
+    assert.ok(
+      refundFacts.every(
+        (row) => row.state === "refunded" && row.balance === 0 && row.refunded_cents === row.amount_cents,
+      ),
+    );
+    const entries = [...refunds, blocked, untouched];
+    for (const rerun of [false, true]) {
+      await assert.rejects(batch(entries), (error) => {
+        assert.equal(error.code, 2);
+        assert.deepEqual(JSON.parse(error.stdout), {
+          mode: "offline_fixture",
+          total: 4,
+          applied: rerun ? 0 : 2,
+          already_applied: rerun ? 2 : 0,
+          outcome: "failed",
+          blocking_entry: 3,
+        });
+        return true;
+      });
+      assert.deepEqual(await projection(restored), refundFacts);
+      assert.equal(
+        (
+          await restored.query("SELECT count(*)::int n FROM payment_events WHERE provider_event_id=$1", [
+            untouched.event_id,
+          ])
+        ).rows[0].n,
+        0,
+      );
+    }
+    const completed = JSON.parse((await batch(refunds)).stdout);
+    assert.deepEqual(completed, {
+      mode: "offline_fixture",
+      total: 2,
+      applied: 0,
+      already_applied: 2,
+      outcome: "completed",
+      blocking_entry: null,
+    });
   } finally {
     await restored?.end();
     if (created) await db.query(`DROP DATABASE ${name}`);
