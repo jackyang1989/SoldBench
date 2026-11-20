@@ -44,17 +44,21 @@ async function publishOnce(path, loaded) {
   throw new Error("fixture_spool_publish_race");
 }
 
+async function assertArtifactFormat(spool, artifact) {
+  const alternative = artifact.htmlProfile ? "collector-fixture" : "collector-html-fixture";
+  const other = await lstat(join(spool, `${alternative}-${artifact.jobId}.json`)).catch((error) => {
+    if (error.code !== "ENOENT") throw error;
+  });
+  if (other) throw new Error("fixture_spool_file_conflict");
+}
+
 async function exposeFixture(db, spool, pending, loaded) {
   const { artifact, hash, pageHashes } = loaded;
   const name = artifact.htmlProfile ? "collector-html-fixture" : "collector-fixture";
-  const alternative = artifact.htmlProfile ? "collector-fixture" : "collector-html-fixture";
   const store = new CollectorStore(db, undefined, { htmlProfile: artifact.htmlProfile });
   const path = join(spool, `${name}-${artifact.jobId}.json`);
   await store.bindFixtureArtifact({ ...artifact, hash, pageHashes }, async () => {
-    const other = await lstat(join(spool, `${alternative}-${artifact.jobId}.json`)).catch((error) => {
-      if (error.code !== "ENOENT") throw error;
-    });
-    if (other) throw new Error("fixture_spool_file_conflict");
+    await assertArtifactFormat(spool, artifact);
     await publishOnce(path, loaded);
     await syncDirectory(spool);
   });
@@ -82,6 +86,7 @@ export async function intakeFixture(db, spool, sourceId, loaded) {
   const pending = join(directory, `${artifact.jobId}.${hash}.json`);
   const store = new CollectorStore(db, undefined, { htmlProfile: artifact.htmlProfile });
   await store.bindFixtureArtifact({ ...artifact, hash, pageHashes: loaded.pageHashes }, async () => {
+    await assertArtifactFormat(spool, artifact);
     await publishOnce(pending, loaded);
     await syncDirectory(directory);
   });

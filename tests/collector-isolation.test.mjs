@@ -275,6 +275,12 @@ test("revocation blocks new fixture publication and removes only source-bound re
   const loaded = loadFixtureArtifact(original);
   const pending = join(spool, "collector-incoming", first.sourceId, `${first.jobId}.${loaded.hash}.json`);
   await publishFixtureFile(pending, loaded.artifact);
+  const interruptedPublication = `${first.artifactPath}.${randomUUID()}.tmp`;
+  const staleTemporary = `${first.artifactPath}.${randomUUID()}.tmp`;
+  await link(first.artifactPath, interruptedPublication);
+  await writeFile(staleTemporary, original, { mode: 0o600 });
+  const unexpectedCopy = join(laterSpool, "not-a-collector-name.json");
+  await link(pending, unexpectedCopy);
   const unverified = join(spool, `collector-fixture-${first.jobId}.json`);
   await writeFile(unverified, "Unverified bytes", { mode: 0o600 });
   const cleanup = () =>
@@ -296,16 +302,21 @@ test("revocation blocks new fixture publication and removes only source-bound re
   assert.equal((await revoked.exited).code, 2, revoked.errors);
   const report = JSON.parse(revoked.output);
   assert.equal(report.scope, "configured_spool_only");
-  assert.equal(report.removed, 2);
-  assert.equal(report.unverified, 1);
+  assert.equal(report.removed, 3);
+  assert.equal(report.unverified, 2);
   await assert.rejects(readFile(first.artifactPath), /ENOENT/);
-  await assert.rejects(readFile(pending), /ENOENT/);
+  await assert.rejects(readFile(interruptedPublication), /ENOENT/);
+  await assert.rejects(readFile(staleTemporary), /ENOENT/);
+  assert.deepEqual(await readFile(pending), original);
+  assert.deepEqual(await readFile(unexpectedCopy), original);
   assert.equal(await readFile(unverified, "utf8"), "Unverified bytes");
   assert.ok((await readFile(other.artifactPath)).length > 0);
   await rm(unverified);
+  await rm(unexpectedCopy);
   const retry = cleanup();
   assert.equal((await retry.exited).code, 0, retry.errors);
-  assert.equal(JSON.parse(retry.output).removed, 0);
+  assert.equal(JSON.parse(retry.output).removed, 1);
+  await assert.rejects(readFile(pending), /ENOENT/);
   assert.equal((await new CollectorStore(db).view(first.jobId)).request_count, 0);
 });
 
@@ -340,7 +351,24 @@ test("offline supervisor recovers an intake interrupted before the artifact data
   const { hash } = loadFixtureArtifact(Buffer.from(JSON.stringify(artifact)));
   const pendingDirectory = join(directory, "collector-incoming", source.sourceId);
   await mkdir(pendingDirectory, { recursive: true, mode: 0o700 });
-  await publishFixtureFile(join(pendingDirectory, `${jobId}.${hash}.json`), artifact);
+  const pending = join(pendingDirectory, `${jobId}.${hash}.json`);
+  await publishFixtureFile(pending, artifact);
+  const conflictingPath = join(directory, `collector-html-fixture-${jobId}.json`);
+  await writeFile(conflictingPath, "Existing alternate format", { mode: 0o600 });
+  const conflict = start("scripts/collector-intake.mjs", [
+    `--source=${source.sourceId}`,
+    `--spool=${directory}`,
+    `--fixture=${pending}`,
+  ]);
+  assert.equal((await conflict.exited).code, 1);
+  assert.match(conflict.errors, /fixture_spool_file_conflict/);
+  const unbound = await db.query(
+    "SELECT fixture_artifact_hash FROM collector_runs r JOIN collector_jobs j ON j.collector_run_id=r.id WHERE j.id=$1",
+    [jobId],
+  );
+  assert.equal(unbound.rows[0].fixture_artifact_hash, null);
+  assert.equal(await readFile(conflictingPath, "utf8"), "Existing alternate format");
+  await rm(conflictingPath);
   const run = start(
     "scripts/collector-supervisor.mjs",
     [`--source=${source.sourceId}`, `--spool=${directory}`],

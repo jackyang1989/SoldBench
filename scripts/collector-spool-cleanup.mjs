@@ -7,6 +7,7 @@ import { fixtureJobId, readFixtureFile, syncDirectory } from "./collector-fixtur
 import { localDatabaseUrl } from "./local-db.mjs";
 
 const pendingName = /^([a-f0-9-]{36})\.([a-f0-9]{64})\.json(?:\.[a-f0-9-]{36}\.tmp)?$/;
+const publicationTemp = /^collector-(?:html-)?fixture-([a-f0-9-]{36})\.json\.[a-f0-9-]{36}\.tmp$/;
 const optionalStat = (path) =>
   lstat(path, { bigint: true }).catch((error) => {
     if (error.code !== "ENOENT") throw error;
@@ -19,16 +20,14 @@ async function privateDirectory(path) {
   return Boolean(info);
 }
 
-async function pendingFiles(spool, sourceId) {
-  const root = join(spool, "collector-incoming");
-  const directory = join(root, sourceId);
+async function groupFiles(directory, pattern, max) {
   const files = new Map();
-  if (!(await privateDirectory(root)) || !(await privateDirectory(directory))) return files;
+  if (!(await privateDirectory(directory))) return files;
   const entries = await opendir(directory);
   let examined = 0;
   for await (const entry of entries) {
-    if (++examined > 10000) throw new Error("collector_spool_cleanup_scan_limit");
-    const match = pendingName.exec(entry.name);
+    if (++examined > max) throw new Error("collector_spool_cleanup_scan_limit");
+    const match = pattern.exec(entry.name);
     if (!match || !fixtureJobId.test(match[1])) continue;
     const group = files.get(match[1]) ?? [];
     group.push({ path: join(directory, entry.name), pendingHash: match[2] });
@@ -37,31 +36,74 @@ async function pendingFiles(spool, sourceId) {
   return files;
 }
 
-async function clearFile({ path, pendingHash }, sourceId, job) {
+async function clearGroup(group, sourceId, job, counts) {
+  const first = group[0];
   try {
-    const before = await optionalStat(path);
-    if (!before) return "absent";
-    if (!before.isFile() || before.nlink !== 1n) return "unverified";
-    const { artifact, hash } = await readFixtureFile(path);
+    if (group.some(({ stat }) => stat.nlink !== BigInt(group.length)))
+      throw new Error("collector_spool_unaccounted_link");
+    const { artifact, hash } = await readFixtureFile(first.path);
     if (
       artifact.sourceId !== sourceId ||
       artifact.jobId !== job.id ||
       artifact.queryHash !== job.query_hash ||
       new Date(artifact.asOf).getTime() !== job.as_of.getTime() ||
       (job.fixture_artifact_hash !== null && job.fixture_artifact_hash !== hash) ||
-      (pendingHash !== undefined && pendingHash !== hash)
+      group.some(({ pendingHash }) => pendingHash !== undefined && pendingHash !== hash)
     )
-      return "unverified";
-    const after = await optionalStat(path);
-    if (!after) return "absent";
-    if (after.ino !== before.ino || after.dev !== before.dev || after.ctimeNs !== before.ctimeNs)
-      return "unverified";
-    await unlink(path);
-    await syncDirectory(dirname(path));
-    return "removed";
-  } catch (error) {
-    return error.code === "ENOENT" ? "absent" : "unverified";
+      throw new Error("collector_spool_file_mismatch");
+    for (const entry of group) {
+      const latest = await optionalStat(entry.path);
+      if (
+        !latest ||
+        latest.ino !== entry.stat.ino ||
+        latest.dev !== entry.stat.dev ||
+        latest.ctimeNs !== entry.stat.ctimeNs
+      )
+        throw new Error("collector_spool_file_changed");
+    }
+  } catch {
+    counts.unverified += group.length;
+    return;
   }
+  for (const [index, entry] of group.entries()) {
+    try {
+      const latest = await optionalStat(entry.path);
+      if (
+        !latest ||
+        latest.ino !== entry.stat.ino ||
+        latest.dev !== entry.stat.dev ||
+        latest.mtimeNs !== entry.stat.mtimeNs ||
+        latest.nlink !== BigInt(group.length - index)
+      )
+        throw new Error("collector_spool_file_changed");
+      await unlink(entry.path);
+      await syncDirectory(dirname(entry.path));
+      counts.removed++;
+    } catch {
+      counts.unverified += group.length - index;
+      return;
+    }
+  }
+}
+
+async function clearJobFiles(files, sourceId, job, counts) {
+  const groups = new Map();
+  for (const file of files) {
+    try {
+      const stat = await optionalStat(file.path);
+      if (!stat) counts.absent++;
+      else if (!stat.isFile()) counts.unverified++;
+      else {
+        const key = `${stat.dev}:${stat.ino}`;
+        const group = groups.get(key) ?? [];
+        group.push({ ...file, stat });
+        groups.set(key, group);
+      }
+    } catch {
+      counts.unverified++;
+    }
+  }
+  for (const group of groups.values()) await clearGroup(group, sourceId, job, counts);
 }
 
 export async function clearRevokedSpool(db, spool, sourceId) {
@@ -70,12 +112,16 @@ export async function clearRevokedSpool(db, spool, sourceId) {
     const source = await c.query(
       `SELECT s.id FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id
        WHERE s.id=$1 AND s.status='revoked' AND s.access_method='offline_fixture'
-         AND x.provider='synthetic_fixture' FOR SHARE OF s,x`,
+         AND x.provider='synthetic_fixture' FOR UPDATE OF s FOR SHARE OF x`,
       [sourceId],
     );
     if (!source.rowCount) throw new Error("collector_spool_source_not_revoked");
     if (!(await privateDirectory(spool))) throw new Error("collector_spool_directory_unavailable");
-    const staged = await pendingFiles(spool, sourceId);
+    const incoming = join(spool, "collector-incoming");
+    const staged = (await privateDirectory(incoming))
+      ? await groupFiles(join(incoming, sourceId), pendingName, 10000)
+      : new Map();
+    const temporary = await groupFiles(spool, publicationTemp, 100000);
     const counts = { removed: 0, unverified: 0, absent: 0 };
     let after = null;
     for (;;) {
@@ -91,8 +137,9 @@ export async function clearRevokedSpool(db, spool, sourceId) {
           { path: join(spool, `collector-fixture-${job.id}.json`) },
           { path: join(spool, `collector-html-fixture-${job.id}.json`) },
           ...(staged.get(job.id) ?? []),
+          ...(temporary.get(job.id) ?? []),
         ];
-        for (const file of files) counts[await clearFile(file, sourceId, job)]++;
+        await clearJobFiles(files, sourceId, job, counts);
         staged.delete(job.id);
       }
       after = rows.at(-1).id;
