@@ -228,6 +228,38 @@ test("artifact validation rejects malformed inputs and cannot bind mismatched co
   );
 });
 
+test("first artifact binding checks the job deadline and current source epoch", async () => {
+  const x = await setup(1);
+  const artifact = loadFixtureArtifact(Buffer.from(JSON.stringify(x.artifact)));
+  const input = {
+    jobId: x.jobId,
+    sourceId: x.sourceId,
+    queryHash: x.hash,
+    asOf: fixed,
+    hash: artifact.hash,
+    pageHashes: artifact.pageHashes,
+  };
+  const future = new CollectorStore(db, () => "2026-11-16T13:00:00Z");
+  await assert.rejects(future.bindFixtureArtifact(input), /fixture_artifact_job_inactive/);
+  const version = async () =>
+    (
+      await db.query(
+        "SELECT r.fixture_artifact_hash artifact,r.xmin::text revision FROM collector_runs r JOIN collector_jobs j ON j.collector_run_id=r.id WHERE j.id=$1",
+        [x.jobId],
+      )
+    ).rows[0];
+  assert.equal((await version()).artifact, null);
+  await x.store.bindFixtureArtifact(input);
+  const bound = await version();
+  assert.equal(bound.artifact, artifact.hash);
+  await future.bindFixtureArtifact(input);
+  assert.deepEqual(await version(), bound);
+  await db.query("UPDATE sources SET permission_epoch=permission_epoch+1 WHERE id=$1", [x.sourceId]);
+  await assert.rejects(x.store.bindFixtureArtifact(input), /fixture_artifact_epoch_changed/);
+  assert.deepEqual(await version(), bound);
+  assert.equal((await x.store.view(x.jobId)).request_count, 0);
+});
+
 test("SIGTERM yields after committed work and a new process resumes without restarting pages", async () => {
   const x = await setup(30);
   const child = spawn(process.execPath, args(x), { env: env(x), stdio: ["ignore", "pipe", "pipe"] });

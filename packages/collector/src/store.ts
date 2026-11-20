@@ -494,7 +494,7 @@ export class CollectorStore {
   }) {
     if (!/^[a-f0-9]{64}$/.test(input.hash)) throw new Error("invalid_fixture_artifact_hash");
     await transaction(this.db, async (c) => {
-      await this.source(c, input.sourceId);
+      const source = await this.source(c, input.sourceId);
       const job = (
         await c.query<Job>("SELECT * FROM collector_jobs WHERE id=$1 AND source_id=$2 FOR UPDATE", [
           input.jobId,
@@ -503,6 +503,7 @@ export class CollectorStore {
       ).rows[0];
       if (!job || job.query_hash !== input.queryHash || job.as_of.getTime() !== instant(input.asOf))
         throw new Error("fixture_artifact_job_mismatch");
+      if (job.permission_epoch !== source.permission_epoch) throw new Error("fixture_artifact_epoch_changed");
       const run = (
         await c.query(
           "SELECT fixture_artifact_hash,parser_profile_hash FROM collector_runs WHERE id=$1 FOR UPDATE",
@@ -515,6 +516,16 @@ export class CollectorStore {
       const pages = await c.query("SELECT cursor,raw_hash FROM collector_pages WHERE job_id=$1", [job.id]);
       if (pages.rows.some((page) => !input.pageHashes.get(page.cursor)?.has(page.raw_hash)))
         throw new Error("fixture_artifact_committed_page_mismatch");
+      if (run.fixture_artifact_hash) return;
+      const now = await this.now(c);
+      if (job.expires_at <= now || !["queued", "running", "retry"].includes(job.status)) {
+        const retry = await c.query(
+          `SELECT 1 FROM collector_image_jobs WHERE source_id=$1 AND parent_job_id=$2
+             AND status IN ('retry','running') AND expires_at>$3 LIMIT 1`,
+          [job.source_id, job.id, now],
+        );
+        if (!retry.rowCount) throw new Error("fixture_artifact_job_inactive");
+      }
       await c.query("UPDATE collector_runs SET fixture_artifact_hash=$2 WHERE id=$1", [
         job.collector_run_id,
         input.hash,
