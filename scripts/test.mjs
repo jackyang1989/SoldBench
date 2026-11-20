@@ -11,20 +11,14 @@ const selected = process.argv.slice(2);
 if (selected.some((file) => !tests.includes(file))) throw new Error("unknown_test_file");
 const directory = mkdtempSync(join(tmpdir(), "soldbench-product-test-"));
 const config = initializeCluster(directory);
+const keepDatabases = process.env.SOLDBENCH_KEEP_TEST_DATABASES === "true";
 startCluster(config);
 let complete = false;
 try {
   for (const [index, test] of (selected.length ? selected : tests).entries()) {
     const name = `soldbench_test_${index}`;
-    execFileSync(join(config.binaries, "createdb"), [
-      "-h",
-      config.socket,
-      "-p",
-      String(config.port),
-      "-U",
-      "soldbench",
-      name,
-    ]);
+    const connection = ["-h", config.socket, "-p", String(config.port), "-U", "soldbench", name];
+    execFileSync(join(config.binaries, "createdb"), connection);
     const result = spawnSync(process.execPath, ["--import", "./scripts/test-network.mjs", "--test", test], {
       stdio: "inherit",
       env: {
@@ -40,11 +34,11 @@ try {
       process.exitCode = result.status ?? 1;
       break;
     }
+    if (!keepDatabases) execFileSync(join(config.binaries, "dropdb"), connection);
   }
   complete = !process.exitCode;
 } finally {
   stopCluster(config);
-  if (complete && process.env.SOLDBENCH_KEEP_TEST_DATABASES !== "true")
-    rmSync(config.data, { recursive: true });
+  if (complete && !keepDatabases) rmSync(config.data, { recursive: true });
   console.log(`Isolated test evidence retained at ${directory}`);
 }

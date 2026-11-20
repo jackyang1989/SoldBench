@@ -1,0 +1,53 @@
+{
+  "date": "2026-11-20",
+  "captured_at": "2026-11-20T01:07:53+00:00",
+  "baseline_commit": "f1d421a",
+  "evidence_type": "offline_product_integration",
+  "config": {
+    "data_mode": "offline_fixture",
+    "collector_enabled": false,
+    "payments_mode": "offline",
+    "database": "isolated PostgreSQL 16.15",
+    "node": "22.23.3",
+    "browser": "local Chrome + Playwright",
+    "accounts": "six synthetic owners, authenticated sessions and scoped keys",
+    "clock": "fixed UTC for domain scenarios, with actual host time for subprocess liveness"
+  },
+  "checks": {
+    "npm run check": {
+      "exit_code": 0,
+      "test_files": 27,
+      "tests_passed": 267,
+      "tests_failed": 0,
+      "tests_skipped": 0
+    },
+    "python3 step0/tools/validate_offline.py": {
+      "exit_code": 0,
+      "checks_passed": 20,
+      "python_tests_passed": 32
+    },
+    "python3 docs/check_docs.py": {
+      "exit_code": 0
+    },
+    "git diff --check": {
+      "exit_code": 0
+    }
+  },
+  "regression_recovery": "Initial full run exhausted disk during test database creation. Reclaimed this run’s isolated temporary data, preserved logs, and re-ran after releasing each successful temporary database.",
+  "pending": [
+    "real eBay US data and matching media supply",
+    "independent and hosted validation",
+    "commercial quotes and production payments",
+    "infrastructure and release sign-off"
+  ],
+  "stage_verdict": "NOT_ISSUED",
+  "sha256": {
+    "packages/collector/src/health.ts": "f0d936815c3ffa29b14b5b88e12f6b1131560c0127f82870fcb37fe08e5e02c5",
+    "scripts/collector-report.mjs": "5698752870bdc20abb4f789c76bcddb017052424009edf871d07d669f62e494f",
+    "scripts/test.mjs": "c8fdc313fc495341e18a1007ece74180fac6fc1e2f2ea1c53a40092e748942f5",
+    "tests/collector-refresh.test.mjs": "52caeb697424a579fb3edf82a093df811d882e4a50c0c8c8ab9370ddf315ccbb",
+    "tests/customer-journeys.test.mjs": "28a034264d2d9d274363fb655ddd37e2c94d10d1a2f1060e3dc5540cb91c3448",
+    "step0/tools/full_quota_cost.py": "9cc0ca398c28515e20dd4fa4c49ed6b580e8000dc2f47ca8c151ca18d745f12d",
+    "step0/tools/comparison_review.py": "7ac0c8bc708d2304b1b6a34537332b5892e4ff181a7875133a673399d367575e"
+  }
+}

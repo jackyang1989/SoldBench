@@ -287,6 +287,63 @@ test("independent refresh CLI creates, cycles, replays and retires without fetch
   assert.equal((await collectorHealth(db, x.sourceId, { now: x.clock.value })).refresh.planned, 3);
 });
 
+test("continuous evidence retains empty UTC days, missed work and actual cross-midnight dispatch", async () => {
+  const x = await setup();
+  x.clock.value = "2026-11-17T23:59:00.000Z";
+  const plan = await x.refresh.create({ ...x.input, maxLagSeconds: 30 });
+  await x.refresh.materialize(x.sourceId);
+  const { jobId } = await x.refresh.dispatchNext(x.sourceId);
+  step(x, 61);
+  assert.equal((await complete(x, jobId)).status, "completed");
+  await x.refresh.retire(x.sourceId, plan);
+  x.clock.value = "2026-11-19T00:15:00.000Z";
+  const r = await collectorHealth(db, x.sourceId, { dailyDays: 14, now: x.clock.value });
+  assert.equal(r.daily.from, "2026-11-05T00:00:00.000Z");
+  assert.equal(r.daily.until, "2026-11-19T00:00:00.000Z");
+  assert.equal(r.daily.days.length, 14);
+  assert.ok(r.daily.days.slice(0, -2).every((day) => day.planned === 0 && day.pageAttempts === 0));
+  const [scheduled, dispatched] = r.daily.days.slice(-2);
+  assert.deepEqual(
+    [
+      scheduled.day,
+      scheduled.planned,
+      scheduled.started,
+      scheduled.onTime,
+      scheduled.completed,
+      scheduled.pageAttempts,
+    ],
+    ["2026-11-17", 1, 1, 0, 1, 0],
+  );
+  assert.deepEqual(
+    [
+      dispatched.day,
+      dispatched.planned,
+      dispatched.unmaterialized,
+      dispatched.completed,
+      dispatched.pageAttempts,
+    ],
+    ["2026-11-18", 1, 1, 0, 1],
+  );
+  const cli = JSON.parse(
+    execFileSync(
+      process.execPath,
+      [
+        "--import",
+        "./scripts/test-network.mjs",
+        "scripts/collector-report.mjs",
+        `--source=${x.sourceId}`,
+        `--clock=${x.clock.value}`,
+        "--daily-days=7",
+      ],
+      { encoding: "utf8" },
+    ),
+  );
+  assert.deepEqual(cli.daily.days, r.daily.days.slice(-7));
+  assert.equal(cli.onlineVerified, false);
+  assert.equal(cli.measuredCostCents, null);
+  assert.equal(cli.networkRequests, 0);
+});
+
 test("refresh lease cannot be reused for a different run key, TTL or source", async () => {
   for (const field of ["runKey", "ttlSeconds", "sourceId"]) {
     const x = await setup(),
