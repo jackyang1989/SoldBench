@@ -276,14 +276,19 @@ export class PaymentLifecycle {
       object,
     ]);
   }
-  async workOnce() {
+  async workOnce(notification?: { provider: Provider; eventId: string }) {
     return transaction(this.billing.db, async (c) => {
       const now = await this.billing.now(c),
         receipt = (
-          await c.query<Receipt>(
-            "SELECT id,provider,fixture_envelope,fixture_attempts FROM payment_events WHERE status IN ('received','retryable') AND fixture_retry_at<=$1 AND fixture_envelope IS NOT NULL ORDER BY fixture_retry_at,received_at,id LIMIT 1 FOR UPDATE SKIP LOCKED",
-            [now],
-          )
+          notification
+            ? await c.query<Receipt>(
+                "SELECT id,provider,fixture_envelope,fixture_attempts FROM payment_events WHERE provider=$2 AND provider_event_id=$3 AND status IN ('received','retryable') AND fixture_retry_at<=$1 AND fixture_envelope IS NOT NULL FOR UPDATE",
+                [now, notification.provider, notification.eventId],
+              )
+            : await c.query<Receipt>(
+                "SELECT id,provider,fixture_envelope,fixture_attempts FROM payment_events WHERE status IN ('received','retryable') AND fixture_retry_at<=$1 AND fixture_envelope IS NOT NULL ORDER BY fixture_retry_at,received_at,id LIMIT 1 FOR UPDATE SKIP LOCKED",
+                [now],
+              )
         ).rows[0];
       if (!receipt) return null;
       await c.query("SAVEPOINT payment_apply");

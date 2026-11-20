@@ -418,5 +418,6 @@ export {
   merchant,
   type Provider,
   providers,
+  verifyFixture,
 } from "./payment-fixtures.ts";
 export { offerVersion, PaymentLifecycle } from "./payment-lifecycle.ts";

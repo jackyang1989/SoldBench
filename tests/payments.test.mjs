@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile, execFileSync, spawn } from "node:child_process";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -799,6 +799,127 @@ test("the real dev launcher, private fixture CLI and query worker settle a PayPa
       dev.kill("SIGTERM");
       await devClosed;
     }
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("restoring a backup replays only named Stripe and PayPal receipts and grants each purchase once", async () => {
+  const root = await mkdtemp(join(tmpdir(), "soldbench-settlement-restore-"));
+  const run = promisify(execFile);
+  const local = {
+    ...process.env,
+    PAYMENT_FIXTURES: "true",
+    LOCAL_STATE_ROOT: root,
+    PRIVACY_RESTORE_ISOLATED: "true",
+  };
+  const cli = ["--import", "./scripts/test-network.mjs", "scripts/payment-fixture.mjs"];
+  const name = "soldbench_payment_restore";
+  let created = false;
+  let restored;
+  try {
+    await run(process.execPath, [...cli, "init"], { env: local });
+    const keys = localPaymentKeys(root);
+    const original = new PaymentLifecycle(new BillingService(db), config.origin, keys);
+    const fixtures = [];
+    const stage = async ({ fact, event_type, event_id }, capture = true) => {
+      if (capture) await original.stageFixture(fact);
+      const bytes = Buffer.from(
+        JSON.stringify({
+          id: event_id,
+          type: event_type,
+          environment: fact.environment,
+          merchant: fact.merchant,
+          object_id: fact.object_id,
+          revision: fact.revision,
+        }),
+      );
+      await original.receive(
+        fact.provider,
+        new Headers(fixtureSignature(fact.provider, keys[fact.provider], bytes, new Date())),
+        bytes,
+      );
+    };
+    for (const provider of ["stripe", "paypal"]) {
+      const u = await user(fixture(), { free: false });
+      const checkout = checkoutId(
+        await original.checkout(u.owner, terms(provider, "purchased_1500"), randomUUID()),
+      );
+      const { rows } = await db.query("SELECT created_at FROM payment_checkout_intents WHERE id=$1", [
+        checkout,
+      ]);
+      fixtures.push({
+        fact: tx({ now: () => rows[0].created_at.toISOString() }, provider, checkout),
+        event_type: provider === "stripe" ? "payment_intent_succeeded" : "capture_completed",
+        event_id: randomUUID(),
+      });
+    }
+    const unrelated = {
+      ...fixtures[0],
+      event_id: randomUUID(),
+      fact: { ...fixtures[0].fact, object_id: randomUUID() },
+    };
+    await stage(unrelated, false);
+    const bin = (await run("pg_config", ["--bindir"])).stdout.trim();
+    const backup = join(root, "before-payment.dump");
+    await run(join(bin, "pg_dump"), ["--format=custom", "--file", backup, process.env.DATABASE_URL]);
+    for (const entry of fixtures) {
+      await stage(entry);
+      assert.equal(
+        (await original.workOnce({ provider: entry.fact.provider, eventId: entry.event_id })).status,
+        "applied",
+      );
+    }
+    await db.query(`CREATE DATABASE ${name}`);
+    created = true;
+    const url = new URL(process.env.DATABASE_URL);
+    url.pathname = `/${name}`;
+    await run(join(bin, "pg_restore"), ["--exit-on-error", "--dbname", url.href, backup]);
+    restored = database(url.href);
+    const ids = fixtures.map((entry) => entry.fact.object_id);
+    const projection = async (connection) =>
+      (
+        await connection.query(
+          `SELECT p.provider,p.provider_payment_id,p.created_at,p.state,p.amount_cents,p.refunded_cents,
+             g.amount,w.balance,l.delta FROM payments p JOIN credit_grants g ON g.payment_id=p.id
+             JOIN credit_wallets w ON w.id=g.wallet_id JOIN credit_ledger l ON l.grant_id=g.id AND l.kind='grant'
+             WHERE p.provider_payment_id=ANY($1::text[]) ORDER BY p.provider`,
+          [ids],
+        )
+      ).rows;
+    assert.deepEqual(await projection(restored), []);
+    for (const { fact, ...event } of fixtures) {
+      const file = join(root, `${fact.provider}.json`);
+      const body = JSON.stringify({ ...fact, ...event });
+      await writeFile(file, body, { mode: 0o600 });
+      const args = [...cli, "replay", file];
+      const env = { ...local, DATABASE_URL: url.href };
+      await assert.rejects(
+        run(process.execPath, args, { env: { ...env, PAYMENT_REPLAY_SHA256: "0".repeat(64) } }),
+        /payment_replay_digest_mismatch/,
+      );
+      env.PAYMENT_REPLAY_SHA256 = createHash("sha256").update(body).digest("hex");
+      const replayed = await Promise.all(
+        Array.from({ length: 6 }, async () =>
+          JSON.parse((await run(process.execPath, args, { env })).stdout),
+        ),
+      );
+      assert.equal(replayed.filter((r) => r.outcome === "applied").length, 1);
+      assert.equal(replayed.filter((r) => r.outcome === "already_applied").length, 5);
+    }
+    const originalFacts = await projection(db);
+    assert.equal(originalFacts.length, 2);
+    assert.deepEqual(await projection(restored), originalFacts);
+    assert.equal(
+      (
+        await restored.query("SELECT status FROM payment_events WHERE provider_event_id=$1", [
+          unrelated.event_id,
+        ])
+      ).rows[0].status,
+      "received",
+    );
+  } finally {
+    await restored?.end();
+    if (created) await db.query(`DROP DATABASE ${name}`);
     await rm(root, { recursive: true, force: true });
   }
 });
