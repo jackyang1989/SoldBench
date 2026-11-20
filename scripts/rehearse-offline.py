@@ -238,7 +238,7 @@ try {
     media = withheld["media"]
     if media["eligibleReferences"] != 0 or media["probe"]["verifiedObjects"] != 0:
         raise ValueError("Withdrawn primary images are still eligible in the restored database")
-    cleanup = json.loads(run("node", "scripts/collector-maintenance.mjs"))
+    cleanup = json.loads(run("node", "scripts/collector-maintenance.mjs", "--require-clear"))
     if cleanup["cleanupProcessed"] != 1 or cleanup["cleanupPending"] != 0:
         raise ValueError("Restored source media cleanup did not finish")
     cleared = json.loads(run(*inspect))

@@ -823,6 +823,26 @@ test("wrong-root maintenance leaves private bytes and the revoke event intact, w
   assert.equal((await readEvent()).processed_at, null);
   assert.equal((await mediaRow(x)).object_key, photo.object_key);
   assert.ok((await x.media.get(photo.object_key)).length > 0);
+  const other = await setup();
+  await other.store.revokeSource(other.sourceId, "other_source_pending");
+  const scoped = (root) =>
+    execFileSync(
+      process.execPath,
+      ["scripts/collector-maintenance.mjs", `--source=${x.sourceId}`, "--require-clear"],
+      { encoding: "utf8", env: { ...process.env, MEDIA_ROOT: root, COLLECTOR_DEMO_DIR: x.root } },
+    );
+  assert.throws(
+    () => scoped(unrelatedRoot),
+    (error) => {
+      assert.equal(error.status, 2);
+      const report = JSON.parse(error.stdout);
+      assert.equal(report.sourceId, x.sourceId);
+      assert.equal(report.sources, 1);
+      assert.equal(report.cleanupPending, 1);
+      return true;
+    },
+  );
+  assert.equal((await readEvent()).processed_at, null);
   const deleteNamespace = x.media.purgeNamespace.bind(x.media);
   x.media.purgeNamespace = async () => {
     throw new Error("injected_filesystem_failure");
@@ -839,6 +859,14 @@ test("wrong-root maintenance leaves private bytes and the revoke event intact, w
   assert.ok((await readEvent()).processed_at instanceof Date);
   assert.equal((await mediaRow(x)).object_key, null);
   await assert.rejects(x.media.get(photo.object_key));
+  const complete = JSON.parse(scoped(x.media.root));
+  assert.equal(complete.cleanupPending, 0);
+  assert.equal(complete.sources, 1);
+  const preserved = await db.query(
+    "SELECT processed_at FROM outbox WHERE kind='collector.media_cleanup' AND payload->>'sourceId'=$1",
+    [other.sourceId],
+  );
+  assert.deepEqual(preserved.rows, [{ processed_at: null }]);
 });
 
 test("legacy media ownership survives a partial filesystem delete and allows the remaining bytes to be cleaned", async () => {
