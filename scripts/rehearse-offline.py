@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verify an offline distribution in a temporary runtime with PostgreSQL 16."""
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
@@ -101,6 +102,23 @@ def check_clients(run, root, opener, origin, processes, start):
             return json.load(reply)
 
     result_path = "/v1/sold/" + rest["query_id"]
+    snapshot_before = get(result_path)["data"]
+    first_comp = snapshot_before["comps"][0]
+    image_path = first_comp["primary_image"]["url"]
+    if not isinstance(image_path, str) or not image_path.startswith("/v1/media/"):
+        raise ValueError("The delivered synthetic fixture has no primary image")
+
+    def image_digest():
+        request = urllib.request.Request(origin + image_path, headers=authorization)
+        with opener.open(request, timeout=5) as reply:
+            if reply.headers.get_content_type() != "image/webp" or "no-store" not in reply.headers.get("Cache-Control", ""):
+                raise ValueError("Primary image response is not private WebP")
+            body = reply.read(5 * 1024 * 1024 + 1)
+        if not body or len(body) > 5 * 1024 * 1024:
+            raise ValueError("Invalid primary image response size")
+        return hashlib.sha256(body).hexdigest()
+
+    image_before = image_digest()
     ledger_before = get("/v1/usage")["data"]
     debits = [line["delta"] for line in ledger_before["ledger"] if line["query_id"] == rest["query_id"]]
     if debits != [-1] or ledger_before["next_cursor"] is not None:
@@ -125,9 +143,10 @@ def check_clients(run, root, opener, origin, processes, start):
         raise ValueError("The query worker exited during the API outage")
     start("api")
     ready(opener, origin, processes)
-    replay = json.loads(run(*example, "--transport=curl", additions=credentials))
-    if replay != {**rest, "credits_charged": 0}:
-        raise ValueError("The restarted API did not replay the same result without a debit")
+    for script in (("sh", "developer/examples/sold.sh"), ("node", "developer/examples/sold.ts")):
+        replay = json.loads(run(*script, "--claim", additions=credentials))
+        if replay != {**rest, "credits_charged": 0}:
+            raise ValueError(f"{script[1]} did not replay the same result without a debit")
     headers = {**authorization,
                "Content-Type": "application/json", "Accept": "application/json, text/event-stream",
                "MCP-Protocol-Version": "2025-11-25"}
@@ -157,17 +176,30 @@ def check_clients(run, root, opener, origin, processes, start):
         raise ValueError("MCP did not reuse delivered statistics free of charge")
     if get("/v1/usage")["data"] != ledger_before:
         raise ValueError("Outage recovery changed the synthetic owner's wallets or ledger")
-    return {"verified_samples": rest["n_price_verified"], "initial_credits_charged": 1,
-            "curl_replay_credits_charged": 0, "mcp_stats_credits_charged": 0,
-            "worker_sigkill_retained_read": True, "api_sigkill_retained_worker": True,
-            "ledger_unchanged_after_recovery": True}
+    def verify_restored(revoked_source):
+        if first_comp["source_id"] == revoked_source:
+            raise ValueError("The retained fixture must use the other approved source")
+        result = get(result_path)
+        if (result["data"] != snapshot_before or result["meta"]["credits_charged"] != 0
+                or get("/v1/usage")["data"] != ledger_before or image_digest() != image_before):
+            raise ValueError("The restored database changed authorized evidence, image bytes or ledger")
+
+    return {
+        "verified_samples": rest["n_price_verified"], "initial_credits_charged": 1,
+        "curl_replay_credits_charged": 0, "typescript_replay_credits_charged": 0,
+        "mcp_stats_credits_charged": 0, "primary_image_http_verified": True,
+        "worker_sigkill_retained_read": True, "api_sigkill_retained_worker": True,
+        "ledger_unchanged_after_recovery": True,
+    }, verify_restored
 
 
-def restore(run, root, environment, source_id, boot, shutdown):
+def restore(run, root, environment, source_id, boot, shutdown, verify_restored=None):
     pg = Path(run("pg_config", "--bindir").strip())
     authority = environment["DATABASE_URL"]
     snapshot = root / "before-revocation.dump"
     checkpoint = root / "current-restrictions.json"
+    older = root / "previous-restrictions.json"
+    old_export = json.loads(run("node", "scripts/privacy-recovery.mjs", "export", str(older)))
     timestamp = time.monotonic()
     run(str(pg / "pg_dump"), "--format=custom", "--file", str(snapshot), authority)
     revoke = """
@@ -182,8 +214,8 @@ try {
 """
     run("node", "--input-type=module", "--eval", revoke, source_id)
     signed = json.loads(run("node", "scripts/privacy-recovery.mjs", "export", str(checkpoint)))
-    if not signed.get("exported"):
-        raise ValueError("Authoritative recovery checkpoint was not exported")
+    if not signed.get("exported") or not old_export.get("exported") or signed["sha256"] == old_export["sha256"]:
+        raise ValueError("Expected distinct authoritative and previous signed checkpoints")
     shutdown()
     incident = time.monotonic()
     run(str(pg / "psql"), "--dbname", authority, "--set", "ON_ERROR_STOP=1", "--command",
@@ -193,9 +225,10 @@ try {
     environment["DATABASE_URL"] = restored
     environment["PRIVACY_RESTORE_ISOLATED"] = "true"
     environment["PRIVACY_RECOVERY_MANIFEST_SHA256"] = signed["sha256"]
-    replay = ["node", "scripts/privacy-recovery.mjs", "replay", str(checkpoint)]
-    applied = json.loads(run(*replay))
-    already = json.loads(run(*replay))
+    replay = ["node", "scripts/privacy-recovery.mjs", "replay"]
+    run(*replay, str(older), expected_error="privacy_recovery_checkpoint_digest_mismatch")
+    applied = json.loads(run(*replay, str(checkpoint)))
+    already = json.loads(run(*replay, str(checkpoint)))
     if applied.get("sources_quarantined") != 1 or already.get("sources_quarantined") != 0:
         raise ValueError("Source revocation checkpoint did not replay once")
     inspect = ["node", "scripts/collector-report.mjs", f"--source={source_id}", "--check-media=8"]
@@ -213,10 +246,17 @@ try {
     run(str(pg / "psql"), "--dbname", restored, "--set", "ON_ERROR_STOP=1", "--command",
         "DELETE FROM worker_heartbeats WHERE worker_kind='query'")
     boot()
-    return {"backup_age_at_simulated_incident_ms": round((incident - timestamp) * 1000),
-            "isolated_restore_to_ready_ms": round((time.monotonic() - incident) * 1000),
-            "source_revocation_replays": applied["sources_quarantined"], "media_cleanup_completed": True,
-            "production_recovery_objectives_verified": False}
+    ready_elapsed = round((time.monotonic() - incident) * 1000)
+    if verify_restored is not None:
+        verify_restored(source_id)
+    return {
+        "backup_age_at_simulated_incident_ms": round((incident - timestamp) * 1000),
+        "isolated_restore_to_ready_ms": ready_elapsed,
+        "old_signed_checkpoint_rejected": True,
+        "source_revocation_replays": applied["sources_quarantined"], "media_cleanup_completed": True,
+        "authorized_snapshot_verified_after_restore": True if verify_restored is not None else None,
+        "production_recovery_objectives_verified": False,
+    }
 
 
 def exercise(source, output, restore_backup=False, clients=False):
@@ -239,17 +279,21 @@ def exercise(source, output, restore_backup=False, clients=False):
             "LC_ALL": "C", "TMPDIR": directory,
         }
         with output.open("x", encoding="utf8") as log:
-            def run(*command, additions=None):
+            def run(*command, additions=None, expected_error=None):
                 result = subprocess.run(command, cwd=workspace, env={**environment, **(additions or {})},
                                         text=True, capture_output=True, timeout=60)
                 log.write(result.stdout + result.stderr)
+                log.flush()
+                if expected_error is not None:
+                    if not result.returncode or expected_error not in result.stderr:
+                        raise ValueError(f"Expected rehearsal rejection {expected_error}; inspect the rehearsal log")
+                    return result.stdout
                 if result.returncode:
                     postgres_log = workspace / ".local/postgres/postgres.log"
                     if postgres_log.is_file():
                         log.write(postgres_log.read_text(encoding="utf8", errors="replace")[-16384:])
                     log.flush()
                     raise ValueError(f"{command[0]} exited {result.returncode}; inspect the rehearsal log")
-                log.flush()
                 return result.stdout
 
             run("npm", "ci", "--omit=dev", "--offline", "--no-audit", "--no-fund")
@@ -291,10 +335,15 @@ def exercise(source, output, restore_backup=False, clients=False):
                 evidence = {**original, "migrations": len(migration["applied"]), "loopback_http_requests": demo["localHttpRequests"],
                             "pages": media_facts[0], "primary_images": media_facts[1], "external_source_requests": media_facts[2],
                             "production_verified": False}
+                verify_restored = None
                 if clients:
-                    evidence["clients"] = check_clients(run, workspace, opener, origin, processes, start)
+                    evidence["clients"], verify_restored = check_clients(
+                        run, workspace, opener, origin, processes, start,
+                    )
                 if restore_backup:
-                    evidence["restore"] = restore(run, workspace, environment, demo["sourceId"], boot, shutdown)
+                    evidence["restore"] = restore(
+                        run, workspace, environment, demo["sourceId"], boot, shutdown, verify_restored,
+                    )
                 return evidence
             finally:
                 shutdown()

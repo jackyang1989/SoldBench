@@ -24,7 +24,7 @@ public-fixture query-worker
 """.split()
 FIXED_FILES = (
     "package.json", "package-lock.json", "apps/web/src/site.css", "apps/web/src/site.js",
-    "developer/examples/sold.py",
+    "developer/examples/sold.py", "developer/examples/sold.sh", "developer/examples/sold.ts",
     "tests/fixtures/html/profile.json", "tests/fixtures/html/search.html", "v14_gameboy_58_verified.json",
     "scripts/package-offline.py", *(f"scripts/{name}.mjs" for name in OPERATOR_SCRIPTS),
 )
