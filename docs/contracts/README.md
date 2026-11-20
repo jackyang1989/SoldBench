@@ -1,6 +1,6 @@
 # 契约验证入口
 
-维护说明更新于 2026-11-19。这里保留初始 SQL 设计基线与关系测试。当前离线迁移以 `packages/db/migrations/0001_*` 至 `0023_*` 顺序应用为准，ADR-13 规定离线实施授权及实际 G0 约束。新变更须同步适用契约、示例和文档。历史版本更新段落按当时版本阅读。
+维护说明更新于 2026-11-20。这里保留初始 SQL 设计基线与关系测试。当前离线迁移以 `packages/db/migrations/0001_*` 至 `0032_*` 顺序应用为准，ADR-13 规定离线实施授权及实际 G0 约束。新变更须同步适用契约、示例和文档。历史版本更新段落按当时版本阅读。
 
 - [OpenAPI 3.1](../openapi.yaml)：当前离线契约 1.27.0。主图读取检查 owner 与当前权利。支付 webhook 的签名和原文处理遵循各自通道设计，真实联调另行验收。
 - [SQL基线](schema.sql)：PG16空库结构，含身份/来源/观测/事件/查询/作业/钱包/支付/删除/审计。
@@ -20,6 +20,16 @@ python3 -m venv /tmp/soldbench-contract-check
 ```
 
 如当前Python已具有兼容版本，可直接 `python3 docs/contracts/check_contracts.py`。工具无外网访问行为；安装依赖与运行验证是两个独立动作。
+
+## OpenAPI 兼容性差异
+
+使用已签收的上一版 `openapi.yaml` 作为 `old.openapi.yaml`，连同当前候选文件执行：
+
+```sh
+python3 docs/contracts/check_compatibility.py old.openapi.yaml docs/openapi.yaml
+```
+
+差异按方法、路径、状态码和字段位置输出。覆盖操作移除、请求参数和正文、认证范围、响应状态/媒体类型/头与共享 schema 的常见破坏性变化。复杂约束组成、认证方案变更和向原先封闭的响应添加字段需要人工复核。退出码 0 表示受支持的结构检查通过，1 表示有差异待复核，2 表示输入不可读或引用不受支持。发布还需验证实际 HTTP、收费、错误语义与旧客户端，基线应保存对应提交。`npm run contracts` 同时运行差异工具的回归测试。
 
 ## PostgreSQL16验证
 

@@ -17,7 +17,7 @@
     "lint:fix": "biome check --write apps packages scripts tests",
     "test": "npm run build && node scripts/test.mjs",
     "test:step0": "python3 step0/tools/validate_offline.py",
-    "contracts": "python3 docs/contracts/check_contracts.py",
+    "contracts": "python3 docs/contracts/check_contracts.py && python3 -m unittest discover -s docs/contracts -p 'test_compatibility.py'",
     "check": "npm run lint && npm run typecheck && npm test && npm run contracts",
     "dev": "npm run build && node --env-file-if-exists=.env scripts/dev.mjs",
     "db:start": "node scripts/local-db.mjs start",

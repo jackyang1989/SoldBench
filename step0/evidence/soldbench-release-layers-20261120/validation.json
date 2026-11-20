@@ -1,0 +1,53 @@
+{
+  "captured_at": "2026-11-20T05:03:11+00:00",
+  "code_baseline": "886a1b5",
+  "environment": {
+    "mode": "offline_fixture",
+    "node": "22.23.3",
+    "database": "isolated PostgreSQL 16.15",
+    "browser": "Chrome",
+    "real_data": false,
+    "real_mail": false
+  },
+  "checks": {
+    "npm run check": {
+      "exit_code": 0,
+      "test_files": 28,
+      "tests": 278,
+      "pass": 278,
+      "fail": 0,
+      "skipped": 0
+    },
+    "contract_compatibility": {
+      "baseline": "d9e7b8f:docs/openapi.yaml",
+      "exit_code": 0,
+      "mutations_checked": 5
+    },
+    "offline_step0": {
+      "exit_code": 0,
+      "checks_passed": 20
+    }
+  },
+  "discovered_and_fixed": [
+    "Runtime refresh CLI did not retain the configured database startup mode.",
+    "The legacy migration test’s expected relation count was updated for the new supervisor table."
+  ],
+  "external_validation": {
+    "data": "pending",
+    "production_email": "pending",
+    "actual_host_and_egress": "pending",
+    "hosted_mcp": "pending"
+  },
+  "release_gate": "NOT_ISSUED",
+  "sha256": {
+    "packages/db/src/index.ts": "0153913f1d4134b7f6d6f78ef4d3a912be1061e7623f3ed12eaa9a44ebceed8a",
+    "packages/auth/src/offline-mail.ts": "df50845fed318df4fdffeec94a1a1fe71a9029e528161a18a0756334b971cb52",
+    "packages/db/migrations/0031_offline_auth_mail_delivery.sql": "62c2b54b5792df7a25109552a76502237dc5f3909e89ae0c429ef5cd7cf7cce0",
+    "packages/db/migrations/0032_collector_supervisor_state.sql": "bd2c5d66728bcd7d7c5a448cdf418a2e280341609f49415a784345b20858e7d2",
+    "scripts/collector-supervisor.mjs": "308ec7a0b76a3f83e9e1e4cf9737254ad792b1a9ddb190d81daa4fac0dff4e4e",
+    "scripts/collector-refresh.mjs": "f88ab1555869e23f37db78fa4fc641212a293708894e4852fa53410752b64fbe",
+    "apps/api/src/ops-telemetry.ts": "da1fb79a5e309732d0234efa2dadc4e90f7529eb764bbb45de3bf96d986218f0",
+    "docs/contracts/check_compatibility.py": "fc62eeb8b1aa5ad9fbcb1767478fae3e26a077a3b08e4343a048d4658ac0dfdb",
+    "docs/contracts/test_compatibility.py": "c73f5b0e1d25d6863aceae0a3ce8408a2add156fe5aa4478d4a27807cdf6a683"
+  }
+}
