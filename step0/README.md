@@ -41,9 +41,9 @@
 
 ## GO前的最小交接
 
-先完成TASK-003离线PoC与TASK-004语料；填写TASK-001中实际有/缺的准入信息，保留可并行文档准备。TASK-005在现有复核工具上补边界夹具。当前不能跳到S-01脚手架、支付、正式页面。
+TASK-003 至 TASK-006 的离线证据见[任务台账](../docs/开发排期与任务台账.md)。真实接入继续完成 TASK-001 的准入信息和 TASK-004 的语料签收。脚手架、支付与网页的合成数据工程按[ADR-13](../docs/adr/ADR-13.md)推进。
 
-整包运行入口为`python3 step0/tools/validate_offline.py`，开发依赖安装见PoC README。120条草稿见 [查询语料](corpus.csv)，标注与签收见 [质量规程](quality-plan.md)，断源模拟见 [演练说明](outage-drill.md)。
+整包运行入口为 `npm run test:step0`，新工作树先按 [PoC README](collector-poc/README.md) 安装两套锁定依赖并构建主工程。120 条草稿见[查询语料](corpus.csv)，标注与签收见[质量规程](quality-plan.md)，断源模拟见[演练说明](outage-drill.md)。
 
 来源缺项用`python3 step0/tools/readiness.py`检查。成本输入与执行见 [成本工具](unit-economics/README.md)，真实数据表保留未知值，假设场景用于压力演算。已准备 [访谈提纲](interviews.md) 和 [14天验证计划与分析入口](online-validation-plan.md)，实际访谈和获准线上运行待执行。
 

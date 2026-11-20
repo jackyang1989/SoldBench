@@ -53,8 +53,10 @@ node step0/collector-poc/src/cli.ts
 第0步离线检查包含源码严格类型检查、离线测试、120条草稿语料结构、黄金夹具、文档及契约。依赖安装需要网络；安装后测试过程使用本地依赖，Node测试预载禁网守卫。
 
 ```sh
+npm ci
 npm --prefix step0/collector-poc ci --ignore-scripts
-python3 step0/tools/validate_offline.py
+npm run build
+npm run test:step0
 ```
 
 执行日志、退出码和源码hash写入忽略提交的`step0/artifacts/`。版本化复核证据随工作包放在`step0/collector-poc/evidence/`。语料草稿及标注要求见 [质量规程](step0/quality-plan.md)。

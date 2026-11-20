@@ -7,18 +7,14 @@ TASK-003/005/006 / 2026-11-16。自有TypeScript代码，Node22.18+内置类型�
 在项目根目录，使用Node22.18+：
 
 ```sh
+npm ci
+npm --prefix step0/collector-poc ci --ignore-scripts
+npm run build
 node --test step0/collector-poc/tests/*.test.ts
 node step0/collector-poc/src/cli.ts
 ```
 
-安装与整包检查在仓库根目录执行。
-
-```sh
-npm --prefix step0/collector-poc ci --ignore-scripts
-python3 step0/tools/validate_offline.py
-```
-
-开发依赖安装后可离线运行。`npm --prefix step0/collector-poc run typecheck`严格检查`src/`，测试文件由Node运行验证。统一检查入口预载`offline-network.ts`，阻止Node测试进程访问HTTP/TCP/TLS/DNS/UDP。后续正式工程的lint/build/CI仍由TASK-011建立。
+PoC 复用主工程的统计模块，先构建 workspace，再从根目录运行 `npm run test:step0`。`npm --prefix step0/collector-poc run typecheck` 严格检查 `src/`。统一检查入口预载 `offline-network.ts`，阻止 Node 测试进程访问外网。
 
 默认demo写入本目录`artifacts/demo-state.json`和`artifacts/demo-report.json`，不修改原始黄金fixture。连续运行复用同一run/checkpoint，不增加重复事件。独立输出可以指定：
 
