@@ -11,6 +11,7 @@ import tarfile
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -73,7 +74,63 @@ def stop(process):
         process.wait(timeout=5)
 
 
-def exercise(source, output):
+def restore(run, root, environment, source_id, boot, shutdown):
+    pg = Path(run("pg_config", "--bindir").strip())
+    authority = environment["DATABASE_URL"]
+    snapshot = root / "before-revocation.dump"
+    checkpoint = root / "current-restrictions.json"
+    timestamp = time.monotonic()
+    run(str(pg / "pg_dump"), "--format=custom", "--file", str(snapshot), authority)
+    revoke = """
+import { CollectorStore } from '@soldbench/collector';
+import { database } from '@soldbench/db';
+const db = database(process.env.DATABASE_URL);
+try {
+  await new CollectorStore(db).revokeSource(process.argv[1], 'offline_release_restore_fixture');
+} finally {
+  await db.end();
+}
+"""
+    run("node", "--input-type=module", "--eval", revoke, source_id)
+    signed = json.loads(run("node", "scripts/privacy-recovery.mjs", "export", str(checkpoint)))
+    if not signed.get("exported"):
+        raise ValueError("Authoritative recovery checkpoint was not exported")
+    shutdown()
+    incident = time.monotonic()
+    run(str(pg / "psql"), "--dbname", authority, "--set", "ON_ERROR_STOP=1", "--command",
+        "CREATE DATABASE soldbench_rehearsal_restore")
+    restored = urllib.parse.urlsplit(authority)._replace(path="/soldbench_rehearsal_restore").geturl()
+    run(str(pg / "pg_restore"), "--exit-on-error", "--dbname", restored, str(snapshot))
+    environment["DATABASE_URL"] = restored
+    environment["PRIVACY_RESTORE_ISOLATED"] = "true"
+    environment["PRIVACY_RECOVERY_MANIFEST_SHA256"] = signed["sha256"]
+    replay = ["node", "scripts/privacy-recovery.mjs", "replay", str(checkpoint)]
+    applied = json.loads(run(*replay))
+    already = json.loads(run(*replay))
+    if applied.get("sources_quarantined") != 1 or already.get("sources_quarantined") != 0:
+        raise ValueError("Source revocation checkpoint did not replay once")
+    inspect = ["node", "scripts/collector-report.mjs", f"--source={source_id}", "--check-media=8"]
+    withheld = json.loads(run(*inspect))
+    media = withheld["media"]
+    if media["eligibleReferences"] != 0 or media["probe"]["verifiedObjects"] != 0:
+        raise ValueError("Withdrawn primary images are still eligible in the restored database")
+    cleanup = json.loads(run("node", "scripts/collector-maintenance.mjs"))
+    if cleanup["cleanupProcessed"] != 1 or cleanup["cleanupPending"] != 0:
+        raise ValueError("Restored source media cleanup did not finish")
+    cleared = json.loads(run(*inspect))
+    media_path = root / ".local/collector-media" / source_id
+    if cleared["media"]["retainedReferences"] != 0 or any(media_path.glob("*.webp")):
+        raise ValueError("Restored primary image references remain after cleanup")
+    run(str(pg / "psql"), "--dbname", restored, "--set", "ON_ERROR_STOP=1", "--command",
+        "DELETE FROM worker_heartbeats WHERE worker_kind='query'")
+    boot()
+    return {"backup_age_at_simulated_incident_ms": round((incident - timestamp) * 1000),
+            "isolated_restore_to_ready_ms": round((time.monotonic() - incident) * 1000),
+            "source_revocation_replays": applied["sources_quarantined"], "media_cleanup_completed": True,
+            "production_recovery_objectives_verified": False}
+
+
+def exercise(source, output, restore_backup=False):
     original = BUNDLE.verify(source)
     with tempfile.TemporaryDirectory(prefix="sb-run-", dir="/tmp") as directory:
         workspace = Path(directory) / "soldbench"
@@ -109,14 +166,23 @@ def exercise(source, output):
             run("npm", "ci", "--omit=dev", "--offline", "--no-audit", "--no-fund")
             run("node", "scripts/local-db.mjs", "start")
             processes = []
-            try:
-                environment["DATABASE_URL"] = json.loads((workspace / ".local/database.json").read_text())["url"]
-                migration = json.loads(run("node", "scripts/migrate.mjs"))
+
+            def shutdown():
+                while processes:
+                    stop(processes.pop())
+
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+            def boot():
                 for entry in ("apps/api/dist/server.js", "scripts/query-worker.mjs"):
                     args = ["node", entry] + (["--watch"] if entry.endswith("query-worker.mjs") else [])
                     processes.append(subprocess.Popen(args, cwd=workspace, env=environment, stdout=log, stderr=log))
-                opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
                 ready(opener, origin, processes)
+
+            try:
+                environment["DATABASE_URL"] = json.loads((workspace / ".local/database.json").read_text())["url"]
+                migration = json.loads(run("node", "scripts/migrate.mjs"))
+                boot()
                 health = json.loads(response(opener, origin, "/health"))
                 if health != {"status": "ok", "data_mode": "offline_fixture", "collector_enabled": False}:
                     raise ValueError("Runtime health did not assert offline configuration")
@@ -127,12 +193,14 @@ def exercise(source, output):
                 media_facts = (demo["pageCount"], demo["availablePrimaryImages"], demo["externalNetworkRequests"])
                 if demo["status"] != "completed" or media_facts != (2, 8, 0):
                     raise ValueError("Runtime collector replay did not match the release fixture")
-                return {**original, "migrations": len(migration["applied"]), "loopback_http_requests": demo["localHttpRequests"],
-                        "pages": media_facts[0], "primary_images": media_facts[1], "external_source_requests": media_facts[2],
-                        "production_verified": False}
+                evidence = {**original, "migrations": len(migration["applied"]), "loopback_http_requests": demo["localHttpRequests"],
+                            "pages": media_facts[0], "primary_images": media_facts[1], "external_source_requests": media_facts[2],
+                            "production_verified": False}
+                if restore_backup:
+                    evidence["restore"] = restore(run, workspace, environment, demo["sourceId"], boot, shutdown)
+                return evidence
             finally:
-                for process in reversed(processes):
-                    stop(process)
+                shutdown()
                 run("node", "scripts/local-db.mjs", "stop")
 
 
@@ -140,9 +208,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("archive", type=Path)
     parser.add_argument("--log", required=True, type=Path)
+    parser.add_argument("--restore", action="store_true")
     args = parser.parse_args()
     try:
-        print(json.dumps(exercise(args.archive, args.log)))
+        print(json.dumps(exercise(args.archive, args.log, args.restore)))
     except (ValueError, OSError, tarfile.TarError, subprocess.TimeoutExpired) as error:
         parser.exit(1, f"{error}\n")
 
