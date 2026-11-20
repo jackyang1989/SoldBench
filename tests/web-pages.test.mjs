@@ -884,6 +884,8 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await editor.getByRole("columnheader", { name: "解析器版本", exact: true }).waitFor();
     await editor.getByRole("heading", { name: "刷新计划", exact: true }).waitFor();
     await editor.getByRole("columnheader", { name: "待派发时段", exact: true }).waitFor();
+    await editor.getByRole("heading", { name: "响应包入站", exact: true }).waitFor();
+    await editor.getByRole("columnheader", { name: "已检查目录项", exact: true }).waitFor();
     await editor.getByRole("link", { name: x.source.sourceId, exact: true }).first().click();
     await editor.getByRole("columnheader", { name: "商品主图", exact: true }).waitFor();
     await reviewer.context.close();

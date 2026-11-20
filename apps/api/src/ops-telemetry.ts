@@ -204,6 +204,26 @@ export async function telemetry(c: Transaction, now: Date, view: TelemetryView, 
          ORDER BY (plans.due>0 OR slots.pending>0) DESC,plans.next_due_at NULLS LAST,s.id LIMIT $3`,
         [now, input.source ?? null, input.limit],
       );
+      await table(
+        "collector_intake",
+        [
+          "source_id",
+          "last_cycle_at",
+          "intake_status",
+          "intake_scanned",
+          "intake_published",
+          "intake_deferred",
+        ],
+        `SELECT s.id source_id,h.last_cycle_at,h.cycle_summary#>>'{intake,status}' intake_status,
+           h.cycle_summary#>'{intake,scanned}' intake_scanned,
+           h.cycle_summary#>'{intake,published}' intake_published,
+           h.cycle_summary#>'{intake,deferred}' intake_deferred
+         FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id
+         LEFT JOIN collector_supervisor_state h ON h.source_id=s.id AND h.last_cycle_at<=$1
+         WHERE s.access_method='offline_fixture' AND x.provider='synthetic_fixture' AND ($2::uuid IS NULL OR s.id=$2)
+         ORDER BY h.last_cycle_at DESC NULLS LAST,s.id LIMIT $3`,
+        [now, input.source ?? null, input.limit],
+      );
       break;
     case "records":
       await table(

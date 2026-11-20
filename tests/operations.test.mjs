@@ -870,6 +870,7 @@ test("telemetry uses real offline runs, current evidence rights and versioned lo
   const missingSupervisor = rows((await get(`collector?source=${source}`)).data, 1)[0];
   assert.equal(missingSupervisor.phase, "unobserved");
   assert.equal(missingSupervisor.page_jobs_due, null);
+  assert.equal(rows((await get(`collector?source=${source}`)).data, 3)[0].intake_scanned, null);
   const clock = { now: start };
   const refresh = new CollectorRefresh(new CollectorStore(db, () => clock.now));
   await refresh.create({
@@ -899,6 +900,7 @@ test("telemetry uses real offline runs, current evidence rights and versioned lo
       {
         spool: "unavailable",
         scheduled: { materialized: 1, enqueued: 0, recovered: 0, blocked: 0, missed: 2 },
+        intake: { status: "scan_limit", scanned: 10000, published: 0, deferred: 2 },
         queues: {
           pages: { due: 65, artifactUnavailable: 10, uninspected: 2 },
           images: { due: 4, artifactUnavailable: 0, uninspected: 0 },
@@ -915,6 +917,15 @@ test("telemetry uses real offline runs, current evidence rights and versioned lo
   assert.equal((await schedule()).refresh_enqueued, 0);
   assert.equal((await schedule()).refresh_materialized, 1);
   assert.equal((await schedule()).refresh_missed, 2);
+  const intake = rows((await get(`collector?source=${source}`)).data, 3)[0];
+  assert.deepEqual(intake, {
+    source_id: source,
+    last_cycle_at: start,
+    intake_status: "scan_limit",
+    intake_scanned: 10000,
+    intake_published: 0,
+    intake_deferred: 2,
+  });
   const alert = rows((await get("monitoring")).data).find(
     ({ signal }) => signal === "overdue_collector_supervisors",
   );
