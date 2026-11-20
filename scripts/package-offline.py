@@ -19,11 +19,12 @@ MAX_BYTES = 32 * 1024 * 1024
 OPERATOR_SCRIPTS = """
 collector-demo collector-fixture-file collector-handoff collector-html-demo collector-intake
 collector-launcher collector-maintenance collector-refresh collector-report collector-supervisor
-collector-worker dev local-db migrate offline-mail payment-fixture payment-reconcile privacy-recovery
+collector-worker dev developer-demo local-db migrate offline-mail payment-fixture payment-reconcile privacy-recovery
 public-fixture query-worker
 """.split()
 FIXED_FILES = (
     "package.json", "package-lock.json", "apps/web/src/site.css", "apps/web/src/site.js",
+    "developer/examples/sold.py",
     "tests/fixtures/html/profile.json", "tests/fixtures/html/search.html", "v14_gameboy_58_verified.json",
     "scripts/package-offline.py", *(f"scripts/{name}.mjs" for name in OPERATOR_SCRIPTS),
 )

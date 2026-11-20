@@ -51,4 +51,4 @@ jobs:
         run: |
           python -m unittest discover -s tests -p test_runtime_package.py
           python scripts/package-offline.py pack "$RUNNER_TEMP/soldbench-runtime.tar.gz"
-          python scripts/rehearse-offline.py "$RUNNER_TEMP/soldbench-runtime.tar.gz" --restore --log "$RUNNER_TEMP/soldbench-runtime.log"
+          python scripts/rehearse-offline.py "$RUNNER_TEMP/soldbench-runtime.tar.gz" --restore --clients --log "$RUNNER_TEMP/soldbench-runtime.log"

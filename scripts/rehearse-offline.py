@@ -4,6 +4,7 @@ import argparse
 import importlib.util
 import json
 import os
+import shlex
 import shutil
 import socket
 import subprocess
@@ -74,6 +75,57 @@ def stop(process):
         process.wait(timeout=5)
 
 
+def check_clients(run, root, opener, origin):
+    setup = json.loads(run("node", "scripts/developer-demo.mjs"))
+    if setup.get("collector_enabled") is not False:
+        raise ValueError("Developer demo did not assert offline mode")
+    private = root / ".local/developer-demo.env"
+    if private.stat().st_mode & 0o077:
+        raise ValueError("Fixture credentials must remain private")
+    credentials = {}
+    for line in private.read_text().splitlines():
+        key, value = line.split("=", 1)
+        if key in {"SOLDBENCH_BASE_URL", "SOLDBENCH_API_KEY", "SOLDBENCH_KEYWORD"}:
+            credentials[key], = shlex.split(value)
+    if credentials.get("SOLDBENCH_BASE_URL") != origin + "/v1" or not credentials.get("SOLDBENCH_API_KEY"):
+        raise ValueError("Invalid local developer fixture")
+    example = ("python3", "developer/examples/sold.py", "--claim")
+    rest = json.loads(run(*example, additions=credentials))
+    replay = json.loads(run(*example, "--transport=curl", additions=credentials))
+    if (rest["n_price_verified"] != 8 or rest["credits_charged"] != 1
+            or replay != {**rest, "credits_charged": 0}):
+        raise ValueError("REST fixture did not settle exactly once")
+    headers = {"Authorization": "Bearer " + credentials["SOLDBENCH_API_KEY"],
+               "Content-Type": "application/json", "Accept": "application/json, text/event-stream",
+               "MCP-Protocol-Version": "2025-11-25"}
+
+    def call(method, params=None):
+        body = {"jsonrpc": "2.0", "id": 1, "method": method}
+        if params is not None:
+            body["params"] = params
+        request = urllib.request.Request(origin + "/mcp", json.dumps(body).encode(), headers)
+        with opener.open(request, timeout=5) as reply:
+            raw = reply.read().decode()
+            if reply.headers.get_content_type() == "text/event-stream":
+                raw = next((line[5:].strip() for line in raw.splitlines() if line.startswith("data:")), "")
+        message = json.loads(raw)
+        if "result" not in message or message["result"].get("isError"):
+            raise ValueError(f"MCP fixture command failed: {method}")
+        return message["result"]
+
+    tools = call("tools/list")
+    if {tool["name"] for tool in tools["tools"]} != {"sold_search", "sold_stats"}:
+        raise ValueError("Offline MCP tool surface differs from its contract")
+    stats = call("tools/call", {"name": "sold_stats", "arguments": {"query_id": rest["query_id"]}})
+    result = stats["structuredContent"]
+    if (result["meta"]["credits_charged"] != 0
+            or result["data"]["stats"]["median_cents"] != rest["median_cents"]
+            or result["data"]["stats"]["n_price_verified"] != rest["n_price_verified"]):
+        raise ValueError("MCP did not reuse delivered statistics free of charge")
+    return {"verified_samples": rest["n_price_verified"], "initial_credits_charged": 1,
+            "curl_replay_credits_charged": 0, "mcp_stats_credits_charged": 0}
+
+
 def restore(run, root, environment, source_id, boot, shutdown):
     pg = Path(run("pg_config", "--bindir").strip())
     authority = environment["DATABASE_URL"]
@@ -130,7 +182,7 @@ try {
             "production_recovery_objectives_verified": False}
 
 
-def exercise(source, output, restore_backup=False):
+def exercise(source, output, restore_backup=False, clients=False):
     original = BUNDLE.verify(source)
     with tempfile.TemporaryDirectory(prefix="sb-run-", dir="/tmp") as directory:
         workspace = Path(directory) / "soldbench"
@@ -150,9 +202,9 @@ def exercise(source, output, restore_backup=False):
             "LC_ALL": "C", "TMPDIR": directory,
         }
         with output.open("x", encoding="utf8") as log:
-            def run(*command):
-                result = subprocess.run(command, cwd=workspace, env=environment, text=True, capture_output=True,
-                                        timeout=60)
+            def run(*command, additions=None):
+                result = subprocess.run(command, cwd=workspace, env={**environment, **(additions or {})},
+                                        text=True, capture_output=True, timeout=60)
                 log.write(result.stdout + result.stderr)
                 if result.returncode:
                     postgres_log = workspace / ".local/postgres/postgres.log"
@@ -196,6 +248,8 @@ def exercise(source, output, restore_backup=False):
                 evidence = {**original, "migrations": len(migration["applied"]), "loopback_http_requests": demo["localHttpRequests"],
                             "pages": media_facts[0], "primary_images": media_facts[1], "external_source_requests": media_facts[2],
                             "production_verified": False}
+                if clients:
+                    evidence["clients"] = check_clients(run, workspace, opener, origin)
                 if restore_backup:
                     evidence["restore"] = restore(run, workspace, environment, demo["sourceId"], boot, shutdown)
                 return evidence
@@ -209,9 +263,10 @@ def main():
     parser.add_argument("archive", type=Path)
     parser.add_argument("--log", required=True, type=Path)
     parser.add_argument("--restore", action="store_true")
+    parser.add_argument("--clients", action="store_true")
     args = parser.parse_args()
     try:
-        print(json.dumps(exercise(args.archive, args.log, args.restore)))
+        print(json.dumps(exercise(args.archive, args.log, args.restore, args.clients)))
     except (ValueError, OSError, tarfile.TarError, subprocess.TimeoutExpired) as error:
         parser.exit(1, f"{error}\n")
 
