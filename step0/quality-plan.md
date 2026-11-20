@@ -35,6 +35,18 @@ human_adjudicated要求每行至少两个不同annotator_ids和adjudication_ref�
 
 价格中位偏差按每个query分别计算，禁止混合不同商品价格。沿用既有黄金算例的整数/有理数算法，双方有价样本均至少8条才形成中心统计，金标中位为0时相对误差null。未知实际价的排除数量以人工价格字段和计数核对。报告提供类目、头尾和开发/留出分层，releaseApproved始终false，质量总分null。当前空输入模板输出零标注及null指标。
 
+### 同题对照的盲审交接
+
+```sh
+python3 step0/tools/comparison_review.py prepare comparison-input.json step0/artifacts/comparison
+python3 step0/tools/comparison_review.py evaluate step0/artifacts/comparison/private-study.json \
+  step0/artifacts/comparison/review-packet.json review-a.json review-b.json adjudications.json
+```
+
+输入为 `soldbench.comparison-input.v1`，包含 `evidence_kind`、`corpus_sha256`、`providers`、`queries` 和 `snapshots`。每个 query 冻结 `query_id`、`split`、`as_of` 和 `filters`。过滤对象至少填 `q`、`marketplace`、`currency`、`window_days` 和 `price_basis`，其余填写实际请求约束。每条 provider 快照重复该 `query_id`、`as_of`、`filters`，并记录 `captured_at`、`status`、`candidate_set_complete`、`candidate_set_hash`、`evidence_ref` 与 `rows`。查询计算时点及窗口相同，捕获须在同一 UTC 日内。每个计划查询、每个来源都需要一行快照。没有返回时填 `unavailable` 或 `unsupported`、实际 `reason`、空 rows、空 hash 和 false 完整性。
+
+候选行填写稳定 `event_id`、统一的 `blind_evidence_ref`（`obs-` 加 16–64 个十六进制字符）、`predicted_comparable` 和 `predicted_price_cents`。研究负责人单独准备中性的获准原始证据供审核。命令生成仅供协调者使用的私有映射和交给审核者的盲审包，并输出 `packet_sha256`。盲审包隐去供应方、事件 ID、算法归类和价格预测，同一事件在计划查询内只评审一次。分别收两份 JSON，每份含 `reviewer_id`、`packet_sha256` 及 `rows`。评价行字段为 `blind_id`、`comparable`、`verified_price_cents`。仲裁文件为 `packet_sha256` 和 `rows`，每行在相同评价字段外增加独立 `reviewer_id` 与 `evidence_ref`。未仲裁的分歧和缺少独立标注均保留，结论不补默认值。报告保留每次未返回的查询、重叠候选分母、每查询双方各至少 20 条已标注的探索样本标记，以及现行质量指标。真实证据、每组五查询与正式发布签收仍须独立核查。
+
 ## 每日分母与类目签收记录
 
 - **冻结前**。标注负责人导出 6 组 × 20 条，共 120 条查询。每组预定 10 条头部和 10 条长尾。每条记录规范属性、批准窗口、站点、query ID、版本和 hash。按来源稳定事件分组切 development/holdout，并登记所属快照，重复 listing 的观察不得扩增成交；身份无法确认的记录单独报告。未核验字段保持 unknown。
