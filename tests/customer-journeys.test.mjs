@@ -302,14 +302,15 @@ test("professional researcher adjusts the full 58-sale snapshot beyond presentat
       }),
     );
   const authoritative = await exportView("authoritative");
-  const last = authoritative.items.at(-1).sale_event_id;
-  assert.ok(!result.data.comps.some((row) => row.sale_event_id === last));
-  const adjusted = await exportView("adjusted", [last]);
+  const displayed = new Set(result.data.comps.map((row) => row.sale_event_id));
+  const outsidePage = authoritative.items.find((row) => !displayed.has(row.sale_event_id));
+  assert.ok(outsidePage);
+  const adjusted = await exportView("adjusted", [outsidePage.sale_event_id]);
   assert.equal(authoritative.items.length, 58);
   assert.equal(adjusted.items.length, 57);
   assert.equal(adjusted.original_stats.n_price_verified, 58);
   assert.equal(adjusted.price_summary.n_price_verified, 57);
-  assert.ok(!adjusted.items.some((row) => row.sale_event_id === last));
+  assert.ok(!adjusted.items.some((row) => row.sale_event_id === outsidePage.sale_event_id));
   const reopened = await read(http(x, path, { headers: owner.headers }));
   assert.deepEqual(reopened.data.stats, result.data.stats);
   assert.equal(await charges(owner.user), 1);

@@ -73,6 +73,8 @@ python3 docs/contracts/check_contracts.py
 
 独立 PG16 回归保留数据库日志。每套通过后释放对应临时数据库，整轮成功后清理临时集群数据目录。失败套件的数据库保留供排查。使用 `SOLDBENCH_KEEP_TEST_DATABASES=true` 可保留全部测试数据库。
 
+验证浏览器工作流时，设置 `SOLDBENCH_BROWSER_BINARY` 为本机 Chrome 可执行文件路径，再运行 `npm run check`。项目锁定的 Playwright 驱动使用该已安装浏览器。GitHub Actions 的离线作业要求 Chrome，并在正式运行测试前检查它是否可执行。默认分支支持手动重跑整套离线检查。
+
 这些检查验证夹具与文档一致性，不代表真实网络来源、支付或生产端到端验收通过。工程命令为`npm run lint`、`npm run typecheck`、`npm run build`、`npm test`、`npm run contracts`；运行前需`npm ci`。开发服务器使用回环地址、离线fixture、支付offline和Collector关闭：
 
 ```sh

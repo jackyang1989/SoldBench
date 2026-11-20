@@ -3,6 +3,7 @@ on:
   push:
     branches: [main, 'codex/**']
   pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
@@ -37,7 +38,11 @@ jobs:
           npm ci
           npm --prefix step0/collector-poc ci --ignore-scripts
       - name: Check offline application and contracts
-        run: npm run check
+        run: |
+          export SOLDBENCH_BROWSER_BINARY="$(command -v google-chrome)"
+          test -x "$SOLDBENCH_BROWSER_BINARY"
+          "$SOLDBENCH_BROWSER_BINARY" --version
+          npm run check
       - name: Check full step0 fixtures
         run: npm run test:step0
       - name: Validate product Skill

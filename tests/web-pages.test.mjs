@@ -107,9 +107,9 @@ test("prototype-based pages serve both languages, valid private deep links and s
 });
 
 test("Chrome walks an empty account from cache miss and registration to explicit claim and free reuse", {
-  skip: !process.env.SOLDBENCH_BROWSER_MODULE || !process.env.SOLDBENCH_BROWSER_BINARY,
+  skip: !process.env.SOLDBENCH_BROWSER_BINARY,
 }, async () => {
-  const { chromium } = await import(process.env.SOLDBENCH_BROWSER_MODULE);
+  const { chromium } = await import(process.env.SOLDBENCH_BROWSER_MODULE ?? "playwright-core");
   const browser = await chromium.launch({
     executablePath: process.env.SOLDBENCH_BROWSER_BINARY,
     args: ["--disable-background-networking", "--disable-component-update", "--disable-sync"],
