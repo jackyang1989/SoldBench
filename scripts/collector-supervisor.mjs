@@ -11,7 +11,7 @@ import { assertLocalDatabaseUrl, database, isDatabaseConnectionError, prepareDat
 import { PrivateMediaStore } from "@soldbench/media";
 import { loadConfig } from "@soldbench/shared";
 import { fixtureJobId, readRefreshProfile } from "./collector-fixture-file.mjs";
-import { resumeFixtureIntake } from "./collector-intake.mjs";
+import { createFixtureIntakeScanner } from "./collector-intake.mjs";
 import { launchCollector } from "./collector-launcher.mjs";
 import { localDatabaseUrl } from "./local-db.mjs";
 
@@ -197,6 +197,7 @@ async function run(args) {
     const signal = AbortSignal.any([abort.signal, ownership.signal]);
     const onLockError = (error) => ownership.abort(error);
     const onLockEnd = () => ownership.abort(new Error("Connection terminated unexpectedly"));
+    const intakeScanner = createFixtureIntakeScanner(db, spool, sourceId);
     lock.on("error", onLockError);
     lock.on("end", onLockEnd);
     let owned = false;
@@ -214,8 +215,7 @@ async function run(args) {
         console.info("soldbench_collector_supervisor_database_recovered");
         retryDelay = 0;
       }
-      const deferred = new Map(),
-        pendingDeferred = new Map();
+      const deferred = new Map();
       const cursors = {};
       let nextMaintenance = 0;
       while (!signal.aborted) {
@@ -259,8 +259,7 @@ async function run(args) {
         const lanes = new Map();
         try {
           if (!(await lstat(spool)).isDirectory()) throw new Error("fixture_spool_not_directory");
-          if (state === "ready")
-            intake = await resumeFixtureIntake(db, spool, sourceId, pendingDeferred, signal);
+          if (state === "ready") intake = await intakeScanner.resume(signal);
           for (const row of rows) {
             let withArtifact = 0;
             let deferredCount = 0;
@@ -377,6 +376,7 @@ async function run(args) {
       lock.release(true);
       lock.removeListener("error", onLockError);
       lock.removeListener("end", onLockEnd);
+      await intakeScanner.close();
     }
   }
   try {

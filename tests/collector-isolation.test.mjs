@@ -17,6 +17,7 @@ import {
 import { database, migrate } from "@soldbench/db";
 import sharp from "sharp";
 import { publishFixtureFile } from "../scripts/collector-fixture-file.mjs";
+import { createFixtureIntakeScanner } from "../scripts/collector-intake.mjs";
 import { workerEnvironment } from "../scripts/collector-launcher.mjs";
 import { initializeCluster, startCluster, stopCluster, urlFor } from "../scripts/local-db.mjs";
 
@@ -316,6 +317,39 @@ test("offline supervisor recovers an intake interrupted before the artifact data
   assert.equal((await replay.exited).code, 0, replay.errors);
   assert.deepEqual(JSON.parse(replay.output).cycles, []);
   assert.equal((await store.view(jobId)).request_count, 1);
+});
+
+test("intake scan progresses past noisy prefixes and reopens a replaced source directory", async (t) => {
+  const producer = await root();
+  const spool = await root();
+  const prepared = await preparedDemo(producer);
+  const loaded = loadFixtureArtifact(await readFile(prepared.artifactPath));
+  const pending = join(spool, "collector-incoming", prepared.sourceId);
+  await mkdir(pending, { recursive: true, mode: 0o700 });
+  for (let i = 0; i < 9; i++) await writeFile(join(pending, `old-${i}.log`), "synthetic");
+  const scanner = createFixtureIntakeScanner(db, spool, prepared.sourceId, 2);
+  t.after(() => scanner.close());
+  const signal = new AbortController().signal;
+  for (let i = 0; i < 4; i++)
+    assert.deepEqual(await scanner.resume(signal), {
+      published: 0,
+      deferred: 0,
+      scanned: 2,
+      status: "scan_limit",
+    });
+  assert.deepEqual(await scanner.resume(signal), { published: 0, deferred: 0, scanned: 1, status: "ready" });
+  assert.equal((await scanner.resume(signal)).status, "scan_limit");
+  await rename(pending, `${pending}-previous`);
+  await mkdir(pending, { mode: 0o700 });
+  await publishFixtureFile(join(pending, `${prepared.jobId}.${loaded.hash}.json`), loaded.artifact);
+  const result = await scanner.resume(signal);
+  assert.deepEqual(result, { published: 1, deferred: 0, scanned: 1, status: "ready" });
+  assert.deepEqual(await readdir(pending), []);
+  assert.equal((await readdir(`${pending}-previous`)).length, 9);
+  assert.equal(
+    loadFixtureArtifact(await readFile(join(spool, `collector-html-fixture-${prepared.jobId}.json`))).hash,
+    loaded.hash,
+  );
 });
 
 test("supervisor stays running with offline spool absent, expires missing work and resumes when files return", async () => {

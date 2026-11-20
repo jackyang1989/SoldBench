@@ -84,52 +84,82 @@ export async function intakeFixture(db, spool, sourceId, loaded) {
   return exposeFixture(db, spool, pending, loaded);
 }
 
-export async function resumeFixtureIntake(db, spool, sourceId, deferred, signal) {
-  const result = { published: 0, deferred: 0, status: "ready" };
+export function createFixtureIntakeScanner(db, spool, sourceId, scanLimit = 10000) {
   const incoming = join(spool, "collector-incoming");
   const directory = pendingDir(spool, sourceId);
-  for (const candidate of [incoming, directory]) {
-    const entry = await lstat(candidate).catch((error) => {
-      if (error.code !== "ENOENT") throw error;
-    });
-    if (!entry) return result;
-    if (!entry.isDirectory()) throw new Error("fixture_spool_not_directory");
+  const deferred = new Map();
+  let handle;
+  let identity;
+  async function close() {
+    const previous = handle;
+    handle = undefined;
+    identity = undefined;
+    await previous?.close();
   }
-  const time = performance.now();
-  for (const [file, until] of deferred) if (until <= time) deferred.delete(file);
-  let scanned = 0;
-  let attempts = 0;
-  for await (const entry of await opendir(directory)) {
-    if (signal.aborted || attempts >= 4) break;
-    if (++scanned > 10000) {
-      result.status = "scan_limit";
-      break;
+  async function resume(signal) {
+    const result = { published: 0, deferred: 0, scanned: 0, status: "ready" };
+    let current;
+    for (const candidate of [incoming, directory]) {
+      const entry = await lstat(candidate, { bigint: true }).catch((error) => {
+        if (error.code !== "ENOENT") throw error;
+      });
+      if (!entry) {
+        await close();
+        deferred.clear();
+        return result;
+      }
+      if (!entry.isDirectory()) {
+        await close();
+        throw new Error("fixture_spool_not_directory");
+      }
+      current = `${entry.dev}:${entry.ino}`;
     }
-    const match = pendingName.exec(entry.name);
-    if (!entry.isFile() || !match || !fixtureJobId.test(match[1]) || deferred.has(entry.name)) continue;
-    attempts++;
-    const path = join(directory, entry.name);
-    try {
-      const loaded = await readFixtureFile(path);
-      if (
-        loaded.artifact.sourceId !== sourceId ||
-        loaded.artifact.jobId !== match[1] ||
-        loaded.hash !== match[2]
-      )
-        throw new Error("fixture_intake_pending_mismatch");
-      signal.throwIfAborted();
-      await exposeFixture(db, spool, path, loaded);
-      result.published++;
-    } catch (error) {
-      if (signal.aborted) break;
-      if (isDatabaseConnectionError(error)) throw error;
-      if (error.code !== "ENOENT") {
-        result.deferred++;
-        deferred.set(entry.name, performance.now() + 30000);
+    if (handle && identity !== current) {
+      await close();
+      deferred.clear();
+    }
+    if (!handle) {
+      handle = await opendir(directory);
+      identity = current;
+    }
+    const time = performance.now();
+    for (const [file, until] of deferred) if (until <= time) deferred.delete(file);
+    let attempts = 0;
+    while (!signal.aborted && attempts < 4 && result.scanned < scanLimit) {
+      const entry = await handle.read();
+      if (!entry) {
+        await close();
+        return result;
+      }
+      result.scanned++;
+      const match = pendingName.exec(entry.name);
+      if (!entry.isFile() || !match || !fixtureJobId.test(match[1]) || deferred.has(entry.name)) continue;
+      attempts++;
+      const path = join(directory, entry.name);
+      try {
+        const loaded = await readFixtureFile(path);
+        if (
+          loaded.artifact.sourceId !== sourceId ||
+          loaded.artifact.jobId !== match[1] ||
+          loaded.hash !== match[2]
+        )
+          throw new Error("fixture_intake_pending_mismatch");
+        signal.throwIfAborted();
+        await exposeFixture(db, spool, path, loaded);
+        result.published++;
+      } catch (error) {
+        if (signal.aborted) break;
+        if (isDatabaseConnectionError(error)) throw error;
+        if (error.code !== "ENOENT") {
+          result.deferred++;
+          deferred.set(entry.name, performance.now() + 30000);
+        }
       }
     }
+    if (result.scanned === scanLimit) result.status = "scan_limit";
+    return result;
   }
-  return result;
+  return { resume, close };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
