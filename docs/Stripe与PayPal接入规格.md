@@ -97,7 +97,7 @@ B1/B3，见 DEC-02/07、TASK-029/035/043 和 AT-037/038/040/054。当前实现�
 
 ### 离线渠道付款投影复核
 
-运行 `PAYMENT_FIXTURES=true npm run payment:reconcile -- /absolute/path/statement.json`。脚本仅连接已允许的本机 PostgreSQL socket，以只读事务查询渠道付款。输入由独立的合成渠道记账生成，须提供以下字段。
+运行 `PAYMENT_FIXTURES=true npm run payment:reconcile -- /absolute/path/statement.json`。脚本仅连接已校验的本机 PostgreSQL 目标，以只读事务查询渠道付款。输入由独立的合成渠道记账生成，须提供以下字段。
 
 ```json
 {

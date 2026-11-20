@@ -4,7 +4,13 @@ import { setTimeout } from "node:timers/promises";
 import { publishNextScheduledContent } from "@soldbench/api";
 import { AccountPrivacy, AuthService, localAuthSecrets, OfflineMailQueue } from "@soldbench/auth";
 import { BillingService, localPaymentKeys, PaymentLifecycle } from "@soldbench/billing";
-import { assertLocalDatabaseUrl, database, isDatabaseConnectionError, prepareDatabase } from "@soldbench/db";
+import {
+  assertLocalDatabaseUrl,
+  database,
+  isDatabaseConnectionError,
+  prepareDatabase,
+  prepareRuntimeDatabase,
+} from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
 import { PublicResults, QueryService, RequestAuditService } from "@soldbench/query";
 import { loadConfig } from "@soldbench/shared";
@@ -25,7 +31,11 @@ const watch = args[0] === "--watch";
 const wait = (milliseconds) => setTimeout(milliseconds, undefined, { signal: abort.signal }).catch(() => {});
 for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => abort.abort());
 try {
-  await prepareDatabase(db, config.databaseStartup);
+  if (watch)
+    await prepareRuntimeDatabase(db, config.databaseStartup, abort.signal, () =>
+      console.error("soldbench_query_worker_startup_database_unavailable"),
+    );
+  else await prepareDatabase(db, config.databaseStartup);
   const auth = new AuthService(db, localAuthSecrets(resolve(config.localStateRoot)), config.origin),
     mailbox = new OfflineMailQueue(auth),
     billing = new BillingService(db),
@@ -128,6 +138,8 @@ try {
     if (!watch) break;
     if (!busy) await wait(1000);
   }
+} catch (error) {
+  if (!abort.signal.aborted) throw error;
 } finally {
   await db.end();
 }

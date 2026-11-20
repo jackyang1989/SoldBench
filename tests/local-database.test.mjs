@@ -7,7 +7,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { setTimeout } from "node:timers/promises";
 import { promisify } from "node:util";
-import { assertLocalDatabaseUrl, database, prepareDatabase } from "@soldbench/db";
+import { assertLocalDatabaseUrl, database, prepareDatabase, prepareRuntimeDatabase } from "@soldbench/db";
 
 const execute = promisify(execFile);
 
@@ -98,7 +98,12 @@ test("verify startup rejects missing, changed and unknown schema versions withou
     ]) {
       await client.query("BEGIN");
       await client.query(sql);
-      await assert.rejects(prepareDatabase(client, "verify"), expected);
+      await assert.rejects(
+        prepareRuntimeDatabase(client, "verify", new AbortController().signal, () =>
+          assert.fail("schema errors do not enter connection retry"),
+        ),
+        expected,
+      );
       await client.query("ROLLBACK");
     }
     await prepareDatabase(db, "verify");

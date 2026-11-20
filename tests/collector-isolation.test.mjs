@@ -437,6 +437,8 @@ test("supervisor stops an active child on ownership loss and recovers the same q
     running = true;
     const prepared = await preparedDemo(directory, env);
     const job = await store.view(prepared.jobId);
+    stopCluster(cluster);
+    running = false;
     supervisor = start(
       "scripts/collector-supervisor.mjs",
       [
@@ -448,6 +450,14 @@ test("supervisor stops an active child on ownership loss and recovers the same q
       ],
       env,
     );
+    const unavailable = "soldbench_collector_supervisor_database_unavailable";
+    const recovered = "soldbench_collector_supervisor_database_recovered";
+    await waitFor(() => supervisor.errors.includes(unavailable));
+    assert.equal(supervisor.child.exitCode, null);
+    assert.equal(supervisor.output, "");
+    startCluster(cluster);
+    running = true;
+    await waitFor(() => supervisor.output.includes(recovered));
     await waitFor(() => supervisor.output.includes('"artifactUnavailable":1'));
     phase = "waiting for blocked child";
     const owner = (
@@ -492,7 +502,7 @@ test("supervisor stops an active child on ownership loss and recovers the same q
     const stoppedChild = JSON.parse(stopped);
     assert.equal(stoppedChild.workerExited, true);
     assert.throws(() => process.kill(stoppedChild.workerPid, 0), /ESRCH/);
-    await waitFor(() => supervisor.errors.includes("soldbench_collector_supervisor_database_unavailable"));
+    await waitFor(() => supervisor.errors.split(unavailable).length >= 3);
     assert.equal((await store.view(job.id)).request_count, 0);
     blocker.release(true);
     blocker = undefined;
@@ -502,10 +512,7 @@ test("supervisor stops an active child on ownership loss and recovers the same q
     startCluster(cluster);
     running = true;
     phase = "waiting for original supervisor to recover";
-    await waitFor(
-      () => supervisor.output.includes("soldbench_collector_supervisor_database_recovered"),
-      12000,
-    );
+    await waitFor(() => supervisor.output.split(recovered).length >= 3, 12000);
     await waitFor(async () => (await store.view(job.id)).status === "completed", 8000);
     const persisted = (
       await target.query(

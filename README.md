@@ -4,13 +4,15 @@
 
 面向个人卖家、收藏品交易商、二手商家、开发者、SaaS 企业和专业数据使用者的成交研究与定价参考产品。网页提供直接查价与研究体验，REST API 支持程序集成，MCP 支持 Agent 工作流，三者共享数据、匹配、统计和计费规则。生产数据由自研、自托管 Collector 在明确许可范围内获取。首发默认评级卡牌，最终由第 0 步验证确定；Game Boy 文件是统计合成夹具，不代表首发类目或真实成交证据。
 
-## 当前状态（2026-11-19）
+## 当前状态（2026-11-20）
 
-用户已允许完整离线工程，真实来源许可前只使用synthetic/fixtures，禁止网络采集、真实收款和生产部署。当前已有PG采集管线、HTML合成解析、主图私有存储、账户/密钥、异步查询账本、研究交付和MCP协议适配；这些均为离线工程，**没有真实eBay供数、完整产品网页、真实支付或MCP主流宿主验收，也未达到竞品生产功能对等**。OpenAPI 1.20.0 包含 69 个操作，涵盖快照研究、供数发现、内容发布及本机沙盒报价和支付恢复。本机路由状态在 `/docs/implementation-status.json` 查看。已注册路由仍须核对协议行为和验收证据。采集真实上线仍待准入。2026-11-19 用户指定新版[整站原型](<SoldBench Prototype.html>)为当前前端设计基线，前端与运营配置的实施入口见[原型实施基线](docs/整站原型与设计实施基线.md)。实现和证据以[任务台账](docs/开发排期与任务台账.md)为准；[Agent接手指南](docs/Agent接手指南.md)说明交接，原始[v1.4规格](<SoldBench 开发规格书 v1.4.md>)和[黄金合成夹具](v14_gameboy_58_verified.json)保留。
+当前运行模式为 `offline_fixture`，使用 PostgreSQL 16 和合成数据验证采集、主图、英中查价与研究、账户、API/MCP、运营、支付和账本。六类客户路径已做本机端到端回归。真实 eBay 已售和主图、渠道沙盒及真实付款、邮件送达、MCP 实际宿主和生产放行仍待各自验收。网络采集、真实收款和生产部署保持关闭。
+
+本机接口与契约覆盖可在 `/docs/implementation-status.json` 查看，当前契约见 [OpenAPI](docs/openapi.yaml)。[整站原型](<SoldBench Prototype.html>)与[实施基线](docs/整站原型与设计实施基线.md)指导网页和运营配置。每项完成标准及可复现证据见[任务台账](docs/开发排期与任务台账.md)，接续开发见[Agent 接手指南](docs/Agent接手指南.md)。
 
 ## 阅读入口
 
-支付最终方案为Stripe主支付＋PayPal补充，Creem/Dodo备用资格验证；目标契约与实施要求见 [支付接入规格](docs/Stripe与PayPal接入规格.md)，实际账户批准及产品实现尚未完成。
+支付采用 Stripe 主通道、PayPal 补充，Creem/Dodo 保留资格验证。本机签名通知、生命周期与只读对账已验证，正式商户资格和渠道验收见[支付接入规格](docs/Stripe与PayPal接入规格.md)。
 
 收款个人资格、Creem/Dodo比较、Stripe与PayPal路线及待审核项见 [收款渠道评估](docs/收款渠道评估与接入路线_20261116.md)。
 
@@ -191,6 +193,8 @@ sh developer/examples/sold.sh --claim
 默认关闭支付模拟。使用专用本机 PG16，执行 `PAYMENT_FIXTURES=true npm run payment:fixture -- init` 生成两份本机签名密钥，再以相同环境启动 `PAYMENT_FIXTURES=true npm run dev`。创建、查看和取消需本人会话，写入还需同源 Origin 和 CSRF。以 `offer_version=offline-v1` 创建本机支付意图，checkout URL 只显示状态。
 
 用 `PAYMENT_FIXTURES=true npm run payment:fixture -- deliver /path/to/fixture.json` 写入独立确认并投递合成通知。CLI、API 和 Worker 共享 `LOCAL_STATE_ROOT`。Webhook HTTP 200 表示已收妥，最终到账看本人支付、订阅和用量。完整格式、事件归属和限制见[支付接入规格](docs/Stripe与PayPal接入规格.md)。
+
+使用 `PAYMENT_FIXTURES=true npm run payment:reconcile -- /path/to/statement.json` 只读核对独立合成渠道账单、付款投影和累计退款。输入字段及退出码见[离线渠道付款投影复核](docs/Stripe与PayPal接入规格.md#离线渠道付款投影复核)。
 
 
 ## 匿名查询与分享（后端）

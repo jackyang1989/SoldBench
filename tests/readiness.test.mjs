@@ -216,7 +216,7 @@ test("the live API serves delivered results through a stalled and killed query w
   }
 });
 
-test("the same API and query worker recover after a dedicated PostgreSQL process stops and restarts", async () => {
+test("API and query worker wait for a cold PostgreSQL and recover again without restarting", async () => {
   const root = await mkdtemp(join(tmpdir(), "soldbench-db-reconnect-"));
   roots.push(root);
   const cluster = initializeCluster(root);
@@ -242,8 +242,6 @@ test("the same API and query worker recover after a dedicated PostgreSQL process
       signal: AbortSignal.timeout(8000),
     });
   try {
-    startCluster(cluster);
-    databaseRunning = true;
     dev = spawn(process.execPath, ["scripts/dev.mjs"], {
       env: {
         ...process.env,
@@ -263,6 +261,15 @@ test("the same API and query worker recover after a dedicated PostgreSQL process
       stream.on("data", (bytes) => {
         logs += bytes;
       });
+    await waitFor(
+      "API and query worker both wait on the cold database",
+      () =>
+        logs.includes("soldbench_api_startup_database_unavailable") &&
+        logs.includes("soldbench_query_worker_startup_database_unavailable"),
+    );
+    assert.doesNotMatch(logs, /SoldBench local server listening|query_worker_exited/);
+    startCluster(cluster);
+    databaseRunning = true;
     await waitFor("API started", () => logs.includes("SoldBench local server listening"));
     await waitFor(
       "initial worker heartbeat",

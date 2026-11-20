@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 
@@ -146,6 +147,29 @@ export async function prepareDatabase(db: Database, mode: DatabaseStartupMode): 
     installed.delete(name);
   }
   if (installed.size) throw new Error("database_schema_newer_or_unknown");
+}
+
+/** Retry transient database connections for long-running processes during startup. */
+export async function prepareRuntimeDatabase(
+  db: Database,
+  mode: DatabaseStartupMode,
+  signal: AbortSignal,
+  onUnavailable: () => void,
+): Promise<void> {
+  const delays = [1000, 2000, 4000, 8000, 10000];
+  for (let attempt = 0; ; attempt++) {
+    signal.throwIfAborted();
+    try {
+      await prepareDatabase(db, mode);
+      signal.throwIfAborted();
+      return;
+    } catch (error) {
+      if (!isDatabaseConnectionError(error) || attempt === delays.length) throw error;
+      signal.throwIfAborted();
+      if (attempt === 0) onUnavailable();
+    }
+    await delay(delays[attempt], undefined, { signal });
+  }
 }
 
 /** Parse exactly as the PG client will, before any connect/DNS call. Used only
