@@ -140,6 +140,8 @@ npm run collector:media -- --fixture=/absolute/path/to/collector-fixture-JOB_ID.
 npm run collector:run -- --fixture=/absolute/path/to/collector-fixture-JOB_ID.json --media-only=true
 # 按实际PG记录保存来源健康快照，source取采集命令的UUID
 npm run collector:report -- --source=SOURCE_UUID
+# 逐计划时段保存已关闭 UTC 窗口内的离线证据
+npm run --silent collector:evidence -- --source=SOURCE_UUID --from=2026-11-17 --until=2026-11-19
 # 可选：在该来源实际的私有媒体根抽检至多12个合格对象
 MEDIA_ROOT=/absolute/path/to/media npm run collector:report -- --source=SOURCE_UUID --check-media=12
 ```

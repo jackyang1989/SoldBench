@@ -3,17 +3,13 @@ import { type Database, type Transaction, transaction } from "@soldbench/db";
 import type { PrivateMediaStore } from "@soldbench/media";
 import { COLLECTOR_VERSION, PARSER_VERSION } from "./fixture.ts";
 import { mediaHealth } from "./media-health.ts";
+import { type FrozenSchedule, scheduledRange } from "./run-evidence.ts";
 
 const dayMs = 86400000;
-type FrozenPlan = { start_at: Date; interval_seconds: number; retired_at: Date | null };
 
-function scheduledCount(plans: FrozenPlan[], from: number, through: number) {
+function scheduledCount(plans: FrozenSchedule[], from: number, through: number) {
   return plans.reduce((total, plan) => {
-    const start = plan.start_at.getTime(),
-      interval = plan.interval_seconds * 1000,
-      end = plan.retired_at ? Math.min(through, plan.retired_at.getTime() - 1) : through,
-      first = Math.max(0, Math.ceil((from - start) / interval)),
-      last = Math.floor((end - start) / interval);
+    const { first, last } = scheduledRange(plan, from, through);
     return total + Math.max(0, last - first + 1);
   }, 0);
 }
@@ -138,7 +134,7 @@ export async function collectorHealth(
       ratio: denominator ? numerator / denominator : null,
     });
     const plans = (
-      await c.query<FrozenPlan>(
+      await c.query<FrozenSchedule>(
         "SELECT start_at,interval_seconds,retired_at FROM collector_refresh_plans WHERE source_id=$1 AND created_at<=$2",
         [sourceId, now],
       )
@@ -234,7 +230,7 @@ export async function collectorHealth(
 async function readDailyEvidence(
   c: Transaction,
   sourceId: string,
-  plans: FrozenPlan[],
+  plans: FrozenSchedule[],
   now: Date,
   days: number,
 ) {

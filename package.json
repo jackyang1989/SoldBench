@@ -37,6 +37,7 @@
     "auth:mail": "npm run build && node --env-file-if-exists=.env scripts/offline-mail.mjs",
     "collector:media": "npm run build && node --env-file-if-exists=.env scripts/collector-worker.mjs --media-only=true",
     "collector:report": "npm run build && node --env-file-if-exists=.env scripts/collector-report.mjs",
+    "collector:evidence": "npm run build --silent && node --env-file-if-exists=.env scripts/collector-evidence.mjs",
     "collector:refresh": "npm run build && node --env-file-if-exists=.env scripts/collector-refresh.mjs",
     "collector:http-demo": "npm run build && node --env-file-if-exists=.env scripts/collector-html-demo.mjs --http",
     "developer:demo": "npm run build && node --env-file-if-exists=.env scripts/developer-demo.mjs",

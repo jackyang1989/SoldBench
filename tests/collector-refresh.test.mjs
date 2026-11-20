@@ -9,6 +9,7 @@ import {
   CollectorRefresh,
   CollectorStore,
   collectorHealth,
+  collectorRunEvidence,
   FixtureTransport,
   fixtureResponse,
   OfflineCollectorWorker,
@@ -16,6 +17,7 @@ import {
 } from "@soldbench/collector";
 import { database, migrate } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
+import sharp from "sharp";
 
 const db = database(process.env.DATABASE_URL),
   roots = [];
@@ -24,8 +26,8 @@ after(async () => {
   await db.end();
   for (const root of roots) await rm(root, { recursive: true, force: true });
 });
-async function setup(options = {}) {
-  const clock = { value: "2026-11-17T12:00:00.000Z" },
+async function setup(options = {}, instant = "2026-11-17T12:00:00.000Z") {
+  const clock = { value: instant },
     source = await provisionFixtureSource(db, clock.value, options),
     store = new CollectorStore(db, () => clock.value),
     refresh = new CollectorRefresh(store),
@@ -50,7 +52,7 @@ async function occurrences(x) {
     ])
   ).rows;
 }
-async function complete(x, id) {
+async function complete(x, id, records = [], responses = []) {
   const job = await x.store.view(id),
     p = {
       schema: "soldbench.synthetic-page.v1",
@@ -60,12 +62,12 @@ async function complete(x, id) {
       cursor: "start",
       nextCursor: null,
       asOf: job.as_of.toISOString(),
-      empty: true,
-      records: [],
+      empty: records.length === 0,
+      records,
     };
   return new OfflineCollectorWorker(
     x.store,
-    new FixtureTransport(new Map([["page:start", [fixtureResponse(p)]]])),
+    new FixtureTransport(new Map([["page:start", [fixtureResponse(p)]], ...responses])),
     new PrivateMediaStore(x.root),
   ).runOne(x.sourceId, { jobId: id });
 }
@@ -366,6 +368,121 @@ test("continuous evidence retains empty UTC days, missed work and actual cross-m
   assert.equal(cli.onlineVerified, false);
   assert.equal(cli.measuredCostCents, null);
   assert.equal(cli.networkRequests, 0);
+});
+
+test("read-only evidence connects slots, cross-day dispatch and primary media without hiding missed work", async () => {
+  const midnight = new Date();
+  midnight.setUTCHours(0, 0, 0, 0);
+  const at = (seconds) => new Date(midnight.getTime() + seconds * 1000).toISOString();
+  const from = at(-2 * 86_400).slice(0, 10);
+  const until = at(0).slice(0, 10);
+  const x = await setup({}, at(-86_460));
+  const plan = await x.refresh.create({ ...x.input, maxLagSeconds: 30 });
+  await x.refresh.materialize(x.sourceId);
+  const { jobId } = await x.refresh.dispatchNext(x.sourceId);
+  step(x, 61);
+  const url = "https://images.example.test/audited-primary.png";
+  const image = await sharp({ create: { width: 10, height: 10, channels: 3, background: "red" } })
+    .png()
+    .toBuffer();
+  const record = {
+    listingId: "fixture-evidence-listing",
+    title: "Fixture evidence listing",
+    candidate: {
+      sourceId: x.sourceId,
+      eventKey: "fixture-evidence-event",
+      identityVerified: true,
+      comparable: true,
+      priceStatus: "verified_actual",
+      format: "fixed_price",
+      currency: "USD",
+      itemCents: 1000,
+      shippingCents: 0,
+      shippingStatus: "verified_free_shipping",
+      time: { precision: "instant", value: at(-86_500) },
+    },
+    primaryImage: { role: "primary", url },
+  };
+  assert.equal(
+    (
+      await complete(
+        x,
+        jobId,
+        [record],
+        [[`image:${url}`, [{ status: 200, contentType: "image/png", bytes: image }]]],
+      )
+    ).status,
+    "completed",
+  );
+  await x.refresh.retire(x.sourceId, plan);
+  const waiting = await x.refresh.create({
+    ...x.input,
+    key: randomUUID(),
+    query: new URLSearchParams({ q: "Queued fixture" }),
+  });
+  await x.refresh.materialize(x.sourceId);
+  const second = await x.refresh.dispatchNext(x.sourceId);
+  assert.ok(await x.store.claim(x.sourceId, 60, second.jobId));
+  await x.refresh.retire(x.sourceId, waiting);
+  step(x, 1);
+  const missing = await x.refresh.create({
+    ...x.input,
+    key: randomUUID(),
+    query: new URLSearchParams({ q: "Never materialized" }),
+  });
+  await x.refresh.retire(x.sourceId, missing);
+  const other = await setup({}, at(-86_400));
+  await other.refresh.create(other.input);
+  await other.refresh.materialize(other.sourceId);
+  const evidence = await collectorRunEvidence(db, x.sourceId, from, until);
+  assert.equal(evidence.slots.length, 4);
+  const [late, blocked, claimed, missed] = evidence.slots;
+  assert.equal(late.scheduled_at, at(-86_460));
+  assert.equal(late.deadline_at, at(-86_430));
+  assert.equal(late.first_page_request_at.toISOString(), at(-86_399));
+  assert.equal(late.page_started_on_time, false);
+  assert.equal(late.completed_with_page_evidence, true);
+  assert.deepEqual([late.page_attempts, late.image_attempts, late.committed_pages], [1, 1, 1]);
+  assert.deepEqual(late.primary_image_states_at_snapshot, { available: 1 });
+  assert.equal(late.bytes.unconfirmed, "0");
+  assert.ok(BigInt(late.bytes.settled) > BigInt(image.length));
+  assert.equal(blocked.scheduled_at, at(-86_400));
+  assert.equal(blocked.occurrence.state, "blocked");
+  assert.equal(blocked.occurrence.failure_reason, "plan_retired");
+  assert.equal(missed.scheduled_at, at(-86_398));
+  assert.equal(missed.plan_id, missing);
+  assert.equal(missed.occurrence, null);
+  assert.equal(missed.job, null);
+  assert.equal(claimed.job.id, second.jobId);
+  assert.equal(claimed.job.claimed_at.toISOString(), at(-86_399));
+  assert.equal(claimed.first_page_request_at, null);
+  assert.equal(claimed.page_started_on_time, null);
+  assert.equal(claimed.completed_with_page_evidence, false);
+  assert.ok(!JSON.stringify(evidence).includes(url));
+  assert.equal(evidence.externalNetworkRequests, 0);
+  assert.equal(evidence.onlineVerified, false);
+  assert.equal((await occurrences(x)).length, 3);
+  const cli = JSON.parse(
+    execFileSync(
+      process.execPath,
+      [
+        "--import",
+        "./scripts/test-network.mjs",
+        "scripts/collector-evidence.mjs",
+        `--source=${x.sourceId}`,
+        `--from=${from}`,
+        `--until=${until}`,
+      ],
+      { encoding: "utf8" },
+    ),
+  );
+  assert.deepEqual(cli.slots, JSON.parse(JSON.stringify(evidence.slots)));
+  await assert.rejects(collectorRunEvidence(db, x.sourceId, from, at(86_400).slice(0, 10)), /not_closed/);
+  await assert.rejects(
+    collectorRunEvidence(db, x.sourceId, "2026-02-30", until),
+    /invalid_collector_evidence_day/,
+  );
+  await assert.rejects(collectorRunEvidence(db, randomUUID(), from, until), /source_unavailable/);
 });
 
 test("a full 120-query schedule records all 1680 slots after a thirteen-day outage", async (t) => {

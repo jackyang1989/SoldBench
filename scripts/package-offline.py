@@ -32,7 +32,7 @@ FIXED_FILES = (*LEGACY_FILES, "scripts/developer-demo.mjs",
                "developer/examples/sold.py", "developer/examples/sold.sh", "developer/examples/sold.ts")
 REQUIRED = {LEGACY_SCHEMA: set(LEGACY_FILES), SCHEMA: set(FIXED_FILES)}
 OPTIONAL_FILES = ("scripts/billing-audit.mjs", "scripts/payment-replay-export.mjs",
-                  "scripts/collector-spool-cleanup.mjs")
+                  "scripts/collector-spool-cleanup.mjs", "scripts/collector-evidence.mjs")
 
 
 def sha(value):
