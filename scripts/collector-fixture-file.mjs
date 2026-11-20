@@ -51,6 +51,16 @@ export async function readRefreshProfile(path) {
   );
 }
 
+export async function readFixtureTemplate(path) {
+  const bytes = await readBoundedFile(
+    path,
+    12 * 1024 * 1024,
+    "invalid_fixture_template",
+    "fixture_template_changed",
+  );
+  return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+}
+
 export async function publishFixtureFile(path, artifact) {
   const temporary = `${path}.${randomUUID()}.tmp`;
   const file = await open(temporary, "wx", 0o600);

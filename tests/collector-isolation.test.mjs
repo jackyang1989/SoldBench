@@ -15,6 +15,7 @@ import {
   provisionFixtureSource,
 } from "@soldbench/collector";
 import { database, migrate } from "@soldbench/db";
+import sharp from "sharp";
 import { publishFixtureFile } from "../scripts/collector-fixture-file.mjs";
 import { workerEnvironment } from "../scripts/collector-launcher.mjs";
 import { initializeCluster, startCluster, stopCluster, urlFor } from "../scripts/local-db.mjs";
@@ -153,35 +154,65 @@ test("supervisor schedules eligible offline plans once and processes the publish
   const jobId = initial.find((row) => row.plan_id === jsonPlan).job_id;
   const job = await store.view(jobId);
   assert.equal(job.status, "queued");
-  const identity = {
-    sourceId: source.sourceId,
-    jobId,
-    queryHash: job.query_hash,
-    asOf: job.as_of.toISOString(),
-  };
-  const response = fixtureResponse({
-    schema: "soldbench.synthetic-page.v1",
-    synthetic: true,
-    sourceId: identity.sourceId,
-    queryHash: identity.queryHash,
-    asOf: identity.asOf,
-    cursor: "start",
-    nextCursor: null,
-    records: [],
-    empty: true,
-  });
+  const handoff = (...flags) =>
+    start("scripts/collector-handoff.mjs", [`--source=${source.sourceId}`, ...flags]);
+  const listed = handoff("--limit=1");
+  assert.equal((await listed.exited).code, 0, listed.errors);
+  const discovered = JSON.parse(listed.output);
+  assert.equal(discovered.nextAfter, null);
+  assert.equal(discovered.jobs[0].queryHash, job.query_hash);
+  assert.equal(discovered.jobs[0].jobId, jobId);
+  assert.equal(discovered.jobs[0].artifactHash, null);
   const producer = await root();
-  const path = join(producer, "scheduled-response.json");
-  await publishFixtureFile(path, createFixtureArtifact(identity, new Map([["page:start", [response]]])));
-  const intake = start("scripts/collector-intake.mjs", [
-    `--source=${source.sourceId}`,
-    `--spool=${spool}`,
-    `--fixture=${path}`,
-  ]);
-  assert.equal((await intake.exited).code, 0, intake.errors);
-  await waitFor(async () => (await store.view(jobId)).status === "completed");
+  const path = join(producer, "scheduled-template.json");
+  const url = "https://images.example.test/scheduled.png";
+  const image = await sharp({ create: { width: 4, height: 4, channels: 3, background: "blue" } })
+    .png()
+    .toBuffer();
+  const record = (number) => ({
+    listingId: `scheduled-listing-${number}`,
+    title: "Synthetic scheduled listing",
+    candidate: {
+      eventKey: `scheduled-event-${number}`,
+      identityVerified: true,
+      comparable: true,
+      priceStatus: "verified_actual",
+      format: "fixed_price",
+      currency: "USD",
+      itemCents: 1000,
+      shippingCents: 0,
+      shippingStatus: "verified_free_shipping",
+      time: { precision: "instant", value: now },
+    },
+  });
+  const template = {
+    schema: "soldbench.collector-json-responses.v1",
+    synthetic: true,
+    pages: [
+      {
+        cursor: "start",
+        nextCursor: "p2",
+        records: [{ ...record(1), primaryImage: { role: "primary", url } }],
+      },
+      { cursor: "p2", nextCursor: null, records: [record(2)] },
+    ],
+    images: [{ url, contentType: "image/png", bytesBase64: image.toString("base64") }],
+  };
+  const packageArgs = ["--action=package", `--job=${jobId}`, `--spool=${spool}`, `--template=${path}`];
+  await writeFile(path, JSON.stringify({ ...template, pages: template.pages.slice(0, 1) }));
+  const incomplete = handoff(...packageArgs);
+  assert.equal((await incomplete.exited).code, 1);
+  assert.match(incomplete.errors, /fixture_template_page_chain_invalid/);
+  assert.equal((await store.view(jobId)).request_count, 0);
   assert.equal(first.child.kill("SIGTERM"), true);
   assert.equal((await first.exited).code, 0, first.errors);
+  await writeFile(path, JSON.stringify(template));
+  const uploads = [handoff(...packageArgs), handoff(...packageArgs)];
+  for (const upload of uploads) assert.equal((await upload.exited).code, 0, upload.errors);
+  assert.deepEqual(JSON.parse(uploads[0].output), JSON.parse(uploads[1].output));
+  const resumed = run();
+  assert.equal((await resumed.exited).code, 0, resumed.errors);
+  assert.equal((await store.view(jobId)).status, "completed");
   const html = run(`--refresh-profile=${profilePath}`);
   assert.equal((await html.exited).code, 0, html.errors);
   assert.equal(JSON.parse(html.output).scheduled.enqueued, 1);
@@ -189,7 +220,24 @@ test("supervisor schedules eligible offline plans once and processes the publish
   assert.equal(final.length, 2);
   assert.equal(final.find((row) => row.plan_id === jsonPlan).job_id, jobId);
   assert.equal(final.find((row) => row.plan_id === htmlPlan).status, "enqueued");
-  assert.equal((await store.view(jobId)).request_count, 1);
+  const htmlHandoff = handoff(
+    "--action=package",
+    `--job=${final.find((row) => row.plan_id === htmlPlan).job_id}`,
+    `--template=${path}`,
+  );
+  assert.equal((await htmlHandoff.exited).code, 1);
+  assert.match(htmlHandoff.errors, /collector_handoff_requires_original_html_response/);
+  const completed = await store.view(jobId);
+  assert.equal(completed.page_count, 2);
+  assert.equal(completed.request_count, 3);
+  assert.equal(
+    (
+      await db.query("SELECT count(*)::int n FROM listing_images WHERE source_id=$1 AND state='available'", [
+        source.sourceId,
+      ])
+    ).rows[0].n,
+    1,
+  );
 });
 
 test("fixture intake replays equal content and leaves a conflicting file untouched", async () => {

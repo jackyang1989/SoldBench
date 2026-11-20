@@ -30,6 +30,7 @@
     "collector:html-demo": "npm run build && node --env-file-if-exists=.env scripts/collector-html-demo.mjs",
     "collector:run": "npm run build && node --env-file-if-exists=.env scripts/collector-launcher.mjs",
     "collector:intake": "npm run build && node --env-file-if-exists=.env scripts/collector-intake.mjs",
+    "collector:handoff": "npm run build && node --env-file-if-exists=.env scripts/collector-handoff.mjs",
     "collector:supervise": "npm run build && node --env-file-if-exists=.env scripts/collector-supervisor.mjs",
     "query:worker": "npm run build && node --env-file-if-exists=.env scripts/query-worker.mjs",
     "auth:mail": "npm run build && node --env-file-if-exists=.env scripts/offline-mail.mjs",
