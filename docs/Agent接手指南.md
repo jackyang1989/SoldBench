@@ -1,139 +1,133 @@
-# SoldBench Agent 接手指南
+# SoldBench 项目交接
 
-版本：2026-11-20。用途：给新接手的 Agent 建立一致的产品理解、当前代码状态与下一步。本文是导航/交接层，不替代 `AGENTS.md`、v1.4产品规格、DEC/ADR、接口契约或任务台账。
+交接日期：2026-11-21（Asia/Singapore）。交接内容涵盖产品、代码、可复验证据、剩余工作和上线条件。任务状态与排期以[开发排期与任务台账](开发排期与任务台账.md)为准，本文用于找到接手起点。
 
-## 1. 产品是什么
+## 1. 先接哪里
 
-SoldBench 是一个面向**个人卖家、收藏品交易商、二手商家、开发者、SaaS企业、专业数据使用者**的成交数据与研究系统。网页本身必须让普通用户完成查价、比较记录、理解价格区间和核查证据；REST API/MCP 为集成者及自动化Agent提供同一数据能力。不能把产品简化成开发者API，也不能把网页当成单纯营销漏斗。六类人的具体任务/页面见 [功能与页面规格 §1、§3](功能与页面规格.md)。
-
-核心目标是基于有权获取/保存/展示的数据，回答“哪些成交记录真正可比、已验证的成交价格是多少、判断依据是什么”。记录、刊登、观察和成交事件不是同义词；可查询样本不代表整个市场销量。统计和收费规则只由共享领域层决定，Web/REST/MCP不得各自复制规则。
-
-## 2. 仓库权威文件和读取顺序
-
-每个新任务先阅读根目录 [AGENTS.md](../AGENTS.md)，再按其中“阅读顺序”读取原规格、决策、功能/工程/接口契约、任务台账、AT及当前实现。本指南只帮你定位，不可推翻这些权威来源。
-
-| 要回答的问题 | 唯一/权威入口 |
+| 项目 | 接手信息 |
 |---|---|
-| Agent能做什么、阶段门、来源/支付/数据不变量 | [AGENTS.md](../AGENTS.md) 与 [ADR-13](adr/ADR-13.md) |
-| 产品边界、计算/收费原规则 | [v1.4规格](<../SoldBench 开发规格书 v1.4.md>)；原始版只在 `docs/baselines/` 对照 |
-| 当前决定哪些规则已冻结 | [决策登记](决策登记.md) 和对应 [ADR](adr/) |
-| 六类客户、页面状态、操作和恢复 | [功能与页面规格](功能与页面规格.md) |
-| 数据模型/服务边界/撤销和图片 | [工程实施规格](工程实施规格.md)、[接口与数据契约](接口与数据契约.md)、`docs/contracts/` |
-| 当前TASK、负责人、状态、前置和证据 | [开发排期与任务台账](开发排期与任务台账.md)，它是任务状态的唯一真相 |
-| 按什么条件验收 | [验收矩阵](验收矩阵.md)；按 [执行与交接模板](执行与交接模板.md) 回填 |
-| 与竞品相比差距多少/哪些是供应商自述 | [竞品核查与差异化建议 §8](竞品核查与差异化建议_20261116.md) |
-| 商业/来源/支付的外部事实 | `step0/` 下相应 evidence、source-rights、payment-review 与 `verdict.md`；不要用代码/公开网页代签许可 |
+| 仓库 | 私有仓库 `jackyang1989/SoldBench`，远端 `https://github.com/jackyang1989/SoldBench.git` |
+| 主分支基线 | `main` 的 `d6d7cf3` 是截至交接时最后一个已通过全量本机回归并并入主线的代码基线 |
+| 当前代码 | `origin/codex/collector-revocation-batch`。撤权主图分批清理的实现提交为 `4d0f544`，接手使用该远端分支最新提交，包含本指南和实现 |
+| 当前工作区 | 本机主检出 `/Users/jianouyang/Project/SoldBench`；开发工作树 `/Users/jianouyang/.codex/worktrees/soldbench-media-recovery/SoldBench`。可复用仍干净的隔离工作树，其他机器以仓库和分支为准 |
+| 正在做什么 | TASK-015/016/039 撤权主图分批清除及回执，台账 §157。代码与采集专项已交付，当前停在全量回归、独立归档恢复、合并前 |
+| 接下来做什么 | 先完成 §4 第一包，安全合并后领 TASK-016/061 的媒体维护运营读侧。真实来源工作先核对 §7 的准入证据 |
 
-新开任务前运行 `git status --short`，阅读与TASK关联的原始文件及diff，保护所有已存在的更改。不要从本指南复制状态到其他表；更新台账与必要的权威文档即可。
+如接手人在已有工作树，先运行：
 
-## 3. 六类客户都必须被交付
+```sh
+git status --short --branch
+git worktree list
+git fetch --no-tags origin main codex/collector-revocation-batch
+git log -1 --oneline origin/main
+git log -1 --oneline origin/codex/collector-revocation-batch
+git diff --stat origin/main...origin/codex/collector-revocation-batch
+```
 
-| 客户 | 主要入口 | 要解决的问题 | 验收重点 |
-|---|---|---|---|
-| 个人卖家 | Web Search / 结果研究页 | 快速知道相近商品近期卖价和样本是否够用 | 不要求写代码/API key；价格口径、样本量、图片/空态清楚 |
-| 收藏品交易商 | Web Research / 详情证据 | 版本、评级、成色、套装差异是否可比 | 强属性错配解释、单条证据、剔除后本地重算 |
-| 二手商家 | Web历史查询、重复研究、以后经评审的批量工作流 | 多型号/成色定价、回看以前参考价 | 结果可复取、更新/失效时间明确、来源停用后按权利控制 |
-| 开发者 | REST、OpenAPI、Playground、示例 | 尽快集成，遇到错误可恢复 | 契约一致、key安全、可复制代码、错误/额度解释 |
-| SaaS企业 | REST/MCP、owner与用量/账务 | 安全规模化集成，控制失败和费用 | 幂等、所有权、结果复取、计量审计、版本兼容；团队功能不自动承诺 |
-| 专业数据使用者 | Web明细与获准REST数据 | 解释、复算和研究成交分布 | 公式/样本/时间/覆盖/排除原因透明；不夸大市场完整性 |
+保留已有未提交改动。若该分支已被某个工作树检出，进入对应工作树续接。需要新隔离工作树时按 Codex 的工作树入口建立。用户要求每个整包验收后安全合并到 `main`，不要把未验候选或其他人的改动带入主线。
 
-产品的Web与API路线都要做。团队席位/预测不在当前范围；批量、多年历史覆盖、站点和第二平台已按DEC-13进入正式后续工作包，不能从画像擅自提升为V1。
+## 2. 产品边界和决定
 
-## 4. 当前实现事实（2026-11-18）
+SoldBench 是直接服务**个人卖家、收藏品交易商、二手商家、开发者、SaaS 企业、专业数据使用者**的成交查价与研究系统。卖家在 Web 查价、看成交明细和主图。交易商与二手商家用成色、版本和强属性筛选、核查证据、保存研究。开发者和 SaaS 通过 REST、MCP、示例和用量审计集成。专业数据用户需要能解释的样本、时间口径、价格分布和获准导出。网页、REST、MCP 与 Worker 共用查询、统计、权限和计费服务。[功能与页面规格](功能与页面规格.md)
 
-- 采集已实现本机独立Worker、租约、预算、续跑、隔离、权益撤销和主图安全生命周期。Loopback HTML演示从实际HTTP读取合成页面并验证8条成交/8张主图；真实eBay来源许可、实际DOM字段、主图分发权、生产出口和连续稳定性仍未验证。
-- PostgreSQL中的账户、安全、API key、异步查询、显式领取、账本、研究详情、逐条纳排、主图和导出已接入本机REST。当前快照和图片直接复核来源与存储权限，保留原货币、未知和样本口径。
-- 本机MCP/Agent Skill、双语开发者文档和TS/Python/curl示例已打通。Stripe/PayPal生命周期使用明确启用的本机模拟。公开聚合、受控分享、隐私删除/旧备份恢复以及后台权限控制均已有隔离集成证据。
-- Web Search/Research/Overview、账户页、Playground、文档与运营中心按[指定整站原型](整站原型与设计实施基线.md)实施并做浏览器验收；用户否决的旧UI草稿仍隔离。六类客户范围保持一致。真实来源、域名/服务器、支付/邮件和阶段复核仍依各自实际许可及评审。
-- `docs/openapi.yaml` 是冻结协议和目标。用本机 `/docs/implementation-status.json` 查看路由存在或contract-only，用任务台账和证据判定实际交付和验收。竞品能力核查是公开契约/供应商主张，并未独立验证对手付费接口性能。
+- **市场与语言。** 首发专注 eBay US、USD，首发类目由第 0 步证据签收。界面和事务邮件覆盖英语与简体中文，切换语言沿用同一查询与账本。后续增加国家站点时同步交付当地所需语言及地区适配。多年历史、批量查价、OAuth、其他平台及专业类目按 TASK-044–056 分阶段推进，范围见 [竞品能力实施规格](竞品能力实施规格与路线图.md) 和[多语言专项](多语言与商业交付补充规格.md)。
+- **供数与研究。** 自研自托管采集，成交主图是首发要求。挂单、观察、成交事件分别存储，重复观察不增加成交数。强属性错配排除，未核实的 Best Offer 实际价和所需运费保持未知。价格、分位数、样本门槛、显式领取收费与撤权即时拒读依 [AGENTS.md](../AGENTS.md) §5 及 [ADR-12](adr/ADR-12.md)。
+- **设计。** 当前设计依据是仓库内 [SoldBench Prototype.html](<../SoldBench Prototype.html>) 与[整站原型实施基线](整站原型与设计实施基线.md)。复用同一套设计语言和组件，页面数据与动作接实际服务。原型中的演示快照、假计数、模拟账户与收款状态仅可作为设计参考。竞品参考顺序是 CompSniper、SoldComps.io、sold-comps.com，产品差距看 DEC-13 和任务映射。
+- **支付与报价。** Stripe 主通道，PayPal 补充。Creem/Dodo 只做备选资格核验。定价以稳定供数、自身完整实测成本、客户价值及竞品价格为输入，截图中的成本阈值只供参考。当前可验证的是本机合成生命周期，真实资格和收费按 [支付规格](Stripe与PayPal接入规格.md) 与 DEC-07。
+- **品牌和部署。** 已确认注册 `soldbench.com`。部署目标为网站 `https://soldbench.com`、API `https://api.soldbench.com/v1`、文档 `https://soldbench.com/docs`、MCP `https://soldbench.com/mcp`、客服 `support@soldbench.com`。服务器由用户决定在开发后购买，随后验证 DNS、TLS、子域名和邮件。
 
-## 5. 标准整包工作流
+## 3. 已经做了什么
 
-1. 按台账从状态为可领取/进行中的已解锁包选择工作；保留原TASK ID、S/T/F/PAGE/AT映射。不要把待前置任务批量改成可领取。
-2. 写清包范围、保护行为、影响到的共享契约、文件、命令、回退和阻塞。修改schema、错误、图片状态、统计、计费、i18n时先同步契约再改实现。
-3. Web、REST、MCP只调用共享领域服务。不要为修复某页面结果错误加UI特判；不要为“以后可能要用”加缓存、微服务或通用插件层。
-4. 实现后运行本仓库README/AGENTS要求的离线、契约和工程检查；PG迁移在空库+升级库测试。真实网络、付款、邮件、上线需相应门与授权。
-5. 在当前TASK附实际环境、版本/hash、命令/退出码、样例/证据、未完成点、恢复步骤。没有独立复核或来源/资金签署就保持待复核/待联调。
-6. 如多Agent共同修改，先分配不重叠文件范围；OpenAPI、领域规则、统计/归一、计费和台账各指定一个集成人。共享状态以Git diff和任务台账为准，口头消息不替代回填。
+下表按交付面给出离线实现、代码入口和证据位置。台账 §4 维护原 TASK 的状态，较新的分包证据保留在对应章节。
 
-## 6. 现在的正确下一步
-
-优先查[任务台账](开发排期与任务台账.md)最新整包、依赖与验收。已接通的离线领域服务可用于Web原型接线和状态验收；不得恢复被拒绝的视觉稿。来自真实来源的采集、稳定性和图像权利是首要上线约束。依据 `step0/verdict.md` 结论开展获准试验并用实际数据和成本决定商用范围。任何主流宿主/付费/公开发布仍用相应真实签署证据。
-
-继续采集时先看[逐日执行证据](采集管线实施契约.md#19-逐日采集执行证据)和主图段落。六类客户回归入口为 `node scripts/test.mjs tests/customer-journeys.test.mjs`，修改公共搜索、扣费、证据、导出或 MCP 后用该命令验证真实本机会话和账本。比较研究见 [同口径盲审](../step0/quality-plan.md)，价格复算见 [满额成本](../step0/unit-economics/README.md)。这些入口全部可在现有离线模式执行，真实数据和放行证据按原 TASK 追踪。
-
-离线响应包经 `collector:intake` 入站，PG 绑定之前的中断可由监听进程接管。缺包到期由维护事务收口，目录恢复后看同一 PID 的 `spool`、`settled` 和 `queues`。队列展示保护 `due` 与 `scanned` 的分母区别。先用 `node scripts/test.mjs tests/collector-isolation.test.mjs tests/collector-budget.test.mjs tests/collector-pipeline.test.mjs` 复跑进程、预算和主图证据，再进入实际来源/宿主签收。恢复和限额细节见[采集契约 §20–22](采集管线实施契约.md#20-离线响应包入站和中断恢复)。
-
-独立运行演练先用迁移角色升级 PG，再用 `DB_STARTUP_MODE=verify` 启动各进程。事务邮件通过 `auth:mail` 的离线入口查看本机回执，变更 API 前使用 `docs/contracts/check_compatibility.py` 比较冻结契约。实际环境设置、回退与移动端取样命令见[发布与恢复手册](发布、回滚与撤权恢复手册.md)。
-
-## 7. 必读的竞品差距实施基线
-
-竞品补齐的既有基线为 DEC-13。[竞品能力实施规格与路线图](竞品能力实施规格与路线图.md)24组CP是实施入口，原范围为首发203、扩展116人日。DEC-15 补齐整站原型后的当期排期与状态见台账。首发增加详情/单结果导出/TOTP恢复码/请求日志/完整开发者交付和六类客户验收；此前§6和旧文档“以后评审/未排期”表述由此覆盖。每个Agent须检查当前CP对应TASK/AT再动工，不能只根据旧43任务或156人日估算执行。
-
-搜索页字段/过滤/分母/趋势/格式分组的最新实施依据是[搜索页专项](搜索页采集字段与统计契约.md)，需连同AT-074/075读取；旧OpenAPI尚不含全部增量，不得按已实现接手。
-
-2026-11-16搜索核心更新：normalizer/engine1.1.0及OpenAPI1.5.0已支持离线过滤/排序/补充统计，见搜索页专项§7。此前“normalizer拒绝全部新增参数/旧OpenAPI不含增量”是实施前状态；当前HTTP已支持合成结果服务，完整字段实际采集、获准真实来源与界面仍待验收。不要据此把TASK-020/028/032全项标完成。
-
-## 8. 采集优先整包最新交接
-
-台账 §79 的 `collector:supervise` 负责单来源的离线页面、主图重试和维护。运行范围、响应包目录、队列状态和真实来源前置见[采集管线契约](采集管线实施契约.md#18-单来源离线自动运行)。
-
-用户再次要求采集是核心、优先贯通。按[采集管线实施契约](采集管线实施契约.md)接手TASK-012/013/014/015/016：现有PG队列/熔断表已被实际复用，0005追加派发预算、速率、页、观察证据及水位，私有主图写读/撤销outbox也有离线实现。此前“仅纯函数预检/没有持久预留/无对象写读”的描述已被此包部分替代；approved网络来源仍没有派发许可，owner HTTP/真实HTML解析/生产部署/在线稳定性仍待完成；留存GC已提供维护入口，尚未生产调度。
-
-独立运行续接见管线契约§8和台账§36：0006支持prepare-only、artifact绑定、指定job进程、SIGTERM/让出及持久响应次序。每PID私有周期状态文件互不覆盖，inspection不刷新成功时间。当前collector offline-pg-1.2.0/0007进一步隔离结构漂移、分页循环及事件事实冲突；摘要与采集暂停/outbox同事务，有争议事件的候选读取拒绝。没有自动恢复入口、真实HTML adapter或上线守护部署；状态仍以台账为准。
-
-最新§38进一步提供离线HTML输入：collector offline-pg-1.3.0/parser offline-page-1.2.0，0008新增run profile hash和listing_record_evidence复合关联。用`npm run collector:html-demo`复现两页/8事件/8张生成主图/8合格价样本；`--prepare-only`再用独立worker恢复。profile仅允许synthetic，由本项目编写的DOM样本定义；不是真实eBay adapter。生产选择器需获准样本及逐字段证据后另外适配，不把存在HTML parser当作供数已稳定。未知Best Offer/身份/运费/结束日期仍按原资格排除，seller默认不提取，原文hash不改为规范JSON hash。
-
-§39补受控启动器`collector:run`及实际本机API/Collector双进程验证，覆盖Collector卡住/强杀后API health/ready/401仍响应、过期lease接管和未知请求预算保守结算。不是完整账户/历史查询故障演练；未验证生产cgroup/RSS/CPU/宿主出口，也不保证启动器被SIGKILL后的子进程清理。子进程不继承Node preload/支付与会话环境；真实权限/网络分支仍关闭。
-
-§40转入完整产品链：新增`packages/auth`和0009、OpenAPI1.6/90schema/58operation、[ADR-14](adr/ADR-14.md)与[账户契约](账户与访问实施契约.md)。真实接口实现范围是auth/session/MFA/key，不可把剩余设计接口当可用。生产秘钥/KDF资源/外部安全、真实邮件、网页表单与G3未验；API本机开发首次随机生成`.local/auth-secrets.json`，生产拒绝此配置。包结束继续billing/query，不等待新的“继续”。
-
-以台账§35的最新提交/证据为准。快照的canonical候选选最新已提交观察，而非直接把所有观察传入core制造元数据冲突。网络熔断与权利撤销不同：前者允许仍有效的已有缓存，后者立即拒读再清理。不要把helper创建的active offline_fixture源当成平台许可——对应clearance仍draft，只能使用标记synthetic的内存响应。
-
-§41新增packages/billing、packages/query、0010、独立query-worker与HTTP交付，见[查询账本契约](查询账本与交付实施契约.md)。Web/MCP必须复用这些领域服务。实际状态和证据以台账§41为准；真实集成/阶段未验收，完成整包后继续Web，无需等用户再次发送“继续”。
-
-## 采集系统历史执行优先级（2026-11-17，台账§43）
-
-用户否决§42的UI风格并明确回到采集，草稿已隔离在13c4d3217670ef8a87d49f76e8bdfbf8d1bb2eea，该段记录当时的停工决定。2026-11-19 改按独立提交的新版原型执行，见现行文档索引。当前collector1.5的主图补采、共享退避、生命周期与内部报告见[采集管线契约§12](采集管线实施契约.md)。真实eBay适配、45字段实测、生产宿主出口、成本和连续稳定性仍缺外部证据。具体测试和完成状态只读任务台账，不因离线测试通过宣称已稳定供数。
-
-台账§44继续冻结周期计划与配置签名（collector1.6）：只接受synthetic source，计划/发生项不可删改历史；调度CLI只入队不抓取。健康报告把尚未materialize的漏周期也计入分母，queued不算执行，cost/真实字段仍未验证。接手按管线契约§13；当前日预算缺失fail closed，不得直接复制昨日已用额度或修改旧账；真实来源/服务器/许可门不变。
-
-§45追加固定UTC日预算政策/永久绑定与跨日初始化（collector1.7，0015/0016），替代§44“所有次日均须手工预置”的临时限制；旧源无政策仍拒绝缺日。政策到期只停新派发，不能使合法在途主图/完整页作废。新专项为tests/collector-budget.test.mjs，真实来源/45字段仍未验证。最终独立复核未完成，见台账限制。
-
-§46新增有界LoopbackHttpTransport、传输接口和collector:http-demo，实际HTTP→HTML→PG→8主图链已可执行；仍只允许127.0.0.1本机样本服务，没有eBay/外部网络adapter。内存artifact回放继续可用，切勿把本机10次请求报告当真实源稳定性。后续真实获取实现应沿同一Worker/证据/预算/媒体服务接入，先满足真实许可/样本，不能复制另一套统计或偷偷启用外部origin。
-
-台账§47新增ResearchService与RequestAuditService（0017）、engine1.2诊断、OpenAPI1.8。后续Web/MCP直接复用：readSnapshot挡owner/未领取/权利；字段权限为当前synthetic clearance.permitted_fields.research明确数组，缺少时不公开逐条数据，旧样本不自动补许可。详情用present/missing/withheld；导出最多2000价格行/5MiB，调整不改权威或收费；请求审计不存秘密/参数，query-worker每60秒最多清1000过期记录。实际功能与证据仍以台账为准；不得恢复否决UI。
-
-台账§48补官方SDK2.4无状态MCP与双语开发者资源，按[MCP契约](MCP与开发者交付契约.md)接手。MCP只作适配，查询/claim继续走QueryService；sold_stats仅读已有可读快照。Web/MCP JSON转换共用core.queryParameters，再normalizeQuery；MCP20条展示不改REST默认50参数或完整统计，stats-only返回comp计数0。
-
-开发者源文件在developer/，build脚本生成dist固定路径注册表；改内容后npm run build。TS/Python/curl示例列入实际loopback/PG集成，demo写0600环境文件并统一LOCAL_STATE_ROOT/MEDIA_ROOT/数据库配置，禁止打印或提交。专业文档网页/Playground、两主流宿主验收未完成。新增GitHub离线workflow须观察实际远端结果，不把本机PASS当远端PASS。下一整包支付离线生命周期，真实资格/收款/上线门保持，不恢复否决UI。具体状态与证据仍只读台账。
-
-台账§49交付本机Stripe/PayPal支付生命周期与0018。PAYMENT_FIXTURES默认关闭，init生成0600模拟密钥，deliver在专用本机库写确认事实并签名投递，Worker从已验事件对账后原子更新账本。HTTP客户端点持owner锁复查当前会话；任何新增支付入口均走同一资金规则。真实支付账户、SDK/渠道消息验签、实际Portal/PayPal capture、真实财务对账与G3/G5不得以本机证据代签。
-
-台账§50为匿名缓存与分享后端，见[公开结果实施契约](公开结果离线实施契约.md)。公开聚合分别需要public_cache/public_share明确许可；已收录快照不能自动公布。访客只读运营明确发布的新鲜冻结结果，无query/job/扣费；分享读取每次检查owner状态和当前数据权利。JSON投影与REST共用质量报告，公开另有字段白名单。当前没有新前端设计或阶段验收。
-
-台账§51账户隐私子交付见[删除与恢复契约](账户删除与恢复保护实施契约.md)。立即撤销与私有内容分批清理分离，Query Worker以事务checkpoint恢复，资金额度流水不改。回执只有状态能力，原始值不上库。测试库从旧pg_dump恢复后，先签名tombstone重放并清理再对外，保留阶段与真实数据政策限制。
-
-台账§52支持与运营后端依[运营实施契约](运营后端实施契约.md)。复用AuthService当前事务角色与近期MFA，来源stopLocked复用既有闸门和预算回收，probe仅做本机读检查，原查询重排检查许可、扣费与尝试预算，额度补偿不新建现金动作。公开状态不公开配置、来源ID或真实供数承诺。
-
-§53本机HTTP断源与响应基线入口为 `npm run test:readiness`，包含数值边界、历史可读/新查拒绝、恢复后不重复扣费及真实子进程隔离回归。不要把单机回环延迟当线上SLO。
-
-2026-11-18新增执行基线见台账§53–54。断源复用先校验权限及数据时限；显式品牌、型号、成色和属性须用同观察结构化证据，旧筛选结果重算且避免双扣。合成HTML详情经字段授权返回纯文本。后续仍需混型号提示、真实源及专业原型/browser验收。
-
-研究后端快速接手见台账§57和README“研究整包验收演示”。最小quickstart与`developer:demo -- --research`都走本机采集、真实PG证据、查询worker与本人领取。研究场景覆盖18条记录和主图、16个价格输入、混型号、详情及摘要许可。执行顺序、当前版本和真实上线门分别看任务台账、OpenAPI和step0 verdict。
-
-主图稳定性与来源准入接手见台账§58–60。维护与API使用同一已绑定MEDIA_ROOT，按目录单独运行 `collector:maintain`；`collector:report -- --source=UUID --check-media=12` 用PG当前时钟校验获准实物。外部材料用step0/tools/readiness.py所列主图专项和45字段清单，GO状态独立签署。
-
-## 现行文档和历史索引（2026-11-19）
-
-| 当前行动 | 现在读 | 历史资料的适用范围 |
+| 领域 | 已做的工作及代码入口 | 可核实的记录 |
 |---|---|---|
-| 领取本轮整改与验收 | [台账 §61](开发排期与任务台账.md)、[工程整改执行计划](../audit/13_OPTIMIZATION_ROADMAP.md#工程整改执行计划与-agent-交接2026-11-19)、[专项 AT](验收矩阵.md#7-审计发现的专项复验) | [2026-11-18 审计](../audit/00_EXECUTIVE_AUDIT_SUMMARY.md) 以 `808b987` 和当时活动页面为快照 |
-| 实施网页和英中内容 | [整站原型基线](整站原型与设计实施基线.md)、[全量功能追踪](原型功能追踪与补齐规格.md)、[功能与页面规格](功能与页面规格.md)、[公开页面双语稿](首发公开页面双语内容稿.md) | [2026-11-16 竞品资料](竞品核查与差异化建议_20261116.md) 保留公开资料观察，已否决 UI 保留在台账 §42 的历史引用 |
-| 运营中心与例行前台更新 | [配置、审核与发布](运营后端实施契约.md#运营中心与前台可配置发布2026-11-19) | 原型中的 CMS 和后台动作使用演示状态，接线以权限和发布契约为准 |
-| 确认可交付契约和已验路径 | [当前 OpenAPI](openapi.yaml)、[接口与数据](接口与数据契约.md)、[开发者验收](MCP与开发者交付契约.md) | [开发就绪检查](开发就绪检查.md)、[项目审查与优化建议](项目审查与优化建议.md) 保留文首日期的启程状态，早期版本和 SQL 证据用于重放对照 |
-| 确认来源、付款或上线 | [决策登记](决策登记.md)、[验证门](../step0/verdict.md)、[来源材料](../step0/access-rights.md)、[支付](Stripe与PayPal接入规格.md)、[发布恢复](发布、回滚与撤权恢复手册.md) | [2026-11-16 渠道评估](收款渠道评估与接入路线_20261116.md)、[商业缺口审查](商业系统开发前缺口审查.md) 保留当期供应商和准备情况，实际资格按最新签收 |
+| 工程与数据库，TASK-011/012/017 | TypeScript 工作区，Hono API、React SSR、PG16、独立查询 Worker 和采集监督进程。32 个增量迁移，本机无 DDL 权限启动、断进程和旧包回滚演练。入口 `apps/api/src/server.ts`、`scripts/query-worker.mjs`、`packages/db/migrations/` | 台账 §101、§109、§122、§129 |
+| 来源准备，TASK-001/003–009 | 45 字段权利和来源事实清单、120 条查询草稿、1,680 时段的验证计划、质量盲审、断源演练、成本和访谈准备。入口 `step0/`。实际来源字段仍待核验 | [第 0 步](../step0/README.md)、台账 §94、§96、§110、§112、§139–143 |
+| 采集与商品主图，TASK-013–016 | 本机 JSON/HTML 分页回放、原响应摘要、观察与事件去重、独立租约、预算结算、降速/熔断、缺包和迟到恢复、定时计划、主图绑定/转码/补采/撤权。私有通道和过期原包维护。入口 `packages/collector/src/`、`packages/media/src/`、`scripts/collector-supervisor.mjs` | 台账 §91–93、§98–100、§139–156；现行分支增量见 §157 |
+| 查价与研究，TASK-019/020/027/028/031/032/036/059 | 黄金 121/64/58、可比性及混型号判定，显式领取、详情/主图/诊断、只读复取、人工排除重算、单结果 JSON/CSV、受控公开分享、已交付快照保存和对照。入口 `packages/core/src/`、`packages/query/src/`、`apps/api/src/queries.ts` | 台账 §54–57、§63–76、§86、§92、§95 |
+| 账户与账本，TASK-023–027/033/039 | 本机注册/验证、会话、TOTP、恢复码、API key、用量/日志、积分桶和原子结算、删除及旧备份防反弹；双语事务邮件从离线发件箱交付。入口 `packages/auth/src/`、`packages/billing/src/`、`apps/api/src/auth.ts` | 台账 §40–41、§47、§65、§89、§102、§106、§130–131 |
+| 支付，TASK-029 | Stripe/PayPal 本机签名事件、订阅及退款生命周期、只读对账、晚到事件与旧库补放，入口 `apps/api/src/payments.ts`、`packages/billing/src/payment-lifecycle.ts` | 台账 §49、§68、§70、§73、§108、§132–134 |
+| 英中网页与运营，TASK-031–036/057–061 | 原型 Search/Research/账户/Playground、公开索引和内容页、CMS 审核/定时/回滚、工单、审批与执行、用户 360 和来源监控已接本机服务。入口 `apps/web/src/`、`apps/api/src/operations.ts`、`apps/api/src/ops-telemetry.ts` | 台账 §63–78、§84–88、§95、§103、§105、§121、§147–149 |
+| 开发者与运行交付，TASK-037–040/042 | OpenAPI 1.27.0、双语 Docs、Playground、REST、MCP、Skill 与 TS/Python/curl 示例。可从独立归档解包、启动、验证客户端以及恢复撤权、账务和仍有权主图。入口 `developer/`、`apps/api/src/mcp.ts`、`scripts/package-offline.py`、`scripts/rehearse-offline.py` | 台账 §83、§88–89、§95、§104、§122–131、§154–156 |
 
-根目录原稿仍决定首发产品边界。离线行为证据随任务报告查阅，真实签署随阶段查阅。文案中的“历史研究复取”指本人已交付快照，“单结果导出”指该快照。收藏查询条件、提醒和批量上传各按 TASK-048、TASK-045 的后续要求领取。
+主线候选 `39cf2a4` 的全量记录为 29 套、305 项应用测试、5 项接口兼容，零失败、零跳过。214 文件的独立运行包完成恢复与客户端演练，合成采集 2 页、8 张主图，外部来源请求为零。证据和 SHA-256 见台账 §156。GitHub Actions 最近核对的主线运行在创建作业前报 `startup_failure`，作业数为零。不能从该状态推断 runner 或仓库设置的根因。[GitHub Actions 记录](https://github.com/jackyang1989/SoldBench/actions/runs/44851600259)
 
-浏览器已接原型首页、研究、分享、认证、账户和沙盒账单，开发者端提供双语文档和本机调试台。`/admin/content` 可审核、发布和排程双语公告、FAQ、指南，见台账 §67/77。`/operations` 可执行合成来源探针、作业重排、查询额度补偿与晚到付款恢复。§76 提供绑定独立摘要的本机旧库恢复命令。§78 提供工单领取、回复、审计与双语私密回执。正式来源、跨机灾备、客服 SLA 和通知按台账剩余范围接续。[任务台账](开发排期与任务台账.md) · [运营契约](运营后端实施契约.md)
+## 4. 接手后按此顺序执行
+
+### 第一包：收口撤权主图分批维护
+
+- **现状。** `4d0f544` 修改了 `packages/media/src/private-store.ts`、`packages/collector/src/worker.ts`、`scripts/collector-supervisor.mjs` 和 `tests/collector-pipeline.test.mjs`。撤权即刻拒读；文件按最多 50 个生成名称清除并同步目录，之后分批清除最多 50 条媒体引用，最后才确认 outbox。进程重启从文件与 PG 事实续跑。错根、文件系统异常和未完成批次仍需处理，非生成文件保留。
+- **已经验证。** lint、类型、构建、文档和 diff 检查通过。隔离 PG16 的采集专项 63 项通过，零失败、零跳过。新增用例用 52 个生成文件、52 条引用实测，首轮处理部分磁盘文件，重建 Worker 后继续，第三轮才确认一次。原专项日志为本机 `/tmp/soldbench-157-handoff.log`。详见台账 §157。
+- **剩余验收。** 在接手候选运行 §6 的全量应用及归档恢复。复核早期撤权拒读、错目录不确认、共享文件和异源保留。记录候选提交、命令退出码、实际测试数与归档 SHA-256。通过后按台账回填，再以干净工作区和快进方式合并 `main`。远端 Actions 的启动失败另外留证。
+
+### 第二包：媒体维护状态进入运营台
+
+- **TASK-016/061，AT-052/080。** 目前监督者日志会显示维护结果，运营台已有健康报告和队列事实。把维护批次结果接到现有监督状态和采集运营面板。此包还未开始编码。
+- **先读。** [采集契约](采集管线实施契约.md) §16/18/21、[运营后端契约](运营后端实施契约.md)、[验收矩阵](验收矩阵.md)，台账 §147–149 和 §156–157。
+- **预期改动。** `scripts/collector-supervisor.mjs` 的 `recordProgress` 写入最近一次实际维护的数据库时点和状态。`apps/api/src/ops-telemetry.ts` 投影已确认字段，`apps/web/src/site.js` 补英中列名和状态描述。区分活跃积压、目录未匹配、失败、空缺和已处理。普通轮次不抹除上一条维护记录；发生撤权后仍可查看授权运营人员所需的清理状态，不输出私有路径或源证据。以现有 outbox 为确认依据。
+- **验收。** 在隔离 PG16 和本机监督进程复现过期积压、撤权积压、目录不匹配和故障后的恢复。验证空记录/旧记录显示未知、普通轮次保留最近时点、未经授权的账户无法读取。按两种界面语言走查实际运营入口。验收、合并后按台账依赖自动切下一可执行整包。
+
+## 5. 新 Agent 必读顺序
+
+| 顺序 | 阅读 | 读完确认什么 |
+|---|---|---|
+| 1 | [AGENTS.md](../AGENTS.md)、[v1.4 产品规格](<../SoldBench 开发规格书 v1.4.md>) §0/§3 和相关业务章 | 用户指令、首发范围、来源边界、数据和扣费不变量 |
+| 2 | [决策登记](决策登记.md)、[ADR-13](adr/ADR-13.md)；触及查询时读 [ADR-12](adr/ADR-12.md)，触及身份时读 [ADR-14](adr/ADR-14.md) | 哪些是离线工程冻结规则，哪些还需要真实或经营签收 |
+| 3 | [功能与页面规格](功能与页面规格.md)、[工程实施规格](工程实施规格.md)、[接口与数据契约](接口与数据契约.md)、[OpenAPI](openapi.yaml)；再按下表读领域文档 | 正常路径、错误、权限和服务边界；版本与相关代码输出一致 |
+| 4 | [任务台账](开发排期与任务台账.md) §4 和 §156–157、[验收矩阵](验收矩阵.md)、[交接模板](执行与交接模板.md) | 领取的 TASK、依赖、AT、当前候选、完整验收以及可回退点 |
+| 5 | [README](../README.md)、[发布与恢复手册](发布、回滚与撤权恢复手册.md)、本包源码及实际测试 | 能在本机复跑对应故障和正常流程，再从证据推进下一包 |
+
+| 接手方向 | 专项阅读 |
+|---|---|
+| 正在接手的采集包 | [采集管线实施契约](采集管线实施契约.md) §16–22、[采集稳定性专项](采集稳定性专项规格.md)、[搜索字段与统计](搜索页采集字段与统计契约.md)、[真实来源权利档案](../step0/access-rights.md) |
+| 网页、内容和运营 | [原型 HTML](<../SoldBench Prototype.html>)、[实施基线](整站原型与设计实施基线.md)、[原型补齐规格](原型功能追踪与补齐规格.md)、[运营后端契约](运营后端实施契约.md)、[多语言规格](多语言与商业交付补充规格.md) |
+| 查询、统计、身份和资金 | [查询账本与交付](查询账本与交付实施契约.md)、[账户与访问](账户与访问实施契约.md)、[Stripe 与 PayPal](Stripe与PayPal接入规格.md)、[账户删除与恢复](账户删除与恢复保护实施契约.md) |
+| REST、MCP、竞品或扩展 | [MCP 与开发者交付](MCP与开发者交付契约.md)、[契约验证说明](contracts/README.md)、[竞品能力实施路线图](竞品能力实施规格与路线图.md)、[国际站点规划](国际站点规划与品牌评估_20261116.md) |
+
+`audit/`、`docs/baselines/` 和带早期日期的研究报告用于还原当时的差异。遇到旧稿显示某功能尚未开发或列出旧 OpenAPI 版本时，核对新版规范、最新台账、源码及实际入口。`/docs/implementation-status.json` 可核对本机 REST 注册范围，功能验收仍追到原 TASK 和 AT。
+
+## 6. 本地复现与验收
+
+准备 Node 22（CI 固定 22.23.3）、PostgreSQL 16、Python 3 与本机 Chrome。测试脚本在本机专用临时 PG 库运行；系统沙箱需要允许 PG 共享内存。浏览器验收通过 `SOLDBENCH_BROWSER_BINARY` 指向本机 Chrome 可执行文件。外部依赖安装完成后，测试以合成数据和本地服务运行。
+
+```sh
+# 首次准备依赖；已有可用环境可直接从构建开始
+npm ci
+npm --prefix step0/collector-poc ci --ignore-scripts
+soldbench_venv="$(mktemp -d /tmp/soldbench-python.XXXXXX)"
+python3 -m venv "$soldbench_venv"
+. "$soldbench_venv/bin/activate"
+python3 -m pip install -r docs/contracts/requirements.txt
+
+npm run build
+node scripts/test.mjs tests/collector-pipeline.test.mjs
+npm run check
+npm run test:step0
+python3 docs/check_docs.py
+python3 -m unittest discover -s tests -p test_runtime_package.py
+git diff --check
+```
+
+在**干净候选提交**上重新构建，然后打包并独立解包恢复。演练日志使用新的路径，命令拒绝覆盖旧日志。
+
+```sh
+npm run build
+soldbench_evidence_dir="$(mktemp -d /tmp/soldbench-acceptance.XXXXXX)"
+python3 scripts/package-offline.py pack "$soldbench_evidence_dir/runtime.tar.gz"
+python3 scripts/rehearse-offline.py "$soldbench_evidence_dir/runtime.tar.gz" \
+  --restore --clients --require-spool-retention --log "$soldbench_evidence_dir/rehearsal.log"
+```
+
+本机开发演示依 [README](../README.md) 从 `npm run db:start` 启动专用开发库。采集用 `npm run collector:http-demo` 回放两页合成 HTML 和 8 张主图；开发者研究可用 `npm run developer:demo -- --research`，随后在私有终端载入生成的 0600 环境文件、启动 `npm run dev` 并运行示例。六类客户集成回归入口是 `node scripts/test.mjs tests/customer-journeys.test.mjs`。测试日志、生成的环境文件及任何账号凭据不要提交到仓库。
+
+## 7. 真实上线还缺什么
+
+正式 G0 状态为 `NOT_ISSUED`。当前配置为 `COLLECTOR_ENABLED=false`、`DATA_MODE=offline_fixture`、`PAYMENTS_MODE=offline`。以下前置在[第 0 步判定](../step0/verdict.md)及任务台账登记。
+
+1. **来源与主图（TASK-001/007/014–018）。** 取得真实来源的访问、保存、统计与分发依据，主图分别核验访问、保存、处理、展示、再分发及留存。准备获准原始样本和 45 字段的逐项证据，沿现有 Collector 接真实入口并验证 14 个连续自然日，另做 G1 的 7 日生产型观察。现有 loopback 回放、合成选择器及统计样本用于复现工程行为。
+2. **实际价格与商业验证（TASK-004/008/021/041）。** 锁定类目和人工金标，核对真实成交价、Best Offer 未知、运费、错配、缺图和重复事件；使用相同口径做独立盲审。稳定供数后实测采集、维护、失败、许可与支付完整成本，再评估满额成本、访谈、售价和配额。
+3. **支付、邮件和部署（TASK-017/023/029/034/038–043）。** 商户资格和渠道沙盒、真实邮件送达、正式条款、服务器、DNS/TLS、报警、出口隔离、外部依赖、实际 MCP 宿主及跨机灾备待验。生产备份恢复目标按台账实测。真实试点与公开发布由阶段负责人根据证据签收。
+4. **工程复核。** 本机测试、真实线上集成和独立复核分别记录。GitHub Actions 要拿到实际作业和输出才能登记为通过。发布状态、定价、数据覆盖和 SLA 均以实际验收和用户签收为依据。
+
+接手工作到这里可以直接从 §4 第一包开始。每包完成时把实际证据写回原 TASK，合并后顺排接续。

@@ -24,7 +24,7 @@
 
 竞品 24 组能力与[原型补齐](docs/原型功能追踪与补齐规格.md)已纳入统一排期。现行 62 项任务，首发 234 人日，扩展 122 人日，均为含已做部分的总工作量。实际状态和前置以[开发排期与任务台账](docs/开发排期与任务台账.md)为准。
 
-新Agent建议先阅读 [Agent接手指南](docs/Agent接手指南.md)，了解六类客户、权威文件、当前代码与下一包入口；状态只以台账为准。
+新 Agent 先读 [SoldBench 项目交接](docs/Agent接手指南.md)。其中包含已交付模块、当前分支和验收进度、接续顺序、必读文件及复现命令。各任务状态以台账为准。
 
 最新市场判断见 [竞品核查与差异化建议](docs/竞品核查与差异化建议_20261116.md)：统计、清洗和MCP已经是竞争基线，优势须靠细分类目的严格匹配、合格样本和实际工作流验证；该研究不自动修改V1范围或AT门。
 
@@ -127,7 +127,7 @@ HTML演示也支持`npm run collector:html-demo -- --prepare-only`，输出的ar
 
 `collector:run`仅传必要本地DB/目录和OS环境，不把支付、会话密钥或Node preload传给worker；等待子进程退出后才报告结束。V8 heap不是RSS/CPU隔离，启动器被SIGKILL时仍依赖部署监督器清理子进程；宿主出口和生产资源限制尚未验收。
 
-账户与访问服务已提供注册验证、登录/找回、会话撤销、CSRF、TOTP/恢复码及Key创建/旋转/撤销。开发服务首次生成私有随机auth secret文件，邮件仅进入加密本地outbox。接口与重试依据[账户契约](docs/账户与访问实施契约.md)和[ADR-14](docs/adr/ADR-14.md)，真实邮件/生产身份验收及完整网页尚待实施。
+账户与访问服务已提供注册验证、登录/找回、会话撤销、CSRF、TOTP/恢复码及Key创建/旋转/撤销。开发服务首次生成私有随机auth secret文件，邮件仅进入加密本地outbox。账户网页已做本机离线浏览器验证，真实邮件与生产身份待验。接口与重试依据[账户契约](docs/账户与访问实施契约.md)和[ADR-14](docs/adr/ADR-14.md)。
 
 查询/账本离线服务接入持久化快照、异步计算、owner显式领取、Free周期、唯一charge、对账、当前权利主图和完整计算输入，见[实施契约](docs/查询账本与交付实施契约.md)。npm run dev同时启动API和独立query worker；也可单独运行npm run query:worker -- --once或--watch。无匹配快照明确503。默认私有图片目录为.local/collector-media，MEDIA_ROOT须与采集器一致。GameBoy演示保留原旧水位，不伪装实时价；当天流程可使用当天生成的HTML合成演示。
 
@@ -165,7 +165,7 @@ npm run collector:supervise -- --source=SOURCE_UUID --spool=.local --watch=true
 
 监听中 PG 连接中断时，运行器停止已派子进程并等待重连，恢复后重查来源及所有权。值班核对 `soldbench_collector_supervisor_database_unavailable`、`soldbench_collector_supervisor_database_recovered`，再核对相同作业的检查点和主图结果。
 
-研究后端已提供owner详情`/v1/sold/{id}/comps/{event_id}`、分页`/diagnostics`、`POST /v1/sold/{id}/export`（JSON/CSV、权威/调整）及`/v1/requests`请求审计；共用已领取快照/当前字段权限，免费复取，不重抓。需要现有已核验session或对应scope的API key。字段许可缺失会裁剪逐条数据，不能以旧DTO绕过；说明/属性未采到会返回明确missing。见[研究交付契约](docs/查询账本与交付实施契约.md)。网页与真实供数未验收。
+研究后端已提供owner详情`/v1/sold/{id}/comps/{event_id}`、分页`/diagnostics`、`POST /v1/sold/{id}/export`（JSON/CSV、权威/调整）及`/v1/requests`请求审计；共用已领取快照/当前字段权限，免费复取，不重抓。需要现有已核验session或对应scope的API key。字段许可缺失会裁剪逐条数据，不能以旧DTO绕过；说明/属性未采到会返回明确missing。研究网页已做本机离线浏览器验证，真实供数与正式界面签收待验。[研究交付契约](docs/查询账本与交付实施契约.md)
 
 ## 开发者离线接入
 
@@ -184,7 +184,7 @@ sh developer/examples/sold.sh --claim
 
 `--claim` 明确允许最多1个合成credit；省略时停在未领取状态。curl版需要同目录sold.py与Python3；三者使用真实本机HTTP、拒绝重定向、同幂等key有界重试，不打印密钥。金额与样本量不是实时市场证据。详见[开发者契约](docs/MCP与开发者交付契约.md)。
 
-本机 `/docs/en/quickstart` 和 `/docs/zh-CN/quickstart` 为双语Markdown，`/docs/search` 为本地搜索，不代表已完成专业文档前端。`/openapi.json`、`/llms.txt`、`/llms-full.txt`、`/.well-known/skills/index.json`、`/soldbench.postman.json` 由固定输入生成；`/docs/implementation-status.json` 对照 Hono 当前注册路由和 OpenAPI，区分本机路由存在与 contract-only；配置启用和实际验收按产品状态查看。`POST /mcp` 是官方SDK无状态适配，两主流宿主与生产TLS待实测。
+本机已有双语开发者网页、Markdown 和文档搜索。`/docs/en/quickstart`、`/docs/zh-CN/quickstart` 与 `/docs/search` 提供机器可读内容与检索能力。`/openapi.json`、`/llms.txt`、`/llms-full.txt`、`/.well-known/skills/index.json`、`/soldbench.postman.json` 由固定输入生成；`/docs/implementation-status.json` 对照 Hono 当前注册路由和 OpenAPI，区分本机路由存在与 contract-only；配置启用和实际验收按产品状态查看。`POST /mcp` 是官方SDK无状态适配，两主流宿主与生产TLS待实测。
 
 `.github/workflows/offline.yml` 固定官方Actions提交，安装PG16后运行同一套离线检查、step0及开发者资产检查。远端执行结果以GitHub实际记录为准。构建需Python3及契约依赖（含PyYAML）。`LOCAL_STATE_ROOT` 仅控制本机认证密钥目录，默认`.local`；演示自定义目录时先导入对应私有环境文件，再启动API/Worker。
 
