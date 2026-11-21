@@ -542,6 +542,9 @@ test("spool retention audit counts verified bytes without touching pending or ex
   await supervise();
   assert.equal((await new CollectorStore(db).view(prepared.jobId)).status, "completed");
   assert.deepEqual((await audit()).pendingWork, { files: 1, bytes: size });
+  const pendingPrune = start("scripts/collector-spool-cleanup.mjs", [source, directory, "--prune-expired"]);
+  assert.equal((await pendingPrune.exited).code, 0, pendingPrune.errors);
+  assert.equal(JSON.parse(pendingPrune.output).removed, 0);
   await rm(mediaRoot);
   await db.query("UPDATE collector_image_jobs SET available_at=now() WHERE parent_job_id=$1", [
     prepared.jobId,
@@ -575,6 +578,60 @@ test("spool retention audit counts verified bytes without touching pending or ex
   await new CollectorStore(db).revokeSource(prepared.sourceId, "synthetic_retention_audit");
   assert.deepEqual((await audit()).revoked, { files: 1, bytes: size });
   assert.deepEqual(await readFile(prepared.artifactPath), bytes);
+});
+
+test("expired spool pruning is explicit, source scoped, verified, and repeatable", async () => {
+  const spool = await root();
+  const prepared = await preparedDemo(spool);
+  const other = await preparedDemo(spool);
+  const source = `--source=${prepared.sourceId}`;
+  const directory = `--spool=${spool}`;
+  const original = await readFile(prepared.artifactPath);
+  const otherBytes = await readFile(other.artifactPath);
+  const cleanup = async (code, ...flags) => {
+    const run = start("scripts/collector-spool-cleanup.mjs", [
+      source,
+      directory,
+      "--prune-expired",
+      ...flags,
+    ]);
+    assert.equal((await run.exited).code, code, run.errors);
+    return JSON.parse(code === 1 ? run.errors : run.output);
+  };
+  assert.equal((await cleanup(1, "--audit-retention")).error, "invalid_collector_cleanup_argument");
+  assert.equal((await cleanup(0)).removed, 0);
+  const runner = start("scripts/collector-supervisor.mjs", [source, directory], {
+    MEDIA_ROOT: join(spool, "media"),
+  });
+  assert.equal((await runner.exited).code, 0, runner.errors);
+  assert.equal((await cleanup(0)).removed, 0);
+  await db.query("UPDATE source_observations SET retention_until=NULL WHERE source_id=$1", [
+    prepared.sourceId,
+  ]);
+  assert.equal((await cleanup(0)).removed, 0);
+  await db.query("UPDATE source_observations SET retention_until=now() WHERE source_id=$1", [
+    prepared.sourceId,
+  ]);
+
+  const knownLink = `${prepared.artifactPath}.${randomUUID()}.tmp`;
+  const outsideLink = join(await root(), "unregistered-copy.json");
+  await link(prepared.artifactPath, knownLink);
+  await link(prepared.artifactPath, outsideLink);
+  const blocked = await cleanup(2);
+  assert.equal(blocked.removed, 0);
+  assert.equal(blocked.unverified, 2);
+  assert.deepEqual(await readFile(knownLink), original);
+  assert.deepEqual(await readFile(outsideLink), original);
+  await rm(outsideLink);
+
+  const pruned = await cleanup(0);
+  assert.equal(pruned.pruneExpiredOnly, true);
+  assert.equal(pruned.removed, 2);
+  assert.equal(pruned.unverified, 0);
+  await assert.rejects(readFile(prepared.artifactPath), { code: "ENOENT" });
+  await assert.rejects(readFile(knownLink), { code: "ENOENT" });
+  assert.deepEqual(await readFile(other.artifactPath), otherBytes);
+  assert.equal((await cleanup(0)).removed, 0);
 });
 
 test("revocation blocks new fixture publication and removes only source-bound response files", async () => {
