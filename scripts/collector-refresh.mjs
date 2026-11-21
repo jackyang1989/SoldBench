@@ -72,7 +72,7 @@ try {
     let prioritized = 0;
     for (let i = 0; i < 100; i++) {
       if (planned.more) prioritized += await refresh.materializeNextAvailable(source);
-      const r = await refresh.dispatchNext(source, { preferAvailable: planned.more });
+      const r = await refresh.dispatchNext(source, { preferAvailable: true });
       if (!r) break;
       dispatch.push(r);
     }

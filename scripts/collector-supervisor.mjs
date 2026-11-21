@@ -260,7 +260,7 @@ async function run(args) {
             if (empty.has(index)) continue;
             const current = profileRefreshers[index];
             if (scheduled.more) scheduled.prioritized += await current.materializeNextAvailable(sourceId);
-            const slot = await current.dispatchNext(sourceId, { preferAvailable: scheduled.more });
+            const slot = await current.dispatchNext(sourceId, { preferAvailable: true });
             if (!slot) {
               empty.add(index);
               continue;

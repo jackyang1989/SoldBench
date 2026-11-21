@@ -359,6 +359,38 @@ test("refresh cycle dispatches viable work before a deep historical backlog and 
   );
 });
 
+test("refresh dispatch does not wait for old materialized slots to close", async () => {
+  const x = await setup();
+  const retired = await x.refresh.create({ ...x.input, maxLagSeconds: 86400 });
+  step(x, 250 * 60);
+  assert.deepEqual(await x.refresh.materialize(x.sourceId), { materialized: 251, more: false });
+  await x.refresh.retire(x.sourceId, retired);
+  step(x, 86401);
+  const current = await x.refresh.create({
+    ...x.input,
+    key: randomUUID(),
+    query: new URLSearchParams({ q: "New slot after expired queue" }),
+  });
+  const cycle = JSON.parse(
+    execFileSync(
+      process.execPath,
+      [
+        "--import",
+        "./scripts/test-network.mjs",
+        "scripts/collector-refresh.mjs",
+        `--source=${x.sourceId}`,
+        `--clock=${x.clock.value}`,
+      ],
+      { encoding: "utf8" },
+    ),
+  );
+  assert.deepEqual(cycle.planned, { materialized: 1, more: false });
+  assert.equal(cycle.prioritized, 0);
+  assert.equal(cycle.dispatch[0]?.status, "enqueued");
+  assert.equal((await occurrences(x)).find(({ status }) => status === "enqueued").plan_id, current);
+  assert.equal((await occurrences(x)).length, 252);
+});
+
 test("continuous evidence retains empty UTC days, missed work and actual cross-midnight dispatch", async () => {
   const x = await setup();
   x.clock.value = "2026-11-17T23:59:00.000Z";
