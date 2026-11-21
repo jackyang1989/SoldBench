@@ -1,6 +1,7 @@
 import { lstat, opendir, unlink } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { artifactRetentionFields } from "@soldbench/collector";
 import { assertLocalDatabaseUrl, database, prepareDatabase, transaction } from "@soldbench/db";
 import { loadConfig } from "@soldbench/shared";
 import { fixtureJobId, readFixtureFile, syncDirectory } from "./collector-fixture-file.mjs";
@@ -119,19 +120,6 @@ function retentionClass(source, job) {
   return job.known_evidence ? "expiredEvidence" : "unknown";
 }
 
-const retentionFacts = `,
-  ((j.status IN ('queued','retry','running') AND
-    (j.expires_at>now() OR (j.status='running' AND j.lease_until>now())))
-    OR EXISTS(SELECT 1 FROM collector_image_jobs t WHERE t.source_id=j.source_id AND t.parent_job_id=j.id
-        AND ((t.status='retry' AND t.expires_at>now()) OR (t.status='running' AND t.lease_until>now()))))
-    AS pending_work,
-  EXISTS(SELECT 1 FROM source_observations o WHERE o.source_id=j.source_id
-    AND o.collector_run_id=j.collector_run_id AND o.retention_until>now()) AS current_evidence,
-  (EXISTS(SELECT 1 FROM source_observations o WHERE o.source_id=j.source_id
-    AND o.collector_run_id=j.collector_run_id)
-   AND NOT EXISTS(SELECT 1 FROM source_observations o WHERE o.source_id=j.source_id
-    AND o.collector_run_id=j.collector_run_id AND o.retention_until IS NULL)) AS known_evidence`;
-
 async function inspectSpool(db, spool, sourceId, auditRetention) {
   if (!fixtureJobId.test(sourceId)) throw new Error("invalid_collector_cleanup_source");
   return transaction(db, async (c) => {
@@ -163,7 +151,7 @@ async function inspectSpool(db, spool, sourceId, auditRetention) {
     let after = null;
     for (;;) {
       const { rows } = await c.query(
-        `SELECT j.id,j.query_hash,j.as_of,r.fixture_artifact_hash${auditRetention ? retentionFacts : ""}
+        `SELECT j.id,j.query_hash,j.as_of,r.fixture_artifact_hash${auditRetention ? `,${artifactRetentionFields("now()")}` : ""}
            FROM collector_jobs j JOIN collector_runs r ON r.id=j.collector_run_id AND r.source_id=j.source_id
           WHERE j.source_id=$1 AND ($2::uuid IS NULL OR j.id>$2) ORDER BY j.id LIMIT 100`,
         [sourceId, after],

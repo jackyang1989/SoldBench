@@ -548,10 +548,25 @@ test("spool retention audit counts verified bytes without touching pending or ex
   ]);
   await supervise();
   assert.deepEqual((await audit()).currentEvidence, { files: 1, bytes: size });
+  const intakeAt = (directory) =>
+    start("scripts/collector-intake.mjs", [
+      source,
+      `--spool=${directory}`,
+      `--fixture=${prepared.artifactPath}`,
+    ]);
+  const backupDir = join(spool, "retained-backup");
+  const retained = intakeAt(backupDir);
+  assert.equal((await retained.exited).code, 0, retained.errors);
+  assert.deepEqual(await readFile(JSON.parse(retained.output).artifactPath), bytes);
   await db.query("UPDATE source_observations SET retention_until=now() WHERE source_id=$1", [
     prepared.sourceId,
   ]);
   assert.deepEqual((await audit()).expiredEvidence, { files: 1, bytes: size });
+  const destination = join(spool, "expired-restore");
+  const expired = intakeAt(destination);
+  assert.equal((await expired.exited).code, 1);
+  assert.match(expired.errors, /fixture_artifact_retention_expired/);
+  await assert.rejects(readdir(destination), { code: "ENOENT" });
   assert.deepEqual(await readFile(prepared.artifactPath), bytes);
   await db.query("UPDATE source_observations SET retention_until=NULL WHERE source_id=$1", [
     prepared.sourceId,
@@ -593,7 +608,7 @@ test("revocation blocks new fixture publication and removes only source-bound re
   ]);
   assert.equal((await intake.exited).code, 1);
   assert.match(intake.errors, /source_inactive/);
-  assert.deepEqual(await readdir(join(laterSpool, "collector-incoming", first.sourceId)), []);
+  await assert.rejects(readdir(join(laterSpool, "collector-incoming", first.sourceId)), { code: "ENOENT" });
   const revoked = cleanup();
   assert.equal((await revoked.exited).code, 2, revoked.errors);
   const report = JSON.parse(revoked.output);

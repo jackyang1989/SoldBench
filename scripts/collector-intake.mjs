@@ -78,14 +78,14 @@ export async function intakeFixture(db, spool, sourceId, loaded) {
     [artifact.jobId, sourceId, artifact.queryHash, artifact.asOf],
   );
   if (!rowCount) throw new Error("fixture_artifact_job_mismatch");
-  await ensureDirectory(spool);
   const incoming = join(spool, "collector-incoming");
   const directory = pendingDir(spool, sourceId);
-  await ensureDirectory(incoming);
-  await ensureDirectory(directory);
   const pending = join(directory, `${artifact.jobId}.${hash}.json`);
   const store = new CollectorStore(db, undefined, { htmlProfile: artifact.htmlProfile });
   await store.bindFixtureArtifact({ ...artifact, hash, pageHashes: loaded.pageHashes }, async () => {
+    await ensureDirectory(spool);
+    await ensureDirectory(incoming);
+    await ensureDirectory(directory);
     await assertArtifactFormat(spool, artifact);
     await publishOnce(pending, loaded);
     await syncDirectory(directory);

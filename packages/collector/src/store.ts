@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { type Candidate, candidateFromJson, canonicalJson, instant } from "@soldbench/core";
 import { type Database, type Transaction, transaction } from "@soldbench/db";
 import type { PrimaryImage, PrivateMediaStore } from "@soldbench/media";
+import { artifactRetentionFields } from "./artifact-retention.ts";
 import { type ConfigSnapshot, collectorConfigHash, type SourceSnapshot } from "./config-snapshot.ts";
 import {
   COLLECTOR_VERSION,
@@ -520,6 +521,16 @@ export class CollectorStore {
       if (pages.rows.some((page) => !input.pageHashes.get(page.cursor)?.has(page.raw_hash)))
         throw new Error("fixture_artifact_committed_page_mismatch");
       const now = await this.now(c);
+      if (persist && run.fixture_artifact_hash) {
+        const {
+          rows: [retention],
+        } = await c.query(`SELECT ${artifactRetentionFields("$2")} FROM collector_jobs j WHERE j.id=$1`, [
+          job.id,
+          now,
+        ]);
+        if (!retention.pending_work && retention.known_evidence && !retention.current_evidence)
+          throw new Error("fixture_artifact_retention_expired");
+      }
       if (
         !run.fixture_artifact_hash &&
         (job.expires_at <= now || !["queued", "running", "retry"].includes(job.status))

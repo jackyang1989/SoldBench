@@ -1,5 +1,6 @@
 export * from "./access-guard.ts";
 export * from "./artifact.ts";
+export { artifactRetentionFields } from "./artifact-retention.ts";
 export * from "./config-snapshot.ts";
 export * from "./fixture.ts";
 export * from "./health.ts";
