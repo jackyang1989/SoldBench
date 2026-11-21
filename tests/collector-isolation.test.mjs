@@ -192,6 +192,50 @@ test("supervisor rotates JSON and multiple frozen HTML profiles within one share
   );
 });
 
+test("supervisor preserves viable HTML and JSON slots while accounting for a missed backlog", async () => {
+  const spool = await root();
+  const now = (await db.query("SELECT clock_timestamp() t")).rows[0].t.getTime();
+  const first = new Date(now - (250 * 60 + 10) * 1000).toISOString();
+  const source = await provisionFixtureSource(db, first);
+  const profilePath = "tests/fixtures/html/profile.json";
+  const profile = JSON.parse(await readFile(profilePath, "utf8"));
+  const profileStore = new CollectorStore(db, undefined, { htmlProfile: profile });
+  const json = new CollectorRefresh(new CollectorStore(db, () => first));
+  const plan = (q) => ({
+    ...source,
+    query: new URLSearchParams({ q }),
+    key: randomUUID(),
+    intervalSeconds: 60,
+    maxLagSeconds: 60,
+  });
+  const history = await json.create(plan("Fixture after a long interruption"));
+  const html = await new CollectorRefresh(profileStore).create(plan("Fixture first HTML slot"));
+  const result = start(
+    "scripts/collector-supervisor.mjs",
+    [
+      `--source=${source.sourceId}`,
+      `--spool=${spool}`,
+      "--refresh=true",
+      "--refresh-include-json=true",
+      `--refresh-profile=${profilePath}`,
+    ],
+    { MEDIA_ROOT: spool },
+  );
+  assert.equal((await result.exited).code, 0, result.errors);
+  const { scheduled } = JSON.parse(result.output);
+  assert.equal(scheduled.materialized, 200);
+  assert.equal(scheduled.more, true);
+  assert.equal(scheduled.prioritized, 2);
+  assert.equal(scheduled.enqueued, 2);
+  const current = (
+    await db.query(
+      "SELECT plan_id FROM collector_refresh_occurrences WHERE source_id=$1 AND status='enqueued'",
+      [source.sourceId],
+    )
+  ).rows;
+  assert.deepEqual(new Set(current.map(({ plan_id }) => plan_id)), new Set([history, html]));
+});
+
 test("supervisor schedules eligible offline plans once and processes the published response", async () => {
   const spool = await root();
   const now = (await db.query("SELECT clock_timestamp() t")).rows[0].t.toISOString();

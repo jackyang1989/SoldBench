@@ -248,6 +248,7 @@ async function run(args) {
               enqueued: 0,
               recovered: 0,
               blocked: 0,
+              prioritized: 0,
             }
           : null;
         if (scheduled && state === "ready") {
@@ -257,7 +258,9 @@ async function run(args) {
             const index = nextProfile;
             nextProfile = (nextProfile + 1) % profileRefreshers.length;
             if (empty.has(index)) continue;
-            const slot = await profileRefreshers[index].dispatchNext(sourceId);
+            const current = profileRefreshers[index];
+            if (scheduled.more) scheduled.prioritized += await current.materializeNextAvailable(sourceId);
+            const slot = await current.dispatchNext(sourceId, { preferAvailable: scheduled.more });
             if (!slot) {
               empty.add(index);
               continue;

@@ -168,12 +168,13 @@ export class CollectorRefresh {
           )
         ).rows;
       let count = 0;
+      let visited = 0;
       for (const p of plans) {
         let due = p.next_due_at as Date;
-        while (due <= now && (!p.retired_at || due < p.retired_at) && count < maxSlots) {
+        while (due <= now && (!p.retired_at || due < p.retired_at) && visited < maxSlots) {
           const deadline = new Date(due.getTime() + p.max_lag_seconds * 1000),
             missed = deadline <= now;
-          await c.query(
+          const inserted = await c.query(
             "INSERT INTO collector_refresh_occurrences(plan_id,source_id,scheduled_for,deadline_at,status,failure_reason,created_at,finished_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(plan_id,scheduled_for) DO NOTHING",
             [
               p.id,
@@ -187,10 +188,11 @@ export class CollectorRefresh {
             ],
           );
           due = new Date(due.getTime() + p.interval_seconds * 1000);
-          count++;
+          count += inserted.rowCount ?? 0;
+          visited++;
         }
         await c.query("UPDATE collector_refresh_plans SET next_due_at=$2 WHERE id=$1", [p.id, due]);
-        if (count >= maxSlots) break;
+        if (visited >= maxSlots) break;
       }
       return {
         materialized: count,
@@ -203,6 +205,38 @@ export class CollectorRefresh {
           ).rowCount,
         ),
       };
+    });
+  }
+  // Preserve the historical cursor. The regular catch-up pass will walk through this slot later.
+  async materializeNextAvailable(sourceId: string) {
+    return transaction(this.store.db, async (c) => {
+      await this.source(c, sourceId);
+      const now = await this.now(c);
+      const inserted = await c.query(
+        `WITH candidate AS (
+           SELECT p.id,p.source_id,s.at, s.at+make_interval(secs=>p.max_lag_seconds) AS deadline_at
+           FROM collector_refresh_plans p
+           CROSS JOIN LATERAL (
+             SELECT due.at FROM generate_series(
+               p.next_due_at + make_interval(secs=>p.interval_seconds) * greatest(0,
+                 floor((extract(epoch FROM ($2::timestamptz-p.next_due_at))-p.max_lag_seconds)/p.interval_seconds)+1),
+               $2::timestamptz, make_interval(secs=>p.interval_seconds)
+             ) AS due(at)
+             WHERE NOT EXISTS (
+               SELECT 1 FROM collector_refresh_occurrences o WHERE o.plan_id=p.id AND o.scheduled_for=due.at
+             )
+             ORDER BY due.at LIMIT 1
+           ) s
+           WHERE p.source_id=$1 AND p.profile_hash IS NOT DISTINCT FROM $3
+             AND p.retired_at IS NULL AND p.next_due_at<=$2
+           ORDER BY s.at,p.id LIMIT 1
+         )
+         INSERT INTO collector_refresh_occurrences(plan_id,source_id,scheduled_for,deadline_at,status,created_at)
+         SELECT id,source_id,at,deadline_at,'planned',$2 FROM candidate
+         ON CONFLICT(plan_id,scheduled_for) DO NOTHING`,
+        [sourceId, now, this.store.profileHash],
+      );
+      return inserted.rowCount ?? 0;
     });
   }
   private input(o: Occurrence): CollectorEnqueueInput {
@@ -239,7 +273,7 @@ export class CollectorRefresh {
       return result.rowCount ?? 0;
     });
   }
-  async dispatchNext(sourceId: string) {
+  async dispatchNext(sourceId: string, { preferAvailable = false } = {}) {
     const claim = await transaction(this.store.db, async (c) => {
       await this.source(c, sourceId);
       const now = await this.now(c);
@@ -250,8 +284,9 @@ export class CollectorRefresh {
            FROM collector_refresh_occurrences o JOIN collector_refresh_plans p ON p.id=o.plan_id
            WHERE o.source_id=$1 AND p.profile_hash IS NOT DISTINCT FROM $3
              AND (o.status='planned' OR o.status='dispatching' AND o.lease_until<=$2)
-           ORDER BY o.scheduled_for,o.id LIMIT 100 FOR UPDATE OF o`,
-          [sourceId, now, this.store.profileHash],
+           ORDER BY ($4::boolean AND (p.retired_at IS NOT NULL OR o.deadline_at<=$2)),o.scheduled_for,o.id
+           LIMIT 100 FOR UPDATE OF o`,
+          [sourceId, now, this.store.profileHash, preferAvailable],
         )
       ).rows;
       for (const o of rows) {

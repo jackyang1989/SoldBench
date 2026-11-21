@@ -69,12 +69,14 @@ try {
   } else {
     const planned = await refresh.materialize(source),
       dispatch = [];
+    let prioritized = 0;
     for (let i = 0; i < 100; i++) {
-      const r = await refresh.dispatchNext(source);
+      if (planned.more) prioritized += await refresh.materializeNextAvailable(source);
+      const r = await refresh.dispatchNext(source, { preferAvailable: planned.more });
       if (!r) break;
       dispatch.push(r);
     }
-    result = { planned, dispatch };
+    result = { planned, prioritized, dispatch };
   }
   console.log(
     JSON.stringify({

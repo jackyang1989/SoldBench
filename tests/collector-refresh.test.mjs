@@ -313,6 +313,52 @@ test("independent refresh CLI creates, cycles, replays and retires without fetch
   assert.equal((await collectorHealth(db, x.sourceId, { now: x.clock.value })).refresh.planned, 3);
 });
 
+test("refresh cycle dispatches viable work before a deep historical backlog and preserves every missed slot", async () => {
+  const x = await setup();
+  const recurring = await x.refresh.create({ ...x.input, maxLagSeconds: 30 });
+  step(x, 1100 * 60 + 1);
+  const newlyDue = await x.refresh.create({
+    ...x.input,
+    key: randomUUID(),
+    query: new URLSearchParams({ q: "New fixture after outage" }),
+    maxLagSeconds: 30,
+  });
+  const run = () =>
+    JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          "--import",
+          "./scripts/test-network.mjs",
+          "scripts/collector-refresh.mjs",
+          `--source=${x.sourceId}`,
+          `--clock=${x.clock.value}`,
+        ],
+        { encoding: "utf8" },
+      ),
+    );
+  const first = run();
+  assert.deepEqual(first.planned, { materialized: 1000, more: true });
+  assert.equal(first.prioritized, 2);
+  assert.equal(first.dispatch.filter(({ status }) => status === "enqueued").length, 2);
+  const current = (await occurrences(x)).filter(({ status }) => status === "enqueued");
+  assert.deepEqual(new Set(current.map(({ plan_id }) => plan_id)), new Set([recurring, newlyDue]));
+  assert.ok(current.every(({ deadline_at }) => deadline_at > new Date(x.clock.value)));
+  const second = run();
+  assert.deepEqual(second.planned, { materialized: 100, more: false });
+  assert.equal(second.prioritized, 0);
+  assert.deepEqual(second.dispatch, []);
+  const rows = await occurrences(x);
+  assert.equal(rows.length, 1102);
+  assert.equal(rows.filter(({ status }) => status === "missed").length, 1100);
+  assert.equal(rows.filter(({ status }) => status === "enqueued").length, 2);
+  assert.equal(
+    (await db.query("SELECT count(*)::int n FROM collector_dispatches WHERE source_id=$1", [x.sourceId]))
+      .rows[0].n,
+    0,
+  );
+});
+
 test("continuous evidence retains empty UTC days, missed work and actual cross-midnight dispatch", async () => {
   const x = await setup();
   x.clock.value = "2026-11-17T23:59:00.000Z";
