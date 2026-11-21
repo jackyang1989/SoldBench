@@ -196,6 +196,7 @@ export async function telemetry(c: Transaction, now: Date, view: TelemetryView, 
           "refresh_overdue_slots",
           "last_cycle_at",
           "refresh_materialized",
+          "refresh_prioritized",
           "refresh_enqueued",
           "refresh_recovered",
           "refresh_blocked",
@@ -204,6 +205,7 @@ export async function telemetry(c: Transaction, now: Date, view: TelemetryView, 
         `SELECT s.id source_id,plans.due refresh_due_plans,plans.next_due_at refresh_next_due_at,
            slots.pending refresh_pending_slots,slots.overdue refresh_overdue_slots,h.last_cycle_at,
            h.cycle_summary#>'{scheduled,materialized}' refresh_materialized,
+           h.cycle_summary#>'{scheduled,prioritized}' refresh_prioritized,
            h.cycle_summary#>'{scheduled,enqueued}' refresh_enqueued,
            h.cycle_summary#>'{scheduled,recovered}' refresh_recovered,
            h.cycle_summary#>'{scheduled,blocked}' refresh_blocked,
@@ -257,6 +259,45 @@ export async function telemetry(c: Transaction, now: Date, view: TelemetryView, 
          WHERE s.access_method='offline_fixture' AND x.provider='synthetic_fixture' AND ($2::uuid IS NULL OR s.id=$2)
          ORDER BY (b.pending>0) DESC,b.oldest NULLS LAST,s.id LIMIT $3`,
         [now, input.source ?? null, input.limit],
+      );
+      await table(
+        "collector_run_evidence",
+        [
+          "source_id",
+          "captured_at",
+          "report_clock",
+          "evidence_window_start",
+          "evidence_planned_slots",
+          "evidence_page_jobs_dispatched",
+          "evidence_page_jobs_on_time",
+          "evidence_claimed_without_page",
+          "evidence_primary_observations",
+          "evidence_eligible_primaries",
+        ],
+        `WITH recent AS (
+           SELECT DISTINCT ON(h.source_id) h.source_id,h.captured_at,h.metrics
+           FROM collector_health_snapshots h
+           JOIN sources s ON s.id=h.source_id JOIN source_clearances x ON x.id=s.source_clearance_id
+           WHERE ${allowedSource} AND h.captured_at BETWEEN $1 AND $2
+             AND ($3::uuid IS NULL OR h.source_id=$3)
+             AND h.metrics->>'schema'='soldbench.collector-health.v1'
+             AND h.metrics->>'mode'='offline_fixture' AND h.metrics->'onlineVerified'='false'::jsonb
+             AND h.metrics->>'permissionEpoch'=s.permission_epoch::text
+           ORDER BY h.source_id,h.captured_at DESC,h.id DESC
+         )
+         SELECT s.id source_id,r.captured_at,r.metrics->>'clock' report_clock,
+           r.metrics#>>'{window,from}' evidence_window_start,
+           r.metrics#>'{refresh,planned}' evidence_planned_slots,
+           r.metrics#>'{scheduleFirstPageDispatchRate,numerator}' evidence_page_jobs_dispatched,
+           r.metrics#>'{scheduleOnTimeFirstPageDispatchRate,numerator}' evidence_page_jobs_on_time,
+           r.metrics#>'{refresh,claimedWithoutPageDispatch}' evidence_claimed_without_page,
+           r.metrics#>'{media,primaryImageCoverage,observations}' evidence_primary_observations,
+           r.metrics#>'{media,primaryImageCoverage,eligibleObservations}' evidence_eligible_primaries
+         FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id
+         LEFT JOIN recent r ON r.source_id=s.id
+         WHERE s.access_method='offline_fixture' AND x.provider='synthetic_fixture' AND ($3::uuid IS NULL OR s.id=$3)
+         ORDER BY r.captured_at DESC NULLS LAST,s.id LIMIT $4`,
+        scope,
       );
       break;
     case "records":

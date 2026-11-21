@@ -8,6 +8,7 @@ import { AccountPrivacy } from "@soldbench/auth";
 import {
   CollectorRefresh,
   CollectorStore,
+  collectorHealth,
   FixtureTransport,
   OfflineCollectorWorker,
 } from "@soldbench/collector";
@@ -876,6 +877,9 @@ test("telemetry uses real offline runs, current evidence rights and versioned lo
   assert.equal(missingSupervisor.phase, "unobserved");
   assert.equal(missingSupervisor.page_jobs_due, null);
   assert.equal(rows((await get(`collector?source=${source}`)).data, 3)[0].intake_scanned, null);
+  const evidence = async () => rows((await get(`collector?source=${source}`)).data, 5)[0];
+  assert.equal((await evidence()).captured_at, null);
+  assert.equal((await evidence()).evidence_primary_observations, null);
   const clock = { now: start };
   const refresh = new CollectorRefresh(new CollectorStore(db, () => clock.now));
   await refresh.create({
@@ -890,6 +894,7 @@ test("telemetry uses real offline runs, current evidence rights and versioned lo
   assert.equal(beforeScheduling.refresh_due_plans, 1);
   assert.equal(beforeScheduling.refresh_pending_slots, 0);
   assert.equal(beforeScheduling.refresh_enqueued, null);
+  assert.equal(beforeScheduling.refresh_prioritized, null);
   await refresh.materialize(source);
   const pending = await schedule();
   assert.equal(pending.refresh_due_plans, 0);
@@ -904,7 +909,7 @@ test("telemetry uses real offline runs, current evidence rights and versioned lo
       start,
       {
         spool: "unavailable",
-        scheduled: { materialized: 1, enqueued: 0, recovered: 0, blocked: 0, missed: 2 },
+        scheduled: { materialized: 1, prioritized: 1, enqueued: 0, recovered: 0, blocked: 0, missed: 2 },
         intake: { status: "scan_limit", scanned: 10000, published: 0, deferred: 2 },
         queues: {
           pages: { due: 65, artifactUnavailable: 10, uninspected: 2 },
@@ -921,7 +926,24 @@ test("telemetry uses real offline runs, current evidence rights and versioned lo
   assert.equal(observed.page_jobs_uninspected, 2);
   assert.equal((await schedule()).refresh_enqueued, 0);
   assert.equal((await schedule()).refresh_materialized, 1);
+  assert.equal((await schedule()).refresh_prioritized, 1);
   assert.equal((await schedule()).refresh_missed, 2);
+  const report = await collectorHealth(db, source, { now: start, persist: true });
+  await db.query("INSERT INTO collector_health_snapshots(source_id,captured_at,metrics) VALUES($1,$2,$3)", [
+    source,
+    end,
+    { clock: "invalid_test_report", unrelated_private_value: "not-in-report" },
+  ]);
+  const latest = await evidence();
+  assert.equal(latest.report_clock, "explicit_simulation");
+  assert.equal(latest.captured_at, start);
+  assert.equal(latest.evidence_window_start, report.window.from);
+  assert.equal(latest.evidence_planned_slots, 1);
+  assert.equal(latest.evidence_page_jobs_dispatched, 0);
+  assert.equal(latest.evidence_page_jobs_on_time, 0);
+  assert.equal(latest.evidence_claimed_without_page, 0);
+  assert.equal(latest.evidence_primary_observations, report.media.primaryImageCoverage.observations);
+  assert.equal(latest.evidence_eligible_primaries, report.media.primaryImageCoverage.eligibleObservations);
   const intake = rows((await get(`collector?source=${source}`)).data, 3)[0];
   assert.deepEqual(intake, {
     source_id: source,
@@ -1006,6 +1028,8 @@ test("telemetry uses real offline runs, current evidence rights and versioned lo
   const stopped = rows((await get(`collector?source=${source}`)).data, 1)[0];
   assert.equal(stopped.phase, "stopped");
   assert.equal(stopped.expected_progress_at, null);
+  assert.equal((await evidence()).captured_at, null);
+  assert.equal((await evidence()).evidence_eligible_primaries, null);
   const afterRevocation = await monitoring("overdue_collector_supervisors");
   assert.deepEqual(
     [afterRevocation.value, afterRevocation.denominator, afterRevocation.state],
