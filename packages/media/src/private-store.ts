@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { link, lstat, mkdir, open, readdir, realpath, stat, unlink } from "node:fs/promises";
+import { link, lstat, mkdir, open, opendir, readdir, realpath, stat, unlink } from "node:fs/promises";
 import { dirname, join, sep } from "node:path";
 
 const missing = (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT";
@@ -102,22 +102,30 @@ export class PrivateMediaStore {
       throw error;
     }
   }
-  /** Delete only generated objects/staging files, without traversing links or subdirectories. */
-  async purgeNamespace(sourceId: string, expectedIdentity?: string) {
+  /** Delete a batch of generated names after finishing the directory read. */
+  async purgeNamespace(sourceId: string, expectedIdentity: string, limit: number) {
     const directory = await this.namespace(sourceId, expectedIdentity);
-    if (!directory) return 0;
-    const entries = await readdir(directory, { withFileTypes: true });
-    let removed = 0;
-    for (const entry of entries) {
+    if (!directory) return false;
+    const candidates: string[] = [];
+    for await (const entry of await opendir(directory)) {
       if (!generatedObject.test(entry.name) || entry.isDirectory()) continue;
+      candidates.push(entry.name);
+      if (candidates.length > limit) break;
+    }
+    for (const name of candidates.slice(0, limit)) {
       try {
-        await unlink(join(directory, entry.name));
-        removed++;
+        await unlink(join(directory, name));
       } catch (error) {
         if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
       }
     }
-    return removed;
+    const dir = await open(directory, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    try {
+      await dir.sync();
+    } finally {
+      await dir.close();
+    }
+    return candidates.length > limit;
   }
   async sweepUnreferenced(
     sourceId: string,

@@ -267,7 +267,8 @@ async function run(args) {
             if (isDatabaseConnectionError(error)) throw error;
             maintenance = { error: "media_maintenance_failed" };
           }
-          nextMaintenance = Date.now() + (maintenance?.expirationPending ? 1000 : 60000);
+          const maintenancePending = maintenance?.expirationPending || maintenance?.revocationPending;
+          nextMaintenance = Date.now() + (maintenancePending ? 1000 : 60000);
         }
         let state = await sourceState(db, sourceId);
         const scheduled = refresh

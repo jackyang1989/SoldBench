@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
-import { mkdtemp, rm, stat, symlink } from "node:fs/promises";
+import { mkdtemp, readdir, rm, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
@@ -851,6 +851,71 @@ test("primary image expiration drains bounded batches without exposing pending r
   const expiredKey = original.find((row) => row.object_key !== valid.object_key).object_key;
   await assert.rejects(x.media.get(expiredKey), { code: "ENOENT" });
   assert.equal((await runner.runMaintenance(x.sourceId)).expired, 0);
+});
+
+test("revocation drains disk and database batches before acknowledging the cleanup", async () => {
+  const x = await setup();
+  const url = "https://images.example.test/batched-revocation.png";
+  const png = await sharp({ create: { width: 2, height: 2, channels: 3, background: "red" } })
+    .png()
+    .toBuffer();
+  const records = Array.from({ length: 52 }, (_, index) =>
+    listing(x, index, { primaryImage: { role: "primary", url } }),
+  );
+  const runner = worker(
+    x,
+    frames([
+      ["page:start", [fixtureResponse(page(x, records.slice(0, 40), "start", "second"))]],
+      ["page:second", [fixtureResponse(page(x, records.slice(40), "second"))]],
+      [`image:${url}`, [{ status: 200, contentType: "image/png", bytes: png }]],
+    ]),
+  );
+  assert.equal((await runner.runOne(x.sourceId)).status, "completed");
+  const photo = await mediaRow(x);
+  const directory = join(x.root, x.sourceId);
+  for (let index = 0; index < 50; index++)
+    await x.media.put(x.sourceId, Buffer.from(`synthetic orphan ${index}`));
+  const staging = `${photo.object_key}.12345678-1234-1234-1234-123456789abc.tmp`;
+  writeFileSync(join(x.root, staging), "interrupted synthetic write", { mode: 0o600 });
+  const privateNote = join(directory, "retention-note.txt");
+  writeFileSync(privateNote, "test file outside the generated namespace", { mode: 0o600 });
+  const pendingEvent = async () =>
+    (
+      await db.query(
+        "SELECT processed_at FROM outbox WHERE kind='collector.media_cleanup' AND payload->>'sourceId'=$1",
+        [x.sourceId],
+      )
+    ).rows[0].processed_at;
+  const references = async () =>
+    (
+      await db.query(
+        "SELECT count(*)::int AS total FROM listing_images WHERE source_id=$1 AND object_key IS NOT NULL",
+        [x.sourceId],
+      )
+    ).rows[0].total;
+
+  await x.store.revokeSource(x.sourceId, "synthetic_batched_revocation");
+  await assert.rejects(runner.readImageInternal(photo.id), /image_unavailable/);
+  const first = await runner.runMaintenance(x.sourceId);
+  assert.equal(first.revocationPending, true);
+  assert.equal(first.cleanupProcessed, 0);
+  assert.equal((await readdir(directory)).length, 3);
+  assert.equal(await references(), 52);
+  assert.equal(await pendingEvent(), null);
+
+  const restarted = worker(x, frames([]));
+  const second = await restarted.runMaintenance(x.sourceId);
+  assert.equal(second.revocationPending, true);
+  assert.equal(second.cleanupProcessed, 0);
+  assert.deepEqual(await readdir(directory), ["retention-note.txt"]);
+  assert.equal(await references(), 2);
+  assert.equal(await pendingEvent(), null);
+  const third = await restarted.runMaintenance(x.sourceId);
+  assert.equal(third.revocationPending, false);
+  assert.equal(third.cleanupProcessed, 1);
+  assert.equal(await references(), 0);
+  assert.ok((await pendingEvent()) instanceof Date);
+  assert.equal((await restarted.runMaintenance(x.sourceId)).cleanupProcessed, 0);
 });
 
 test("wrong-root maintenance leaves private bytes and the revoke event intact, while the bound root retries cleanup", async () => {

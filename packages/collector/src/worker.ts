@@ -19,6 +19,8 @@ const dueImageReferences = `SELECT i.id FROM listing_images i JOIN source_observ
   ON o.source_id=i.source_id AND o.id=i.observation_id
   WHERE i.source_id=$1 AND i.state='available'
     AND (i.retention_until<=$2 OR o.retention_until IS NULL OR o.retention_until<=$2)`;
+const revokedImageReferences =
+  "SELECT id FROM listing_images WHERE source_id=$1 AND (state<>'revoked' OR object_key IS NOT NULL)";
 
 class ImageBackoff extends Error {
   constructor(readonly seconds: number) {
@@ -441,22 +443,32 @@ export class OfflineCollectorWorker {
         if (history.has_references) return null;
         if (history.may_have_written) {
           // Remove any local orphans without declaring all former roots empty.
-          if (identity) await this.media.purgeNamespace(sourceId, identity);
-          return null;
+          const more = identity
+            ? await this.media.purgeNamespace(sourceId, identity, mediaMaintenanceBatch)
+            : false;
+          return { processed: 0, pending: more, matched: false };
         }
       }
       if (identity) {
-        await this.media.purgeNamespace(sourceId, identity);
+        const more = await this.media.purgeNamespace(sourceId, identity, mediaMaintenanceBatch);
         if (identity !== (await this.media.storageIdentity())) throw new Error("media_store_mismatch");
+        if (more) return { processed: 0, pending: true, matched: true };
       }
-      await c.query("UPDATE listing_images SET state='revoked',object_key=NULL WHERE source_id=$1", [
-        sourceId,
-      ]);
+      const cleared = await c.query(
+        `WITH batch AS (${revokedImageReferences} ORDER BY id LIMIT $2)
+         UPDATE listing_images i SET state='revoked',object_key=NULL FROM batch WHERE i.id=batch.id`,
+        [sourceId, mediaMaintenanceBatch],
+      );
+      if (
+        cleared.rowCount === mediaMaintenanceBatch &&
+        (await c.query(`${revokedImageReferences} LIMIT 1`, [sourceId])).rowCount
+      )
+        return { processed: 0, pending: true, matched: true };
       const processed = await c.query(
         "UPDATE outbox SET processed_at=clock_timestamp() WHERE kind='collector.media_cleanup' AND processed_at IS NULL AND payload->>'sourceId'=$1",
         [sourceId],
       );
-      return processed.rowCount ?? 0;
+      return { processed: processed.rowCount ?? 0, pending: false, matched: true };
     });
   }
   async drainMediaCleanup() {
@@ -471,7 +483,8 @@ export class OfflineCollectorWorker {
       [identity],
     );
     let processed = 0;
-    for (const source of sources.rows) processed += (await this.purgeStoppedImages(source.id)) ?? 0;
+    for (const source of sources.rows)
+      processed += (await this.purgeStoppedImages(source.id))?.processed ?? 0;
     return processed;
   }
   async runMaintenance(sourceId: string) {
@@ -495,13 +508,14 @@ export class OfflineCollectorWorker {
       if (await this.store.revokeInvalidClearance(sourceId)) state.status = "revoked";
     }
     if (state.status === "revoked") {
-      const processed = await this.purgeStoppedImages(sourceId);
+      const cleanup = await this.purgeStoppedImages(sourceId);
       return {
         expired: 0,
         expirationPending: false,
+        revocationPending: cleanup?.pending ?? false,
         orphans: 0,
-        cleanupProcessed: processed ?? 0,
-        mediaStoreMatched: processed !== null,
+        cleanupProcessed: cleanup?.processed ?? 0,
+        mediaStoreMatched: cleanup?.matched ?? false,
       };
     }
     if (
@@ -511,6 +525,7 @@ export class OfflineCollectorWorker {
       return {
         expired: 0,
         expirationPending: false,
+        revocationPending: false,
         orphans: 0,
         cleanupProcessed: 0,
         mediaStoreMatched: false,
@@ -527,6 +542,7 @@ export class OfflineCollectorWorker {
         return {
           expired: 0,
           expirationPending: false,
+          revocationPending: false,
           orphans: 0,
           cleanupProcessed: 0,
           mediaStoreMatched: false,
@@ -585,6 +601,7 @@ export class OfflineCollectorWorker {
       return {
         expired: expired.rowCount ?? 0,
         expirationPending: pending,
+        revocationPending: false,
         orphans,
         cleanupProcessed: 0,
         mediaStoreMatched: true,
