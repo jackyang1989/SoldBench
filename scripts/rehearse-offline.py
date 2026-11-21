@@ -258,12 +258,19 @@ def prepare_spool_retention_probe(run, root, demo):
         raise ValueError("The runtime archive does not contain the collector spool maintenance command")
     fixture = json.loads(run("node", "scripts/collector-html-demo.mjs"))
     if (fixture["sourceId"] == demo["sourceId"] or fixture["status"] != "completed"
-            or fixture["pageCount"] != 2 or fixture["externalNetworkRequests"] != 0):
+            or fixture["pageCount"] != 2 or fixture["availablePrimaryImages"] != 8
+            or fixture["externalNetworkRequests"] != 0):
         raise ValueError("Unexpected fixture for the spool retention rehearsal")
     expired_path = Path(fixture["artifactPath"])
     other_path = Path(demo["artifactPath"])
     expired_bytes = expired_path.read_bytes()
     other_bytes = other_path.read_bytes()
+    media = spool / "collector-media"
+    expired_images = media / fixture["sourceId"]
+    other_images = media / demo["sourceId"]
+    original_images = {path.name: path.read_bytes() for path in other_images.glob("*.webp")}
+    if len(original_images) != 8:
+        raise ValueError("The original media fixture is incomplete")
     command = ("node", script, f"--source={fixture['sourceId']}", f"--spool={spool}")
     audit = json.loads(run(*command, "--audit-retention"))
     if audit["retention"]["currentEvidence"] != {"files": 1, "bytes": str(len(expired_bytes))}:
@@ -293,7 +300,16 @@ try {
         if (removed["pruneExpiredOnly"] is not True or removed["removed"] != 1
                 or repeated["removed"] != 0 or expired_path.exists() or other_path.read_bytes() != other_bytes):
             raise ValueError("Restored response pack cleanup did not respect the expired source boundary")
-        return {"expired_response_packages_removed": 1, "repeat_removed": 0, "other_source_preserved": True}
+        if len(list(expired_images.glob("*.webp"))) != 8:
+            raise ValueError("Expired media objects were absent before their maintenance check")
+        maintain = ("node", "scripts/collector-maintenance.mjs", f"--source={fixture['sourceId']}", "--require-clear")
+        cleaned = json.loads(run(*maintain))
+        if (cleaned["expired"] != 8 or cleaned["unmatchedMediaStores"] != 0
+                or any(expired_images.glob("*.webp"))
+                or {path.name: path.read_bytes() for path in other_images.glob("*.webp")} != original_images):
+            raise ValueError("Restored media maintenance did not remove only the expired source images")
+        return {"expired_response_packages_removed": 1, "repeat_removed": 0,
+                "expired_primary_images_removed": 8, "other_source_preserved": True}
 
     return verify_restored
 
