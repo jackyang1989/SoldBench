@@ -14,6 +14,12 @@ import { hasHtmlAccessBlock } from "./html.ts";
 import { CollectorIntegrityError } from "./integrity.ts";
 import type { CollectorStore, Lease } from "./store.ts";
 
+const mediaMaintenanceBatch = 50;
+const dueImageReferences = `SELECT i.id FROM listing_images i JOIN source_observations o
+  ON o.source_id=i.source_id AND o.id=i.observation_id
+  WHERE i.source_id=$1 AND i.state='available'
+    AND (i.retention_until<=$2 OR o.retention_until IS NULL OR o.retention_until<=$2)`;
+
 class ImageBackoff extends Error {
   constructor(readonly seconds: number) {
     super("image_upstream_rate_limited");
@@ -492,6 +498,7 @@ export class OfflineCollectorWorker {
       const processed = await this.purgeStoppedImages(sourceId);
       return {
         expired: 0,
+        expirationPending: false,
         orphans: 0,
         cleanupProcessed: processed ?? 0,
         mediaStoreMatched: processed !== null,
@@ -501,7 +508,13 @@ export class OfflineCollectorWorker {
       state.status !== "active" ||
       !(await transaction(this.store.db, (c) => this.store.matchMediaStore(c, sourceId, this.media)))
     )
-      return { expired: 0, orphans: 0, cleanupProcessed: 0, mediaStoreMatched: false };
+      return {
+        expired: 0,
+        expirationPending: false,
+        orphans: 0,
+        cleanupProcessed: 0,
+        mediaStoreMatched: false,
+      };
     return transaction(this.store.db, async (c) => {
       const source = (
         await c.query(
@@ -511,46 +524,71 @@ export class OfflineCollectorWorker {
       ).rows[0];
       const identity = source?.media_store_identity;
       if (source?.status !== "active" || !identity || identity !== (await this.media.storageIdentity()))
-        return { expired: 0, orphans: 0, cleanupProcessed: 0, mediaStoreMatched: false };
+        return {
+          expired: 0,
+          expirationPending: false,
+          orphans: 0,
+          cleanupProcessed: 0,
+          mediaStoreMatched: false,
+        };
       const now = this.store.clock
         ? new Date(instant(this.store.clock()))
         : (await c.query("SELECT clock_timestamp() t")).rows[0].t;
       const expired = await c.query(
-        `UPDATE listing_images i SET state='expired' FROM source_observations o
-           WHERE i.source_id=$1 AND i.source_id=o.source_id AND i.observation_id=o.id AND i.state='available'
-             AND (i.retention_until<=$2 OR o.retention_until IS NULL OR o.retention_until<=$2)`,
-        [sourceId, now],
+        `WITH due AS (${dueImageReferences} ORDER BY i.retention_until,i.id LIMIT $3)
+         UPDATE listing_images i SET state='expired' FROM due WHERE i.id=due.id`,
+        [sourceId, now, mediaMaintenanceBatch],
       );
       const keys = await c.query(
-        "SELECT DISTINCT object_key FROM listing_images WHERE source_id=$1 AND state='expired' AND object_key IS NOT NULL",
-        [sourceId],
+        `WITH batch AS (
+           SELECT DISTINCT object_key FROM listing_images
+           WHERE source_id=$1 AND state='expired' AND object_key IS NOT NULL ORDER BY object_key LIMIT $3
+         )
+         SELECT batch.object_key,EXISTS(
+           SELECT 1 FROM listing_images i JOIN source_observations o
+             ON o.source_id=i.source_id AND o.id=i.observation_id
+           WHERE i.source_id=$1 AND i.object_key=batch.object_key AND i.state='available'
+             AND i.retention_until>$2 AND o.retention_until>$2
+         ) AS retained FROM batch`,
+        [sourceId, now, mediaMaintenanceBatch],
       );
-      for (const { object_key: key } of keys.rows) {
-        const valid = await c.query(
-          "SELECT id FROM listing_images WHERE source_id=$1 AND object_key=$2 AND state='available' AND retention_until>$3",
-          [sourceId, key, now],
-        );
-        if (!valid.rowCount) await this.media.remove(key, identity);
+      for (const { object_key: key, retained } of keys.rows) {
+        if (!retained) await this.media.remove(key, identity);
+      }
+      if (keys.rowCount)
         await c.query(
-          "UPDATE listing_images SET object_key=NULL WHERE source_id=$1 AND object_key=$2 AND state='expired'",
-          [sourceId, key],
+          "UPDATE listing_images SET object_key=NULL WHERE source_id=$1 AND object_key=ANY($2::text[]) AND state='expired'",
+          [sourceId, keys.rows.map((row) => row.object_key)],
+        );
+      const {
+        rows: [{ pending }],
+      } = await c.query(
+        `SELECT EXISTS(${dueImageReferences}) OR EXISTS(
+           SELECT 1 FROM listing_images WHERE source_id=$1 AND state='expired' AND object_key IS NOT NULL
+         ) AS pending`,
+        [sourceId, now],
+      );
+      let orphans = 0;
+      if (!pending && source.retention_days) {
+        const refs = await c.query(
+          "SELECT object_key FROM listing_images WHERE source_id=$1 AND object_key IS NOT NULL",
+          [sourceId],
+        );
+        orphans = await this.media.sweepUnreferenced(
+          sourceId,
+          new Set<string>(refs.rows.map((row) => row.object_key)),
+          new Date(now.getTime() - source.retention_days * 86400000),
+          identity,
         );
       }
-      const refs = await c.query(
-        "SELECT object_key FROM listing_images WHERE source_id=$1 AND object_key IS NOT NULL",
-        [sourceId],
-      );
-      const referenceKeys = new Set<string>(refs.rows.map((row) => row.object_key));
-      const orphans = source.retention_days
-        ? await this.media.sweepUnreferenced(
-            sourceId,
-            referenceKeys,
-            new Date(now.getTime() - source.retention_days * 86400000),
-            identity,
-          )
-        : 0;
       if (identity !== (await this.media.storageIdentity())) throw new Error("media_store_mismatch");
-      return { expired: expired.rowCount ?? 0, orphans, cleanupProcessed: 0, mediaStoreMatched: true };
+      return {
+        expired: expired.rowCount ?? 0,
+        expirationPending: pending,
+        orphans,
+        cleanupProcessed: 0,
+        mediaStoreMatched: true,
+      };
     });
   }
 }

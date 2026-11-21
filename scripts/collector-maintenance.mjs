@@ -38,6 +38,7 @@ try {
   const totals = {
     sources: 0,
     expired: 0,
+    expirationPendingSources: 0,
     orphans: 0,
     cleanupProcessed: 0,
     unmatchedMediaStores: 0,
@@ -53,6 +54,7 @@ try {
       totals.imageRetriesClosed += settled.imageRetriesClosed;
       const result = await worker.runMaintenance(source.id);
       totals.expired += result.expired;
+      if (result.expirationPending) totals.expirationPendingSources++;
       totals.orphans += result.orphans;
       totals.cleanupProcessed += result.cleanupProcessed;
       if (!result.mediaStoreMatched) totals.unmatchedMediaStores++;
@@ -77,7 +79,8 @@ try {
     }),
   );
   if (totals.failedSources) process.exitCode = 1;
-  else if (requireClear && cleanupPending !== 0) process.exitCode = 2;
+  else if (requireClear && (cleanupPending !== 0 || totals.expirationPendingSources !== 0))
+    process.exitCode = 2;
 } finally {
   await db.end();
 }

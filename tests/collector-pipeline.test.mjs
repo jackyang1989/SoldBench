@@ -781,6 +781,78 @@ test("retention maintenance preserves a shared valid object, expires old referen
   await assert.rejects(x.media.get(orphan.key));
 });
 
+test("primary image expiration drains bounded batches without exposing pending references", async () => {
+  const x = await setup();
+  const shared = "https://images.example.test/current-shared.png";
+  const old = "https://images.example.test/expired-only.png";
+  const image = async (background) => ({
+    status: 200,
+    contentType: "image/png",
+    bytes: await sharp({ create: { width: 2, height: 2, channels: 3, background } })
+      .png()
+      .toBuffer(),
+  });
+  const sharedResponse = await image("green");
+  const oldResponse = await image("blue");
+  const records = Array.from({ length: 52 }, (_, index) =>
+    listing(x, index, { primaryImage: { role: "primary", url: index < 26 ? shared : old } }),
+  );
+  const runner = worker(
+    x,
+    frames([
+      ["page:start", [fixtureResponse(page(x, records.slice(0, 40), "start", "second"))]],
+      ["page:second", [fixtureResponse(page(x, records.slice(40), "second"))]],
+      [`image:${shared}`, [sharedResponse]],
+      [`image:${old}`, [oldResponse]],
+    ]),
+  );
+  assert.equal((await runner.runOne(x.sourceId)).status, "completed");
+  const { rows: original } = await db.query(
+    "SELECT id,object_key FROM listing_images WHERE source_id=$1 AND state='available'",
+    [x.sourceId],
+  );
+  assert.equal(original.length, 52);
+  clock = "2026-11-16T12:30:00Z";
+  await db.query("UPDATE source_observations SET retention_until=$2 WHERE source_id=$1", [x.sourceId, clock]);
+  const jobId = await x.store.enqueue({ ...x.input, runKey: "current-shared-photo" });
+  const current = worker(
+    x,
+    frames([
+      [
+        "page:start",
+        [fixtureResponse(page(x, [listing(x, 100, { primaryImage: { role: "primary", url: shared } })]))],
+      ],
+      [`image:${shared}`, [sharedResponse]],
+    ]),
+  );
+  assert.equal((await current.runOne(x.sourceId, { jobId })).status, "completed");
+  const {
+    rows: [valid],
+  } = await db.query(
+    `SELECT i.id,i.object_key FROM listing_images i JOIN collector_pages p ON p.observation_id=i.observation_id
+     WHERE i.source_id=$1 AND p.job_id=$2`,
+    [x.sourceId, jobId],
+  );
+
+  const first = await runner.runMaintenance(x.sourceId);
+  assert.equal(first.expired, 50);
+  assert.equal(first.expirationPending, true);
+  const { rows: remaining } = await db.query(
+    "SELECT id FROM listing_images WHERE source_id=$1 AND state='available' AND id<>$2",
+    [x.sourceId, valid.id],
+  );
+  assert.equal(remaining.length, 2);
+  for (const row of remaining) await assert.rejects(runner.readImageInternal(row.id));
+  const validBytes = await runner.readImageInternal(valid.id);
+  const second = await runner.runMaintenance(x.sourceId);
+  assert.equal(second.expired, 2);
+  assert.equal(second.expirationPending, false);
+  assert.deepEqual(await runner.readImageInternal(valid.id), validBytes);
+  const expiredKey = original.find((row) => row.object_key !== valid.object_key).object_key;
+  await assert.rejects(x.media.get(expiredKey), { code: "ENOENT" });
+  assert.equal((await runner.runMaintenance(x.sourceId)).expired, 0);
+});
+
 test("wrong-root maintenance leaves private bytes and the revoke event intact, while the bound root retries cleanup", async () => {
   const x = await setup(),
     unrelatedRoot = await mkdtemp(join(tmpdir(), "soldbench-unrelated-media-")),
