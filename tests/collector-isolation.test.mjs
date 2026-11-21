@@ -670,6 +670,33 @@ test("intake scan progresses past noisy prefixes and reopens a replaced source d
   );
 });
 
+test("a replaced intake directory releases deferred names even after reaching its end", async (t) => {
+  const producer = await root();
+  const spool = await root();
+  const prepared = await preparedDemo(producer);
+  const originalBytes = await readFile(prepared.artifactPath);
+  const loaded = loadFixtureArtifact(originalBytes);
+  const directory = join(spool, "collector-incoming", prepared.sourceId);
+  const filename = `${prepared.jobId}.${loaded.hash}.json`;
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  await writeFile(join(directory, filename), "interrupted fixture write", { mode: 0o600 });
+  const scanner = createFixtureIntakeScanner(db, spool, prepared.sourceId);
+  t.after(() => scanner.close());
+  const signal = new AbortController().signal;
+  assert.deepEqual(await scanner.resume(signal), { published: 0, deferred: 1, scanned: 1, status: "ready" });
+  assert.deepEqual(await scanner.resume(signal), { published: 0, deferred: 0, scanned: 1, status: "ready" });
+  await rename(directory, `${directory}-damaged`);
+  await mkdir(directory, { mode: 0o700 });
+  await publishFixtureFile(join(directory, filename), loaded.artifact);
+  assert.deepEqual(await scanner.resume(signal), { published: 1, deferred: 0, scanned: 1, status: "ready" });
+  assert.deepEqual(
+    await readFile(join(spool, `collector-html-fixture-${prepared.jobId}.json`)),
+    originalBytes,
+  );
+  assert.equal(await readFile(join(`${directory}-damaged`, filename), "utf8"), "interrupted fixture write");
+  assert.deepEqual(await readdir(directory), []);
+});
+
 test("watcher captures current health from PostgreSQL and avoids duplicate reports after restart", async () => {
   const spool = await root();
   const prepared = await preparedDemo(spool);

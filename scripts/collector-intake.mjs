@@ -99,11 +99,15 @@ export function createFixtureIntakeScanner(db, spool, sourceId, scanLimit = 1000
   const deferred = new Map();
   let handle;
   let identity;
-  async function close() {
+  async function closeHandle() {
     const previous = handle;
     handle = undefined;
-    identity = undefined;
     await previous?.close();
+  }
+  async function close() {
+    identity = undefined;
+    deferred.clear();
+    await closeHandle();
   }
   async function resume(signal) {
     const result = { published: 0, deferred: 0, scanned: 0, status: "ready" };
@@ -114,7 +118,6 @@ export function createFixtureIntakeScanner(db, spool, sourceId, scanLimit = 1000
       });
       if (!entry) {
         await close();
-        deferred.clear();
         return result;
       }
       if (!entry.isDirectory()) {
@@ -123,9 +126,8 @@ export function createFixtureIntakeScanner(db, spool, sourceId, scanLimit = 1000
       }
       current = `${entry.dev}:${entry.ino}`;
     }
-    if (handle && identity !== current) {
+    if (identity !== undefined && identity !== current) {
       await close();
-      deferred.clear();
     }
     if (!handle) {
       handle = await opendir(directory);
@@ -137,7 +139,7 @@ export function createFixtureIntakeScanner(db, spool, sourceId, scanLimit = 1000
     while (!signal.aborted && attempts < 4 && result.scanned < scanLimit) {
       const entry = await handle.read();
       if (!entry) {
-        await close();
+        await closeHandle();
         return result;
       }
       result.scanned++;
