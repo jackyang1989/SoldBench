@@ -116,6 +116,82 @@ test("bounded launcher executes an owned worker and reports its actual final cyc
   assert.throws(() => process.kill(report.workerPid, 0), /ESRCH/);
 });
 
+test("supervisor rotates JSON and multiple frozen HTML profiles within one shared dispatch limit", async () => {
+  const spool = await root();
+  const now = (await db.query("SELECT clock_timestamp() t")).rows[0].t.toISOString();
+  const source = await provisionFixtureSource(db, now);
+  const profilePath = "tests/fixtures/html/profile.json";
+  const profile = JSON.parse(await readFile(profilePath, "utf8"));
+  const alternate = { ...profile, revision: profile.revision + 1 };
+  const secondPath = join(spool, "profile-2.json");
+  await writeFile(secondPath, JSON.stringify(alternate));
+  const json = new CollectorStore(db);
+  const html = new CollectorStore(db, undefined, { htmlProfile: profile });
+  const htmlNext = new CollectorStore(db, undefined, { htmlProfile: alternate });
+  const unconfigured = new CollectorStore(db, undefined, {
+    htmlProfile: { ...profile, revision: profile.revision + 2 },
+  });
+  async function create(store, keyword) {
+    return new CollectorRefresh(store).create({
+      ...source,
+      query: new URLSearchParams({ q: keyword }),
+      key: randomUUID(),
+      intervalSeconds: 3600,
+      maxLagSeconds: 300,
+    });
+  }
+  for (let i = 0; i < 8; i++) await create(json, `Offline JSON model ${i + 1}`);
+  await create(html, "Offline original HTML");
+  await create(htmlNext, "Offline revised HTML");
+  await create(unconfigured, "Offline unconfigured HTML");
+  const run = (...flags) =>
+    start(
+      "scripts/collector-supervisor.mjs",
+      [`--source=${source.sourceId}`, `--spool=${spool}`, "--refresh=true", ...flags],
+      { MEDIA_ROOT: spool },
+    );
+  const duplicate = run(`--refresh-profile=${profilePath}`, `--refresh-profile=${profilePath}`);
+  assert.equal((await duplicate.exited).code, 1);
+  assert.match(duplicate.errors, /collector_supervisor_duplicate_profile/);
+  const jobs = async () =>
+    (
+      await db.query(
+        `SELECT p.profile_hash, o.status, r.parser_profile_hash FROM collector_refresh_plans p
+       LEFT JOIN collector_refresh_occurrences o ON o.plan_id=p.id AND o.source_id=p.source_id
+       LEFT JOIN collector_jobs j ON j.id=o.job_id AND j.source_id=o.source_id
+       LEFT JOIN collector_runs r ON r.id=j.collector_run_id AND r.source_id=j.source_id
+       WHERE p.source_id=$1`,
+        [source.sourceId],
+      )
+    ).rows;
+  assert.ok((await jobs()).every((row) => row.status === null));
+  const flags = [
+    "--refresh-include-json=true",
+    `--refresh-profile=${profilePath}`,
+    `--refresh-profile=${secondPath}`,
+  ];
+  const first = run(...flags);
+  assert.equal((await first.exited).code, 0, first.errors);
+  assert.equal(JSON.parse(first.output).scheduled.enqueued, 8);
+  const before = await jobs();
+  assert.equal(before.filter((row) => row.status === "enqueued" && row.profile_hash === null).length, 6);
+  for (const store of [html, htmlNext]) {
+    const row = before.find((row) => row.profile_hash === store.profileHash);
+    assert.equal(row.status, "enqueued");
+    assert.equal(row.parser_profile_hash, store.profileHash);
+  }
+  assert.equal(before.find((row) => row.profile_hash === unconfigured.profileHash).status, "planned");
+  const second = run(...flags);
+  assert.equal((await second.exited).code, 0, second.errors);
+  assert.equal(JSON.parse(second.output).scheduled.enqueued, 2);
+  assert.equal((await jobs()).filter((row) => row.status === "enqueued").length, 10);
+  assert.equal(
+    (await db.query("SELECT count(*)::int n FROM collector_dispatches WHERE source_id=$1", [source.sourceId]))
+      .rows[0].n,
+    0,
+  );
+});
+
 test("supervisor schedules eligible offline plans once and processes the published response", async () => {
   const spool = await root();
   const now = (await db.query("SELECT clock_timestamp() t")).rows[0].t.toISOString();

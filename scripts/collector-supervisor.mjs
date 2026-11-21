@@ -130,20 +130,26 @@ async function recordProgress(
 
 async function run(args) {
   const options = new Map();
+  const profilePaths = [];
   for (const arg of args) {
-    const entry = /^--(source|spool|watch|refresh|refresh-profile|interval-ms|max-ms)=(.+)$/.exec(arg);
+    const entry =
+      /^--(source|spool|watch|refresh|refresh-profile|refresh-include-json|interval-ms|max-ms)=(.+)$/.exec(
+        arg,
+      );
     if (!entry || options.has(entry[1])) throw new Error("invalid_collector_supervisor_argument");
-    options.set(entry[1], entry[2]);
+    if (entry[1] === "refresh-profile") profilePaths.push(resolve(entry[2]));
+    else options.set(entry[1], entry[2]);
   }
   const sourceId = options.get("source"),
     watch = options.get("watch"),
     refreshEnabled = options.get("refresh"),
+    refreshJson = options.get("refresh-include-json"),
     interval = Number(options.get("interval-ms") ?? 2000),
     maxMs = Number(options.get("max-ms") ?? 60000);
   if (
     !fixtureJobId.test(sourceId ?? "") ||
-    [watch, refreshEnabled].some((flag) => flag !== undefined && flag !== "true") ||
-    (options.has("refresh-profile") && !refreshEnabled)
+    [watch, refreshEnabled, refreshJson].some((flag) => flag !== undefined && flag !== "true") ||
+    ((profilePaths.length || refreshJson) && !refreshEnabled)
   )
     throw new Error("invalid_collector_supervisor_argument");
   if (
@@ -162,9 +168,9 @@ async function run(args) {
     resolve(".local/postgres/socket"),
     ...(process.env.SOLDBENCH_TEST_SOCKET ? [process.env.SOLDBENCH_TEST_SOCKET] : []),
   ]);
-  const profile = options.has("refresh-profile")
-    ? await readRefreshProfile(resolve(options.get("refresh-profile")))
-    : undefined;
+  if (profilePaths.length + Number(Boolean(refreshJson)) > 8)
+    throw new Error("collector_supervisor_profile_limit");
+  const profiles = await Promise.all(profilePaths.map(readRefreshProfile));
   const db = database(url),
     abort = new AbortController(),
     stop = () => abort.abort();
@@ -176,11 +182,12 @@ async function run(args) {
     });
   const env = { ...process.env, DATABASE_URL: url, COLLECTOR_DEMO_DIR: spool };
   const store = new CollectorStore(db);
-  const refresh = refreshEnabled
-    ? new CollectorRefresh(
-        profile === undefined ? store : new CollectorStore(db, undefined, { htmlProfile: profile }),
-      )
-    : null;
+  const refresh = refreshEnabled ? new CollectorRefresh(store) : null;
+  const profileStores = profiles.map((htmlProfile) => new CollectorStore(db, undefined, { htmlProfile }));
+  if (new Set(profileStores.map(({ profileHash }) => profileHash)).size !== profiles.length)
+    throw new Error("collector_supervisor_duplicate_profile");
+  const profileRefreshers = profileStores.map((profileStore) => new CollectorRefresh(profileStore));
+  if (refresh && (!profiles.length || refreshJson)) profileRefreshers.unshift(refresh);
   const maintenanceWorker = new OfflineCollectorWorker(
     store,
     new FixtureTransport(new Map()),
@@ -218,6 +225,7 @@ async function run(args) {
       const deferred = new Map();
       const cursors = {};
       let nextMaintenance = 0;
+      let nextProfile = 0;
       while (!signal.aborted) {
         await recordProgress(lock, sourceId, "scanning", { expectedMs: 30000 });
         const now = performance.now();
@@ -243,9 +251,18 @@ async function run(args) {
             }
           : null;
         if (scheduled && state === "ready") {
-          for (let i = 0; i < 8 && !signal.aborted; i++) {
-            const slot = await refresh.dispatchNext(sourceId);
-            if (!slot) break;
+          const empty = new Set();
+          let dispatched = 0;
+          while (dispatched < 8 && empty.size < profileRefreshers.length && !signal.aborted) {
+            const index = nextProfile;
+            nextProfile = (nextProfile + 1) % profileRefreshers.length;
+            if (empty.has(index)) continue;
+            const slot = await profileRefreshers[index].dispatchNext(sourceId);
+            if (!slot) {
+              empty.add(index);
+              continue;
+            }
+            dispatched++;
             if (slot.recovered) scheduled.recovered++;
             else if (slot.status === "enqueued") scheduled.enqueued++;
             else scheduled.blocked++;
