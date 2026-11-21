@@ -4,6 +4,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import {
   CollectorRefresh,
   CollectorStore,
+  collectorHealth,
   FixtureTransport,
   OfflineCollectorWorker,
 } from "@soldbench/collector";
@@ -18,6 +19,7 @@ import { localDatabaseUrl } from "./local-db.mjs";
 const lockNamespace = "soldbench.offline-collector-supervisor";
 const candidatesPerLane = 64;
 const dispatchPerLane = 4;
+const healthPollMs = 60000;
 const spoolErrors = new Set([
   "ENOENT",
   "ENOTDIR",
@@ -100,6 +102,26 @@ async function dueJobs(db, sourceId, cursors) {
       ],
     )
   ).rows;
+}
+
+async function refreshHealthReport(lock, db, sourceId, state) {
+  if (state === "source_inactive" || state === "source_clearance_unavailable") return "unavailable";
+  const {
+    rows: [row],
+  } = await lock.query(
+    `SELECT EXISTS(
+       SELECT 1 FROM collector_health_snapshots h JOIN sources s ON s.id=h.source_id
+       WHERE h.source_id=$1 AND h.captured_at>now()-interval '15 minutes' AND h.captured_at<=now()
+         AND h.metrics->>'schema'='soldbench.collector-health.v1'
+         AND h.metrics->>'mode'='offline_fixture' AND h.metrics->>'clock'='database'
+         AND h.metrics->'onlineVerified'='false'::jsonb
+         AND h.metrics->>'permissionEpoch'=s.permission_epoch::text
+     ) recent`,
+    [sourceId],
+  );
+  if (row.recent) return "recent";
+  await collectorHealth(db, sourceId, { persist: true });
+  return "recorded";
 }
 
 const envelope = (sourceId) => ({
@@ -225,6 +247,7 @@ async function run(args) {
       const deferred = new Map();
       const cursors = {};
       let nextMaintenance = 0;
+      let nextHealthCheck = 0;
       let nextProfile = 0;
       while (!signal.aborted) {
         await recordProgress(lock, sourceId, "scanning", { expectedMs: 30000 });
@@ -355,6 +378,17 @@ async function run(args) {
           }
         }
         if (signal.aborted) break;
+        let healthReport = null;
+        if (watch && performance.now() >= nextHealthCheck) {
+          try {
+            healthReport = await refreshHealthReport(lock, db, sourceId, state);
+          } catch (error) {
+            if (isDatabaseConnectionError(error)) throw error;
+            healthReport = "failed";
+          }
+          nextHealthCheck = performance.now() + healthPollMs;
+        }
+        if (signal.aborted) break;
         const queues = {};
         for (const { lane, due, candidates } of rows) {
           const inspected = lanes.get(lane);
@@ -379,7 +413,7 @@ async function run(args) {
           queues,
         };
         await recordProgress(lock, sourceId, "waiting", { expectedMs: interval + 5000, summary });
-        console.log(JSON.stringify({ ...envelope(sourceId), ...summary, maintenance, cycles }));
+        console.log(JSON.stringify({ ...envelope(sourceId), ...summary, maintenance, healthReport, cycles }));
         if (!watch) break;
         await wait(interval, signal);
       }

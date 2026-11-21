@@ -624,6 +624,60 @@ test("intake scan progresses past noisy prefixes and reopens a replaced source d
   );
 });
 
+test("watcher captures current health from PostgreSQL and avoids duplicate reports after restart", async () => {
+  const spool = await root();
+  const prepared = await preparedDemo(spool);
+  const { sourceId } = prepared;
+  await db.query(
+    `INSERT INTO collector_health_snapshots(source_id,captured_at,metrics)
+     SELECT s.id,now(),jsonb_build_object('schema','soldbench.collector-health.v1',
+       'mode','offline_fixture','clock','explicit_simulation','onlineVerified',false,
+       'permissionEpoch',s.permission_epoch::text)
+     FROM sources s WHERE s.id=$1`,
+    [sourceId],
+  );
+  const launch = () =>
+    start(
+      "scripts/collector-supervisor.mjs",
+      [`--source=${sourceId}`, `--spool=${spool}`, "--watch=true", "--interval-ms=250"],
+      { MEDIA_ROOT: join(spool, "media") },
+    );
+  const reports = async () =>
+    (
+      await db.query(
+        `SELECT id,metrics FROM collector_health_snapshots WHERE source_id=$1
+       AND metrics->>'schema'='soldbench.collector-health.v1' AND metrics->>'clock'='database'
+       ORDER BY captured_at`,
+        [sourceId],
+      )
+    ).rows;
+  const inspect = async (expected) => {
+    const watcher = launch();
+    await waitFor(() => watcher.output.includes(`"healthReport":"${expected}"`));
+    assert.equal(watcher.child.kill("SIGTERM"), true);
+    assert.deepEqual(await watcher.exited, { code: 0, signal: null });
+  };
+  await inspect("recorded");
+  const [first] = await reports();
+  assert.equal(first.metrics.jobs.completed, 1);
+  assert.equal(first.metrics.media.primaryImageCoverage.eligibleObservations, 8);
+  assert.equal(first.metrics.networkRequests, 0);
+  await inspect("recent");
+  assert.deepEqual(
+    (await reports()).map(({ id }) => id),
+    [first.id],
+  );
+  await db.query(
+    "UPDATE collector_health_snapshots SET captured_at=now()-interval '16 minutes' WHERE id=$1",
+    [first.id],
+  );
+  await inspect("recorded");
+  assert.equal((await reports()).length, 2);
+  await new CollectorStore(db).revokeSource(sourceId, "synthetic_health_test_revoked");
+  await inspect("unavailable");
+  assert.equal((await reports()).length, 2);
+});
+
 test("supervisor stays running with offline spool absent, expires missing work and resumes when files return", async () => {
   const directory = await root();
   const spool = join(directory, "spool");
