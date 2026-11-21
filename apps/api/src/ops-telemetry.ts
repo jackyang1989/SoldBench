@@ -252,9 +252,23 @@ export async function telemetry(c: Transaction, now: Date, view: TelemetryView, 
       );
       await table(
         "collector_media_cleanup",
-        ["source_id", "source_status", "media_cleanup_due", "oldest_media_cleanup_due"],
-        `SELECT s.id source_id,s.status source_status,b.pending media_cleanup_due,b.oldest oldest_media_cleanup_due
+        [
+          "source_id",
+          "source_status",
+          "media_cleanup_due",
+          "oldest_media_cleanup_due",
+          "media_maintenance_status",
+          "media_maintenance_checked_at",
+        ],
+        `SELECT s.id source_id,s.status source_status,b.pending media_cleanup_due,b.oldest oldest_media_cleanup_due,
+           CASE WHEN h.cycle_summary#>>'{mediaMaintenance,status}'
+             IN ('idle','processed','backlog_pending','store_unmatched','failed')
+             THEN h.cycle_summary#>>'{mediaMaintenance,status}' END media_maintenance_status,
+           CASE WHEN h.cycle_summary#>>'{mediaMaintenance,status}'
+             IN ('idle','processed','backlog_pending','store_unmatched','failed')
+             THEN h.cycle_summary#>>'{mediaMaintenance,checkedAt}' END media_maintenance_checked_at
          FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id
+         LEFT JOIN collector_supervisor_state h ON h.source_id=s.id AND h.last_cycle_at<=$1
          CROSS JOIN LATERAL (
            SELECT count(*)::int pending,min(o.available_at) oldest FROM outbox o
            WHERE o.kind='collector.media_cleanup' AND o.processed_at IS NULL AND o.available_at<=$1

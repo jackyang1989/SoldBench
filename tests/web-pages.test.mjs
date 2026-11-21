@@ -891,6 +891,8 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await editor.getByRole("columnheader", { name: "已检查目录项", exact: true }).waitFor();
     await editor.getByRole("heading", { name: "主图清理", exact: true }).waitFor();
     await editor.getByRole("columnheader", { name: "最早待清理时间", exact: true }).waitFor();
+    await editor.getByRole("columnheader", { name: "最近主图维护状态", exact: true }).waitFor();
+    await editor.getByRole("columnheader", { name: "主图维护最近检查", exact: true }).waitFor();
     await editor.getByRole("heading", { name: "采集证据快照", exact: true }).waitFor();
     await editor.getByRole("columnheader", { name: "准时派发页面的作业", exact: true }).waitFor();
     await editor.getByRole("link", { name: x.source.sourceId, exact: true }).first().click();
@@ -898,6 +900,8 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await editor.goto(`${origin}/operations/collector`);
     await editor.getByRole("heading", { name: "Primary image cleanup", exact: true }).waitFor();
     await editor.getByRole("columnheader", { name: "Oldest cleanup due", exact: true }).waitFor();
+    await editor.getByRole("columnheader", { name: "Last media maintenance", exact: true }).waitFor();
+    await editor.getByRole("columnheader", { name: "Last media maintenance check", exact: true }).waitFor();
     await editor.getByRole("columnheader", { name: "Health report status", exact: true }).waitFor();
     await editor.getByRole("heading", { name: "Collection evidence at capture", exact: true }).waitFor();
     await editor.getByRole("columnheader", { name: "Sale observations", exact: true }).waitFor();

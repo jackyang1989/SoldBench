@@ -132,27 +132,65 @@ const envelope = (sourceId) => ({
   sourceId,
 });
 
+function maintenanceStatus(maintenance) {
+  if (!maintenance) return null;
+  if (maintenance.error) return "failed";
+  if (maintenance.expirationPending || maintenance.revocationPending) return "backlog_pending";
+  if (!maintenance.mediaStoreMatched) return "store_unmatched";
+  if (
+    (maintenance.expired ?? 0) > 0 ||
+    (maintenance.orphans ?? 0) > 0 ||
+    (maintenance.cleanupProcessed ?? 0) > 0
+  )
+    return "processed";
+  return "idle";
+}
+
 async function recordProgress(
   lock,
   sourceId,
   phase,
-  { expectedMs = null, jobId = null, lane = null, summary = null, healthReport = null } = {},
+  {
+    expectedMs = null,
+    jobId = null,
+    lane = null,
+    summary = null,
+    healthReport = null,
+    mediaMaintenance = null,
+  } = {},
 ) {
   await lock.query(
     `WITH clock AS (SELECT clock_timestamp() AS t)
      INSERT INTO collector_supervisor_state(source_id,phase,checked_at,expected_progress_at,last_cycle_at,job_id,lane,cycle_summary)
      SELECT $1,$2,t,t+$3::int*interval '1 millisecond',CASE WHEN $6::jsonb IS NOT NULL THEN t END,$4,$5,
-       CASE WHEN $6::jsonb IS NOT NULL AND $7::text IS NOT NULL
-         THEN $6::jsonb || jsonb_build_object('healthReport',jsonb_build_object('status',$7::text,'checkedAt',t))
-         ELSE $6::jsonb END
+       CASE WHEN $6::jsonb IS NOT NULL THEN
+         $6::jsonb
+         || CASE WHEN $7::text IS NOT NULL
+              THEN jsonb_build_object('healthReport',jsonb_build_object('status',$7::text,'checkedAt',t))
+              ELSE '{}'::jsonb END
+         || CASE WHEN $8::text IS NOT NULL
+              THEN jsonb_build_object('mediaMaintenance',jsonb_build_object('status',$8::text,'checkedAt',t))
+              ELSE '{}'::jsonb END
+       END
      FROM clock
      ON CONFLICT(source_id) DO UPDATE SET phase=excluded.phase,checked_at=excluded.checked_at,
        expected_progress_at=excluded.expected_progress_at,job_id=excluded.job_id,lane=excluded.lane,
        last_cycle_at=coalesce(excluded.last_cycle_at,collector_supervisor_state.last_cycle_at),
        cycle_summary=CASE WHEN excluded.cycle_summary IS NULL THEN collector_supervisor_state.cycle_summary
-         ELSE jsonb_strip_nulls(jsonb_build_object('healthReport',collector_supervisor_state.cycle_summary->'healthReport'))
-              || excluded.cycle_summary END`,
-    [sourceId, phase, expectedMs, jobId, lane, summary ? JSON.stringify(summary) : null, healthReport],
+         ELSE jsonb_strip_nulls(jsonb_build_object(
+                'healthReport',collector_supervisor_state.cycle_summary->'healthReport',
+                'mediaMaintenance',collector_supervisor_state.cycle_summary->'mediaMaintenance'
+              )) || excluded.cycle_summary END`,
+    [
+      sourceId,
+      phase,
+      expectedMs,
+      jobId,
+      lane,
+      summary ? JSON.stringify(summary) : null,
+      healthReport,
+      mediaMaintenance,
+    ],
   );
 }
 
@@ -423,6 +461,7 @@ async function run(args) {
           expectedMs: interval + 5000,
           summary,
           healthReport,
+          mediaMaintenance: maintenanceStatus(maintenance),
         });
         console.log(JSON.stringify({ ...envelope(sourceId), ...summary, maintenance, healthReport, cycles }));
         if (!watch) break;

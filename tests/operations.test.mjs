@@ -860,6 +860,7 @@ test("telemetry uses real offline runs, current evidence rights and versioned lo
   const result = await x.app.request(`/v1/sold/${x.queryId}`, { headers: x.headers });
   assert.equal(result.status, 200);
   assert.equal((await read(x, `${base}records`, support)).status, 403);
+  assert.equal((await read(x, `${base}collector`, support)).status, 403);
   assert.equal((await read(x, `${base}growth?source=${source}`, admin)).status, 400);
   assert.equal((await read(x, `${base}collector?days=31`, admin)).status, 400);
 
@@ -878,6 +879,9 @@ test("telemetry uses real offline runs, current evidence rights and versioned lo
   assert.equal(missingSupervisor.page_jobs_due, null);
   assert.equal(missingSupervisor.health_report_status, null);
   assert.equal(rows((await get(`collector?source=${source}`)).data, 3)[0].intake_scanned, null);
+  const initialCleanup = rows((await get(`collector?source=${source}`)).data, 4)[0];
+  assert.equal(initialCleanup.media_maintenance_status, null);
+  assert.equal(initialCleanup.media_maintenance_checked_at, null);
   const evidence = async () => rows((await get(`collector?source=${source}`)).data, 5)[0];
   assert.equal((await evidence()).captured_at, null);
   assert.equal((await evidence()).evidence_primary_observations, null);
@@ -928,6 +932,27 @@ test("telemetry uses real offline runs, current evidence rights and versioned lo
   assert.equal(observed.page_jobs_uninspected, 2);
   assert.equal(observed.health_report_status, "failed");
   assert.equal(observed.health_report_checked_at, start);
+  const legacyCleanup = rows((await get(`collector?source=${source}`)).data, 4)[0];
+  assert.equal(legacyCleanup.media_maintenance_status, null);
+  assert.equal(legacyCleanup.media_maintenance_checked_at, null);
+  await db.query(
+    `UPDATE collector_supervisor_state
+     SET cycle_summary = cycle_summary || jsonb_build_object('mediaMaintenance', jsonb_build_object('status', '/private/media/root', 'checkedAt', $2::text))
+     WHERE source_id = $1`,
+    [source, start],
+  );
+  const unapprovedCleanup = rows((await get(`collector?source=${source}`)).data, 4)[0];
+  assert.equal(unapprovedCleanup.media_maintenance_status, null);
+  assert.equal(unapprovedCleanup.media_maintenance_checked_at, null);
+  await db.query(
+    `UPDATE collector_supervisor_state
+     SET cycle_summary = cycle_summary || jsonb_build_object('mediaMaintenance', jsonb_build_object('status', 'backlog_pending', 'checkedAt', $2::text))
+     WHERE source_id = $1`,
+    [source, start],
+  );
+  const recordedCleanup = rows((await get(`collector?source=${source}`)).data, 4)[0];
+  assert.equal(recordedCleanup.media_maintenance_status, "backlog_pending");
+  assert.equal(recordedCleanup.media_maintenance_checked_at, start);
   assert.equal((await schedule()).refresh_enqueued, 0);
   assert.equal((await schedule()).refresh_materialized, 1);
   assert.equal((await schedule()).refresh_prioritized, 1);
@@ -1047,6 +1072,8 @@ test("telemetry uses real offline runs, current evidence rights and versioned lo
     source_status: "revoked",
     media_cleanup_due: 1,
     oldest_media_cleanup_due: x.now(),
+    media_maintenance_status: "backlog_pending",
+    media_maintenance_checked_at: start,
   });
   const worker = new OfflineCollectorWorker(x.store, new FixtureTransport(new Map()), x.query.media);
   assert.equal((await worker.runMaintenance(source)).cleanupProcessed, 1);

@@ -7,11 +7,10 @@
 | 项目 | 接手信息 |
 |---|---|
 | 仓库 | 私有仓库 `jackyang1989/SoldBench`，远端 `https://github.com/jackyang1989/SoldBench.git` |
-| 主分支基线 | `main` 的 `d6d7cf3` 是截至交接时最后一个已通过全量本机回归并并入主线的代码基线 |
-| 当前代码 | `origin/codex/collector-revocation-batch`。撤权主图分批清理的实现提交为 `4d0f544`，接手使用该远端分支最新提交，包含本指南和实现 |
-| 当前工作区 | 本机主检出 `/Users/jianouyang/Project/SoldBench`；开发工作树 `/Users/jianouyang/.codex/worktrees/soldbench-media-recovery/SoldBench`。可复用仍干净的隔离工作树，其他机器以仓库和分支为准 |
-| 正在做什么 | TASK-015/016/039 撤权主图分批清除及回执，台账 §157。代码与采集专项已交付，当前停在全量回归、独立归档恢复、合并前 |
-| 接下来做什么 | 先完成 §4 第一包，安全合并后领 TASK-016/061 的媒体维护运营读侧。真实来源工作先核对 §7 的准入证据 |
+| 主分支基线 | `main` 已合入撤权主图分批清理（§157）、主图维护状态运营读侧（§158）与任务信封绑定的 eBay US 已售搜索 DOM 结构化解析（§159） |
+| 当前工作区 | 本机主检出 `/Users/jianouyang/Project/SoldBench`；隔离工作树 `/Users/jianouyang/.codex/worktrees/soldbench-media-recovery/SoldBench` |
+| 已完成增量 | TASK-014/015/016/039/061 的撤权主图分批清理回执（§157）、主图维护状态接入采集监督与双语运营台（§158）、信封绑定 eBay US 已售搜索 DOM 结构化解析与漂移/挑战熔断保护（§159）均已通过全量回归与独立归档恢复演练 |
+| 接下来做什么 | 围绕真实 eBay 采集稳定性扩展多页面变体/品类强属性提取样本与线上持续观察准备，或按 §7 推进外部实测与部署前置 |
 
 如接手人在已有工作树，先运行：
 
@@ -44,29 +43,28 @@ SoldBench 是直接服务**个人卖家、收藏品交易商、二手商家、�
 |---|---|---|
 | 工程与数据库，TASK-011/012/017 | TypeScript 工作区，Hono API、React SSR、PG16、独立查询 Worker 和采集监督进程。32 个增量迁移，本机无 DDL 权限启动、断进程和旧包回滚演练。入口 `apps/api/src/server.ts`、`scripts/query-worker.mjs`、`packages/db/migrations/` | 台账 §101、§109、§122、§129 |
 | 来源准备，TASK-001/003–009 | 45 字段权利和来源事实清单、120 条查询草稿、1,680 时段的验证计划、质量盲审、断源演练、成本和访谈准备。入口 `step0/`。实际来源字段仍待核验 | [第 0 步](../step0/README.md)、台账 §94、§96、§110、§112、§139–143 |
-| 采集与商品主图，TASK-013–016 | 本机 JSON/HTML 分页回放、原响应摘要、观察与事件去重、独立租约、预算结算、降速/熔断、缺包和迟到恢复、定时计划、主图绑定/转码/补采/撤权。私有通道和过期原包维护。入口 `packages/collector/src/`、`packages/media/src/`、`scripts/collector-supervisor.mjs` | 台账 §91–93、§98–100、§139–156；现行分支增量见 §157 |
+| 采集与商品主图，TASK-013–016 | 本机 JSON/HTML 分页回放、任务信封绑定的 eBay US 已售搜索 DOM 结构化解析（`createEbayUsSoldSearchHtmlProfile`）、原响应摘要、观察与事件去重、独立租约、预算结算、降速/熔断、缺包和迟到恢复、定时计划、主图绑定/转码/补采/到期与撤权分批清理。私有通道和过期原包维护。入口 `packages/collector/src/`、`packages/media/src/`、`scripts/collector-supervisor.mjs` | 台账 §91–93、§98–100、§139–159 |
 | 查价与研究，TASK-019/020/027/028/031/032/036/059 | 黄金 121/64/58、可比性及混型号判定，显式领取、详情/主图/诊断、只读复取、人工排除重算、单结果 JSON/CSV、受控公开分享、已交付快照保存和对照。入口 `packages/core/src/`、`packages/query/src/`、`apps/api/src/queries.ts` | 台账 §54–57、§63–76、§86、§92、§95 |
 | 账户与账本，TASK-023–027/033/039 | 本机注册/验证、会话、TOTP、恢复码、API key、用量/日志、积分桶和原子结算、删除及旧备份防反弹；双语事务邮件从离线发件箱交付。入口 `packages/auth/src/`、`packages/billing/src/`、`apps/api/src/auth.ts` | 台账 §40–41、§47、§65、§89、§102、§106、§130–131 |
 | 支付，TASK-029 | Stripe/PayPal 本机签名事件、订阅及退款生命周期、只读对账、晚到事件与旧库补放，入口 `apps/api/src/payments.ts`、`packages/billing/src/payment-lifecycle.ts` | 台账 §49、§68、§70、§73、§108、§132–134 |
-| 英中网页与运营，TASK-031–036/057–061 | 原型 Search/Research/账户/Playground、公开索引和内容页、CMS 审核/定时/回滚、工单、审批与执行、用户 360 和来源监控已接本机服务。入口 `apps/web/src/`、`apps/api/src/operations.ts`、`apps/api/src/ops-telemetry.ts` | 台账 §63–78、§84–88、§95、§103、§105、§121、§147–149 |
-| 开发者与运行交付，TASK-037–040/042 | OpenAPI 1.27.0、双语 Docs、Playground、REST、MCP、Skill 与 TS/Python/curl 示例。可从独立归档解包、启动、验证客户端以及恢复撤权、账务和仍有权主图。入口 `developer/`、`apps/api/src/mcp.ts`、`scripts/package-offline.py`、`scripts/rehearse-offline.py` | 台账 §83、§88–89、§95、§104、§122–131、§154–156 |
+| 英中网页与运营，TASK-031–036/057–061 | 原型 Search/Research/账户/Playground、公开索引和内容页、CMS 审核/定时/回滚、工单、审批与执行、用户 360、来源监控及主图维护状态读侧已接本机服务。入口 `apps/web/src/`、`apps/api/src/operations.ts`、`apps/api/src/ops-telemetry.ts` | 台账 §63–78、§84–88、§95、§103、§105、§121、§147–149、§158 |
+| 开发者与运行交付，TASK-037–040/042 | OpenAPI 1.27.0、双语 Docs、Playground、REST、MCP、Skill 与 TS/Python/curl 示例。可从独立归档解包、启动、验证客户端以及恢复撤权、账务和仍有权主图。入口 `developer/`、`apps/api/src/mcp.ts`、`scripts/package-offline.py`、`scripts/rehearse-offline.py` | 台账 §83、§88–89、§95、§104、§122–131、§154–159 |
 
-主线候选 `39cf2a4` 的全量记录为 29 套、305 项应用测试、5 项接口兼容，零失败、零跳过。214 文件的独立运行包完成恢复与客户端演练，合成采集 2 页、8 张主图，外部来源请求为零。证据和 SHA-256 见台账 §156。GitHub Actions 最近核对的主线运行在创建作业前报 `startup_failure`，作业数为零。不能从该状态推断 runner 或仓库设置的根因。[GitHub Actions 记录](https://github.com/jackyang1989/SoldBench/actions/runs/44851600259)
+最新全量记录为 29 套、308 项应用测试、5 项接口兼容，零失败、零跳过。214 文件的独立运行包完成恢复与客户端演练，合成采集 2 页、8 张主图，外部来源请求为零。证据和 SHA-256 见台账 §156–159。GitHub Actions 最近核对的主线运行在创建作业前报 `startup_failure`，作业数为零。不能从该状态推断 runner 或仓库设置的根因。[GitHub Actions 记录](https://github.com/jackyang1989/SoldBench/actions/runs/44851600259)
 
-## 4. 接手后按此顺序执行
+## 4. 最新收口与采集能力增量
 
-### 第一包：收口撤权主图分批维护
+### 已完成第一包：撤权主图分批维护（台账 §157）
 
-- **现状。** `4d0f544` 修改了 `packages/media/src/private-store.ts`、`packages/collector/src/worker.ts`、`scripts/collector-supervisor.mjs` 和 `tests/collector-pipeline.test.mjs`。撤权即刻拒读；文件按最多 50 个生成名称清除并同步目录，之后分批清除最多 50 条媒体引用，最后才确认 outbox。进程重启从文件与 PG 事实续跑。错根、文件系统异常和未完成批次仍需处理，非生成文件保留。
-- **已经验证。** lint、类型、构建、文档和 diff 检查通过。隔离 PG16 的采集专项 63 项通过，零失败、零跳过。新增用例用 52 个生成文件、52 条引用实测，首轮处理部分磁盘文件，重建 Worker 后继续，第三轮才确认一次。原专项日志为本机 `/tmp/soldbench-157-handoff.log`。详见台账 §157。
-- **剩余验收。** 在接手候选运行 §6 的全量应用及归档恢复。复核早期撤权拒读、错目录不确认、共享文件和异源保留。记录候选提交、命令退出码、实际测试数与归档 SHA-256。通过后按台账回填，再以干净工作区和快进方式合并 `main`。远端 Actions 的启动失败另外留证。
+- `packages/media/src/private-store.ts`、`packages/collector/src/worker.ts`、`scripts/collector-supervisor.mjs` 已完成分批撤权清理：撤权即刻拒读；文件按最多 50 个生成名称清除并同步目录，之后分批清除最多 50 条持有 `object_key` 的媒体引用，最后统一收口非对象记录状态并确认 `collector.media_cleanup` outbox。同页待处理主图按创建时间与外部商品 ID 确定性排序。
 
-### 第二包：媒体维护状态进入运营台
+### 已完成第二包：媒体维护状态进入运营台（台账 §158）
 
-- **TASK-016/061，AT-052/080。** 目前监督者日志会显示维护结果，运营台已有健康报告和队列事实。把维护批次结果接到现有监督状态和采集运营面板。此包还未开始编码。
-- **先读。** [采集契约](采集管线实施契约.md) §16/18/21、[运营后端契约](运营后端实施契约.md)、[验收矩阵](验收矩阵.md)，台账 §147–149 和 §156–157。
-- **预期改动。** `scripts/collector-supervisor.mjs` 的 `recordProgress` 写入最近一次实际维护的数据库时点和状态。`apps/api/src/ops-telemetry.ts` 投影已确认字段，`apps/web/src/site.js` 补英中列名和状态描述。区分活跃积压、目录未匹配、失败、空缺和已处理。普通轮次不抹除上一条维护记录；发生撤权后仍可查看授权运营人员所需的清理状态，不输出私有路径或源证据。以现有 outbox 为确认依据。
-- **验收。** 在隔离 PG16 和本机监督进程复现过期积压、撤权积压、目录不匹配和故障后的恢复。验证空记录/旧记录显示未知、普通轮次保留最近时点、未经授权的账户无法读取。按两种界面语言走查实际运营入口。验收、合并后按台账依赖自动切下一可执行整包。
+- **TASK-016/061，AT-052/080。** `scripts/collector-supervisor.mjs` 的 `recordProgress` 已持久化最近一次实际维护的数据库时点和状态（`idle`、`processed`、`backlog_pending`、`store_unmatched`、`failed`），普通轮次不抹除上一条维护记录。`apps/api/src/ops-telemetry.ts` 在 `collector_media_cleanup` 表投影已确认字段，`apps/web/src/site.js` 已补齐英中列名和状态描述。发生撤权后仍可查看授权运营人员所需的清理状态，不输出私有路径或源证据，并以现有 `outbox` 为完成依据。
+
+### 已完成第三包：任务信封绑定的 eBay US 已售搜索 DOM 结构化解析（台账 §159）
+
+- **TASK-014/015/016，AT-003/004/009/056/074。** `packages/collector/src/html.ts` 在完全保留既有 `root_attributes` 合成模式兼容的同时，新增 `bindingMode: "envelope"`、`parseNaturalSoldDate` 与 `createEbayUsSoldSearchHtmlProfile()`：由任务信封绑定 `sourceId`、`queryHash`、`cursor`、`asOf`，直接从 eBay US `.srp-river-results` / `li.s-item` DOM 提取已售记录，自动剔除 `.s-item--sponsored` 广告与 `s-l64`/`s.gif` 占位图，从 `/itm/…` 提取规范链接与 `listingId`，解析 `"Sold Nov 15, 2026"` 自然语言日期，将 `"Best offer accepted"`／划线价归为 `displayed_only` 排除出默认价格统计，支持 `_pgn` 分页与首屏结果计数，并在挑战页或 DOM 结构漂移时 Fail-Closed 熔断/隔离。
 
 ## 5. 新 Agent 必读顺序
 

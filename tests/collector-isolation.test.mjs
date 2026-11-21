@@ -1489,3 +1489,147 @@ test("killing an active collector preserves a live API and recovery conservative
   api.child.kill("SIGTERM");
   assert.equal((await api.exited).code, 0);
 });
+
+test("supervisor persists media maintenance states across unmatched directories, faults, expiration backlogs and revocation batches", async () => {
+  const directory = await root();
+  const prepared = await preparedDemo(directory);
+  const sourceId = prepared.sourceId;
+  const boundMedia = join(directory, "media");
+  const unrelatedMedia = join(directory, "unrelated-media");
+  await mkdir(unrelatedMedia, { recursive: true, mode: 0o700 });
+  const faultMedia = join(directory, "fault-media-file");
+  await writeFile(faultMedia, "not a directory", { mode: 0o600 });
+
+  const maintenanceState = async () =>
+    (
+      await db.query(
+        `SELECT cycle_summary#>>'{mediaMaintenance,status}' AS status,
+                cycle_summary#>>'{mediaMaintenance,checkedAt}' AS checked_at,
+                last_cycle_at
+         FROM collector_supervisor_state WHERE source_id=$1`,
+        [sourceId],
+      )
+    ).rows[0];
+  const runOnce = async (mediaRoot) => {
+    const run = start("scripts/collector-supervisor.mjs", [`--source=${sourceId}`, `--spool=${directory}`], {
+      COLLECTOR_DEMO_DIR: directory,
+      MEDIA_ROOT: mediaRoot,
+    });
+    assert.equal((await run.exited).code, 0, run.errors);
+    return JSON.parse(run.output);
+  };
+
+  // First run executes the prepared HTML job and binds boundMedia; initial maintenance before binding is store_unmatched.
+  const initial = await runOnce(boundMedia);
+  assert.equal(initial.cycles[0].status, "completed");
+  assert.equal((await maintenanceState()).status, "store_unmatched");
+
+  // With boundMedia now bound, an active run with no expired images reports idle.
+  await runOnce(boundMedia);
+  const idleState = await maintenanceState();
+  assert.equal(idleState.status, "idle");
+  assert.ok(idleState.checked_at);
+
+  // Unmatched directory reports store_unmatched.
+  await runOnce(unrelatedMedia);
+  assert.equal((await maintenanceState()).status, "store_unmatched");
+
+  // Filesystem fault reports failed, and a subsequent normal watch cycle preserves the timestamp and status.
+  const watcher = start(
+    "scripts/collector-supervisor.mjs",
+    [`--source=${sourceId}`, `--spool=${directory}`, "--watch=true", "--interval-ms=250"],
+    { COLLECTOR_DEMO_DIR: directory, MEDIA_ROOT: faultMedia },
+  );
+  await waitFor(() => watcher.output.includes('"error":"media_maintenance_failed"'));
+  const failedFirst = await maintenanceState();
+  assert.equal(failedFirst.status, "failed");
+  assert.ok(failedFirst.checked_at);
+  await waitFor(() => watcher.output.includes('"maintenance":null'));
+  const failedPreserved = await maintenanceState();
+  assert.equal(failedPreserved.status, "failed");
+  assert.equal(failedPreserved.checked_at, failedFirst.checked_at);
+  assert.equal(watcher.child.kill("SIGTERM"), true);
+  assert.deepEqual(await watcher.exited, { code: 0, signal: null });
+
+  // Active expiration backlog (>50 items) reports backlog_pending, then processed, then idle.
+  const sampleImage = (
+    await db.query(
+      `SELECT i.listing_id,i.observation_id,i.sale_event_id,i.permission_epoch,i.object_key,i.content_hash,
+              o.collector_run_id,o.parser_version,o.raw_hash
+       FROM listing_images i JOIN source_observations o ON o.id=i.observation_id AND o.source_id=i.source_id
+       WHERE i.source_id=$1 AND i.state='available' LIMIT 1`,
+      [sourceId],
+    )
+  ).rows[0];
+  for (let i = 0; i < 45; i++) {
+    const obsId = randomUUID();
+    await db.query(
+      `INSERT INTO source_observations(id,source_id,collector_run_id,parser_version,raw_hash,captured_at,retention_until,record_count,permitted_visibility)
+       VALUES($1,$2,$3,$4,$5,now()-interval '2 minutes',now()-interval '1 minute',1,'{}'::jsonb)`,
+      [
+        obsId,
+        sourceId,
+        sampleImage.collector_run_id,
+        sampleImage.parser_version,
+        `${sampleImage.raw_hash}-${i}`,
+      ],
+    );
+    await db.query(
+      `INSERT INTO sale_event_evidence(sale_event_id,listing_id,source_id,observation_id,facts_hash,candidate,external_listing_id)
+       VALUES($1,$2,$3,$4,$5,'{}'::jsonb,$6)`,
+      [
+        sampleImage.sale_event_id,
+        sampleImage.listing_id,
+        sourceId,
+        obsId,
+        `facts-${i}`,
+        `listing-extra-${i}`,
+      ],
+    );
+    await db.query(
+      `INSERT INTO listing_images(id,source_id,listing_id,observation_id,sale_event_id,role,state,permission_epoch,object_key,content_hash,mime_type,width,height,byte_size,retention_until)
+       VALUES($1,$2,$3,$4,$5,'primary','available',$6,$7,$8,'image/webp',12,12,64,now()-interval '1 minute')`,
+      [
+        randomUUID(),
+        sourceId,
+        sampleImage.listing_id,
+        obsId,
+        sampleImage.sale_event_id,
+        sampleImage.permission_epoch,
+        sampleImage.object_key,
+        sampleImage.content_hash,
+      ],
+    );
+  }
+  await db.query("UPDATE listing_images SET retention_until=now()-interval '1 minute' WHERE source_id=$1", [
+    sourceId,
+  ]);
+  await runOnce(boundMedia);
+  assert.equal((await maintenanceState()).status, "backlog_pending");
+  await runOnce(boundMedia);
+  assert.equal((await maintenanceState()).status, "processed");
+  await runOnce(boundMedia);
+  assert.equal((await maintenanceState()).status, "idle");
+
+  // Revocation backlog (>50 generated files) reports backlog_pending until outbox is confirmed, then processed.
+  const sourceDir = join(boundMedia, sourceId);
+  await mkdir(sourceDir, { recursive: true, mode: 0o700 });
+  for (let i = 0; i < 52; i++) {
+    const hash = `${String(i).padStart(2, "0")}${"a".repeat(62)}`;
+    await writeFile(join(sourceDir, `${hash}.webp`), `revoked-${i}`, { mode: 0o600 });
+  }
+  await new CollectorStore(db).revokeSource(sourceId, "supervisor_revocation_maintenance_telemetry");
+  const pendingOutbox = async () =>
+    (
+      await db.query(
+        "SELECT count(*)::int AS n FROM outbox WHERE kind='collector.media_cleanup' AND processed_at IS NULL AND payload->>'sourceId'=$1",
+        [sourceId],
+      )
+    ).rows[0].n;
+  await runOnce(boundMedia);
+  assert.equal((await maintenanceState()).status, "backlog_pending");
+  assert.equal(await pendingOutbox(), 1);
+  await runOnce(boundMedia);
+  assert.equal((await maintenanceState()).status, "processed");
+  assert.equal(await pendingOutbox(), 0);
+});

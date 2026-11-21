@@ -19,8 +19,7 @@ const dueImageReferences = `SELECT i.id FROM listing_images i JOIN source_observ
   ON o.source_id=i.source_id AND o.id=i.observation_id
   WHERE i.source_id=$1 AND i.state='available'
     AND (i.retention_until<=$2 OR o.retention_until IS NULL OR o.retention_until<=$2)`;
-const revokedImageReferences =
-  "SELECT id FROM listing_images WHERE source_id=$1 AND (state<>'revoked' OR object_key IS NOT NULL)";
+const revokedImageReferences = "SELECT id FROM listing_images WHERE source_id=$1 AND object_key IS NOT NULL";
 
 class ImageBackoff extends Error {
   constructor(readonly seconds: number) {
@@ -106,7 +105,7 @@ export class OfflineCollectorWorker {
   }
   private async images(lease: Lease, signal?: AbortSignal) {
     const tasks = await this.store.db.query(
-      "SELECT i.id AS image_id,i.listing_id,i.sale_event_id,i.observation_id,e.external_listing_id,e.candidate AS evidence_candidate,p.raw_hash,p.payload FROM listing_images i JOIN collector_pages p ON p.observation_id=i.observation_id AND p.source_id=i.source_id JOIN sale_event_evidence e ON e.sale_event_id=i.sale_event_id AND e.listing_id=i.listing_id AND e.source_id=i.source_id AND e.observation_id=i.observation_id WHERE p.job_id=$1 AND i.state='pending' AND (($2::uuid IS NULL AND NOT EXISTS(SELECT 1 FROM collector_image_jobs q WHERE q.image_id=i.id)) OR EXISTS(SELECT 1 FROM collector_image_jobs q WHERE q.id=$2 AND q.image_id=i.id AND q.status='running'))",
+      "SELECT i.id AS image_id,i.listing_id,i.sale_event_id,i.observation_id,e.external_listing_id,e.candidate AS evidence_candidate,p.raw_hash,p.payload FROM listing_images i JOIN collector_pages p ON p.observation_id=i.observation_id AND p.source_id=i.source_id JOIN sale_event_evidence e ON e.sale_event_id=i.sale_event_id AND e.listing_id=i.listing_id AND e.source_id=i.source_id AND e.observation_id=i.observation_id WHERE p.job_id=$1 AND i.state='pending' AND (($2::uuid IS NULL AND NOT EXISTS(SELECT 1 FROM collector_image_jobs q WHERE q.image_id=i.id)) OR EXISTS(SELECT 1 FROM collector_image_jobs q WHERE q.id=$2 AND q.image_id=i.id AND q.status='running')) ORDER BY i.created_at,e.external_listing_id,i.id",
       [lease.jobId, lease.imageTaskId ?? null],
     );
     let mediaBound = false;
@@ -464,6 +463,9 @@ export class OfflineCollectorWorker {
         (await c.query(`${revokedImageReferences} LIMIT 1`, [sourceId])).rowCount
       )
         return { processed: 0, pending: true, matched: true };
+      await c.query("UPDATE listing_images SET state='revoked' WHERE source_id=$1 AND state<>'revoked'", [
+        sourceId,
+      ]);
       const processed = await c.query(
         "UPDATE outbox SET processed_at=clock_timestamp() WHERE kind='collector.media_cleanup' AND processed_at IS NULL AND payload->>'sourceId'=$1",
         [sourceId],

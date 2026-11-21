@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { after, before, test } from "node:test";
 import {
   CollectorStore,
+  createEbayUsSoldSearchHtmlProfile,
   createFixtureArtifact,
   digest,
   FixtureTransport,
@@ -16,6 +17,7 @@ import {
   parseFixturePage,
   parseHtmlMoney,
   parseHtmlPage,
+  parseNaturalSoldDate,
   provisionFixtureSource,
   validateHtmlProfile,
 } from "@soldbench/collector";
@@ -826,4 +828,134 @@ test("HTML and main-image work resumes across two separate processes without rep
     )
   ).rows[0];
   assert.deepEqual(actual, { n: 8, images: 8 });
+});
+
+test("envelope-bound eBay US sold search DOM profile parses natural dates, canonical item links, best-offer exclusions, pagination and images while failing closed on drift or challenge pages", async () => {
+  assert.equal(parseNaturalSoldDate("Sold  Nov 15, 2026"), "2026-11-15");
+  assert.equal(parseNaturalSoldDate("Sold on Feb 28, 2026"), "2026-02-28");
+  assert.equal(parseNaturalSoldDate("Sold Feb 29, 2026"), null);
+  assert.equal(parseNaturalSoldDate("Ended Nov 15, 2026"), null);
+
+  const ebayProfile = createEbayUsSoldSearchHtmlProfile();
+  const queryHash = collectionQueryHash(normalizeQuery(new URLSearchParams({ q: "Nintendo Switch OLED" })));
+  const x = await setup(ebayProfile, queryHash);
+  const png = await sharp({ create: { width: 16, height: 16, channels: 3, background: "green" } })
+    .png()
+    .toBuffer();
+
+  const itemsHtml = Array.from({ length: 9 }, (_, i) => {
+    const itemId = `23581234560${i}`;
+    const isBestOffer = i === 8;
+    const isAuction = i === 1;
+    const freeShip = i % 2 === 0;
+    const price = isBestOffer ? "$399.99" : `$${260 + i * 5}.00`;
+    return `
+      <li class="s-item">
+        <div class="s-item__image-wrapper">
+          <img class="s-item__image-img" src="https://i.ebayimg.com/images/g/placeholder/s-l64.gif" alt="placeholder">
+          <img class="s-item__image-img" data-src="https://i.ebayimg.com/images/g/item-${i}/s-l500.png" alt="Nintendo Switch OLED ${i}">
+        </div>
+        <div class="s-item__info">
+          <div class="s-item__caption">
+            <span class="s-item__caption-label">Sold</span>
+            <span class="s-item__caption-date">Sold  Nov 15, 2026</span>
+          </div>
+          <a class="s-item__link" href="https://www.ebay.com/itm/Nintendo-Switch-OLED-${i}/${itemId}?hash=item${i}&amp;_trkparms=ispr%3D1">
+            <div class="s-item__title">Nintendo Switch OLED Console Bundle ${i}</div>
+          </a>
+          <div class="s-item__subtitle"><span class="SECONDARY_INFO">Pre-Owned</span></div>
+          <div class="s-item__details">
+            <span class="s-item__price">${price}</span>
+            ${isBestOffer ? '<span class="s-item__price-evidence">strikethrough</span>' : ""}
+            <span class="s-item__purchase-options">${
+              isBestOffer ? "Best offer accepted" : isAuction ? "14 bids" : "Buy It Now"
+            }</span>
+            <span class="s-item__shipping">${freeShip ? "Free 2-4 day shipping" : "+$8.50 shipping"}</span>
+            <span class="s-item__specific" data-name="model">OLED</span>
+          </div>
+        </div>
+      </li>`;
+  }).join("\n");
+
+  const page1Html = Buffer.from(`<!doctype html><html><body>
+    <h1 class="srp-controls__count-heading">1,240+ results for Nintendo Switch OLED</h1>
+    <div class="srp-river-results">
+      <ul class="srp-results">
+        <li class="s-item s-item--sponsored">
+          <div class="s-item__title">Sponsored Ad Item Should Be Ignored</div>
+        </li>
+        ${itemsHtml}
+      </ul>
+      <a class="pagination__next" href="https://www.ebay.com/sch/i.html?_nkw=Nintendo+Switch+OLED&amp;LH_Sold=1&amp;_pgn=2">Next</a>
+    </div>
+  </body></html>`);
+
+  const page2Html = Buffer.from(`<!doctype html><html><body>
+    <div class="srp-river-results">
+      <div class="srp-save-null-search">No exact matches found</div>
+    </div>
+  </body></html>`);
+
+  const parsedPage1 = parseHtmlPage(page1Html, x.binding, ebayProfile);
+  assert.equal(parsedPage1.records.length, 9);
+  assert.equal(parsedPage1.nextCursor, "page-2");
+  assert.deepEqual(parsedPage1.sourceReported, { count: 1240, unit: "listings", estimated: true });
+  assert.equal(parsedPage1.records[0].listingId, "235812345600");
+  assert.equal(parsedPage1.records[0].recordEvidence.listingUrl, "https://www.ebay.com/itm/235812345600");
+  assert.equal(parsedPage1.records[0].candidate.condition, "good");
+  assert.equal(parsedPage1.records[0].candidate.format, "fixed_price");
+  assert.equal(parsedPage1.records[0].candidate.priceStatus, "verified_actual");
+  assert.equal(parsedPage1.records[0].candidate.shippingStatus, "verified_free_shipping");
+  assert.equal(parsedPage1.records[1].candidate.format, "auction");
+  assert.equal(parsedPage1.records[1].candidate.shippingStatus, "observed");
+  assert.equal(parsedPage1.records[1].candidate.shippingCents, 850);
+  assert.equal(parsedPage1.records[8].candidate.format, "best_offer");
+  assert.equal(parsedPage1.records[8].candidate.priceStatus, "displayed_only");
+
+  const frames = new Map([
+    ["page:start", [response(page1Html)]],
+    ["page:page-2", [response(page2Html)]],
+    ...Array.from({ length: 9 }, (_, i) => [
+      `image:https://i.ebayimg.com/images/g/item-${i}/s-l500.png`,
+      [{ status: 200, contentType: "image/png", bytes: png }],
+    ]),
+  ]);
+  const worker = new OfflineCollectorWorker(x.store, new FixtureTransport(frames), x.media);
+  assert.equal((await worker.runOne(x.sourceId)).status, "completed");
+
+  const candidates = await x.store.candidates(x.jobId);
+  const evaluated = evaluate(candidates, {
+    sourceId: x.sourceId,
+    asOf: fixed,
+    days: 90,
+    basis: "item_plus_observed_shipping",
+    limit: 200,
+  });
+  assert.equal(evaluated.stats.n_observed, 9);
+  assert.equal(evaluated.stats.n_comparable, 9);
+  assert.equal(evaluated.stats.n_price_verified, 8);
+  assert.ok(evaluated.stats.median_cents !== null);
+
+  // Interruption / CAPTCHA challenge triggers source_access_refused circuit breaker.
+  const challengeSetup = await setup(ebayProfile, digest("ebay-challenge-query"));
+  const challengeHtml = Buffer.from(
+    `<!doctype html><html><body><div class="pgHeading">Pardon Our Interruption</div><form id="captcha_form"></form></body></html>`,
+  );
+  assert.equal(
+    (await runner(challengeSetup, challengeHtml).runOne(challengeSetup.sourceId)).status,
+    "failed",
+  );
+  assert.equal((await challengeSetup.store.view(challengeSetup.jobId)).error_code, "source_access_refused");
+
+  // Structural drift (e.g. missing price class or unconfirmed empty DOM) quarantines the page fail-closed.
+  const driftSetup = await setup(ebayProfile, digest("ebay-drift-query"));
+  const driftHtml = Buffer.from(
+    page1Html.toString().replaceAll('class="s-item__price"', 'class="s-item__price-renamed"'),
+  );
+  assert.equal((await runner(driftSetup, driftHtml).runOne(driftSetup.sourceId)).status, "failed");
+  assert.equal(
+    (await db.query("SELECT reason FROM collector_quarantines WHERE job_id=$1", [driftSetup.jobId])).rows[0]
+      .reason,
+    "page_structure_invalid",
+  );
 });
