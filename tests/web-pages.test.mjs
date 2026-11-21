@@ -883,6 +883,7 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await editor.getByText(/告警阈值已记录/).waitFor();
     await editor.getByRole("button", { name: "采集运行", exact: true }).click();
     await editor.getByRole("columnheader", { name: "解析器版本", exact: true }).waitFor();
+    await editor.getByRole("columnheader", { name: "健康报告状态", exact: true }).waitFor();
     await editor.getByRole("heading", { name: "刷新计划", exact: true }).waitFor();
     await editor.getByRole("columnheader", { name: "待派发时段", exact: true }).waitFor();
     await editor.getByRole("columnheader", { name: "上轮优先登记的有效时段", exact: true }).waitFor();
@@ -897,6 +898,7 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await editor.goto(`${origin}/operations/collector`);
     await editor.getByRole("heading", { name: "Primary image cleanup", exact: true }).waitFor();
     await editor.getByRole("columnheader", { name: "Oldest cleanup due", exact: true }).waitFor();
+    await editor.getByRole("columnheader", { name: "Health report status", exact: true }).waitFor();
     await editor.getByRole("heading", { name: "Collection evidence at capture", exact: true }).waitFor();
     await editor.getByRole("columnheader", { name: "Sale observations", exact: true }).waitFor();
     await reviewer.context.close();

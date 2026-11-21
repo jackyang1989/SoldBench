@@ -876,6 +876,7 @@ test("telemetry uses real offline runs, current evidence rights and versioned lo
   const missingSupervisor = rows((await get(`collector?source=${source}`)).data, 1)[0];
   assert.equal(missingSupervisor.phase, "unobserved");
   assert.equal(missingSupervisor.page_jobs_due, null);
+  assert.equal(missingSupervisor.health_report_status, null);
   assert.equal(rows((await get(`collector?source=${source}`)).data, 3)[0].intake_scanned, null);
   const evidence = async () => rows((await get(`collector?source=${source}`)).data, 5)[0];
   assert.equal((await evidence()).captured_at, null);
@@ -909,6 +910,7 @@ test("telemetry uses real offline runs, current evidence rights and versioned lo
       start,
       {
         spool: "unavailable",
+        healthReport: { status: "failed", checkedAt: start },
         scheduled: { materialized: 1, prioritized: 1, enqueued: 0, recovered: 0, blocked: 0, missed: 2 },
         intake: { status: "scan_limit", scanned: 10000, published: 0, deferred: 2 },
         queues: {
@@ -924,6 +926,8 @@ test("telemetry uses real offline runs, current evidence rights and versioned lo
   assert.equal(observed.page_jobs_due, 65);
   assert.equal(observed.page_jobs_missing, 10);
   assert.equal(observed.page_jobs_uninspected, 2);
+  assert.equal(observed.health_report_status, "failed");
+  assert.equal(observed.health_report_checked_at, start);
   assert.equal((await schedule()).refresh_enqueued, 0);
   assert.equal((await schedule()).refresh_materialized, 1);
   assert.equal((await schedule()).refresh_prioritized, 1);

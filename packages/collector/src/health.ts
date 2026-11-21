@@ -31,6 +31,7 @@ export async function collectorHealth(
     now?: string;
     from?: string;
     persist?: boolean;
+    automatic?: boolean;
     dailyDays?: 7 | 14;
     mediaProbe?: { store: PrivateMediaStore; limit: number };
   } = {},
@@ -43,6 +44,8 @@ export async function collectorHealth(
     throw new Error("invalid_media_probe_limit");
   return transaction(db, async (c) => {
     if (options.dailyDays) await c.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
+    if (options.automatic)
+      await c.query("SELECT set_config('lock_timeout','1s',true),set_config('statement_timeout','2s',true)");
     const source = (
       await c.query(
         "SELECT s.*,x.provider,x.status AS clearance_status,x.effective_at,x.expires_at,x.permitted_fields FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id WHERE s.id=$1 FOR SHARE OF s,x",

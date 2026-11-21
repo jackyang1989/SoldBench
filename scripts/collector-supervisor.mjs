@@ -120,7 +120,7 @@ async function refreshHealthReport(lock, db, sourceId, state) {
     [sourceId],
   );
   if (row.recent) return "recent";
-  await collectorHealth(db, sourceId, { persist: true });
+  await collectorHealth(db, sourceId, { persist: true, automatic: true });
   return "recorded";
 }
 
@@ -136,17 +136,23 @@ async function recordProgress(
   lock,
   sourceId,
   phase,
-  { expectedMs = null, jobId = null, lane = null, summary = null } = {},
+  { expectedMs = null, jobId = null, lane = null, summary = null, healthReport = null } = {},
 ) {
   await lock.query(
     `WITH clock AS (SELECT clock_timestamp() AS t)
      INSERT INTO collector_supervisor_state(source_id,phase,checked_at,expected_progress_at,last_cycle_at,job_id,lane,cycle_summary)
-     SELECT $1,$2,t,t+$3::int*interval '1 millisecond',CASE WHEN $6::jsonb IS NOT NULL THEN t END,$4,$5,$6 FROM clock
+     SELECT $1,$2,t,t+$3::int*interval '1 millisecond',CASE WHEN $6::jsonb IS NOT NULL THEN t END,$4,$5,
+       CASE WHEN $6::jsonb IS NOT NULL AND $7::text IS NOT NULL
+         THEN $6::jsonb || jsonb_build_object('healthReport',jsonb_build_object('status',$7::text,'checkedAt',t))
+         ELSE $6::jsonb END
+     FROM clock
      ON CONFLICT(source_id) DO UPDATE SET phase=excluded.phase,checked_at=excluded.checked_at,
        expected_progress_at=excluded.expected_progress_at,job_id=excluded.job_id,lane=excluded.lane,
        last_cycle_at=coalesce(excluded.last_cycle_at,collector_supervisor_state.last_cycle_at),
-       cycle_summary=coalesce(excluded.cycle_summary,collector_supervisor_state.cycle_summary)`,
-    [sourceId, phase, expectedMs, jobId, lane, summary ? JSON.stringify(summary) : null],
+       cycle_summary=CASE WHEN excluded.cycle_summary IS NULL THEN collector_supervisor_state.cycle_summary
+         ELSE jsonb_strip_nulls(jsonb_build_object('healthReport',collector_supervisor_state.cycle_summary->'healthReport'))
+              || excluded.cycle_summary END`,
+    [sourceId, phase, expectedMs, jobId, lane, summary ? JSON.stringify(summary) : null, healthReport],
   );
 }
 
@@ -412,7 +418,11 @@ async function run(args) {
           ...(scheduled && { scheduled }),
           queues,
         };
-        await recordProgress(lock, sourceId, "waiting", { expectedMs: interval + 5000, summary });
+        await recordProgress(lock, sourceId, "waiting", {
+          expectedMs: interval + 5000,
+          summary,
+          healthReport,
+        });
         console.log(JSON.stringify({ ...envelope(sourceId), ...summary, maintenance, healthReport, cycles }));
         if (!watch) break;
         await wait(interval, signal);

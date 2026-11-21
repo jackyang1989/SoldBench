@@ -654,6 +654,15 @@ test("watcher captures current health from PostgreSQL and avoids duplicate repor
   const inspect = async (expected) => {
     const watcher = launch();
     await waitFor(() => watcher.output.includes(`"healthReport":"${expected}"`));
+    await waitFor(() => watcher.output.includes('"healthReport":null'));
+    const {
+      rows: [state],
+    } = await db.query(
+      "SELECT cycle_summary->'healthReport' AS health FROM collector_supervisor_state WHERE source_id=$1",
+      [sourceId],
+    );
+    assert.equal(state.health.status, expected);
+    assert.ok(Number.isFinite(Date.parse(state.health.checkedAt)));
     assert.equal(watcher.child.kill("SIGTERM"), true);
     assert.deepEqual(await watcher.exited, { code: 0, signal: null });
   };
@@ -676,6 +685,44 @@ test("watcher captures current health from PostgreSQL and avoids duplicate repor
   await new CollectorStore(db).revokeSource(sourceId, "synthetic_health_test_revoked");
   await inspect("unavailable");
   assert.equal((await reports()).length, 2);
+});
+
+test("a locked health report write times out without stopping supervision and is retried on restart", async () => {
+  const spool = await root();
+  const now = (await db.query("SELECT clock_timestamp() AS t")).rows[0].t.toISOString();
+  const { sourceId } = await provisionFixtureSource(db, now);
+  const launch = () =>
+    start(
+      "scripts/collector-supervisor.mjs",
+      [`--source=${sourceId}`, `--spool=${spool}`, "--watch=true", "--interval-ms=250"],
+      { MEDIA_ROOT: join(spool, "media") },
+    );
+  const locker = await db.connect();
+  let watcher;
+  try {
+    await locker.query("BEGIN");
+    await locker.query("LOCK TABLE collector_health_snapshots IN SHARE MODE");
+    watcher = launch();
+    await waitFor(() => watcher.output.includes('"healthReport":"failed"'));
+    await waitFor(() => watcher.output.includes('"healthReport":null'));
+    assert.equal(watcher.child.exitCode, null);
+    const {
+      rows: [last],
+    } = await locker.query(
+      "SELECT cycle_summary#>>'{healthReport,status}' AS status FROM collector_supervisor_state WHERE source_id=$1",
+      [sourceId],
+    );
+    assert.equal(last.status, "failed");
+    assert.equal(watcher.child.kill("SIGTERM"), true);
+    assert.deepEqual(await watcher.exited, { code: 0, signal: null });
+  } finally {
+    await locker.query("ROLLBACK");
+    locker.release();
+  }
+  const recovered = launch();
+  await waitFor(() => recovered.output.includes('"healthReport":"recorded"'));
+  assert.equal(recovered.child.kill("SIGTERM"), true);
+  assert.deepEqual(await recovered.exited, { code: 0, signal: null });
 });
 
 test("supervisor stays running with offline spool absent, expires missing work and resumes when files return", async () => {
