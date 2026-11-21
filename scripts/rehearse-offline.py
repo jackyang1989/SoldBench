@@ -251,7 +251,54 @@ try {
     return verify_restored
 
 
-def restore(run, root, environment, source_id, boot, shutdown, verify_restored=None):
+def prepare_spool_retention_probe(run, root, demo):
+    spool = root / ".local"
+    script = "scripts/collector-spool-cleanup.mjs"
+    if not (root / script).is_file():
+        raise ValueError("The runtime archive does not contain the collector spool maintenance command")
+    fixture = json.loads(run("node", "scripts/collector-html-demo.mjs"))
+    if (fixture["sourceId"] == demo["sourceId"] or fixture["status"] != "completed"
+            or fixture["pageCount"] != 2 or fixture["externalNetworkRequests"] != 0):
+        raise ValueError("Unexpected fixture for the spool retention rehearsal")
+    expired_path = Path(fixture["artifactPath"])
+    other_path = Path(demo["artifactPath"])
+    expired_bytes = expired_path.read_bytes()
+    other_bytes = other_path.read_bytes()
+    command = ("node", script, f"--source={fixture['sourceId']}", f"--spool={spool}")
+    audit = json.loads(run(*command, "--audit-retention"))
+    if audit["retention"]["currentEvidence"] != {"files": 1, "bytes": str(len(expired_bytes))}:
+        raise ValueError("The spool retention fixture is missing current response evidence")
+    expire = """
+import { database } from '@soldbench/db';
+const db = database(process.env.DATABASE_URL);
+try {
+  const marked = await db.query(
+    "UPDATE source_observations SET retention_until=clock_timestamp() WHERE source_id=$1",
+    [process.argv[1]],
+  );
+  if (marked.rowCount !== 2) throw new Error('collector_spool_expiry_fixture_pages_mismatch');
+} finally {
+  await db.end();
+}
+"""
+    run("node", "--input-type=module", "--eval", expire, fixture["sourceId"])
+
+    def verify_restored():
+        restored = json.loads(run(*command, "--audit-retention"))
+        if (restored["retention"]["expiredEvidence"] != {"files": 1, "bytes": str(len(expired_bytes))}
+                or expired_path.read_bytes() != expired_bytes or other_path.read_bytes() != other_bytes):
+            raise ValueError("Restore did not preserve the response packs and their database expiry evidence")
+        removed = json.loads(run(*command, "--prune-expired"))
+        repeated = json.loads(run(*command, "--prune-expired"))
+        if (removed["pruneExpiredOnly"] is not True or removed["removed"] != 1
+                or repeated["removed"] != 0 or expired_path.exists() or other_path.read_bytes() != other_bytes):
+            raise ValueError("Restored response pack cleanup did not respect the expired source boundary")
+        return {"expired_response_packages_removed": 1, "repeat_removed": 0, "other_source_preserved": True}
+
+    return verify_restored
+
+
+def restore(run, root, environment, source_id, boot, shutdown, verify_restored=None, verify_spool=None):
     pg = Path(run("pg_config", "--bindir").strip())
     authority = environment["DATABASE_URL"]
     snapshot = root / "before-revocation.dump"
@@ -292,6 +339,7 @@ try {
     already = json.loads(run(*replay, str(checkpoint)))
     if applied.get("sources_quarantined") != 1 or already.get("sources_quarantined") != 0:
         raise ValueError("Source revocation checkpoint did not replay once")
+    spool_retention = verify_spool() if verify_spool is not None else None
     inspect = ["node", "scripts/collector-report.mjs", f"--source={source_id}", "--check-media=8"]
     withheld = json.loads(run(*inspect))
     media = withheld["media"]
@@ -332,12 +380,15 @@ try {
         "billing_integrity_verified": True if before_billing is not None else None,
         "collector_evidence": collector_evidence,
         "response_packages_removed": spool_removed,
+        "spool_retention": spool_retention,
         "authorized_snapshot_verified_after_restore": True if verify_restored is not None else None,
         "production_recovery_objectives_verified": False,
     }
 
 
-def exercise(source, output, restore_backup=False, clients=False):
+def exercise(source, output, restore_backup=False, clients=False, require_spool_retention=False):
+    if require_spool_retention and not restore_backup:
+        raise ValueError("Spool retention verification requires the restore rehearsal")
     original = BUNDLE.verify(source)
     if clients and original["schema"] != BUNDLE.SCHEMA:
         raise ValueError("Use the original client rehearsal for a v1 runtime archive")
@@ -422,8 +473,9 @@ def exercise(source, output, restore_backup=False, clients=False):
                         run, workspace, opener, origin, processes, start,
                     )
                 if restore_backup:
+                    verify_spool = prepare_spool_retention_probe(run, workspace, demo) if require_spool_retention else None
                     evidence["restore"] = restore(
-                        run, workspace, environment, demo["sourceId"], boot, shutdown, verify_restored,
+                        run, workspace, environment, demo["sourceId"], boot, shutdown, verify_restored, verify_spool,
                     )
                 return evidence
             finally:
@@ -440,9 +492,10 @@ def main():
     parser.add_argument("--log", required=True, type=Path)
     parser.add_argument("--restore", action="store_true")
     parser.add_argument("--clients", action="store_true")
+    parser.add_argument("--require-spool-retention", action="store_true")
     args = parser.parse_args()
     try:
-        print(json.dumps(exercise(args.archive, args.log, args.restore, args.clients)))
+        print(json.dumps(exercise(args.archive, args.log, args.restore, args.clients, args.require_spool_retention)))
     except (ValueError, OSError, tarfile.TarError, subprocess.TimeoutExpired) as error:
         parser.exit(1, f"{error}\n")
 
