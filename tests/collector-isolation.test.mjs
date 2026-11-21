@@ -297,16 +297,32 @@ test("supervisor schedules eligible offline plans once and processes the publish
   assert.equal(final.length, 2);
   assert.equal(final.find((row) => row.plan_id === jsonPlan).job_id, jobId);
   assert.equal(final.find((row) => row.plan_id === htmlPlan).status, "enqueued");
-  const htmlHandoff = handoff(
-    "--action=package",
-    `--job=${final.find((row) => row.plan_id === htmlPlan).job_id}`,
-    `--template=${path}`,
-  );
+  const htmlJobId = final.find((row) => row.plan_id === htmlPlan).job_id;
+  const htmlHandoff = handoff("--action=package", `--job=${htmlJobId}`, `--template=${path}`);
   assert.equal((await htmlHandoff.exited).code, 1);
   assert.match(htmlHandoff.errors, /collector_handoff_requires_original_html_response/);
   const completed = await store.view(jobId);
   assert.equal(completed.page_count, 2);
   assert.equal(completed.request_count, 3);
+  const previousJsonPage = fixtureResponse({
+    schema: "soldbench.synthetic-page.v1",
+    synthetic: true,
+    sourceId: source.sourceId,
+    queryHash: completed.query_hash,
+    asOf: completed.as_of.toISOString(),
+    cursor: "start",
+    nextCursor: "p2",
+    records: template.pages[0].records.map((row) => ({
+      ...row,
+      candidate: { ...row.candidate, sourceId: source.sourceId },
+    })),
+    empty: false,
+  });
+  assert.equal(
+    (await db.query("SELECT raw_hash FROM collector_pages WHERE job_id=$1 AND cursor='start'", [jobId]))
+      .rows[0].raw_hash,
+    digest(previousJsonPage.bytes),
+  );
   assert.equal(
     (
       await db.query("SELECT count(*)::int n FROM listing_images WHERE source_id=$1 AND state='available'", [
@@ -315,6 +331,71 @@ test("supervisor schedules eligible offline plans once and processes the publish
     ).rows[0].n,
     1,
   );
+  const htmlJob = await store.view(htmlJobId);
+  const rawHtml = (await readFile("tests/fixtures/html/search.html", "utf8"))
+    .replace('data-source-id="SOURCE_ID"', `data-source-id="${source.sourceId}"`)
+    .replace('data-query-hash="QUERY_HASH"', `data-query-hash="${htmlJob.query_hash}"`)
+    .replace('data-as-of="2026-11-16T12:00:00Z"', `data-as-of="${htmlJob.as_of.toISOString()}"`);
+  const htmlFile = join(producer, "scheduled-html.json");
+  const htmlPage = (body) => ({ cursor: "start", bytesBase64: Buffer.from(body).toString("base64") });
+  const htmlTemplate = {
+    schema: "soldbench.collector-html-responses.v1",
+    synthetic: true,
+    profile,
+    pages: [htmlPage(rawHtml)],
+    images: [
+      {
+        url: "https://images.example.test/primary-large.png",
+        contentType: "image/png",
+        bytesBase64: image.toString("base64"),
+      },
+    ],
+  };
+  async function packageHtml(input) {
+    await writeFile(htmlFile, JSON.stringify(input));
+    const result = handoff(
+      "--action=package",
+      `--job=${htmlJobId}`,
+      `--spool=${spool}`,
+      `--template=${htmlFile}`,
+    );
+    const { code } = await result.exited;
+    return { code, output: result.output, errors: result.errors };
+  }
+  for (const [changes, reason] of [
+    [{ profile: { ...profile, revision: profile.revision + 1 } }, "collector_handoff_profile_mismatch"],
+    [{ pages: [htmlPage(rawHtml.replace(htmlJob.query_hash, "0".repeat(64)))] }, "html_page_binding_invalid"],
+    [
+      { pages: [htmlPage(rawHtml.replace('data-next-cursor=""', 'data-next-cursor="missing-page"'))] },
+      "fixture_template_page_chain_invalid",
+    ],
+    [
+      { images: [{ ...htmlTemplate.images[0], url: "https://images.example.test/gallery.png" }] },
+      "fixture_template_image_invalid",
+    ],
+  ]) {
+    const rejected = await packageHtml({ ...htmlTemplate, ...changes });
+    assert.equal(rejected.code, 1);
+    assert.equal(JSON.parse(rejected.errors).error, reason);
+  }
+  const runBinding = (
+    await db.query("SELECT fixture_artifact_hash FROM collector_runs WHERE id=$1", [htmlJob.collector_run_id])
+  ).rows[0];
+  assert.equal(runBinding.fixture_artifact_hash, null);
+  const accepted = await packageHtml(htmlTemplate);
+  assert.equal(accepted.code, 0, accepted.errors);
+  assert.equal((await packageHtml(htmlTemplate)).output, accepted.output);
+  const htmlRunner = run();
+  assert.equal((await htmlRunner.exited).code, 0, htmlRunner.errors);
+  assert.equal((await store.view(htmlJobId)).status, "completed");
+  const archived = (
+    await db.query(
+      `SELECT p.raw_hash,i.state FROM collector_pages p JOIN listing_images i
+       ON i.observation_id=p.observation_id AND i.source_id=p.source_id WHERE p.job_id=$1`,
+      [htmlJobId],
+    )
+  ).rows;
+  assert.deepEqual(archived, [{ raw_hash: digest(Buffer.from(rawHtml)), state: "available" }]);
 });
 
 test("fixture intake replays equal content and leaves a conflicting file untouched", async () => {

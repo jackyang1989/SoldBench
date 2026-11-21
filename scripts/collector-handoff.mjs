@@ -1,5 +1,10 @@
 import { resolve } from "node:path";
-import { createFixtureArtifact, fixtureResponse, loadFixtureArtifact } from "@soldbench/collector";
+import {
+  CollectorStore,
+  createFixtureArtifact,
+  fixtureResponse,
+  loadFixtureArtifact,
+} from "@soldbench/collector";
 import { assertLocalDatabaseUrl, database, prepareDatabase } from "@soldbench/db";
 import { loadConfig } from "@soldbench/shared";
 import { fixtureJobId, readFixtureTemplate } from "./collector-fixture-file.mjs";
@@ -18,9 +23,57 @@ const selection = `SELECT j.id "jobId",j.query_hash "queryHash",j.as_of "asOf",j
     AND (x.effective_at IS NULL OR x.effective_at<=now()) AND (x.expires_at IS NULL OR x.expires_at>now())
     AND j.permission_epoch=s.permission_epoch AND j.expires_at>now() AND j.status IN ('queued','retry','running')`;
 
-function packageTemplate(input, binding) {
+const jsonSchema = "soldbench.collector-json-responses.v1";
+const htmlSchema = "soldbench.collector-html-responses.v1";
+
+function decodeBytes(encoded, reason) {
+  if (typeof encoded !== "string") throw new Error(reason);
+  const bytes = Buffer.from(encoded, "base64");
+  if (!bytes.length || bytes.toString("base64") !== encoded) throw new Error(reason);
+  return bytes;
+}
+
+function jsonPage(page, binding) {
+  if (!Array.isArray(page.records)) throw new Error("invalid_fixture_template");
+  const records = page.records.map((row) => {
+    if (
+      !row?.candidate ||
+      (row.candidate.sourceId !== undefined && row.candidate.sourceId !== binding.sourceId)
+    )
+      throw new Error("fixture_template_candidate_source_mismatch");
+    return { ...row, candidate: { ...row.candidate, sourceId: binding.sourceId } };
+  });
+  return {
+    records,
+    nextCursor: page.nextCursor,
+    response: fixtureResponse({
+      schema: "soldbench.synthetic-page.v1",
+      synthetic: true,
+      sourceId: binding.sourceId,
+      queryHash: binding.queryHash,
+      asOf: binding.asOf,
+      cursor: binding.cursor,
+      nextCursor: page.nextCursor,
+      records,
+      empty: records.length === 0,
+      ...(page.sourceReported !== undefined && { sourceReported: page.sourceReported }),
+    }),
+  };
+}
+
+function htmlPage(page, binding, store) {
+  const bytes = decodeBytes(page.bytesBase64, "fixture_template_html_page_invalid");
+  const parsed = store.parsePage(bytes, binding);
+  return {
+    records: parsed.records,
+    nextCursor: parsed.nextCursor,
+    response: { status: 200, contentType: "text/html; charset=utf-8", bytes },
+  };
+}
+
+function packageTemplate(input, binding, htmlStore) {
   if (
-    input?.schema !== "soldbench.collector-json-responses.v1" ||
+    input?.schema !== (htmlStore ? htmlSchema : jsonSchema) ||
     input.synthetic !== true ||
     !Array.isArray(input.pages) ||
     input.pages.length < 1 ||
@@ -39,47 +92,43 @@ function packageTemplate(input, binding) {
       frames.has(`page:${page.cursor}`)
     )
       throw new Error("fixture_template_page_chain_invalid");
-    if (!Array.isArray(page.records)) throw new Error("invalid_fixture_template");
-    const records = page.records.map((row) => {
-      if (
-        !row?.candidate ||
-        (row.candidate.sourceId !== undefined && row.candidate.sourceId !== binding.sourceId)
-      )
-        throw new Error("fixture_template_candidate_source_mismatch");
-      if (row.primaryImage) referencedImages.add(row.primaryImage.url);
-      return { ...row, candidate: { ...row.candidate, sourceId: binding.sourceId } };
-    });
-    const body = fixtureResponse({
-      schema: "soldbench.synthetic-page.v1",
-      synthetic: true,
+    const pageBinding = {
       sourceId: binding.sourceId,
       queryHash: binding.queryHash,
       asOf: binding.asOf,
       cursor: page.cursor,
-      nextCursor: page.nextCursor,
-      records,
-      empty: records.length === 0,
-      ...(page.sourceReported !== undefined && { sourceReported: page.sourceReported }),
-    });
-    frames.set(`page:${page.cursor}`, [body]);
-    expectedCursor = page.nextCursor;
+    };
+    const { records, nextCursor, response } = htmlStore
+      ? htmlPage(page, pageBinding, htmlStore)
+      : jsonPage(page, pageBinding);
+    for (const row of records) {
+      if (row.primaryImage) referencedImages.add(row.primaryImage.url);
+    }
+    frames.set(`page:${page.cursor}`, [response]);
+    expectedCursor = nextCursor;
   }
   if (expectedCursor !== null) throw new Error("fixture_template_page_chain_invalid");
   for (const image of input.images ?? []) {
     if (
-      typeof image?.bytesBase64 !== "string" ||
-      !referencedImages.delete(image.url) ||
+      !referencedImages.delete(image?.url) ||
       typeof image.contentType !== "string" ||
       !image.contentType.startsWith("image/")
     )
       throw new Error("fixture_template_image_invalid");
-    const bytes = Buffer.from(image.bytesBase64, "base64");
-    if (!bytes.length || bytes.toString("base64") !== image.bytesBase64)
-      throw new Error("fixture_template_image_invalid");
+    const bytes = decodeBytes(image.bytesBase64, "fixture_template_image_invalid");
     frames.set(`image:${image.url}`, [{ status: 200, contentType: image.contentType, bytes }]);
   }
   if (referencedImages.size) throw new Error("fixture_template_image_missing");
-  return loadFixtureArtifact(Buffer.from(JSON.stringify(createFixtureArtifact(binding, frames))));
+  return loadFixtureArtifact(
+    Buffer.from(
+      JSON.stringify(
+        createFixtureArtifact(
+          htmlStore ? { ...binding, htmlProfile: htmlStore.htmlProfile } : binding,
+          frames,
+        ),
+      ),
+    ),
+  );
 }
 
 let db;
@@ -131,14 +180,22 @@ try {
   } else {
     const job = (await db.query(`${selection} AND j.id=$2`, [sourceId, jobId])).rows[0];
     if (!job) throw new Error("collector_handoff_job_unavailable");
-    if (job.profileHash) throw new Error("collector_handoff_requires_original_html_response");
     const template = await readFixtureTemplate(resolve(options.get("template")));
-    const loaded = packageTemplate(template, {
-      sourceId,
-      jobId,
-      queryHash: job.queryHash,
-      asOf: job.asOf.toISOString(),
-    });
+    const html = template?.schema === htmlSchema;
+    if (job.profileHash && !html) throw new Error("collector_handoff_requires_original_html_response");
+    const htmlStore = html ? new CollectorStore(db, undefined, { htmlProfile: template.profile }) : undefined;
+    if (htmlStore && (!htmlStore.htmlProfile || htmlStore.profileHash !== job.profileHash))
+      throw new Error("collector_handoff_profile_mismatch");
+    const loaded = packageTemplate(
+      template,
+      {
+        sourceId,
+        jobId,
+        queryHash: job.queryHash,
+        asOf: job.asOf.toISOString(),
+      },
+      htmlStore,
+    );
     await intakeFixture(
       db,
       resolve(options.get("spool") ?? process.env.COLLECTOR_DEMO_DIR ?? ".local"),
