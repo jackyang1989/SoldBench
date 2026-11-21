@@ -12,7 +12,8 @@ import { intakeFixture } from "./collector-intake.mjs";
 import { localDatabaseUrl } from "./local-db.mjs";
 
 const selection = `SELECT j.id "jobId",j.query_hash "queryHash",j.as_of "asOf",j.expires_at "expiresAt",j.status,
-    o.plan_id "planId",o.id "occurrenceId",r.parser_profile_hash "profileHash",r.fixture_artifact_hash "artifactHash"
+    o.plan_id "planId",o.id "occurrenceId",r.parser_profile_hash "profileHash",r.fixture_artifact_hash "artifactHash",
+    CASE WHEN j.status='completed' THEN 'primary_image_retry' ELSE 'pages' END "workKind"
   FROM collector_jobs j
   JOIN collector_runs r ON (r.id,r.source_id)=(j.collector_run_id,j.source_id)
   JOIN collector_refresh_occurrences o ON o.source_id=j.source_id AND j.run_key='refresh:'||o.id::text
@@ -21,7 +22,19 @@ const selection = `SELECT j.id "jobId",j.query_hash "queryHash",j.as_of "asOf",j
   WHERE j.source_id=$1 AND s.status='active' AND s.access_method='offline_fixture'
     AND x.provider='synthetic_fixture' AND x.status IN ('draft','reviewed','active')
     AND (x.effective_at IS NULL OR x.effective_at<=now()) AND (x.expires_at IS NULL OR x.expires_at>now())
-    AND j.permission_epoch=s.permission_epoch AND j.expires_at>now() AND j.status IN ('queued','retry','running')`;
+    AND j.permission_epoch=s.permission_epoch
+    AND (
+      (j.expires_at>now() AND j.status IN ('queued','retry','running'))
+      OR (j.status='completed' AND r.fixture_artifact_hash IS NOT NULL AND EXISTS(
+        SELECT 1 FROM collector_image_jobs t
+        JOIN listing_images i ON i.id=t.image_id AND i.source_id=t.source_id
+        JOIN collector_pages p ON p.observation_id=i.observation_id AND p.source_id=i.source_id
+        JOIN source_observations e ON e.id=i.observation_id AND e.source_id=i.source_id
+        WHERE t.parent_job_id=j.id AND p.job_id=j.id AND t.source_id=j.source_id
+          AND t.status IN ('retry','running') AND t.expires_at>now() AND t.attempts<3
+          AND i.state='pending' AND i.permission_epoch=s.permission_epoch AND e.retention_until>now()
+      ))
+    )`;
 
 const jsonSchema = "soldbench.collector-json-responses.v1";
 const htmlSchema = "soldbench.collector-html-responses.v1";

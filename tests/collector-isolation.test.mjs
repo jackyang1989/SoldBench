@@ -238,6 +238,7 @@ test("supervisor preserves viable HTML and JSON slots while accounting for a mis
 
 test("supervisor schedules eligible offline plans once and processes the published response", async () => {
   const spool = await root();
+  const mediaRoot = join(spool, "media");
   const now = (await db.query("SELECT clock_timestamp() t")).rows[0].t.toISOString();
   const source = await provisionFixtureSource(db, now);
   const store = new CollectorStore(db);
@@ -255,7 +256,7 @@ test("supervisor schedules eligible offline plans once and processes the publish
   const htmlPlan = await new CollectorRefresh(htmlStore).create(setup("Synthetic collector HTML"));
   const command = [`--source=${source.sourceId}`, `--spool=${spool}`, "--refresh=true"];
   const run = (...flags) =>
-    start("scripts/collector-supervisor.mjs", [...command, ...flags], { MEDIA_ROOT: spool });
+    start("scripts/collector-supervisor.mjs", [...command, ...flags], { MEDIA_ROOT: mediaRoot });
   const first = run("--watch=true", "--interval-ms=250");
   await waitFor(() => first.output.includes('"enqueued":1'));
   const competing = run();
@@ -284,6 +285,7 @@ test("supervisor schedules eligible offline plans once and processes the publish
   assert.equal(discovered.jobs[0].queryHash, job.query_hash);
   assert.equal(discovered.jobs[0].jobId, jobId);
   assert.equal(discovered.jobs[0].artifactHash, null);
+  assert.equal(discovered.jobs[0].workKind, "pages");
   const producer = await root();
   const path = join(producer, "scheduled-template.json");
   const url = "https://images.example.test/scheduled.png";
@@ -331,9 +333,53 @@ test("supervisor schedules eligible offline plans once and processes the publish
   const uploads = [handoff(...packageArgs), handoff(...packageArgs)];
   for (const upload of uploads) assert.equal((await upload.exited).code, 0, upload.errors);
   assert.deepEqual(JSON.parse(uploads[0].output), JSON.parse(uploads[1].output));
+  await writeFile(mediaRoot, "image store unavailable in this fixture cycle");
   const resumed = run();
   assert.equal((await resumed.exited).code, 0, resumed.errors);
   assert.equal((await store.view(jobId)).status, "completed");
+  assert.equal((await store.view(jobId)).page_count, 2);
+  const originalPack = join(spool, `collector-fixture-${jobId}.json`);
+  const originalBytes = await readFile(originalPack);
+  await rm(originalPack);
+  await rm(mediaRoot);
+  await db.query("UPDATE collector_image_jobs SET available_at=now() WHERE parent_job_id=$1", [jobId]);
+  const missing = run();
+  assert.equal((await missing.exited).code, 0, missing.errors);
+  assert.equal(JSON.parse(missing.output).queues.images.artifactUnavailable, 1);
+  const repair = handoff();
+  assert.equal((await repair.exited).code, 0, repair.errors);
+  const [repairJob] = JSON.parse(repair.output).jobs;
+  assert.equal(repairJob.jobId, jobId);
+  assert.equal(repairJob.status, "completed");
+  assert.equal(repairJob.workKind, "primary_image_retry");
+  assert.equal(repairJob.artifactHash, JSON.parse(uploads[0].output).artifactHash);
+  await writeFile(
+    path,
+    JSON.stringify({
+      ...template,
+      images: [{ ...template.images[0], bytesBase64: Buffer.from("different bytes").toString("base64") }],
+    }),
+  );
+  const different = handoff(...packageArgs);
+  assert.equal((await different.exited).code, 1);
+  assert.match(different.errors, /fixture_artifact_changed/);
+  await assert.rejects(readFile(originalPack), { code: "ENOENT" });
+  await writeFile(path, JSON.stringify(template));
+  const restored = handoff(...packageArgs);
+  assert.equal((await restored.exited).code, 0, restored.errors);
+  assert.equal(JSON.parse(restored.output).artifactHash, repairJob.artifactHash);
+  assert.deepEqual(await readFile(originalPack), originalBytes);
+  const mediaRetry = run();
+  assert.equal((await mediaRetry.exited).code, 0, mediaRetry.errors);
+  assert.ok(
+    JSON.parse(mediaRetry.output).cycles.some(
+      (cycle) =>
+        cycle.lane === "images" && cycle.jobId === jobId && cycle.mediaResults[0]?.status === "completed",
+    ),
+  );
+  const exhausted = handoff(...packageArgs);
+  assert.equal((await exhausted.exited).code, 1);
+  assert.match(exhausted.errors, /collector_handoff_job_unavailable/);
   const html = run(`--refresh-profile=${profilePath}`);
   assert.equal((await html.exited).code, 0, html.errors);
   assert.equal(JSON.parse(html.output).scheduled.enqueued, 1);
