@@ -513,6 +513,55 @@ test("fixture intake replays equal content and leaves a conflicting file untouch
   assert.deepEqual(await readFile(receipt.artifactPath), input);
 });
 
+test("spool retention audit counts verified bytes without touching pending or expired packs", async () => {
+  const spool = await root();
+  const prepared = await preparedDemo(spool);
+  const bytes = await readFile(prepared.artifactPath);
+  const source = `--source=${prepared.sourceId}`;
+  const directory = `--spool=${spool}`;
+  const audit = async () => {
+    const run = start("scripts/collector-spool-cleanup.mjs", [source, directory, "--audit-retention"]);
+    assert.equal((await run.exited).code, 0, run.errors);
+    const report = JSON.parse(run.output);
+    assert.equal(report.auditOnly, true);
+    assert.equal(report.removed, 0);
+    assert.ok(Number.isFinite(Date.parse(report.auditedAt)));
+    return report.retention;
+  };
+  const size = String(bytes.length);
+  const extra = `${prepared.artifactPath}.${randomUUID()}.tmp`;
+  await link(prepared.artifactPath, extra);
+  assert.deepEqual((await audit()).pendingWork, { files: 2, bytes: size });
+  await rm(extra);
+  const mediaRoot = join(spool, "media");
+  await writeFile(mediaRoot, "simulated unavailable media directory");
+  const supervise = async () => {
+    const run = start("scripts/collector-supervisor.mjs", [source, directory], { MEDIA_ROOT: mediaRoot });
+    assert.equal((await run.exited).code, 0, run.errors);
+  };
+  await supervise();
+  assert.equal((await new CollectorStore(db).view(prepared.jobId)).status, "completed");
+  assert.deepEqual((await audit()).pendingWork, { files: 1, bytes: size });
+  await rm(mediaRoot);
+  await db.query("UPDATE collector_image_jobs SET available_at=now() WHERE parent_job_id=$1", [
+    prepared.jobId,
+  ]);
+  await supervise();
+  assert.deepEqual((await audit()).currentEvidence, { files: 1, bytes: size });
+  await db.query("UPDATE source_observations SET retention_until=now() WHERE source_id=$1", [
+    prepared.sourceId,
+  ]);
+  assert.deepEqual((await audit()).expiredEvidence, { files: 1, bytes: size });
+  assert.deepEqual(await readFile(prepared.artifactPath), bytes);
+  await db.query("UPDATE source_observations SET retention_until=NULL WHERE source_id=$1", [
+    prepared.sourceId,
+  ]);
+  assert.deepEqual((await audit()).unknown, { files: 1, bytes: size });
+  await new CollectorStore(db).revokeSource(prepared.sourceId, "synthetic_retention_audit");
+  assert.deepEqual((await audit()).revoked, { files: 1, bytes: size });
+  assert.deepEqual(await readFile(prepared.artifactPath), bytes);
+});
+
 test("revocation blocks new fixture publication and removes only source-bound response files", async () => {
   const spool = await root(),
     first = await preparedDemo(spool),

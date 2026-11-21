@@ -36,7 +36,7 @@ async function groupFiles(directory, pattern, max) {
   return files;
 }
 
-async function clearGroup(group, sourceId, job, counts) {
+async function inspectGroup(group, sourceId, job, counts, retained) {
   const first = group[0];
   try {
     if (group.some(({ stat }) => stat.nlink !== BigInt(group.length)))
@@ -65,6 +65,11 @@ async function clearGroup(group, sourceId, job, counts) {
     counts.unverified += group.length;
     return;
   }
+  if (retained) {
+    retained.files += group.length;
+    retained.bytes += first.stat.size;
+    return;
+  }
   for (const [index, entry] of group.entries()) {
     try {
       const latest = await optionalStat(entry.path);
@@ -86,7 +91,7 @@ async function clearGroup(group, sourceId, job, counts) {
   }
 }
 
-async function clearJobFiles(files, sourceId, job, counts) {
+async function inspectJobFiles(files, sourceId, job, counts, retained) {
   const groups = new Map();
   for (const file of files) {
     try {
@@ -103,19 +108,44 @@ async function clearJobFiles(files, sourceId, job, counts) {
       counts.unverified++;
     }
   }
-  for (const group of groups.values()) await clearGroup(group, sourceId, job, counts);
+  for (const group of groups.values()) await inspectGroup(group, sourceId, job, counts, retained);
 }
 
-export async function clearRevokedSpool(db, spool, sourceId) {
+function retentionClass(source, job) {
+  if (source.status === "revoked") return "revoked";
+  if (job.pending_work) return "pendingWork";
+  if (!job.fixture_artifact_hash) return "unknown";
+  if (job.current_evidence) return "currentEvidence";
+  return job.known_evidence ? "expiredEvidence" : "unknown";
+}
+
+const retentionFacts = `,
+  ((j.status IN ('queued','retry','running') AND
+    (j.expires_at>now() OR (j.status='running' AND j.lease_until>now())))
+    OR EXISTS(SELECT 1 FROM collector_image_jobs t WHERE t.source_id=j.source_id AND t.parent_job_id=j.id
+        AND ((t.status='retry' AND t.expires_at>now()) OR (t.status='running' AND t.lease_until>now()))))
+    AS pending_work,
+  EXISTS(SELECT 1 FROM source_observations o WHERE o.source_id=j.source_id
+    AND o.collector_run_id=j.collector_run_id AND o.retention_until>now()) AS current_evidence,
+  (EXISTS(SELECT 1 FROM source_observations o WHERE o.source_id=j.source_id
+    AND o.collector_run_id=j.collector_run_id)
+   AND NOT EXISTS(SELECT 1 FROM source_observations o WHERE o.source_id=j.source_id
+    AND o.collector_run_id=j.collector_run_id AND o.retention_until IS NULL)) AS known_evidence`;
+
+async function inspectSpool(db, spool, sourceId, auditRetention) {
   if (!fixtureJobId.test(sourceId)) throw new Error("invalid_collector_cleanup_source");
   return transaction(db, async (c) => {
+    if (auditRetention) await c.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
     const source = await c.query(
-      `SELECT s.id FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id
-       WHERE s.id=$1 AND s.status='revoked' AND s.access_method='offline_fixture'
-         AND x.provider='synthetic_fixture' FOR UPDATE OF s FOR SHARE OF x`,
+      `SELECT s.id,s.status,now() audited_at FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id
+       WHERE s.id=$1 AND s.access_method='offline_fixture' AND x.provider='synthetic_fixture'
+       ${auditRetention ? "" : "AND s.status='revoked' FOR UPDATE OF s FOR SHARE OF x"}`,
       [sourceId],
     );
-    if (!source.rowCount) throw new Error("collector_spool_source_not_revoked");
+    if (!source.rowCount)
+      throw new Error(
+        auditRetention ? "collector_spool_source_unavailable" : "collector_spool_source_not_revoked",
+      );
     if (!(await privateDirectory(spool))) throw new Error("collector_spool_directory_unavailable");
     const incoming = join(spool, "collector-incoming");
     const staged = (await privateDirectory(incoming))
@@ -123,11 +153,18 @@ export async function clearRevokedSpool(db, spool, sourceId) {
       : new Map();
     const temporary = await groupFiles(spool, publicationTemp, 100000);
     const counts = { removed: 0, unverified: 0, absent: 0 };
+    const retention = {
+      pendingWork: { files: 0, bytes: 0n },
+      currentEvidence: { files: 0, bytes: 0n },
+      expiredEvidence: { files: 0, bytes: 0n },
+      unknown: { files: 0, bytes: 0n },
+      revoked: { files: 0, bytes: 0n },
+    };
     let after = null;
     for (;;) {
       const { rows } = await c.query(
-        `SELECT j.id,j.query_hash,j.as_of,r.fixture_artifact_hash FROM collector_jobs j
-           JOIN collector_runs r ON r.id=j.collector_run_id
+        `SELECT j.id,j.query_hash,j.as_of,r.fixture_artifact_hash${auditRetention ? retentionFacts : ""}
+           FROM collector_jobs j JOIN collector_runs r ON r.id=j.collector_run_id AND r.source_id=j.source_id
           WHERE j.source_id=$1 AND ($2::uuid IS NULL OR j.id>$2) ORDER BY j.id LIMIT 100`,
         [sourceId, after],
       );
@@ -139,14 +176,31 @@ export async function clearRevokedSpool(db, spool, sourceId) {
           ...(staged.get(job.id) ?? []),
           ...(temporary.get(job.id) ?? []),
         ];
-        await clearJobFiles(files, sourceId, job, counts);
+        const retained = auditRetention ? retention[retentionClass(source.rows[0], job)] : undefined;
+        await inspectJobFiles(files, sourceId, job, counts, retained);
         staged.delete(job.id);
       }
       after = rows.at(-1).id;
     }
     for (const remaining of staged.values()) counts.unverified += remaining.length;
-    return { mode: "offline_fixture", sourceId, scope: "configured_spool_only", ...counts };
+    const report = { mode: "offline_fixture", sourceId, scope: "configured_spool_only", ...counts };
+    if (!auditRetention) return report;
+    return {
+      ...report,
+      auditOnly: true,
+      auditedAt: source.rows[0].audited_at.toISOString(),
+      retention: Object.fromEntries(
+        Object.entries(retention).map(([key, value]) => [
+          key,
+          { files: value.files, bytes: String(value.bytes) },
+        ]),
+      ),
+    };
   });
+}
+
+export function clearRevokedSpool(db, spool, sourceId) {
+  return inspectSpool(db, spool, sourceId, false);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -154,6 +208,10 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   try {
     const args = new Map();
     for (const arg of process.argv.slice(2)) {
+      if (arg === "--audit-retention" && !args.has(arg)) {
+        args.set(arg, true);
+        continue;
+      }
       const match = /^--(source|spool)=(.+)$/.exec(arg);
       if (!match || args.has(match[1])) throw new Error("invalid_collector_cleanup_argument");
       args.set(match[1], match[2]);
@@ -167,8 +225,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       ...(process.env.SOLDBENCH_TEST_SOCKET ? [process.env.SOLDBENCH_TEST_SOCKET] : []),
     ]);
     db = database(url);
-    await prepareDatabase(db, config.databaseStartup);
-    const report = await clearRevokedSpool(db, resolve(args.get("spool")), args.get("source"));
+    const auditRetention = args.has("--audit-retention");
+    await prepareDatabase(db, auditRetention ? "verify" : config.databaseStartup);
+    const report = await inspectSpool(db, resolve(args.get("spool")), args.get("source"), auditRetention);
     console.log(JSON.stringify(report));
     if (report.unverified) process.exitCode = 2;
   } catch (error) {
