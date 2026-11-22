@@ -1119,6 +1119,7 @@ export function safeCsvCell(value: unknown) {
 }
 
 export * from "./alerts.ts";
+export { AuctionsVerticalService } from "./auctions-vertical.ts";
 export * from "./batch.ts";
 export * from "./best-offer.ts";
 export { CardsVerticalService } from "./cards-vertical.ts";

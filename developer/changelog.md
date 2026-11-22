@@ -1,5 +1,9 @@
 # SoldBench engineering changelog
 
+## 2026-11-22 — V2 auction sales vertical (`goldin_us`, offline)
+
+OpenAPI 1.38.0 adds `/v1/auctions/houses`, `/v1/auctions/{house}/lots`, and `/v1/auctions/{house}/lots/{lot_id}/image` (`TASK-054`, 0 extra credits in synthetic offline build). Selects `goldin_us` as the first auction vertical while leaving `fanatics_collect`, `pristine_auction`, and `myslabs` explicitly deferred (`422`); stores auction session, lot number, grading cert, currency, hammer price, buyer's premium status/bps/minor, all-in total, and tax inclusion separately; keeps unknown buyer's premiums strictly `null` (never zero-filled); rejects mixed hammer vs all-in statistics; and serves private lot images with independent per-house source revocation.
+
 ## 2026-11-22 — V2 structured TCG & graded card vertical (`tcgplayer_us` / `psa_registry`, offline)
 
 OpenAPI 1.37.0 adds `/v1/cards/products` and `/v1/cards/products/{product_id}/valuation` (`TASK-053`, 0 extra credits in synthetic offline build). Enforces canonical structured card product IDs (`tcg_game`, `set_code`, `card_number`, `edition`, `finish`) rather than free-text listing titles, strictly isolates `raw` ungraded sales from `graded` slabs and mismatched graders/editions/grades, separates non-transaction grading population census metadata (`is_sold_transaction: false`, `excluded_from_sold_stats: true`) from sold statistics, and isolates `tcgplayer_us` vs `psa_registry` source revocation with zero unapproved network requests.

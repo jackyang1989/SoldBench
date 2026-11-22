@@ -4,6 +4,7 @@ import type { PaymentLifecycle } from "@soldbench/billing";
 import { type Database, isDatabaseConnectionError } from "@soldbench/db";
 import type {
   AlertWebhookService,
+  AuctionsVerticalService,
   BestOfferVerificationService,
   CardsVerticalService,
   InventoryValuationService,
@@ -19,6 +20,7 @@ import { compress } from "hono/compress";
 import { parseAccept } from "hono/utils/accept";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { mountAlerts } from "./alerts.ts";
+import { mountAuctionsVertical } from "./auctions-vertical.ts";
 import { mountAuth } from "./auth.ts";
 import { mountBatches } from "./batches.ts";
 import { mountBestOffers } from "./best-offers.ts";
@@ -73,6 +75,7 @@ export function createApp(
     regionalSites?: RegionalSiteService;
     secondMarketplace?: SecondMarketplaceService;
     cardsVertical?: CardsVerticalService;
+    auctionsVertical?: AuctionsVerticalService;
   } = {},
 ) {
   const app = new Hono<{ Variables: { requestId: string } }>();
@@ -199,6 +202,7 @@ export function createApp(
   mountRegionalSites(app, config, services.auth, services.query, services.regionalSites);
   mountSecondMarketplace(app, config, services.auth, services.query, services.secondMarketplace);
   mountCardsVertical(app, config, services.auth, services.query, services.cardsVertical);
+  mountAuctionsVertical(app, config, services.auth, services.query, services.auctionsVertical);
   mountHistory(app, config, services.auth, services.query);
   mountMcp(app, config, services.auth, services.query, services.secondMarketplace);
   mountEditorial(app, db, services.query);

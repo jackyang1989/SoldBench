@@ -5819,6 +5819,122 @@ async function showCardsVerticalWorkbench() {
   });
 }
 
+async function showAuctionsVerticalWorkbench() {
+  const housesRes = await api("/v1/auctions/houses");
+  const houses = housesRes.data;
+
+  const formatMoney = (minor, currency = "USD") => {
+    if (minor === null || minor === undefined) return t("N/A (not zero)", "未知（非零）");
+    return new Intl.NumberFormat(document.documentElement.lang || "en-US", {
+      style: "currency",
+      currency,
+      currencyDisplay: "code",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(minor / 100);
+  };
+
+  const overviewCard = element("section", undefined, "card result-card");
+  overviewCard.append(
+    element(
+      "h2",
+      t(
+        "Auction house onboarding catalog (Goldin US first auction vertical)",
+        "拍卖渠道接入目录（首发拍卖闭环：Goldin US）",
+      ),
+    ),
+    element(
+      "p",
+      t(
+        "Hammer price, buyer's premium, and all-in totals are stored separately. Unknown buyer's premium NEVER defaults to zero, and hammer-only lots NEVER mix with all-in totals.",
+        "落槌价、买家佣金与含佣总价分别独立建账与追溯；未知佣金绝不填零，且纯落槌价统计与含佣总价统计严格禁止混算。",
+      ),
+      "small",
+    ),
+  );
+
+  const listEl = element("ul");
+  for (const h of houses) {
+    listEl.append(
+      element(
+        "li",
+        `${h.house_id} · ${h.display_name} (${h.default_currency}) · ${h.selection_status} · ${h.status}`,
+      ),
+    );
+  }
+  overviewCard.append(listEl);
+
+  const formCard = element("section", undefined, "card result-card");
+  formCard.append(
+    element(
+      "h2",
+      t(
+        "Goldin US lot search (hammer vs buyer's premium isolated)",
+        "Goldin US 拍品成交检索（落槌与含佣口径严格隔离）",
+      ),
+    ),
+  );
+  const form = element("form", undefined, "stack");
+
+  const kwInput = element("input");
+  kwInput.maxLength = 120;
+  kwInput.required = true;
+  kwInput.value = "1986 Fleer Jordan";
+  const kwLabel = element("label", t("Auction search keyword", "拍品搜索关键词"));
+  kwLabel.append(kwInput);
+
+  const basisSelect = element("select");
+  for (const [val, lbl] of [
+    [
+      "total_with_premium",
+      t("All-in total with known buyer's premium", "含已知佣金总价 (total_with_premium)"),
+    ],
+    ["hammer_only", t("Hammer price only (hammer_only)", "纯落槌价 (hammer_only)")],
+  ]) {
+    const opt = element("option", lbl);
+    opt.value = val;
+    basisSelect.append(opt);
+  }
+  const basisLabel = element("label", t("Strict pricing basis", "严格单一价格口径"));
+  basisLabel.append(basisSelect);
+
+  const submitBtn = element("button", t("Query Goldin US lots", "查询 Goldin US 拍品"), "btn brand");
+  submitBtn.type = "submit";
+  form.append(kwLabel, basisLabel, submitBtn);
+
+  const resultBox = element("div", undefined, "stack");
+  formCard.append(form, resultBox);
+  output.append(overviewCard, formCard);
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    submitBtn.disabled = true;
+    run(async () => {
+      try {
+        const params = new URLSearchParams({
+          q: kwInput.value.trim(),
+          price_basis: basisSelect.value,
+          limit: "20",
+        });
+        const res = await api(`/v1/auctions/goldin_us/lots?${params}`);
+        const d = res.data;
+        const st = d.stats;
+        resultBox.replaceChildren(
+          element(
+            "p",
+            t(
+              `Auction stats (${st.price_basis} · ${st.currency}): verified=${st.n_price_verified}/${st.n_sold_lots} · median=${formatMoney(st.median_cents, st.currency)} · excluded unknown_premium=${d.excluded_counts.unknown_buyers_premium}`,
+              `拍卖统计（${st.price_basis} · ${st.currency}）：已核验=${st.n_price_verified}/${st.n_sold_lots} · 中位数=${formatMoney(st.median_cents, st.currency)} · 排除未知佣金=${d.excluded_counts.unknown_buyers_premium}`,
+            ),
+          ),
+        );
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+  });
+}
+
 if (page.startsWith("/account"))
   run(async () => {
     const user = await session();
@@ -5844,6 +5960,7 @@ if (page.startsWith("/account"))
     if (page === "/account/sites") return showRegionalSitesWorkbench();
     if (page === "/account/marketplaces") return showSecondMarketplaceWorkbench();
     if (page === "/account/cards") return showCardsVerticalWorkbench();
+    if (page === "/account/auctions") return showAuctionsVerticalWorkbench();
     if (page === "/account/history") return showArchiveHistory();
     if (page === "/account/alerts") return showAlertsWorkstation();
     if (page === "/account/security") return showAccountSecurity();

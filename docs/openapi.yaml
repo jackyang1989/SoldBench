@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.37.0
+  version: 1.38.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -9384,6 +9384,105 @@ paths:
       x-roles: [owner]
       x-scopes: [sold:read]
       x-credit-policy: '0'
+  /v1/auctions/houses:
+    get:
+      operationId: listAuctionHouses
+      summary: List auction-house vertical onboarding candidates (goldin_us selected first auction vs deferred houses) and strict basis policies.
+      security: *id004
+      parameters: [*content_language]
+      responses:
+        '200':
+          description: Auction house catalog entries.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AuctionHouseListResponse'}
+      x-task: TASK-054
+      x-roles: [public, owner]
+      x-credit-policy: '0'
+  /v1/auctions/{house}/lots:
+    get:
+      operationId: getAuctionLots
+      summary: Evaluate auction lot results under strict single basis (total_with_premium OR hammer_only) with non-zeroed unknown buyer premium.
+      security: *id001
+      parameters:
+      - *content_language
+      - name: house
+        in: path
+        required: true
+        schema: {enum: [goldin_us, fanatics_collect, pristine_auction, myslabs]}
+      - name: q
+        in: query
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 120}
+      - name: price_basis
+        in: query
+        required: false
+        schema: {enum: [total_with_premium, hammer_only]}
+      - name: grading_company
+        in: query
+        required: false
+        schema: {enum: [PSA, BGS, CGC, SGC, TAG]}
+      - name: grade_value
+        in: query
+        required: false
+        schema: {type: string, pattern: '^[0-9]+(\.[0-9]+)?$'}
+      - name: limit
+        in: query
+        required: false
+        schema: {type: integer, minimum: 1, maximum: 200}
+      responses:
+        '200':
+          description: Isolated auction statistics and traceable lot rows.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AuctionLotsResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '422': *content_error
+      x-task: TASK-054
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
+  /v1/auctions/{house}/lots/{lot_id}/image:
+    get:
+      operationId: getAuctionLotImage
+      summary: Read an auction lot primary image proxy after rechecking live source, media, and retention rights.
+      security: *id001
+      parameters:
+      - *content_language
+      - name: house
+        in: path
+        required: true
+        schema: {enum: [goldin_us]}
+      - name: lot_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Controlled auction lot image bytes.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: private, no-store
+          content:
+            image/webp:
+              schema: {type: string, format: binary}
+            image/png:
+              schema: {type: string, format: binary}
+            image/jpeg:
+              schema: {type: string, format: binary}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+      x-task: TASK-054
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
 components:
   securitySchemes:
     SupportReceipt:
@@ -16242,6 +16341,86 @@ components:
       type: object
       properties:
         data: {$ref: '#/components/schemas/CardValuationData'}
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    AuctionHouseItem:
+      type: object
+      properties:
+        house_id: {enum: [goldin_us, fanatics_collect, pristine_auction, myslabs]}
+        display_name: {type: string}
+        selection_status: {enum: [selected_first_auction, deferred_candidate]}
+        default_currency: {enum: [USD, GBP, EUR]}
+        premium_disclosure: {type: string}
+        gates:
+          type: object
+          properties:
+            source_gate_passed: {type: boolean}
+            media_gate_passed: {type: boolean}
+            quality_gate_passed: {type: boolean}
+          required: [source_gate_passed, media_gate_passed, quality_gate_passed]
+          additionalProperties: false
+        status: {enum: [preview_offline, gated, active]}
+      required: [house_id, display_name, selection_status, default_currency, premium_disclosure, gates, status]
+      additionalProperties: false
+    AuctionHouseListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/AuctionHouseItem'}
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    AuctionLotsData:
+      type: object
+      properties:
+        auction_house: {const: goldin_us}
+        display_name: {type: string}
+        selection_status: {enum: [selected_first_auction, deferred_candidate]}
+        currency: {type: string}
+        canonical_query_hash: {type: string}
+        credits_charged: {type: integer, const: 0}
+        data_mode: {type: string}
+        basis_policy: {const: strict_single_basis_no_mixing}
+        premium_disclosure: {type: string}
+        data_as_of: {type: string, format: date-time}
+        stats: {type: object, additionalProperties: true}
+        lots:
+          type: array
+          items: {type: object, additionalProperties: true}
+        excluded_counts: {type: object, additionalProperties: {type: integer}}
+      required:
+      - auction_house
+      - display_name
+      - selection_status
+      - currency
+      - canonical_query_hash
+      - credits_charged
+      - data_mode
+      - basis_policy
+      - premium_disclosure
+      - data_as_of
+      - stats
+      - lots
+      - excluded_counts
+      additionalProperties: false
+    AuctionLotsResponse:
+      type: object
+      properties:
+        data: {$ref: '#/components/schemas/AuctionLotsData'}
         meta:
           type: object
           properties:

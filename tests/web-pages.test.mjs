@@ -10,7 +10,12 @@ import { createApp, publishNextScheduledContent } from "@soldbench/api";
 import { fixtureSignature, merchant, PaymentLifecycle } from "@soldbench/billing";
 import { provisionFixtureSource } from "@soldbench/collector";
 import { database, migrate } from "@soldbench/db";
-import { CardsVerticalService, PublicResults, SecondMarketplaceService } from "@soldbench/query";
+import {
+  AuctionsVerticalService,
+  CardsVerticalService,
+  PublicResults,
+  SecondMarketplaceService,
+} from "@soldbench/query";
 import { loadConfig } from "@soldbench/shared";
 import { generate } from "otplib";
 import { measureMobileWeb } from "./helpers/mobile-web.mjs";
@@ -44,6 +49,7 @@ test("prototype-based pages serve both languages, valid private deep links and s
       "/account/sites",
       "/account/marketplaces",
       "/account/cards",
+      "/account/auctions",
       "/account/history",
       "/account/alerts",
       "/account/usage",
@@ -1160,6 +1166,58 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByLabel("标准卡牌产品 ID").selectOption("tcg-pkmn-base-4-1st");
     await page.getByRole("button", { name: "查询卡牌成交与评级数量", exact: true }).click();
     await page.getByText(/评级分布参考（非成交交易 is_sold_transaction=false · 状态=available）/).waitFor();
+    await page.getByRole("link", { name: "English", exact: true }).click();
+    const goldinSource = await provisionFixtureSource(db, x.now(), { retentionDays: 7 });
+    await db.query("UPDATE sources SET marketplace='goldin_us' WHERE id=$1", [goldinSource.sourceId]);
+    const aucSvc = new AuctionsVerticalService(x.query);
+    const aucSession = await aucSvc.upsertSession({
+      house: "goldin_us",
+      sessionCode: "CHROME-AUC-2026",
+      sessionName: "Chrome Auction Test",
+      currency: "USD",
+      taxSemantics: "sales_tax_excluded",
+      closedAt: x.now(),
+    });
+    for (let i = 0; i < 8; i++) {
+      await aucSvc.ingestLot({
+        house: "goldin_us",
+        sessionId: aucSession.id,
+        sourceId: goldinSource.sourceId,
+        lotNumber: `C-${i}`,
+        eventKey: `chrome-lot-${i}`,
+        queryKeyword: "1986 Fleer Jordan",
+        title: `1986 Fleer Jordan #57 Lot ${i}`,
+        gradingCompany: "PSA",
+        gradeValue: "10",
+        certNumber: `99900${i}`,
+        currency: "USD",
+        hammerMinor: 200000 + i * 10000,
+        buyersPremiumStatus: "known",
+        buyersPremiumBps: 2000,
+        buyersPremiumMinor: Math.round((200000 + i * 10000) * 0.2),
+        saleStatus: "sold",
+        soldAt: x.now(),
+        retentionUntil: new Date(Date.parse(x.now()) + 86400000).toISOString(),
+      });
+    }
+    x.clock.value = new Date(Date.parse(x.now()) + 60000).toISOString();
+    await page.goto(`${origin}/account/auctions`);
+    await page
+      .getByRole("heading", {
+        name: "Auction house onboarding catalog (Goldin US first auction vertical)",
+      })
+      .waitFor();
+    await page.getByText(/goldin_us · Goldin Auctions US \(USD\)/).waitFor();
+    await page.getByRole("button", { name: "Query Goldin US lots", exact: true }).click();
+    await page.getByText(/Auction stats \(total_with_premium · USD\): verified=8\/8/).waitFor();
+    await page.getByRole("link", { name: "简体中文" }).click();
+    await page
+      .getByRole("heading", {
+        name: "拍卖渠道接入目录（首发拍卖闭环：Goldin US）",
+      })
+      .waitFor();
+    await page.getByRole("button", { name: "查询 Goldin US 拍品", exact: true }).click();
+    await page.getByText(/拍卖统计（total_with_premium · USD）：已核验=8\/8/).waitFor();
     await page.getByRole("link", { name: "English", exact: true }).click();
     x.clock.value = new Date(Date.parse(x.now()) + 60000).toISOString();
     await page.goto(`${origin}/account/security`);

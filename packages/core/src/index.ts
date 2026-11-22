@@ -1,3 +1,4 @@
+export * from "./auctions-vertical.ts";
 export * from "./availability.ts";
 export * from "./cards-vertical.ts";
 export * from "./comparison-scope.ts";

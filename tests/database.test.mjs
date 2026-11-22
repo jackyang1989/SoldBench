@@ -194,7 +194,10 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
     assert.deepEqual(await migrate(db, "0040_inventory_valuations.sql"), ["0040_inventory_valuations.sql"]);
     assert.deepEqual(await migrate(db, "0041_regional_sites.sql"), ["0041_regional_sites.sql"]);
     assert.deepEqual(await migrate(db, "0042_second_marketplace.sql"), ["0042_second_marketplace.sql"]);
-    assert.deepEqual(await migrate(db), ["0043_cards_grading_vertical.sql"]);
+    assert.deepEqual(await migrate(db, "0043_cards_grading_vertical.sql"), [
+      "0043_cards_grading_vertical.sql",
+    ]);
+    assert.deepEqual(await migrate(db), ["0044_auction_sales_vertical.sql"]);
     assert.deepEqual(await migrate(db), []);
     const detailConstraints = await db.query(
       "SELECT conname FROM pg_constraint WHERE conrelid='collector_detail_jobs'::regclass ORDER BY conname",
@@ -285,6 +288,16 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
     assert.ok(cardsConstraints.rows.some((r) => r.conname === "card_products_edition_check"));
     assert.ok(cardsConstraints.rows.some((r) => r.conname === "card_sale_records_grading_state_check"));
     assert.ok(cardsConstraints.rows.some((r) => r.conname === "card_grading_populations_pop_count_check"));
+    const auctionConstraints = await db.query(
+      "SELECT conname FROM pg_constraint WHERE conrelid IN ('auction_house_catalog'::regclass, 'auction_sessions'::regclass, 'auction_lot_records'::regclass) ORDER BY conname",
+    );
+    assert.ok(
+      auctionConstraints.rows.some((r) => r.conname === "auction_house_catalog_selection_status_check"),
+    );
+    assert.ok(
+      auctionConstraints.rows.some((r) => r.conname === "auction_lot_records_buyers_premium_status_check"),
+    );
+    assert.ok(auctionConstraints.rows.some((r) => r.conname === "auction_lot_records_sale_status_check"));
     const mediaColumns = await db.query(
       "SELECT column_name FROM information_schema.columns WHERE table_name='listing_images'",
     );
@@ -316,7 +329,7 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
     const tables = await db.query(
       "SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema='public'",
     );
-    assert.equal(tables.rows[0].n, 108);
+    assert.equal(tables.rows[0].n, 111);
     await assert.rejects(
       transaction(db, async (c) => {
         await c.query("INSERT INTO users(email,password_hash) VALUES('rollback@example.test','fixture')");
