@@ -1,7 +1,12 @@
 import { type CallToolResult, createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import type { AuthService, Identity } from "@soldbench/auth";
 import { normalizeQuery, queryParameters } from "@soldbench/core";
-import { type QueryService, RequestAuditService, type RequestOperation } from "@soldbench/query";
+import {
+  type QueryService,
+  RequestAuditService,
+  type RequestOperation,
+  SecondMarketplaceService,
+} from "@soldbench/query";
 import { AppError, type Config } from "@soldbench/shared";
 import type { Hono } from "hono";
 import * as z from "zod";
@@ -31,6 +36,14 @@ const searchSchema = z.discriminatedUnion("action", [
     action: z.literal("claim"),
     query_id: z.uuid(),
     idempotency_key: z.string().regex(/^[\x21-\x7e]{16,128}$/),
+  }),
+  z.strictObject({
+    action: z.literal("marketplace_preview"),
+    marketplace: z.literal("mercari_us"),
+    q: z.string().min(1).max(120),
+    price_basis: z.enum(["item", "item_plus_observed_shipping"]).optional(),
+    condition: z.string().min(1).max(40).optional(),
+    limit: z.int().min(1).max(20).optional(),
   }),
 ]);
 const output = (payload: object, error = false): CallToolResult => ({
@@ -94,11 +107,18 @@ async function requestBody(request: Request, signal: AbortSignal) {
     throw new AppError("invalid_parameter", 400, "MCP request batches are not enabled.");
   return value;
 }
-export function mountMcp(app: Hono<Env>, config: Config, auth?: AuthService, query?: QueryService) {
+export function mountMcp(
+  app: Hono<Env>,
+  config: Config,
+  auth?: AuthService,
+  query?: QueryService,
+  secondMarketplace?: SecondMarketplaceService,
+) {
   app.all("/mcp", async (c) => {
     if (!auth || !query) throw new AppError("service_unavailable", 503, "MCP service is not configured.");
     const authService = auth,
-      service = query;
+      service = query,
+      marketplaceService = secondMarketplace ?? new SecondMarketplaceService(query);
     const configured = new URL(config.origin),
       host = c.req.header("Host") ?? new URL(c.req.url).host;
     if (
@@ -210,10 +230,37 @@ export function mountMcp(app: Hono<Env>, config: Config, auth?: AuthService, que
                   ? "job_get"
                   : args.action === "claim"
                     ? "sold_claim"
-                    : "sold_result";
+                    : args.action === "marketplace_preview"
+                      ? "marketplace_preview"
+                      : "sold_result";
             return invoke(
               op,
               async (actor, trace) => {
+                if (args.action === "marketplace_preview") {
+                  const preview = await marketplaceService.queryMarketplace(actor, {
+                    marketplace: args.marketplace,
+                    q: args.q,
+                    price_basis: args.price_basis,
+                    condition: args.condition,
+                    limit: args.limit ?? 20,
+                  });
+                  return {
+                    data: {
+                      ...preview,
+                      sold_comps: preview.sold_comps.slice(0, 20),
+                      active_listings: {
+                        ...preview.active_listings,
+                        items: preview.active_listings.items.slice(0, 20),
+                      },
+                    },
+                    meta: {
+                      request_id: requestId,
+                      credits_charged: 0,
+                      data_mode: "offline_fixture",
+                      mcp_presentation_limit: 20,
+                    },
+                  };
+                }
                 if (args.action === "search") {
                   const r = await service.submit(actor, normalizeQuery(queryParameters(args.query)));
                   trace.queryId = r.queryId;

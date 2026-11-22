@@ -1,5 +1,9 @@
 # SoldBench engineering changelog
 
+## 2026-11-22 — V2 second-marketplace first vertical (`mercari_us`, offline)
+
+OpenAPI 1.36.0 adds `/v1/marketplaces`, `/v1/marketplaces/{marketplace}/preview`, and `/v1/marketplaces/{marketplace}/records/{record_id}/image`, plus the additive `sold_search` MCP action `marketplace_preview` (`TASK-052`, 0 extra credits in synthetic offline build). Records `mercari_us` as the selected first vertical candidate while keeping `poshmark_us`, `grailed`, and active-only `depop` explicitly deferred outside first-package scope; enforces strict sold-vs-active isolation so active listings never enter `sold_stats`; deduplicates repeated event observations; serves controlled primary-image bytes via private authenticated proxy without exposing upstream URLs; and enforces immediate per-marketplace revocation across REST, image delivery, and MCP without disrupting eBay US routes.
+
 ## 2026-11-22 — V1.5 eBay UK & DE regional site expansion and localization (offline)
 
 OpenAPI 1.35.0 adds `/v1/sites`, `/v1/sites/{site}/localization`, `/v1/fx-rates`, and `/v1/sites/{site}/sold-preview` (`TASK-049`, 0 extra credits in synthetic offline build) while keeping all V1 `ebay_us` endpoints and DTOs unchanged. Explicit marketplace selection (`ebay_us`, `ebay_uk`, `ebay_de`) is decoupled from UI display locales (`en`, `zh-CN`, `en-GB`, `de`), enforces single-currency native statistics without mixing GBP/EUR/USD, evaluates optional FX comparisons strictly against valid non-expired `fx_rate_snapshots` evidence using BigInt half-up rounding, maps UK English and German conditions and natural sold dates cleanly with local timezones (`Europe/London`, `Europe/Berlin`), and isolates source revocation per marketplace site.

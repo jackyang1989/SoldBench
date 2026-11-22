@@ -197,6 +197,9 @@ test("developer resource groups navigate to both official local language variant
     "/v1/sites/{site}/localization",
     "/v1/fx-rates",
     "/v1/sites/{site}/sold-preview",
+    "/v1/marketplaces",
+    "/v1/marketplaces/{marketplace}/preview",
+    "/v1/marketplaces/{marketplace}/records/{record_id}/image",
   ]) {
     assert.ok(
       inventory.operations.some((op) => op.path === path && op.status === "local_route_present"),

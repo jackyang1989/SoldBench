@@ -5559,6 +5559,126 @@ async function showRegionalSitesWorkbench() {
   await loadLocalization(siteSelect.value);
 }
 
+async function showSecondMarketplaceWorkbench() {
+  const catalogRes = await api("/v1/marketplaces");
+  const catalog = catalogRes.data;
+
+  const formatMoney = (minor, currency = "USD") => {
+    if (minor === null || minor === undefined) return t("N/A (not zero)", "未知（非零）");
+    return new Intl.NumberFormat(document.documentElement.lang || "en-US", {
+      style: "currency",
+      currency,
+      currencyDisplay: "code",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(minor / 100);
+  };
+
+  const overviewCard = element("section", undefined, "card result-card");
+  overviewCard.append(
+    element(
+      "h2",
+      t(
+        "Second marketplace vertical candidate matrix (Mercari US first vertical)",
+        "第二平台纵向候选矩阵（首发闭环：Mercari US）",
+      ),
+    ),
+    element(
+      "p",
+      t(
+        "Active listings NEVER enter sold statistics. Deferred candidates (Poshmark US, Grailed, Depop) remain outside the first vertical package and require independent source clearance and estimation.",
+        "在售挂牌价绝不会进入已售成交统计；其余候选平台（Poshmark US、Grailed、Depop）保持延后待立项，须独立取得来源许可与评估后再开放。",
+      ),
+      "small",
+    ),
+  );
+
+  const catList = element("ul");
+  for (const m of catalog) {
+    const g = m.gates;
+    catList.append(
+      element(
+        "li",
+        `${m.marketplace_id} · ${m.display_name} (${m.default_currency}) · ${m.selection_status} · sold:${m.supports_sold} · active:${m.supports_active} · gates [src:${g.source_gate_passed}, media:${g.media_gate_passed}, quality:${g.quality_gate_passed}, econ:${g.economics_gate_passed}]`,
+      ),
+    );
+  }
+  overviewCard.append(catList);
+
+  const previewCard = element("section", undefined, "card result-card");
+  previewCard.append(
+    element("h2", t("Mercari US sold-vs-active isolated preview", "Mercari US 已售与在售严格隔离预览")),
+  );
+  const form = element("form", undefined, "stack");
+
+  const kwInput = element("input");
+  kwInput.maxLength = 120;
+  kwInput.required = true;
+  kwInput.value = "Nintendo Switch OLED";
+  const kwLabel = element("label", t("Search keyword", "商品关键词"));
+  kwLabel.append(kwInput);
+
+  const basisSelect = element("select");
+  for (const [val, lbl] of [
+    ["item", t("Item price only (excl. unknown shipping)", "仅商品成交价（不含未知运费）")],
+    ["item_plus_observed_shipping", t("Item + observed shipping", "商品成交价 + 已观测运费")],
+  ]) {
+    const opt = element("option", lbl);
+    opt.value = val;
+    basisSelect.append(opt);
+  }
+  const basisLabel = element("label", t("Price basis", "价格口径"));
+  basisLabel.append(basisSelect);
+
+  const submitBtn = element(
+    "button",
+    t("Preview Mercari US sold & active", "预览 Mercari US 已售与在售"),
+    "btn brand",
+  );
+  submitBtn.type = "submit";
+  form.append(kwLabel, basisLabel, submitBtn);
+
+  const resultBox = element("div", undefined, "stack");
+  previewCard.append(form, resultBox);
+  output.append(overviewCard, previewCard);
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    submitBtn.disabled = true;
+    run(async () => {
+      try {
+        const params = new URLSearchParams({
+          q: kwInput.value.trim(),
+          price_basis: basisSelect.value,
+          limit: "20",
+        });
+        const res = await api(`/v1/marketplaces/mercari_us/preview?${params}`);
+        const d = res.data;
+        const st = d.sold_stats;
+        const act = d.active_listings;
+        resultBox.replaceChildren(
+          element(
+            "p",
+            t(
+              `Sold stats (${d.currency}): verified=${st.n_price_verified}/${st.n_sold_observed} · median=${formatMoney(st.median_cents, d.currency)} · P25=${formatMoney(st.p25_cents, d.currency)} · P75=${formatMoney(st.p75_cents, d.currency)}`,
+              `已售统计（${d.currency}）：已核验=${st.n_price_verified}/${st.n_sold_observed} · 中位数=${formatMoney(st.median_cents, d.currency)} · P25=${formatMoney(st.p25_cents, d.currency)} · P75=${formatMoney(st.p75_cents, d.currency)}`,
+            ),
+          ),
+          element(
+            "p",
+            t(
+              `Active listings (excluded_from_sold_stats=${act.excluded_from_sold_stats}): count=${act.active_count} · asking range=${formatMoney(act.min_asking_cents, d.currency)} - ${formatMoney(act.max_asking_cents, d.currency)}`,
+              `在售挂牌（不进入已售统计=${act.excluded_from_sold_stats}）：数量=${act.active_count} · 标价区间=${formatMoney(act.min_asking_cents, d.currency)} - ${formatMoney(act.max_asking_cents, d.currency)}`,
+            ),
+          ),
+        );
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+  });
+}
+
 if (page.startsWith("/account"))
   run(async () => {
     const user = await session();
@@ -5582,6 +5702,7 @@ if (page.startsWith("/account"))
     if (page === "/account/batches") return showBatchWorkbench();
     if (page === "/account/inventory") return showInventoryValuationWorkbench();
     if (page === "/account/sites") return showRegionalSitesWorkbench();
+    if (page === "/account/marketplaces") return showSecondMarketplaceWorkbench();
     if (page === "/account/history") return showArchiveHistory();
     if (page === "/account/alerts") return showAlertsWorkstation();
     if (page === "/account/security") return showAccountSecurity();

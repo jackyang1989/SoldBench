@@ -16,6 +16,7 @@ export const requestOperations = [
   "usage_get",
   "history_get",
   "media_get",
+  "marketplace_preview",
 ] as const;
 export type RequestOperation = (typeof requestOperations)[number];
 export type RequestAudit = {

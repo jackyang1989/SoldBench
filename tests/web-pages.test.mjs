@@ -8,8 +8,9 @@ import { gunzipSync } from "node:zlib";
 import { serve } from "@hono/node-server";
 import { createApp, publishNextScheduledContent } from "@soldbench/api";
 import { fixtureSignature, merchant, PaymentLifecycle } from "@soldbench/billing";
+import { provisionFixtureSource } from "@soldbench/collector";
 import { database, migrate } from "@soldbench/db";
-import { PublicResults } from "@soldbench/query";
+import { PublicResults, SecondMarketplaceService } from "@soldbench/query";
 import { loadConfig } from "@soldbench/shared";
 import { generate } from "otplib";
 import { measureMobileWeb } from "./helpers/mobile-web.mjs";
@@ -41,6 +42,7 @@ test("prototype-based pages serve both languages, valid private deep links and s
       "/account/batches",
       "/account/inventory",
       "/account/sites",
+      "/account/marketplaces",
       "/account/history",
       "/account/alerts",
       "/account/usage",
@@ -1043,6 +1045,66 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.goto(`${origin}/de/sites`);
     await page.getByRole("heading", { name: "SoldBench Deutschland (eBay DE · EUR)" }).waitFor();
     await page.getByText("Versandkosten", { exact: true }).waitFor();
+    const mercariSource = await provisionFixtureSource(db, x.now(), { retentionDays: 7 });
+    await db.query("UPDATE sources SET marketplace='mercari_us' WHERE id=$1", [mercariSource.sourceId]);
+    const mercariSvc = new SecondMarketplaceService(x.query);
+    for (let i = 0; i < 8; i++) {
+      await mercariSvc.ingestRecord({
+        marketplace: "mercari_us",
+        sourceId: mercariSource.sourceId,
+        listingId: `chrome-m-${i}`,
+        eventKey: `chrome-evt-${i}`,
+        listingState: "sold",
+        queryKeyword: "Nintendo Switch OLED",
+        title: `Mercari Switch #${i}`,
+        currency: "USD",
+        itemMinor: 22000 + i * 500,
+        shippingMinor: 0,
+        shippingStatus: "verified_free_shipping",
+        salePriceStatus: "verified_actual",
+        conditionRaw: "Good",
+        observedAt: x.now(),
+        soldAt: x.now(),
+        retentionUntil: new Date(Date.parse(x.now()) + 86400000).toISOString(),
+      });
+    }
+    await mercariSvc.ingestRecord({
+      marketplace: "mercari_us",
+      sourceId: mercariSource.sourceId,
+      listingId: "chrome-m-active",
+      eventKey: "chrome-evt-active",
+      listingState: "active",
+      queryKeyword: "Nintendo Switch OLED",
+      title: "High Active Switch",
+      currency: "USD",
+      itemMinor: 77700,
+      shippingMinor: 0,
+      shippingStatus: "verified_free_shipping",
+      salePriceStatus: "displayed_only",
+      conditionRaw: "New",
+      observedAt: x.now(),
+      retentionUntil: new Date(Date.parse(x.now()) + 86400000).toISOString(),
+    });
+    x.clock.value = new Date(Date.parse(x.now()) + 60000).toISOString();
+    await page.goto(`${origin}/account/marketplaces`);
+    await page
+      .getByRole("heading", {
+        name: "Second marketplace vertical candidate matrix (Mercari US first vertical)",
+      })
+      .waitFor();
+    await page.getByText(/mercari_us · Mercari US \(USD\) · selected_first_vertical/).waitFor();
+    await page.getByRole("button", { name: "Preview Mercari US sold & active", exact: true }).click();
+    await page.getByText(/Sold stats \(USD\): verified=8\/8/).waitFor();
+    await page.getByText(/Active listings \(excluded_from_sold_stats=true\): count=1/).waitFor();
+    await page.getByRole("link", { name: "简体中文" }).click();
+    await page
+      .getByRole("heading", {
+        name: "第二平台纵向候选矩阵（首发闭环：Mercari US）",
+      })
+      .waitFor();
+    await page.getByRole("button", { name: "预览 Mercari US 已售与在售", exact: true }).click();
+    await page.getByText(/已售统计（USD）：已核验=8\/8/).waitFor();
+    await page.getByRole("link", { name: "English", exact: true }).click();
     x.clock.value = new Date(Date.parse(x.now()) + 60000).toISOString();
     await page.goto(`${origin}/account/security`);
     await page.getByRole("heading", { name: "Active sessions" }).waitFor();
@@ -1053,6 +1115,9 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByRole("heading", { name: "通行密钥" }).waitFor();
     await page.getByRole("link", { name: "English", exact: true }).click();
     await page.getByRole("heading", { name: "Active sessions" }).waitFor();
+    await page.getByLabel("Password", { exact: true }).fill(password);
+    await page.getByRole("button", { name: "Verify identity" }).click();
+    await page.getByText("Identity verified.").waitFor();
     await page.getByRole("button", { name: "Set up authenticator" }).click();
     const secret = await page.locator(".security-secrets code").textContent();
     const totp = () => generate({ secret, epoch: Date.parse(x.now()) / 1000 });

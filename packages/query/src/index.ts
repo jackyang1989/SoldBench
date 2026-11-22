@@ -1129,3 +1129,4 @@ export * from "./regional-sites.ts";
 export * from "./request-audit.ts";
 export * from "./research.ts";
 export { SavedResearch } from "./saved-research.ts";
+export { SecondMarketplaceService } from "./second-marketplace.ts";

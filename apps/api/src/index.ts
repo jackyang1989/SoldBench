@@ -9,6 +9,7 @@ import type {
   LookupInputService,
   QueryService,
   RegionalSiteService,
+  SecondMarketplaceService,
 } from "@soldbench/query";
 import { AppError, type Config } from "@soldbench/shared";
 import { operationsPanels, renderPage, webClient, webCss, webPages } from "@soldbench/web";
@@ -34,6 +35,7 @@ import { mountPayments } from "./payments.ts";
 import { mountPublicResults } from "./public-results.ts";
 import { mountQueries } from "./queries.ts";
 import { mountRegionalSites } from "./regional-sites.ts";
+import { mountSecondMarketplace } from "./second-marketplace.ts";
 import { publishedSiteContent } from "./site-content.ts";
 
 export { publishNextScheduledContent } from "./site-content.ts";
@@ -67,6 +69,7 @@ export function createApp(
     lookup?: LookupInputService;
     inventory?: InventoryValuationService;
     regionalSites?: RegionalSiteService;
+    secondMarketplace?: SecondMarketplaceService;
   } = {},
 ) {
   const app = new Hono<{ Variables: { requestId: string } }>();
@@ -191,8 +194,9 @@ export function createApp(
   mountLookup(app, config, services.auth, services.query, services.lookup);
   mountInventory(app, config, services.auth, services.query, services.inventory);
   mountRegionalSites(app, config, services.auth, services.query, services.regionalSites);
+  mountSecondMarketplace(app, config, services.auth, services.query, services.secondMarketplace);
   mountHistory(app, config, services.auth, services.query);
-  mountMcp(app, config, services.auth, services.query);
+  mountMcp(app, config, services.auth, services.query, services.secondMarketplace);
   mountEditorial(app, db, services.query);
   mountDeveloper(app);
   mountPublicResults(app, config, services.auth, services.query);

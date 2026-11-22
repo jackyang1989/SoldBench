@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.35.0
+  version: 1.36.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -9198,6 +9198,101 @@ paths:
       x-roles: [owner]
       x-scopes: [sold:read]
       x-credit-policy: '0'
+  /v1/marketplaces:
+    get:
+      operationId: listSecondMarketplaces
+      summary: List second-marketplace vertical onboarding candidates (selecting mercari_us first vertical vs deferred candidates) and strict sold-vs-active isolation policies.
+      security: *id004
+      parameters: [*content_language]
+      responses:
+        '200':
+          description: Second-marketplace catalog and candidate selection status.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SecondMarketplaceListResponse'}
+      x-task: TASK-052
+      x-roles: [public, owner]
+      x-credit-policy: '0'
+  /v1/marketplaces/{marketplace}/preview:
+    get:
+      operationId: getSecondMarketplacePreview
+      summary: Preview Mercari US sold comparables and active listings in strictly separated sections without letting active listings affect sold statistics.
+      security: *id001
+      parameters:
+      - *content_language
+      - name: marketplace
+        in: path
+        required: true
+        schema: {enum: [mercari_us, poshmark_us, grailed, depop]}
+      - name: q
+        in: query
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 120}
+      - name: price_basis
+        in: query
+        required: false
+        schema: {enum: [item, item_plus_observed_shipping]}
+      - name: condition
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 40}
+      - name: limit
+        in: query
+        required: false
+        schema: {type: integer, minimum: 1, maximum: 200}
+      responses:
+        '200':
+          description: Isolated sold statistics/comps and active listings preview for selected second marketplace.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SecondMarketplacePreviewResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '422': *content_error
+      x-task: TASK-052
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
+  /v1/marketplaces/{marketplace}/records/{record_id}/image:
+    get:
+      operationId: getSecondMarketplaceRecordImage
+      summary: Read a second-marketplace record primary image proxy after rechecking live source, media, and retention rights.
+      security: *id001
+      parameters:
+      - *content_language
+      - name: marketplace
+        in: path
+        required: true
+        schema: {enum: [mercari_us]}
+      - name: record_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Controlled primary image bytes (never exposes upstream URLs).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: private, no-store
+          content:
+            image/webp:
+              schema: {type: string, format: binary}
+            image/png:
+              schema: {type: string, format: binary}
+            image/jpeg:
+              schema: {type: string, format: binary}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+      x-task: TASK-052
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
 components:
   securitySchemes:
     SupportReceipt:
@@ -15782,6 +15877,169 @@ components:
       type: object
       properties:
         data: {$ref: '#/components/schemas/RegionalSoldPreviewRecord'}
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    SecondMarketplaceGateRecord:
+      type: object
+      properties:
+        source_gate_passed: {type: boolean}
+        media_gate_passed: {type: boolean}
+        quality_gate_passed: {type: boolean}
+        economics_gate_passed: {type: boolean}
+      required: [source_gate_passed, media_gate_passed, quality_gate_passed, economics_gate_passed]
+      additionalProperties: false
+    SecondMarketplaceCatalogItem:
+      type: object
+      properties:
+        marketplace_id: {enum: [mercari_us, poshmark_us, grailed, depop]}
+        display_name: {type: string}
+        selection_status: {enum: [selected_first_vertical, deferred_candidate]}
+        default_currency: {enum: [USD, GBP, EUR]}
+        supports_sold: {type: boolean}
+        supports_active: {type: boolean}
+        sold_vs_active_policy: {type: string}
+        selection_rationale: {type: string}
+        gates: {$ref: '#/components/schemas/SecondMarketplaceGateRecord'}
+        status: {enum: [preview_offline, gated, active]}
+      required:
+      - marketplace_id
+      - display_name
+      - selection_status
+      - default_currency
+      - supports_sold
+      - supports_active
+      - sold_vs_active_policy
+      - selection_rationale
+      - gates
+      - status
+      additionalProperties: false
+    SecondMarketplaceListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/SecondMarketplaceCatalogItem'}
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    SecondMarketplaceSoldStats:
+      type: object
+      properties:
+        currency: {type: string}
+        price_basis: {enum: [item, item_plus_observed_shipping]}
+        n_sold_observed: {type: integer, minimum: 0}
+        n_price_verified: {type: integer, minimum: 0}
+        sample_tier: {enum: [low_sample, limited, sufficient]}
+        sufficient_sample: {type: boolean}
+        median_cents: {type: [integer, 'null']}
+        p25_cents: {type: [integer, 'null']}
+        p75_cents: {type: [integer, 'null']}
+        trimmed_mean_cents: {type: [integer, 'null']}
+        observed_min_cents: {type: [integer, 'null']}
+        observed_max_cents: {type: [integer, 'null']}
+        quality_score: {type: 'null'}
+      required:
+      - currency
+      - price_basis
+      - n_sold_observed
+      - n_price_verified
+      - sample_tier
+      - sufficient_sample
+      - median_cents
+      - p25_cents
+      - p75_cents
+      - trimmed_mean_cents
+      - observed_min_cents
+      - observed_max_cents
+      - quality_score
+      additionalProperties: false
+    SecondMarketplaceActiveSection:
+      type: object
+      properties:
+        excluded_from_sold_stats: {const: true}
+        active_count: {type: integer, minimum: 0}
+        min_asking_cents: {type: [integer, 'null']}
+        max_asking_cents: {type: [integer, 'null']}
+        items:
+          type: array
+          items: {type: object, additionalProperties: true}
+      required: [excluded_from_sold_stats, active_count, min_asking_cents, max_asking_cents, items]
+      additionalProperties: false
+    SecondMarketplaceExcludedCounts:
+      type: object
+      properties:
+        non_comparable: {type: integer, minimum: 0}
+        unverified_price: {type: integer, minimum: 0}
+        unknown_shipping: {type: integer, minimum: 0}
+        currency_mismatch: {type: integer, minimum: 0}
+        active_isolated: {type: integer, minimum: 0}
+        ended_unsold: {type: integer, minimum: 0}
+      required:
+      - non_comparable
+      - unverified_price
+      - unknown_shipping
+      - currency_mismatch
+      - active_isolated
+      - ended_unsold
+      additionalProperties: false
+    SecondMarketplacePreviewData:
+      type: object
+      properties:
+        marketplace: {const: mercari_us}
+        display_name: {type: string}
+        selection_status: {enum: [selected_first_vertical, deferred_candidate]}
+        currency: {type: string}
+        data_mode: {type: string}
+        source_status: {type: string}
+        canonical_query_hash: {type: string}
+        credits_charged: {type: integer, const: 0}
+        sold_vs_active_policy: {type: string}
+        gates: {$ref: '#/components/schemas/SecondMarketplaceGateRecord'}
+        status: {enum: [preview_offline, gated, active]}
+        data_as_of: {type: string, format: date-time}
+        sold_stats: {$ref: '#/components/schemas/SecondMarketplaceSoldStats'}
+        sold_comps:
+          type: array
+          items: {type: object, additionalProperties: true}
+        total_sold_comps: {type: integer, minimum: 0}
+        active_listings: {$ref: '#/components/schemas/SecondMarketplaceActiveSection'}
+        excluded_counts: {$ref: '#/components/schemas/SecondMarketplaceExcludedCounts'}
+      required:
+      - marketplace
+      - display_name
+      - selection_status
+      - currency
+      - data_mode
+      - source_status
+      - canonical_query_hash
+      - credits_charged
+      - sold_vs_active_policy
+      - gates
+      - status
+      - data_as_of
+      - sold_stats
+      - sold_comps
+      - total_sold_comps
+      - active_listings
+      - excluded_counts
+      additionalProperties: false
+    SecondMarketplacePreviewResponse:
+      type: object
+      properties:
+        data: {$ref: '#/components/schemas/SecondMarketplacePreviewData'}
         meta:
           type: object
           properties:
