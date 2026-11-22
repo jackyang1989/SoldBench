@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { AuthService } from "@soldbench/auth";
 import type { PaymentLifecycle } from "@soldbench/billing";
 import { type Database, isDatabaseConnectionError } from "@soldbench/db";
-import type { QueryService } from "@soldbench/query";
+import type { BestOfferVerificationService, QueryService } from "@soldbench/query";
 import { AppError, type Config } from "@soldbench/shared";
 import { operationsPanels, renderPage, webClient, webCss, webPages } from "@soldbench/web";
 import { Hono } from "hono";
@@ -11,6 +11,7 @@ import { parseAccept } from "hono/utils/accept";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { mountAuth } from "./auth.ts";
 import { mountBatches } from "./batches.ts";
+import { mountBestOffers } from "./best-offers.ts";
 import { mountCatalog } from "./catalog.ts";
 import { mountDeveloper } from "./developer.ts";
 import { editorialNotFound, mountEditorial, siteBlocks } from "./editorial.ts";
@@ -44,7 +45,12 @@ function documentLocale(method: string, pathname: string, accept?: string) {
 export function createApp(
   config: Config,
   db: Database,
-  services: { auth?: AuthService; query?: QueryService; payments?: PaymentLifecycle } = {},
+  services: {
+    auth?: AuthService;
+    query?: QueryService;
+    payments?: PaymentLifecycle;
+    bestOffers?: BestOfferVerificationService;
+  } = {},
 ) {
   const app = new Hono<{ Variables: { requestId: string } }>();
   app.use("*", async (c, next) => {
@@ -161,6 +167,7 @@ export function createApp(
   }
   mountQueries(app, config, services.auth, services.query);
   mountBatches(app, config, services.auth, services.query);
+  mountBestOffers(app, config, services.auth, services.query, services.bestOffers);
   mountHistory(app, config, services.auth, services.query);
   mountMcp(app, config, services.auth, services.query);
   mountEditorial(app, db, services.query);

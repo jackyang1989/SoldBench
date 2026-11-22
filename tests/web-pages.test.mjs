@@ -411,6 +411,18 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     assert.equal((await shared.reload()).status(), 410);
     await shared.getByText("此分享已不可用。").waitFor();
     await visitor.close();
+    await page.getByText("Best Offer price verification", { exact: true }).click();
+    await page.getByRole("button", { name: "Request Best Offer verification" }).waitFor();
+    const verifyResp = page.waitForResponse(
+      (response) =>
+        response.url().endsWith(`/v1/sold/${id}/best-offers/verify`) &&
+        response.request().method() === "POST",
+    );
+    await page.getByRole("button", { name: "Request Best Offer verification" }).click();
+    assert.equal((await verifyResp).status(), 202);
+    await page.getByText("Best Offer verification queued (0 credits).").waitFor();
+    await page.getByText(/Pending: 1/).waitFor();
+    assert.equal((await charges()).rowCount, 1);
     const beforeLanguage = requests.length;
     await page.getByRole("link", { name: "简体中文" }).click();
     await page.getByText(/本次扣费 0 个额度/).waitFor();

@@ -610,6 +610,163 @@ function researchDiagnostics(id, expectedHash) {
   return panel;
 }
 
+function bestOfferVerificationPanel(id) {
+  const panel = element("details", undefined, "research-panel");
+  const body = element("div", undefined, "small");
+  let generation = 0;
+
+  function renderPanel(data) {
+    body.replaceChildren();
+    body.append(
+      element(
+        "p",
+        t(
+          `${data.summary.displayed_only_count} Best Offer listings show asking prices only and stay excluded from baseline stats. Post-lookup verification charges 0 extra credits and never overwrites Revision 1.`,
+          `当前有 ${data.summary.displayed_only_count} 条 Best Offer 仅展示挂牌价且未计入默认统计。实价核验额外扣费 0 个额度，且不会重写原快照第 1 版。`,
+        ),
+        "small",
+      ),
+      element(
+        "p",
+        t(
+          `Pending: ${data.summary.pending_count} · Verified: ${data.summary.verified_count} · Not available: ${data.summary.not_available_count} · Expired: ${data.summary.expired_count} · Blocked: ${data.summary.source_blocked_count}`,
+          `待核验: ${data.summary.pending_count} · 已核验: ${data.summary.verified_count} · 不可得: ${data.summary.not_available_count} · 已过期: ${data.summary.expired_count} · 已熔断: ${data.summary.source_blocked_count}`,
+        ),
+        "summary-note",
+      ),
+    );
+    const controls = element("div", undefined, "actions");
+    const requestBtn = button(t("Request Best Offer verification", "发起 Best Offer 实价核验"), () =>
+      run(async () => {
+        requestBtn.disabled = true;
+        try {
+          const updated = await post(`/v1/sold/${id}/best-offers/verify`, {}, (await session())?.csrf_token);
+          renderPanel(updated.data);
+          message(t("Best Offer verification queued (0 credits).", "Best Offer 实价核验已入队（0 额度）。"));
+        } finally {
+          requestBtn.disabled = Boolean(data.eligibility.source_circuit_open);
+        }
+      }),
+    );
+    requestBtn.disabled = Boolean(data.eligibility.source_circuit_open);
+    const reviseBtn = button(t("Generate revised snapshot", "生成修订版快照"), () =>
+      run(async () => {
+        reviseBtn.disabled = true;
+        try {
+          await post(
+            `/v1/sold/${id}/revisions`,
+            { trigger_kind: "best_offer_verification" },
+            (await session())?.csrf_token,
+          );
+          const refreshed = await api(`/v1/sold/${id}/best-offers`);
+          renderPanel(refreshed.data);
+          message(
+            t(
+              "Revised snapshot recorded alongside preserved Revision 1.",
+              "已在保留第 1 版原快照的前提下生成修订版。",
+            ),
+          );
+        } finally {
+          reviseBtn.disabled = data.summary.verified_count === 0;
+        }
+      }),
+    );
+    reviseBtn.className = "btn ghost";
+    reviseBtn.disabled = data.summary.verified_count === 0;
+    controls.append(requestBtn, reviseBtn);
+    body.append(controls);
+
+    const statusLabels = {
+      pending: t("Pending", "待核验"),
+      verified: t("Verified actual", "已核验实价"),
+      not_available: t("Not available", "不可得"),
+      expired: t("Expired", "已过期"),
+      source_blocked: t("Circuit blocked", "已熔断"),
+    };
+    const itemRows = data.items.map((item) => [
+      item.title ?? item.external_listing_id,
+      amount(item.displayed_price_cents),
+      item.verification
+        ? (statusLabels[item.verification.status] ?? item.verification.status)
+        : t("Unrequested", "未请求"),
+      item.verification?.verified_price_usd_cents != null
+        ? amount(item.verification.verified_price_usd_cents)
+        : "—",
+      item.verification
+        ? `${item.verification.attempts} / ${item.verification.max_attempts}`
+        : `0 / ${data.eligibility.max_attempts_per_item}`,
+    ]);
+    body.append(
+      accountTable(
+        t("Best Offer items", "Best Offer 记录"),
+        [
+          t("Item", "商品"),
+          t("Displayed price", "展示价"),
+          t("Verification", "核验状态"),
+          t("Verified price", "实付核验价"),
+          t("Attempts", "尝试次数"),
+        ],
+        itemRows,
+      ),
+    );
+    const revisionRows = data.revisions.map((rev) => [
+      `#${rev.revision_number}`,
+      rev.trigger_kind === "delivered_baseline"
+        ? t("Delivered baseline", "原交付基线")
+        : t("Best Offer revision", "Best Offer 修订版"),
+      String(rev.stats?.n_price_verified ?? 0),
+      amount(rev.stats?.median_cents),
+      `${rev.credits_charged}`,
+    ]);
+    body.append(
+      accountTable(
+        t("Snapshot revisions", "快照版本对照"),
+        [
+          t("Revision", "版本"),
+          t("Trigger", "来源"),
+          t("Verified prices", "核验样本"),
+          t("Median", "中位价"),
+          t("Extra credits", "额外额度"),
+        ],
+        revisionRows,
+      ),
+    );
+  }
+
+  panel.append(element("summary", t("Best Offer price verification", "Best Offer 实价后置核验")), body);
+  panel.addEventListener("toggle", () => {
+    if (!panel.open) {
+      generation += 1;
+      body.replaceChildren();
+      return;
+    }
+    const attempt = ++generation;
+    run(async () => {
+      body.replaceChildren(
+        element("p", t("Loading Best Offer status…", "正在加载 Best Offer 核验状态…"), "small"),
+      );
+      try {
+        const { data } = await api(`/v1/sold/${id}/best-offers`);
+        if (!panel.open || attempt !== generation) return;
+        renderPanel(data);
+      } catch (error) {
+        body.replaceChildren(
+          element(
+            "p",
+            t(
+              "Best Offer status unavailable. Close and reopen to retry.",
+              "Best Offer 状态暂不可用，收起后可重新打开。",
+            ),
+            "small",
+          ),
+        );
+        throw error;
+      }
+    });
+  });
+  return panel;
+}
+
 function addResearchTools(card, id, research) {
   const toolbar = element("div", undefined, "result-toolbar");
   const adjusted = element("p", research.summary, "summary-note");
@@ -1014,8 +1171,17 @@ function resultView({ data, meta }, research = { sort: "", excluded: new Set(), 
       viewport,
       researchDistribution(data, meta),
       researchDiagnostics(data.query_id, meta.candidate_set_hash),
+      ...(meta.anonymous_remaining === undefined && stats.best_offer_displayed_only_count > 0
+        ? [bestOfferVerificationPanel(data.query_id)]
+        : []),
       research.share,
     );
+  } else if (
+    safeId(data.query_id) &&
+    meta.anonymous_remaining === undefined &&
+    stats.best_offer_displayed_only_count > 0
+  ) {
+    card.append(bestOfferVerificationPanel(data.query_id));
   }
   output.append(card);
   if (meta.anonymous_remaining !== undefined) {

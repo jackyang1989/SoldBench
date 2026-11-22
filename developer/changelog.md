@@ -1,5 +1,9 @@
 # SoldBench engineering changelog
 
+## 2026-11-22 — V1.5 Best Offer post-lookup verification and snapshot revisions (offline)
+
+OpenAPI 1.30.0 adds `/v1/sold/{id}/best-offers`, `/v1/sold/{id}/best-offers/verify`, and `/v1/sold/{id}/revisions` (`TASK-047`, `0` credits in synthetic offline build — post-lookup Best Offer verification never silently consumes standard query credits). Requests apply only to delivered snapshots, bind evidence strictly to existing `sale_event_evidence` observations with per-query item caps (10 items), attempt caps (3 retries), and UTC expiry deadlines, circuit-break immediately on `401`/`403` into `collector_circuits`, keep unverified Best Offer displayed prices excluded from default pricing (never `0`), and preserve the original delivered snapshot (revision 1) alongside versioned `query_evidence_revisions` (revision 2+).
+
 ## 2026-11-22 — V1.1 approved history archive and research API (offline)
 
 OpenAPI 1.29.0 adds `/v1/history/coverage`, `/v1/history`, and `/v1/history/export` (`TASK-046`, 0 credits in synthetic offline build) backed by persisted collector retention spans (`archive_coverage_spans`). Coverage strictly reflects contiguous retained spans without fabricating uncollected multi-year data; out-of-window or gapped ranges return `422 unsupported_window` unless `allow_partial=true` is explicitly selected, multi-unit listing averages are isolated from single-sale stats, gap buckets report `missing` with `null` medians, legacy missing/expired images never fabricate upstream URLs, and source revocation or retention expiry immediately stops distribution.
