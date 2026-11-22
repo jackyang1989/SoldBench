@@ -76,6 +76,13 @@ export async function writeComparables(
     );
   }
 }
+function effectiveCondition(candidateCondition: unknown, evidenceCondition: unknown) {
+  const candidate = isStandardCondition(candidateCondition) ? candidateCondition : null;
+  const evidence = isStandardCondition(evidenceCondition) ? evidenceCondition : null;
+  if (candidate && candidate !== "unknown") return candidate;
+  return evidence && evidence !== "unknown" ? evidence : candidate;
+}
+
 function field(value: unknown, allowed: boolean) {
   return {
     state: !allowed ? "withheld" : value === null || value === undefined ? "missing" : "present",
@@ -228,7 +235,7 @@ export class ResearchService {
       const p = r.candidate as Candidate,
         e = r.evidence,
         currentEvidence = e?.schema === "soldbench.record-evidence.v2" ? e : null,
-        conditionStandard = isStandardCondition(p.condition) ? p.condition : null;
+        conditionStandard = effectiveCondition(p.condition, currentEvidence?.conditionStandard);
       return {
         query_id: id,
         candidate_set_hash: q.candidate_set_hash,
@@ -334,7 +341,9 @@ export class ResearchService {
           await c.query(
             `SELECT i.*,s.source_id,s.candidate,
                CASE WHEN e.evidence #>> '{fields,attributes}'='present'
-                 THEN e.evidence #>> '{attributes,model}' END AS structured_model
+                 THEN e.evidence #>> '{attributes,model}' END AS structured_model,
+               CASE WHEN e.evidence #>> '{fields,condition}'='present'
+                 THEN e.evidence->>'conditionStandard' END AS evidence_condition
              FROM query_calculation_inputs i JOIN query_snapshot_records s
                ON s.query_id=i.query_id AND s.sale_event_id=i.sale_event_id
              LEFT JOIN listing_record_evidence e
@@ -353,11 +362,12 @@ export class ResearchService {
         selected = rows.filter((r) => !excluded.has(r.sale_event_id)),
         items = selected.map((r) => {
           const p = r.candidate as Candidate,
-            a = policy.get(r.source_id) ?? new Set<ResearchField>();
+            a = policy.get(r.source_id) ?? new Set<ResearchField>(),
+            resolvedCondition = effectiveCondition(p.condition, r.evidence_condition);
           return {
             sale_event_id: r.sale_event_id,
             title: a.has("title") ? (p.title ?? null) : null,
-            condition: a.has("condition") && isStandardCondition(p.condition) ? p.condition : null,
+            condition: a.has("condition") ? resolvedCondition : null,
             item_price_cents: p.currency === "USD" ? p.itemCents : (p.usdConversion?.itemCents ?? null),
             observed_shipping_cents: observedShippingCents(p),
             price_usd_cents: Number(r.price_usd_cents),

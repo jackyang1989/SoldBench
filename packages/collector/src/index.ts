@@ -2,6 +2,8 @@ export * from "./access-guard.ts";
 export * from "./artifact.ts";
 export { artifactRetentionFields } from "./artifact-retention.ts";
 export * from "./config-snapshot.ts";
+export * from "./ebay-browser-transport.ts";
+export * from "./ebay-detail.ts";
 export * from "./ebay-http-transport.ts";
 export * from "./ebay-us.ts";
 export * from "./fixture.ts";

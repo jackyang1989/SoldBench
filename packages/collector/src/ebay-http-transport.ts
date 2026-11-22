@@ -4,7 +4,7 @@ import type { Transform } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import type { SoldQuery } from "@soldbench/core";
 import { approvedImageUrl } from "@soldbench/media";
-import { buildEbayUsSoldSearchUrl, validateEbayUsOrigin } from "./ebay-us.ts";
+import { buildEbayUsItemDetailUrl, buildEbayUsSoldSearchUrl, validateEbayUsOrigin } from "./ebay-us.ts";
 import { type FixtureResponse, TransportReadError } from "./fixture.ts";
 
 const defaultUserAgent =
@@ -152,6 +152,10 @@ export class EbayUsHttpTransport {
         itemsPerPage: this.itemsPerPage,
         origin: this.origin,
       });
+      return { kind: "page", url, maxBytes: this.maxPageBytes };
+    }
+    if (key.startsWith("detail:")) {
+      const url = buildEbayUsItemDetailUrl(key.slice(7), { origin: this.origin });
       return { kind: "page", url, maxBytes: this.maxPageBytes };
     }
     if (key.startsWith("image:")) {

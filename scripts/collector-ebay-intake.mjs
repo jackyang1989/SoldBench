@@ -12,9 +12,12 @@ import {
   createFixtureArtifact,
   detectEbayUsSoldHtmlProfile,
   digest,
+  EbayUsBrowserTransport,
   EbayUsHttpTransport,
+  hasEbayDetailAccessBlock,
   loadFixtureArtifact,
   OfflineCollectorWorker,
+  parseEbayUsItemDetailHtml,
   provisionFixtureSource,
 } from "@soldbench/collector";
 import { canonicalJson, collectionQueryHash, evaluate, normalizeQuery } from "@soldbench/core";
@@ -36,7 +39,7 @@ function parseCliArgs(argv) {
   const options = new Map();
   const pages = [];
   for (const raw of argv) {
-    const match = /^--([a-z][a-z0-9-]*)=(.+)$/.exec(raw);
+    const match = /^--([a-z][a-z0-9_-]*)=(.+)$/.exec(raw);
     if (!match) throw new Error("invalid_ebay_intake_argument");
     const [, key, val] = match;
     if (key === "page") {
@@ -61,6 +64,7 @@ function parseCliArgs(argv) {
     "price-basis",
     "layout",
     "images-dir",
+    "details-dir",
     "source",
     "config",
     "spool",
@@ -70,12 +74,18 @@ function parseCliArgs(argv) {
     "allow-live-fetch",
     "ingest",
     "fetch-images",
+    "fetch-details",
+    "max-details",
+    "transport",
+    "wait-for-selector",
     "origin",
     "image-origin-override",
     "allow-loopback-test-origin",
   ]);
   for (const key of options.keys()) {
-    if (!allowedKeys.has(key)) throw new Error("invalid_ebay_intake_argument");
+    if (!allowedKeys.has(key) && !/^attr-[a-z][a-z0-9_-]*$/.test(key)) {
+      throw new Error("invalid_ebay_intake_argument");
+    }
   }
   return { options, pages };
 }
@@ -99,6 +109,11 @@ function buildNormalizedQuery(options) {
     const v = options.get(cliKey);
     if (v !== undefined) params.set(queryKey, v);
   }
+  for (const [cliKey, v] of options.entries()) {
+    if (cliKey.startsWith("attr-")) {
+      params.set(`attr_${cliKey.slice(5).replaceAll("-", "_")}`, v);
+    }
+  }
   const query = normalizeQuery(params);
   return { query, queryHash: collectionQueryHash(query) };
 }
@@ -114,6 +129,8 @@ function parseChainAndAudit(rawPages, bindingBase, profile) {
   const frames = new Map();
   const pageAudits = [];
   const candidates = [];
+  const listingIds = [];
+  const seenListingIds = new Set();
   const cursors = [];
   let cursor = "start";
   let lastNextCursor = null;
@@ -133,7 +150,13 @@ function parseChainAndAudit(rawPages, bindingBase, profile) {
     frames.set(`page:${cursor}`, [{ status: 200, contentType: "text/html; charset=utf-8", bytes: raw }]);
     cursors.push(cursor);
     pageAudits.push({ pageIndex: i, cursor, ...audit.summary });
-    for (const row of audit.page.records) candidates.push(row.candidate);
+    for (const row of audit.page.records) {
+      candidates.push(row.candidate);
+      if (/^\d{6,19}$/.test(row.listingId) && !seenListingIds.has(row.listingId)) {
+        seenListingIds.add(row.listingId);
+        listingIds.push(row.listingId);
+      }
+    }
     lastNextCursor = audit.page.nextCursor;
     if (i < rawPages.length - 1) {
       if (!lastNextCursor) throw new Error("ebay_intake_pagination_ended_early");
@@ -145,6 +168,7 @@ function parseChainAndAudit(rawPages, bindingBase, profile) {
     ok: true,
     frames,
     cursors,
+    listingIds,
     pageAudits,
     candidates,
     lastNextCursor,
@@ -205,6 +229,40 @@ async function attachLocalImages(imagesDir, pageAuditsFrames, profile, bindingBa
   return attached;
 }
 
+async function loadLocalDetails(detailsDir, listingIds, profile) {
+  const resolvedDir = resolve(detailsDir);
+  if (!lstatSync(resolvedDir).isDirectory()) throw new Error("ebay_intake_details_not_directory");
+  const details = new Map();
+  let blocked = 0;
+  let errors = 0;
+  for (const listingId of listingIds) {
+    const filePath = join(resolvedDir, `${listingId}.html`);
+    const exists = lstatSync(filePath, { throwIfNoEntry: false });
+    if (!exists?.isFile()) continue;
+    const raw = await readBoundedFile(
+      filePath,
+      4 * 1024 * 1024,
+      "html_page_too_large",
+      "ebay_intake_file_changed",
+    );
+    if (hasEbayDetailAccessBlock(raw)) {
+      blocked++;
+      continue;
+    }
+    try {
+      const detail = parseEbayUsItemDetailHtml(raw, {
+        listingId,
+        listingHosts: profile.listingHosts,
+        imageHosts: profile.imageHosts,
+      });
+      details.set(listingId, detail);
+    } catch {
+      errors++;
+    }
+  }
+  return { details, blocked, errors };
+}
+
 async function resolveIngestSource(db, options, asOf) {
   const sourceArg = options.get("source");
   const configArg = options.get("config");
@@ -236,6 +294,7 @@ async function ingestRawPages({
   profile,
   rawPages,
   extraImageFrames,
+  extraDetails = new Map(),
 }) {
   const asOfArg = options.get("as-of");
   const asOf = asOfArg ?? (await db.query("SELECT clock_timestamp() t")).rows[0].t.toISOString();
@@ -265,6 +324,15 @@ async function ingestRawPages({
       queryHash,
       asOf,
     });
+  }
+  const combinedDetails = new Map(extraDetails);
+  let detailBlocked = 0;
+  let detailErrors = 0;
+  if (options.has("details-dir")) {
+    const localDetails = await loadLocalDetails(options.get("details-dir"), parsed.listingIds, profile);
+    detailBlocked += localDetails.blocked;
+    detailErrors += localDetails.errors;
+    for (const [id, detail] of localDetails.details) combinedDetails.set(id, detail);
   }
   const runKey = `ebay-intake:${randomUUID()}`;
   const jobId = await store.enqueue({
@@ -298,6 +366,18 @@ async function ingestRawPages({
     maxPages: rawPages.length,
     completeAtPageLimit: true,
   });
+  let enrichedDetails = 0;
+  if ((runResult?.status ?? (await store.view(jobId)).status) === "completed" && combinedDetails.size) {
+    for (const [listingId, detail] of combinedDetails) {
+      const updated = await store.enrichRecordEvidence({
+        sourceId: source.sourceId,
+        jobId,
+        listingId,
+        detail,
+      });
+      if (updated.updated > 0) enrichedDetails++;
+    }
+  }
   const job = await store.view(jobId);
   const counts = (
     await db.query(
@@ -331,6 +411,9 @@ async function ingestRawPages({
     truncatedPagination: parsed.lastNextCursor !== null,
     nextCursor: parsed.lastNextCursor,
     recordEvidenceCount: counts.records,
+    enrichedDetails,
+    detailBlocked,
+    detailErrors,
     attachedImages,
     availablePrimaryImages: counts.images,
     stats,
@@ -386,6 +469,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         );
         process.exitCode = 1;
       } else {
+        const localDetails = options.has("details-dir")
+          ? await loadLocalDetails(options.get("details-dir"), result.listingIds, profile)
+          : { details: new Map(), blocked: 0, errors: 0 };
         const evaluation = evaluate(result.candidates, {
           sourceId,
           asOf,
@@ -405,6 +491,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
             pageCount: result.pageAudits.length,
             truncatedPagination: result.lastNextCursor !== null,
             nextCursor: result.lastNextCursor,
+            inspectedDetails: localDetails.details.size,
+            detailBlocked: localDetails.blocked,
+            detailErrors: localDetails.errors,
             pages: result.pageAudits,
             stats: evaluation.stats,
             externalNetworkRequests: 0,
@@ -456,30 +545,48 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       const maxPagesRaw = options.get("max-pages") ?? "1";
       if (!/^[1-5]$/.test(maxPagesRaw)) throw new Error("invalid_ebay_max_pages");
       const maxPages = Number(maxPagesRaw);
+      const maxDetailsRaw = options.get("max-details") ?? "5";
+      if (!/^(?:[1-9]|1\d|20)$/.test(maxDetailsRaw)) throw new Error("invalid_ebay_max_details");
+      const maxDetails = Number(maxDetailsRaw);
+      const transportKind = options.get("transport") ?? "http";
+      if (!["http", "browser"].includes(transportKind)) throw new Error("invalid_ebay_transport");
       const allowLoopback = options.get("allow-loopback-test-origin") === "true";
       const origin = options.get("origin");
       const imageOriginOverride = options.get("image-origin-override");
+      const waitForSelector = options.get("wait-for-selector");
       const outDir = resolve(outDirRaw);
       mkdirSync(outDir, { recursive: true, mode: 0o700 });
-      const transport = new EbayUsHttpTransport({
+      const httpTransport = new EbayUsHttpTransport({
         query,
         ...(origin ? { origin } : {}),
         ...(allowLoopback ? { allowLoopbackTestOrigin: true, minIntervalMs: 0 } : {}),
         ...(imageOriginOverride ? { imageOriginOverride } : {}),
       });
+      const pageTransport =
+        transportKind === "browser"
+          ? new EbayUsBrowserTransport({
+              query,
+              ...(origin ? { origin } : {}),
+              ...(allowLoopback ? { allowLoopbackTestOrigin: true, minIntervalMs: 0 } : {}),
+              ...(waitForSelector ? { waitForSelector } : {}),
+            })
+          : httpTransport;
       const asOf = options.get("as-of") ?? new Date().toISOString();
       const rawPages = [];
       const fetchedUrls = [];
       const fetchedImages = new Map();
+      const fetchedDetails = new Map();
+      const detailListingIds = [];
+      const seenDetailIds = new Set();
       const imageUrls = new Set();
       let cursor = "start";
       let chosenProfile;
       let externalRequests = 0;
 
       for (let i = 0; i < maxPages; i++) {
-        const res = await transport.read(`page:${cursor}`);
+        const res = await pageTransport.read(`page:${cursor}`);
         externalRequests++;
-        fetchedUrls.push(buildEbayUsSoldSearchUrl(query, { cursor, origin: transport.origin }).href);
+        fetchedUrls.push(buildEbayUsSoldSearchUrl(query, { cursor, origin: pageTransport.origin }).href);
         if (res.status === 401 || res.status === 403) throw new Error("source_access_refused");
         if (res.status !== 200) throw new Error("upstream_unavailable");
         const contentType = res.contentType.split(";")[0]?.trim().toLowerCase();
@@ -494,18 +601,47 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         );
         if (!audit.ok) throw new Error(audit.error);
         rawPages.push(res.bytes);
-        if (options.get("fetch-images") === "true") {
-          for (const r of audit.page.records) {
-            if (r.primaryImage?.url) imageUrls.add(r.primaryImage.url);
+        for (const r of audit.page.records) {
+          if (
+            options.get("fetch-details") === "true" &&
+            detailListingIds.length < maxDetails &&
+            /^\d{6,19}$/.test(r.listingId) &&
+            !seenDetailIds.has(r.listingId)
+          ) {
+            seenDetailIds.add(r.listingId);
+            detailListingIds.push(r.listingId);
+          }
+          if (options.get("fetch-images") === "true" && r.primaryImage?.url) {
+            imageUrls.add(r.primaryImage.url);
           }
         }
         if (!audit.summary.nextCursor) break;
         cursor = audit.summary.nextCursor;
       }
 
+      if (options.get("fetch-details") === "true" && detailListingIds.length) {
+        const detailsOutDir = join(outDir, "details");
+        mkdirSync(detailsOutDir, { recursive: true, mode: 0o700 });
+        for (const listingId of detailListingIds) {
+          const detailRes = await pageTransport.read(`detail:${listingId}`);
+          externalRequests++;
+          if (detailRes.status === 401 || detailRes.status === 403) throw new Error("source_access_refused");
+          if (detailRes.status !== 200) continue;
+          if (hasEbayDetailAccessBlock(detailRes.bytes)) throw new Error("source_access_refused");
+          const detailPath = join(detailsOutDir, `${listingId}.html`);
+          await publishCollectorFile(detailPath, detailRes.bytes);
+          const detail = parseEbayUsItemDetailHtml(detailRes.bytes, {
+            listingId,
+            listingHosts: chosenProfile.listingHosts,
+            imageHosts: chosenProfile.imageHosts,
+          });
+          fetchedDetails.set(listingId, detail);
+        }
+      }
+
       if (options.get("fetch-images") === "true") {
         for (const imgUrl of imageUrls) {
-          const imgRes = await transport.read(`image:${imgUrl}`);
+          const imgRes = await httpTransport.read(`image:${imgUrl}`);
           externalRequests++;
           if (imgRes.status === 401 || imgRes.status === 403) throw new Error("source_access_refused");
           if (imgRes.status === 200) {
@@ -534,12 +670,15 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
           profile: chosenProfile,
           rawPages,
           extraImageFrames: fetchedImages,
+          extraDetails: fetchedDetails,
         });
         const finalReport = {
           ...ingestReport,
           mode: "fetch",
+          transport: transportKind,
           fetchedUrls,
           savedPagesDir: outDir,
+          fetchedDetails: fetchedDetails.size,
           externalNetworkRequests: externalRequests,
           liveFetch: !allowLoopback,
         };
@@ -559,12 +698,14 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
           JSON.stringify({
             ok: inspection.ok,
             mode: "fetch",
+            transport: transportKind,
             query,
             queryHash,
             fetchedUrls,
             savedPagesDir: outDir,
             profileId: chosenProfile.id,
             pageCount: rawPages.length,
+            fetchedDetails: fetchedDetails.size,
             pages: inspection.ok ? inspection.pageAudits : [],
             externalNetworkRequests: externalRequests,
             liveFetch: !allowLoopback,

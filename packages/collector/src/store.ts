@@ -1,9 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { type Candidate, candidateFromJson, canonicalJson, instant } from "@soldbench/core";
+import {
+  type Candidate,
+  candidateFromJson,
+  canonicalJson,
+  instant,
+  isStandardCondition,
+} from "@soldbench/core";
 import { type Database, type Transaction, transaction } from "@soldbench/db";
 import type { PrimaryImage, PrivateMediaStore } from "@soldbench/media";
 import { artifactRetentionFields } from "./artifact-retention.ts";
 import { type ConfigSnapshot, collectorConfigHash, type SourceSnapshot } from "./config-snapshot.ts";
+import type { EbayItemDetailEvidence } from "./ebay-detail.ts";
 import {
   COLLECTOR_VERSION,
   digest,
@@ -15,6 +22,7 @@ import {
 } from "./fixture.ts";
 import { type HtmlProfile, parseHtmlPage, validateHtmlProfile } from "./html.ts";
 import { CollectorIntegrityError, type QuarantineReason, quarantineReasons } from "./integrity.ts";
+import { recordEvidenceFromJson } from "./record-evidence.ts";
 
 export type Job = {
   id: string;
@@ -1675,6 +1683,119 @@ export class CollectorStore {
       if (rows.rows.some((r) => !r.retention_until || r.retention_until <= now))
         throw new Error("source_evidence_expired");
       return rows.rows.map((r) => candidateFromJson(r.candidate));
+    });
+  }
+
+  /** Enriches same-observation listing record evidence from a verified item detail page without mutating prices or billing. */
+  async enrichRecordEvidence(input: {
+    sourceId: string;
+    jobId: string;
+    listingId: string;
+    detail: EbayItemDetailEvidence;
+  }): Promise<{ updated: number }> {
+    if (!/^\d{6,19}$/.test(input.listingId) || input.detail.listingId !== input.listingId)
+      throw new Error("detail_listing_id_mismatch");
+    return transaction(this.db, async (c) => {
+      const { source, now } = await this.readScope(c, input.sourceId);
+      const job = (
+        await c.query<Job>("SELECT * FROM collector_jobs WHERE id=$1 AND source_id=$2 FOR SHARE", [
+          input.jobId,
+          input.sourceId,
+        ])
+      ).rows[0];
+      if (!job || job.permission_epoch !== source.permission_epoch)
+        throw new Error("source_rights_unavailable");
+      const rows = (
+        await c.query<{
+          sale_event_id: string;
+          listing_id: string;
+          source_id: string;
+          observation_id: string;
+          evidence: unknown;
+        }>(
+          `SELECT e.sale_event_id, e.listing_id, e.source_id, e.observation_id, e.evidence
+           FROM listing_record_evidence e
+           JOIN collector_pages p ON p.observation_id=e.observation_id AND p.source_id=e.source_id
+           JOIN sold_listings l ON l.id=e.listing_id AND l.source_id=e.source_id
+           JOIN source_observations o ON o.id=e.observation_id AND o.source_id=e.source_id
+           WHERE p.job_id=$1
+             AND e.source_id=$2
+             AND l.external_listing_id=$3
+             AND o.retention_until IS NOT NULL AND o.retention_until>$4
+             AND NOT EXISTS(SELECT 1 FROM collector_quarantines q WHERE q.affected_event_id=e.sale_event_id)
+           FOR UPDATE OF e`,
+          [input.jobId, input.sourceId, input.listingId, now],
+        )
+      ).rows;
+      if (!rows.length) return { updated: 0 };
+
+      for (const row of rows) {
+        const existing = recordEvidenceFromJson(row.evidence);
+        const mergedAttributes: Record<string, string> = { ...existing.attributes };
+        for (const [k, v] of Object.entries(input.detail.attributes)) {
+          if (Object.hasOwn(mergedAttributes, k)) {
+            if (mergedAttributes[k] !== v) throw new Error("detail_attribute_conflict");
+          } else {
+            mergedAttributes[k] = v;
+          }
+        }
+        if (Object.keys(mergedAttributes).length > 32) throw new Error("html_attribute_budget_exceeded");
+
+        const existingStandard =
+          existing.schema === "soldbench.record-evidence.v2" ? existing.conditionStandard : null;
+        const conditionRaw = existing.conditionRaw ?? input.detail.conditionRaw;
+        const conditionId = existing.conditionId ?? input.detail.conditionId;
+        const conditionStandard = existingStandard ?? input.detail.conditionStandard;
+        if (conditionStandard !== null && !isStandardCondition(conditionStandard))
+          throw new Error("html_standard_condition_invalid");
+
+        const existingDescription =
+          existing.schema === "soldbench.record-evidence.v2" ? existing.description : null;
+        const existingDefects = existing.schema === "soldbench.record-evidence.v2" ? existing.defects : null;
+        const description = existingDescription ?? input.detail.description;
+        const defects = existingDefects ?? input.detail.defects;
+        const listingUrl = existing.listingUrl ?? input.detail.canonicalUrl;
+
+        const nextEvidence = recordEvidenceFromJson({
+          schema: "soldbench.record-evidence.v2",
+          profileHash: existing.profileHash,
+          recordIndex: existing.recordIndex,
+          listingUrl,
+          conditionId,
+          conditionRaw,
+          conditionStandard,
+          description,
+          defects,
+          priceRaw: existing.priceRaw,
+          shippingRaw: existing.shippingRaw,
+          soldDateRaw: existing.soldDateRaw,
+          sourceTimeZone: existing.sourceTimeZone,
+          attributes: mergedAttributes,
+          fields: {
+            listingUrl: listingUrl ? "present" : "missing",
+            condition: conditionRaw || conditionId || conditionStandard ? "present" : "missing",
+            price: existing.fields.price,
+            shipping: existing.fields.shipping,
+            soldDate: existing.fields.soldDate,
+            seller: existing.fields.seller,
+            primaryImage: existing.fields.primaryImage,
+            attributes: Object.keys(mergedAttributes).length ? "present" : "missing",
+            description: description ? "present" : "missing",
+            defects: defects ? "present" : "missing",
+          },
+        });
+        await c.query(
+          "UPDATE listing_record_evidence SET evidence=$5 WHERE sale_event_id=$1 AND listing_id=$2 AND source_id=$3 AND observation_id=$4",
+          [
+            row.sale_event_id,
+            row.listing_id,
+            row.source_id,
+            row.observation_id,
+            JSON.stringify(nextEvidence),
+          ],
+        );
+      }
+      return { updated: rows.length };
     });
   }
 }

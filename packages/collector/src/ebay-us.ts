@@ -66,6 +66,12 @@ export function buildEbayUsSoldSearchUrl(
   return url;
 }
 
+export function buildEbayUsItemDetailUrl(listingId: string, options: { origin?: string } = {}): URL {
+  if (!/^\d{6,19}$/.test(listingId)) throw new Error("invalid_ebay_listing_id");
+  const base = validateEbayUsOrigin(options.origin ?? "https://www.ebay.com", true);
+  return new URL(`/itm/${listingId}`, base);
+}
+
 export type EbayHtmlAuditResult =
   | {
       ok: true;
