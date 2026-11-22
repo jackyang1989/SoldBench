@@ -1,0 +1,239 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-soldbench}
+      POSTGRES_USER: ${POSTGRES_USER:-soldbench}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    networks:
+      - internal
+    volumes:
+      - soldbench_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-soldbench} -d $${POSTGRES_DB:-soldbench}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  redis:
+    image: redis:7-alpine
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - noeviction
+    networks:
+      - internal
+    volumes:
+      - soldbench_redis:/data
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    stop_grace_period: 15s
+
+  migrate:
+    profiles: ["ops"]
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.runtime
+    command: ["node", "scripts/migrate.mjs"]
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      DATABASE_URL: ${MIGRATION_DATABASE_URL:?set MIGRATION_DATABASE_URL}
+      COLLECTOR_ENABLED: "false"
+      DATA_MODE: ${DATA_MODE:-offline_fixture}
+      PAYMENTS_MODE: ${PAYMENTS_MODE:-offline}
+      DB_STARTUP_MODE: migrate
+
+  api:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.runtime
+    networks:
+      - edge
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid
+    volumes:
+      - soldbench_state:/var/lib/soldbench/state
+      - soldbench_media:/var/lib/soldbench/media:ro
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1024M
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    environment:
+      HOST: ${HOST:-127.0.0.1}
+      PORT: ${PORT:-3000}
+      APP_ORIGIN: ${APP_ORIGIN:-http://127.0.0.1:3000}
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
+      DB_STARTUP_MODE: verify
+      COLLECTOR_ENABLED: ${COLLECTOR_ENABLED:-false}
+      DATA_MODE: ${DATA_MODE:-offline_fixture}
+      PAYMENTS_MODE: ${PAYMENTS_MODE:-offline}
+      PAYMENT_FIXTURES: ${PAYMENT_FIXTURES:-false}
+      LOCAL_STATE_ROOT: /var/lib/soldbench/state
+      MEDIA_ROOT: /var/lib/soldbench/media
+      SOURCE_URL_ENCRYPTION_KEY: ${SOURCE_URL_ENCRYPTION_KEY:?set SOURCE_URL_ENCRYPTION_KEY}
+
+  query-worker:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.runtime
+    command: ["node", "scripts/query-worker.mjs", "--watch"]
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid
+    volumes:
+      - soldbench_media:/var/lib/soldbench/media:ro
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1024M
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
+      DB_STARTUP_MODE: verify
+      COLLECTOR_ENABLED: "false"
+      DATA_MODE: ${DATA_MODE:-offline_fixture}
+      PAYMENTS_MODE: ${PAYMENTS_MODE:-offline}
+      MEDIA_ROOT: /var/lib/soldbench/media
+
+  collector-supervisor:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.collector
+    # Strictly separated from edge HTTP proxy and auth/payment secrets.
+    networks:
+      - internal
+      - collector_egress
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,nosuid
+    volumes:
+      - soldbench_media:/var/lib/soldbench/media
+      - soldbench_spool:/var/lib/soldbench/spool
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 45s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1536M
+    environment:
+      DATABASE_URL: ${COLLECTOR_DATABASE_URL:?set COLLECTOR_DATABASE_URL}
+      DB_STARTUP_MODE: verify
+      COLLECTOR_ENABLED: ${COLLECTOR_ENABLED:-false}
+      DATA_MODE: ${DATA_MODE:-offline_fixture}
+      PAYMENTS_MODE: "offline"
+      MEDIA_ROOT: /var/lib/soldbench/media
+      COLLECTOR_DEMO_DIR: /var/lib/soldbench/spool
+      SOLDBENCH_BROWSER_BINARY: /usr/bin/chromium
+
+  caddy:
+    image: caddy:2.9-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - edge
+    depends_on:
+      - api
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    stop_grace_period: 15s
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - soldbench_caddy_data:/data
+      - soldbench_caddy_config:/config
+
+networks:
+  edge:
+    driver: bridge
+  internal:
+    driver: bridge
+    internal: true
+  collector_egress:
+    driver: bridge
+
+volumes:
+  soldbench_pgdata:
+  soldbench_redis:
+  soldbench_state:
+  soldbench_media:
+  soldbench_spool:
+  soldbench_caddy_data:
+  soldbench_caddy_config:

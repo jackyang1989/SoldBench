@@ -1,0 +1,44 @@
+# Production reverse-proxy template for SoldBench deployment targets.
+# Domains (soldbench.com, api.soldbench.com) are deployment targets pending server provisioning, DNS/TLS verification, and launch gate approvals.
+
+{
+	email support@soldbench.com
+}
+
+soldbench.com {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		-Server
+	}
+	request_body {
+		max_size 2MB
+	}
+	reverse_proxy api:3000 {
+		health_uri /health
+		health_interval 15s
+		health_timeout 3s
+	}
+}
+
+api.soldbench.com {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		-Server
+	}
+	request_body {
+		max_size 2MB
+	}
+	@allowed_api path /v1/* /health /ready
+	handle @allowed_api {
+		reverse_proxy api:3000
+	}
+	handle {
+		respond "Not Found" 404
+	}
+}
