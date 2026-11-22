@@ -1,5 +1,9 @@
 # SoldBench engineering changelog
 
+## 2026-11-22 — V1.5 eBay UK & DE regional site expansion and localization (offline)
+
+OpenAPI 1.35.0 adds `/v1/sites`, `/v1/sites/{site}/localization`, `/v1/fx-rates`, and `/v1/sites/{site}/sold-preview` (`TASK-049`, 0 extra credits in synthetic offline build) while keeping all V1 `ebay_us` endpoints and DTOs unchanged. Explicit marketplace selection (`ebay_us`, `ebay_uk`, `ebay_de`) is decoupled from UI display locales (`en`, `zh-CN`, `en-GB`, `de`), enforces single-currency native statistics without mixing GBP/EUR/USD, evaluates optional FX comparisons strictly against valid non-expired `fx_rate_snapshots` evidence using BigInt half-up rounding, maps UK English and German conditions and natural sold dates cleanly with local timezones (`Europe/London`, `Europe/Berlin`), and isolates source revocation per marketplace site.
+
 ## 2026-11-22 — V1.5 inventory valuation workflow (offline)
 
 OpenAPI 1.34.0 adds `/v1/inventory/valuations*` (`TASK-051`, 0 preview credits; standard batch claim billing only on explicit consent + claim). Supports RFC-4180 CSV/JSON SKU import (`<=20` rows), product mapping preview with explicit credit estimation, strict USD isolation (marking non-USD rows `currency_unsupported` rather than guessing FX), explicit exclusion of unmapped or `<8`-sample items (`null`, never zero), portfolio valuation ranges with exact `denominator` row/unit breakdowns and `as_of_range`, formula-safe CSV export, explicit source-rights enforcement on every read/export, and versioned re-valuations.

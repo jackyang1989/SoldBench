@@ -40,6 +40,7 @@ test("prototype-based pages serve both languages, valid private deep links and s
       "/account/saved",
       "/account/batches",
       "/account/inventory",
+      "/account/sites",
       "/account/history",
       "/account/alerts",
       "/account/usage",
@@ -1029,6 +1030,19 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByRole("heading", { name: "导入库存清单与映射预览" }).waitFor();
     await page.getByText("未知（非零）").first().waitFor();
     await page.getByRole("link", { name: "English", exact: true }).click();
+    x.clock.value = new Date(Date.parse(x.now()) + 60000).toISOString();
+    await page.goto(`${origin}/account/sites`);
+    await page.getByRole("heading", { name: "Explicit regional site research (UK / DE)" }).waitFor();
+    await page.getByText(/ebay_uk · eBay United Kingdom/).waitFor();
+    await page.getByText(/ebay_de · eBay Deutschland/).waitFor();
+    await page.getByRole("link", { name: "简体中文" }).click();
+    await page.getByRole("heading", { name: "显式区域站点研究（英国 / 德国）" }).waitFor();
+    await page.getByRole("link", { name: "English", exact: true }).click();
+    await page.goto(`${origin}/en-GB/sites`);
+    await page.getByRole("heading", { name: "SoldBench United Kingdom (eBay UK · GBP)" }).waitFor();
+    await page.goto(`${origin}/de/sites`);
+    await page.getByRole("heading", { name: "SoldBench Deutschland (eBay DE · EUR)" }).waitFor();
+    await page.getByText("Versandkosten", { exact: true }).waitFor();
     x.clock.value = new Date(Date.parse(x.now()) + 60000).toISOString();
     await page.goto(`${origin}/account/security`);
     await page.getByRole("heading", { name: "Active sessions" }).waitFor();

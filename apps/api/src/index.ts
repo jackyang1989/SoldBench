@@ -8,6 +8,7 @@ import type {
   InventoryValuationService,
   LookupInputService,
   QueryService,
+  RegionalSiteService,
 } from "@soldbench/query";
 import { AppError, type Config } from "@soldbench/shared";
 import { operationsPanels, renderPage, webClient, webCss, webPages } from "@soldbench/web";
@@ -32,6 +33,7 @@ import { mountPasskeys } from "./passkeys.ts";
 import { mountPayments } from "./payments.ts";
 import { mountPublicResults } from "./public-results.ts";
 import { mountQueries } from "./queries.ts";
+import { mountRegionalSites } from "./regional-sites.ts";
 import { publishedSiteContent } from "./site-content.ts";
 
 export { publishNextScheduledContent } from "./site-content.ts";
@@ -64,6 +66,7 @@ export function createApp(
     alerts?: AlertWebhookService;
     lookup?: LookupInputService;
     inventory?: InventoryValuationService;
+    regionalSites?: RegionalSiteService;
   } = {},
 ) {
   const app = new Hono<{ Variables: { requestId: string } }>();
@@ -187,6 +190,7 @@ export function createApp(
   mountAlerts(app, config, services.auth, services.query, services.alerts);
   mountLookup(app, config, services.auth, services.query, services.lookup);
   mountInventory(app, config, services.auth, services.query, services.inventory);
+  mountRegionalSites(app, config, services.auth, services.query, services.regionalSites);
   mountHistory(app, config, services.auth, services.query);
   mountMcp(app, config, services.auth, services.query);
   mountEditorial(app, db, services.query);

@@ -1,6 +1,7 @@
 export * from "./config.ts";
 export * from "./errors.ts";
 export * from "./i18n.ts";
+export * from "./regional-i18n.ts";
 
 export const BRAND = "SoldBench";
 export const VERSIONS = {

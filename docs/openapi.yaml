@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.34.0
+  version: 1.35.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -9087,6 +9087,117 @@ paths:
       x-roles: [owner]
       x-scopes: [sold:read]
       x-credit-policy: '0'
+  /v1/sites:
+    get:
+      operationId: listRegionalSites
+      summary: List configured regional marketplace sites (US/UK/DE), default currencies, tax/postage semantics, and release gates.
+      security: *id004
+      parameters: [*content_language]
+      responses:
+        '200':
+          description: Supported regional sites metadata and gate status.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RegionalSiteListResponse'}
+      x-task: TASK-049
+      x-roles: [public, owner]
+      x-credit-policy: '0'
+  /v1/sites/{site}/localization:
+    get:
+      operationId: getRegionalSiteLocalization
+      summary: Fetch localized UI copy, email template previews, VAT/tax disclosures, and timezone/currency examples for a marketplace site.
+      security: *id004
+      parameters:
+      - *content_language
+      - name: site
+        in: path
+        required: true
+        schema: {enum: [ebay_us, ebay_uk, ebay_de]}
+      - name: locale
+        in: query
+        required: false
+        schema: {enum: [en, zh-CN, en-GB, de]}
+      responses:
+        '200':
+          description: Complete regional localization bundle independent of site selection.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RegionalSiteLocalizationResponse'}
+        '400': *content_error
+        '404': *content_error
+      x-task: TASK-049
+      x-roles: [public, owner]
+      x-credit-policy: '0'
+  /v1/fx-rates:
+    get:
+      operationId: listFxRateSnapshots
+      summary: List active non-expired FX evidence snapshots used when comparing across site currencies.
+      security: *id004
+      parameters:
+      - *content_language
+      - name: base
+        in: query
+        required: false
+        schema: {enum: [USD, GBP, EUR]}
+      - name: quote
+        in: query
+        required: false
+        schema: {enum: [USD, GBP, EUR]}
+      responses:
+        '200':
+          description: Active FX rate snapshots.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FxRateListResponse'}
+        '400': *content_error
+      x-task: TASK-049
+      x-roles: [public, owner]
+      x-credit-policy: '0'
+  /v1/sites/{site}/sold-preview:
+    get:
+      operationId: getRegionalSiteSoldPreview
+      summary: Evaluate explicit regional site comparables strictly in native currency with optional auditable FX view and per-site revocation checks.
+      security: *id001
+      parameters:
+      - *content_language
+      - name: site
+        in: path
+        required: true
+        schema: {enum: [ebay_us, ebay_uk, ebay_de]}
+      - name: q
+        in: query
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 120}
+      - name: window_days
+        in: query
+        required: false
+        schema: {type: integer, enum: [30, 90, 180, 365]}
+      - name: price_basis
+        in: query
+        required: false
+        schema: {enum: [item, item_plus_observed_shipping]}
+      - name: condition
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 40}
+      - name: compare_currency
+        in: query
+        required: false
+        schema: {enum: [USD, GBP, EUR]}
+      responses:
+        '200':
+          description: Single-currency native regional statistics and optional FX comparison.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RegionalSoldPreviewResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+      x-task: TASK-049
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
 components:
   securitySchemes:
     SupportReceipt:
@@ -15451,5 +15562,233 @@ components:
       properties:
         format: {enum: [csv, json]}
       required: [format]
+      additionalProperties: false
+    RegionalSiteGateRecord:
+      type: object
+      properties:
+        source_gate_passed: {type: boolean}
+        translation_gate_passed: {type: boolean}
+        legal_gate_passed: {type: boolean}
+        economics_gate_passed: {type: boolean}
+      required: [source_gate_passed, translation_gate_passed, legal_gate_passed, economics_gate_passed]
+      additionalProperties: false
+    RegionalSiteRecord:
+      type: object
+      properties:
+        site_id: {enum: [ebay_us, ebay_uk, ebay_de]}
+        country_code: {type: string}
+        display_name: {type: string}
+        default_currency: {enum: [USD, GBP, EUR]}
+        timezone: {type: string}
+        required_locales:
+          type: array
+          items: {type: string}
+        shipping_tax_semantics: {type: object, additionalProperties: true}
+        condition_mapping_version: {type: string}
+        gates: {$ref: '#/components/schemas/RegionalSiteGateRecord'}
+        status: {enum: [preview_offline, gated, active]}
+      required:
+      - site_id
+      - country_code
+      - display_name
+      - default_currency
+      - timezone
+      - required_locales
+      - shipping_tax_semantics
+      - condition_mapping_version
+      - gates
+      - status
+      additionalProperties: false
+    RegionalSiteListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/RegionalSiteRecord'}
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    RegionalSiteLocalizationRecord:
+      type: object
+      properties:
+        site_id: {enum: [ebay_us, ebay_uk, ebay_de]}
+        country_code: {type: string}
+        display_name: {type: string}
+        default_currency: {enum: [USD, GBP, EUR]}
+        timezone: {type: string}
+        locale: {enum: [en, zh-CN, en-GB, de]}
+        locale_follows_site_selection: {const: false}
+        ui_messages: {type: object, additionalProperties: {type: string}}
+        email_previews:
+          type: object
+          properties:
+            verify_subject: {type: string}
+            verify_body: {type: string}
+            reset_subject: {type: string}
+            reset_body: {type: string}
+          required: [verify_subject, verify_body, reset_subject, reset_body]
+          additionalProperties: false
+        sample_formats:
+          type: object
+          properties:
+            money_example: {type: string}
+            day_date_example: {type: string}
+            instant_date_example: {type: string}
+          required: [money_example, day_date_example, instant_date_example]
+          additionalProperties: false
+        shipping_tax_semantics: {type: object, additionalProperties: true}
+        gates: {$ref: '#/components/schemas/RegionalSiteGateRecord'}
+        status: {enum: [preview_offline, gated, active]}
+      required:
+      - site_id
+      - country_code
+      - display_name
+      - default_currency
+      - timezone
+      - locale
+      - locale_follows_site_selection
+      - ui_messages
+      - email_previews
+      - sample_formats
+      - shipping_tax_semantics
+      - gates
+      - status
+      additionalProperties: false
+    RegionalSiteLocalizationResponse:
+      type: object
+      properties:
+        data: {$ref: '#/components/schemas/RegionalSiteLocalizationRecord'}
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    FxRateSnapshotRecord:
+      type: object
+      properties:
+        id: {type: string}
+        base_currency: {enum: [USD, GBP, EUR]}
+        quote_currency: {enum: [USD, GBP, EUR]}
+        rate_micros: {type: integer, minimum: 1}
+        evidence_ref: {type: string}
+        provider: {type: string}
+        captured_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
+      required: [id, base_currency, quote_currency, rate_micros, evidence_ref, provider, captured_at, expires_at]
+      additionalProperties: false
+    FxRateListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/FxRateSnapshotRecord'}
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    RegionalSoldPreviewRecord:
+      type: object
+      properties:
+        site: {enum: [ebay_us, ebay_uk, ebay_de]}
+        country_code: {type: string}
+        display_name: {type: string}
+        canonical_query_hash: {type: string}
+        native_currency: {enum: [USD, GBP, EUR]}
+        timezone: {type: string}
+        shipping_tax_semantics: {type: object, additionalProperties: true}
+        gates: {$ref: '#/components/schemas/RegionalSiteGateRecord'}
+        status: {enum: [preview_offline, gated, active]}
+        currency_mismatch_count: {type: integer, minimum: 0}
+        native_stats:
+          type: object
+          properties:
+            currency: {enum: [USD, GBP, EUR]}
+            n_total: {type: integer, minimum: 0}
+            n_comparable: {type: integer, minimum: 0}
+            n_price_verified: {type: integer, minimum: 0}
+            median_minor: {type: [integer, 'null']}
+            p25_minor: {type: [integer, 'null']}
+            p75_minor: {type: [integer, 'null']}
+            trimmed_mean_minor: {type: [integer, 'null']}
+          required: [currency, n_total, n_comparable, n_price_verified, median_minor, p25_minor, p75_minor, trimmed_mean_minor]
+          additionalProperties: false
+        fx_status: {enum: [not_requested, same_currency, converted_with_evidence, fx_evidence_unavailable]}
+        fx_evidence:
+          oneOf:
+          - type: object
+            properties:
+              base_currency: {enum: [USD, GBP, EUR]}
+              quote_currency: {enum: [USD, GBP, EUR]}
+              rate_micros: {type: integer, minimum: 1}
+              evidence_ref: {type: string}
+              provider: {type: string}
+              captured_at: {type: string, format: date-time}
+              expires_at: {type: string, format: date-time}
+            required: [base_currency, quote_currency, rate_micros, evidence_ref, provider, captured_at, expires_at]
+            additionalProperties: false
+          - {type: 'null'}
+        comparable_view:
+          oneOf:
+          - type: object
+            properties:
+              currency: {enum: [USD, GBP, EUR]}
+              median_minor: {type: [integer, 'null']}
+              p25_minor: {type: [integer, 'null']}
+              p75_minor: {type: [integer, 'null']}
+              trimmed_mean_minor: {type: [integer, 'null']}
+            required: [currency, median_minor, p25_minor, p75_minor, trimmed_mean_minor]
+            additionalProperties: false
+          - {type: 'null'}
+        data_as_of: {type: string, format: date-time}
+        credits_charged: {type: integer, const: 0}
+        comps:
+          type: array
+          items: {type: object, additionalProperties: true}
+      required:
+      - site
+      - country_code
+      - display_name
+      - canonical_query_hash
+      - native_currency
+      - timezone
+      - shipping_tax_semantics
+      - gates
+      - status
+      - currency_mismatch_count
+      - native_stats
+      - fx_status
+      - fx_evidence
+      - comparable_view
+      - data_as_of
+      - credits_charged
+      - comps
+      additionalProperties: false
+    RegionalSoldPreviewResponse:
+      type: object
+      properties:
+        data: {$ref: '#/components/schemas/RegionalSoldPreviewRecord'}
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
       additionalProperties: false
 x-design-evidence: docs/adr/ADR-12.md; docs/contracts/check_contracts.py; not production approval

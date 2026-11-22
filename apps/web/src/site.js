@@ -5434,6 +5434,131 @@ async function showInventoryValuationWorkbench() {
   await refresh();
 }
 
+async function showRegionalSitesWorkbench() {
+  const sitesRes = await api("/v1/sites");
+  const sites = sitesRes.data;
+
+  const formatMinor = (minor, currency, loc) => {
+    if (minor === null || minor === undefined) return t("N/A (not zero)", "未知（非零）");
+    return new Intl.NumberFormat(loc, {
+      style: "currency",
+      currency,
+      currencyDisplay: "code",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(minor / 100);
+  };
+
+  const overviewCard = element("section", undefined, "card result-card");
+  overviewCard.append(
+    element("h2", t("Explicit regional site research (UK / DE)", "显式区域站点研究（英国 / 德国）")),
+    element(
+      "p",
+      t(
+        "UI language never overrides your selected marketplace site, native currency, timezone, or billing identity. UK/DE previews stay offline-gated until per-site source, localization, legal, and unit economics gates pass.",
+        "界面显示语言绝不会擅自覆盖您选择的目标站点、原生币种、时区或账单口径；英国/德国站点在逐站来源、译文、法务与成本门禁全绿前保持离线受控状态。",
+      ),
+      "small",
+    ),
+  );
+
+  const linksRow = element("div", undefined, "actions");
+  linksRow.append(
+    link(t("Open UK localized page (en-GB)", "访问英国英语页面 (en-GB)"), "/en-GB/sites"),
+    link(t("Open German localized page (de)", "访问德语本地化页面 (de)"), "/de/sites"),
+  );
+  overviewCard.append(linksRow);
+
+  const siteList = element("ul");
+  for (const s of sites) {
+    const g = s.gates;
+    const li = element(
+      "li",
+      `${s.site_id} · ${s.display_name} (${s.default_currency} · ${s.timezone}) · status: ${s.status} · gates [src:${g.source_gate_passed}, i18n:${g.translation_gate_passed}, legal:${g.legal_gate_passed}, econ:${g.economics_gate_passed}]`,
+    );
+    siteList.append(li);
+  }
+  overviewCard.append(siteList);
+
+  const formCard = element("section", undefined, "card result-card");
+  formCard.append(
+    element("h2", t("Single-currency preview & FX comparison", "单币种成交预览与汇率证据对照")),
+  );
+  const form = element("form", undefined, "stack");
+
+  const siteSelect = element("select");
+  for (const s of sites) {
+    const opt = element("option", `${s.site_id} — ${s.display_name} (${s.default_currency})`);
+    opt.value = s.site_id;
+    siteSelect.append(opt);
+  }
+  siteSelect.value = "ebay_uk";
+  const siteLabel = element("label", t("Marketplace site (explicit)", "目标站点（显式选择）"));
+  siteLabel.append(siteSelect);
+
+  const kwInput = element("input");
+  kwInput.maxLength = 120;
+  kwInput.required = true;
+  kwInput.value = "Nintendo Switch";
+  const kwLabel = element("label", t("Search keyword", "商品关键词"));
+  kwLabel.append(kwInput);
+
+  const fxSelect = element("select");
+  for (const [val, lbl] of [
+    ["", t("Native currency only", "仅看站点原生币种")],
+    ["USD", "USD"],
+    ["GBP", "GBP"],
+    ["EUR", "EUR"],
+  ]) {
+    const opt = element("option", lbl);
+    opt.value = val;
+    fxSelect.append(opt);
+  }
+  const fxLabel = element("label", t("Optional FX comparison currency", "可选 FX 对照币种"));
+  fxLabel.append(fxSelect);
+
+  const submitBtn = element("button", t("Preview site comparables", "预览区域站点成交"), "btn brand");
+  submitBtn.type = "submit";
+  form.append(siteLabel, kwLabel, fxLabel, submitBtn);
+
+  const locBox = element("div", undefined, "notice");
+  const resultBox = element("div", undefined, "stack");
+  formCard.append(form, locBox, resultBox);
+  output.append(overviewCard, formCard);
+
+  async function loadLocalization(siteId) {
+    const res = await api(`/v1/sites/${encodeURIComponent(siteId)}/localization`);
+    const d = res.data;
+    locBox.textContent = `${d.locale} · ${d.ui_messages["site.tax_disclosure"]} · ${d.sample_formats.money_example} · ${d.sample_formats.day_date_example}`;
+  }
+
+  siteSelect.addEventListener("change", () => run(() => loadLocalization(siteSelect.value)));
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    submitBtn.disabled = true;
+    run(async () => {
+      try {
+        const params = new URLSearchParams({ q: kwInput.value.trim(), window_days: "90" });
+        if (fxSelect.value) params.set("compare_currency", fxSelect.value);
+        const res = await api(`/v1/sites/${encodeURIComponent(siteSelect.value)}/sold-preview?${params}`);
+        const d = res.data;
+        const st = d.native_stats;
+        resultBox.replaceChildren(
+          element(
+            "p",
+            `${d.site} (${d.native_currency}) · verified: ${st.n_price_verified}/${st.n_total} · currency mismatches excluded: ${d.currency_mismatch_count} · median: ${formatMinor(st.median_minor, d.native_currency, document.documentElement.lang)} · FX: ${d.fx_status}${d.comparable_view ? ` -> ${formatMinor(d.comparable_view.median_minor, d.comparable_view.currency, document.documentElement.lang)} (${d.fx_evidence?.evidence_ref ?? ""})` : ""}`,
+          ),
+        );
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+  });
+
+  await loadLocalization(siteSelect.value);
+}
+
 if (page.startsWith("/account"))
   run(async () => {
     const user = await session();
@@ -5456,6 +5581,7 @@ if (page.startsWith("/account"))
     if (page === "/account/saved") return showSavedResearch();
     if (page === "/account/batches") return showBatchWorkbench();
     if (page === "/account/inventory") return showInventoryValuationWorkbench();
+    if (page === "/account/sites") return showRegionalSitesWorkbench();
     if (page === "/account/history") return showArchiveHistory();
     if (page === "/account/alerts") return showAlertsWorkstation();
     if (page === "/account/security") return showAccountSecurity();

@@ -1125,6 +1125,7 @@ export * from "./history-archive.ts";
 export * from "./inventory.ts";
 export * from "./lookup.ts";
 export { PublicResults } from "./public-results.ts";
+export * from "./regional-sites.ts";
 export * from "./request-audit.ts";
 export * from "./research.ts";
 export { SavedResearch } from "./saved-research.ts";
