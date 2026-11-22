@@ -35,7 +35,9 @@ export type HtmlProfile = {
   bindingMode?: "root_attributes" | "envelope";
   root: string;
   records: string;
+  ignoredRecords?: string;
   adRecords?: string;
+  rewriteBoundary?: string;
   empty: string;
   primaryImages: string;
   accessBlocks: string[];
@@ -54,15 +56,11 @@ export type HtmlProfile = {
 };
 function selector(value: unknown): value is string {
   return (
-    (typeof value === "string" &&
-      value.length > 0 &&
-      value.length <= 240 &&
-      /^[a-zA-Z0-9_.#[\]="' :(),-]+$/.test(value) &&
-      !/[<>]/.test(value)) ||
-    (typeof value === "string" &&
-      value.length > 0 &&
-      value.length <= 240 &&
-      /^[a-zA-Z0-9_.#[\]="' >-]+$/.test(value))
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 512 &&
+    /^[a-zA-Z0-9_.#[\]="'*:/()+~ ,>-]+$/.test(value) &&
+    !/</.test(value)
   );
 }
 function validTimeZone(zone: unknown): zone is string {
@@ -85,7 +83,9 @@ export function validateHtmlProfile(input: unknown): HtmlProfile {
     x.revision < 1 ||
     (x.bindingMode !== undefined && !["root_attributes", "envelope"].includes(x.bindingMode)) ||
     ![x.root, x.records, x.empty, x.primaryImages, x.attributes].every(selector) ||
+    (x.ignoredRecords !== undefined && !selector(x.ignoredRecords)) ||
     (x.adRecords !== undefined && !selector(x.adRecords)) ||
+    (x.rewriteBoundary !== undefined && !selector(x.rewriteBoundary)) ||
     (x.defaultCurrency !== undefined && !/^[A-Z]{3}$/.test(x.defaultCurrency)) ||
     (x.defaultTimeZone !== undefined && !validTimeZone(x.defaultTimeZone)) ||
     !Array.isArray(x.accessBlocks) ||
@@ -108,7 +108,9 @@ export function validateHtmlProfile(input: unknown): HtmlProfile {
     "bindingMode",
     "root",
     "records",
+    "ignoredRecords",
     "adRecords",
+    "rewriteBoundary",
     "empty",
     "primaryImages",
     "accessBlocks",
@@ -163,7 +165,9 @@ export function validateHtmlProfile(input: unknown): HtmlProfile {
     for (const rule of [
       x.root,
       x.records,
+      ...(x.ignoredRecords ? [x.ignoredRecords] : []),
       ...(x.adRecords ? [x.adRecords] : []),
+      ...(x.rewriteBoundary ? [x.rewriteBoundary] : []),
       x.empty,
       x.primaryImages,
       x.attributes,
@@ -197,15 +201,32 @@ export function validateHtmlProfile(input: unknown): HtmlProfile {
 }
 /** Explicit profile markers only; product text, navigation and scripts are not access verdicts. */
 export function hasHtmlAccessBlock(raw: Uint8Array, profile: HtmlProfile): boolean {
-  if (raw.byteLength > 1024 * 1024) return false;
+  const maxBytes = profile.bindingMode === "envelope" ? 4 * 1024 * 1024 : 1024 * 1024;
+  if (raw.byteLength > maxBytes) return false;
   try {
     const $ = load(new TextDecoder("utf-8", { fatal: true }).decode(raw), { xml: { xmlMode: false } });
-    $("script,style,template,noscript,iframe").remove();
-    return profile.accessBlocks.some((rule) =>
-      $(rule)
-        .toArray()
-        .some((node) => $(node).closest(profile.records).length === 0),
-    );
+    $("script,style,template,noscript,iframe,svg").remove();
+    if (
+      profile.accessBlocks.some((rule) =>
+        $(rule)
+          .toArray()
+          .some((node) => $(node).closest(profile.records).length === 0),
+      )
+    )
+      return true;
+    if (profile.bindingMode === "envelope" && $(profile.root).length === 0) {
+      const challengeBanner =
+        /pardon\s+our\s+interruption|security\s+measure|checking\s+your\s+browser\s+before\s+you\s+access\s+ebay/i;
+      if (
+        $("title, h1, h2")
+          .toArray()
+          .some(
+            (node) => $(node).closest(profile.records).length === 0 && challengeBanner.test($(node).text()),
+          )
+      )
+        return true;
+    }
+    return false;
   } catch {
     return false;
   }
@@ -217,8 +238,8 @@ export function parseHtmlMoney(raw: string, currency: string, decimal: string, g
     USD: ["US$", "US $", "$"],
     EUR: ["€"],
     GBP: ["£"],
-    CAD: ["CA$", "C$"],
-    AUD: ["AU$", "A$"],
+    CAD: ["CA$", "CA $", "C$", "C $"],
+    AUD: ["AU$", "AU $", "A$", "A $"],
   };
   let text = raw.replace(/[\u00a0\u202f]/g, " ").trim();
   for (const token of [currency, ...(symbols[currency] ?? [])].sort((a, b) => b.length - a.length)) {
@@ -256,6 +277,178 @@ function value(scope: Scope, field: Field): string | null {
   if (text.length > 2000) throw new Error("html_field_too_large");
   return text || null;
 }
+function splitCssSelectorList(input: string): string[] {
+  const parts: string[] = [];
+  let bracket = 0,
+    paren = 0,
+    quote: "'" | '"' | null = null,
+    start = 0;
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+    if (quote) {
+      if (ch === "\\" && i + 1 < input.length) {
+        i++;
+        continue;
+      }
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === "'" || ch === '"') quote = ch;
+    else if (ch === "[") bracket++;
+    else if (ch === "]" && bracket > 0) bracket--;
+    else if (ch === "(") paren++;
+    else if (ch === ")" && paren > 0) paren--;
+    else if (ch === "," && bracket === 0 && paren === 0) {
+      const part = input.slice(start, i).trim();
+      if (part) parts.push(part);
+      start = i + 1;
+    }
+  }
+  const tail = input.slice(start).trim();
+  if (tail) parts.push(tail);
+  return parts;
+}
+function cleanEnvelopeText(node: Scope): string {
+  const clone = node.clone();
+  clone.find(".clipped, .LIGHT_HIGHLIGHT, .s-item__title--tag, .s-card__title--tag").remove();
+  return clone.text().replace(/\s+/g, " ").trim();
+}
+function envelopeField(
+  scope: Scope,
+  $: CheerioAPI,
+  field: Field,
+  options: { joinMultiple?: boolean; dedupeListingHosts?: readonly string[] } = {},
+): { text: string | null; node: Scope | null } {
+  const branches = splitCssSelectorList(field.selector);
+  if (options.joinMultiple) {
+    const parts: string[] = [];
+    const seen = new Set<string>();
+    let firstNode: Scope | null = null;
+    for (const branch of branches) {
+      const nodes = scope.find(branch);
+      for (const el of nodes.toArray()) {
+        const wrapped = $(el);
+        const raw = field.attribute
+          ? (wrapped.attr(field.attribute)?.trim() ?? "")
+          : cleanEnvelopeText(wrapped);
+        if (!raw) continue;
+        if (raw.length > 2000) throw new Error("html_field_too_large");
+        if (!seen.has(raw)) {
+          seen.add(raw);
+          parts.push(raw);
+          firstNode ??= wrapped;
+        }
+      }
+    }
+    return { text: parts.length ? parts.join(" | ") : null, node: firstNode };
+  }
+  for (const branch of branches) {
+    const nodes = scope.find(branch);
+    if (!nodes.length) continue;
+    if (nodes.length > 1) {
+      const dedupeHosts = options.dedupeListingHosts;
+      if (dedupeHosts && field.attribute) {
+        const attrName = field.attribute;
+        const candidates = nodes
+          .toArray()
+          .map((el) => $(el).attr(attrName)?.trim() ?? "")
+          .filter(Boolean);
+        if (candidates.length > 1) {
+          const canonical = new Set(
+            candidates.map((href) => canonicalListingLink(href, dedupeHosts, true).url),
+          );
+          if (canonical.size === 1 && candidates[0]) {
+            if (candidates[0].length > 2000) throw new Error("html_field_too_large");
+            return { text: candidates[0], node: nodes.first() };
+          }
+        }
+      }
+      throw new Error("html_field_ambiguous");
+    }
+    const node = nodes.first();
+    const raw = field.attribute ? (node.attr(field.attribute)?.trim() ?? "") : cleanEnvelopeText(node);
+    if (raw.length > 2000) throw new Error("html_field_too_large");
+    if (raw) return { text: raw, node };
+  }
+  return { text: null, node: null };
+}
+export function detectHtmlCurrency(raw: string, fallback: string | null = null): string | null {
+  const text = raw.replace(/[\u00a0\u202f]/g, " ").trim();
+  if (!text) return fallback;
+  const explicit: ReadonlyArray<readonly [string, string]> = [
+    ["US $", "USD"],
+    ["US$", "USD"],
+    ["USD", "USD"],
+    ["CA $", "CAD"],
+    ["CA$", "CAD"],
+    ["C $", "CAD"],
+    ["C$", "CAD"],
+    ["CAD", "CAD"],
+    ["AU $", "AUD"],
+    ["AU$", "AUD"],
+    ["A $", "AUD"],
+    ["A$", "AUD"],
+    ["AUD", "AUD"],
+    ["GBP", "GBP"],
+    ["£", "GBP"],
+    ["EUR", "EUR"],
+    ["€", "EUR"],
+  ];
+  for (const [token, code] of explicit) {
+    if (text.includes(token)) return code;
+  }
+  if (/^(?:[+-]\s*)?\$(?=\d)/.test(text)) return fallback;
+  if (text.includes("$")) return null;
+  return fallback;
+}
+export function isHtmlPriceRange(raw: string): boolean {
+  const text = raw
+    .replace(/[\u00a0\u202f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return /\d[\d.,]*(?:\s*[A-Z]{3})?\s+to\s+(?:[^\d\s]+\s*){0,2}\d[\d.,]*/i.test(text);
+}
+export const EBAY_ITEM_SPECIFIC_MAP: Readonly<Record<string, string>> = Object.freeze({
+  category: "category",
+  brand: "brand",
+  model: "model",
+  "professional grader": "grading_company",
+  grader: "grading_company",
+  "grading company": "grading_company",
+  grade: "grade",
+  "card number": "card_number",
+  language: "language",
+  set: "set",
+  edition: "edition",
+  year: "year",
+  "year manufactured": "year",
+  "release year": "year",
+  "us shoe size": "size",
+  "shoe size": "size",
+  size: "size",
+  "size system": "size_system",
+  colorway: "colorway",
+  color: "colorway",
+  "reference number": "reference",
+  reference: "reference",
+  "with original box/packaging": "box",
+  "original box": "box",
+  box: "box",
+  "with papers": "papers",
+  papers: "papers",
+  platform: "platform",
+  "region code": "region",
+  region: "region",
+  variant: "variant",
+  completeness: "completeness",
+  "memory size": "vram_gb",
+  vram: "vram_gb",
+  "video memory": "vram_gb",
+  "chipset/gpu model": "chipset",
+  chipset: "chipset",
+  series: "series",
+  number: "number",
+});
 function safeUrl(raw: string, hosts: readonly string[], listing = false): string {
   const url = approvedImageUrl(raw, hosts);
   if (listing && new URL(url).search) throw new Error("html_listing_url_not_canonical");
@@ -290,25 +483,16 @@ export function parseNaturalSoldDate(raw: string): string | null {
     return null;
   return `${String(year).padStart(4, "0")}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
-function mapStandardCondition(raw: string | null): Candidate["condition"] | null {
+/** Maps unambiguous eBay condition labels to SoldBench standard conditions without equating Open Box or Pre-Owned. */
+export function mapStandardCondition(raw: string | null): Candidate["condition"] | null {
   if (!raw) return null;
-  const normalized = raw.trim().toLowerCase();
-  if (["brand new", "new", "new with tags", "new with box"].includes(normalized)) return "new";
-  if (
-    [
-      "new (other)",
-      "open box",
-      "like new",
-      "certified - refurbished",
-      "excellent - refurbished",
-      "new without tags",
-      "new without box",
-    ].includes(normalized)
-  )
-    return "like_new";
-  if (["very good", "very good - refurbished"].includes(normalized)) return "very_good";
-  if (["pre-owned", "good", "good - refurbished", "used"].includes(normalized)) return "good";
-  if (["acceptable", "for parts or not working", "parts only"].includes(normalized)) return "fair";
+  const normalized = raw.replace(/\s+/g, " ").trim().toLowerCase();
+  if (["new with tags", "new with box"].includes(normalized)) return "new_with_tags";
+  if (["new without tags", "new without box"].includes(normalized)) return "new_without_tags";
+  if (normalized === "like new") return "like_new";
+  if (normalized === "good") return "good";
+  if (["acceptable", "fair"].includes(normalized)) return "fair";
+  if (["for parts or not working", "parts only", "defective"].includes(normalized)) return "defective";
   return null;
 }
 function canonicalListingLink(
@@ -319,7 +503,7 @@ function canonicalListingLink(
   if (!envelope) return { url: safeUrl(raw, hosts, true), listingId: null };
   const url = approvedImageUrl(raw, hosts),
     parsed = new URL(url),
-    itm = /^\/itm\/(?:[^/]+\/)?(\d{6,19})\/?$/.exec(parsed.pathname);
+    itm = /^\/itm\/(?:.+\/)?(\d{6,19})\/?$/.exec(parsed.pathname);
   if (itm?.[1]) return { url: `${parsed.origin}/itm/${itm[1]}`, listingId: itm[1] };
   if (parsed.search) throw new Error("html_listing_url_not_canonical");
   const item = /^\/item\/([a-zA-Z0-9_-]{1,64})\/?$/.exec(parsed.pathname);
@@ -339,29 +523,38 @@ function extractNextCursor(raw: string, currentCursor: string): string {
   if (!candidate || candidate === currentCursor) throw new Error("html_pagination_unknown");
   return candidate;
 }
-export function createEbayUsSoldSearchHtmlProfile(
-  overrides: Partial<
-    Pick<
-      HtmlProfile,
-      "id" | "revision" | "listingHosts" | "imageHosts" | "allowSyntheticSeller" | "shippingContexts"
-    >
-  > = {},
-): HtmlProfile {
+type EbayProfileOverrides = Partial<
+  Pick<
+    HtmlProfile,
+    "id" | "revision" | "listingHosts" | "imageHosts" | "allowSyntheticSeller" | "shippingContexts"
+  >
+>;
+const EBAY_ACCESS_BLOCKS = [
+  "form#captcha_form",
+  "div.pgHeading",
+  "div#splashui-challenge",
+  'form[action*="splashui/challenge"]',
+  "section.access-wall",
+  "form.access-login",
+];
+export function createEbayUsSoldSearchHtmlProfile(overrides: EbayProfileOverrides = {}): HtmlProfile {
   return validateHtmlProfile({
     schema: "soldbench.synthetic-html-profile.v1",
     synthetic: true,
     id: overrides.id ?? "ebay-us-sold-search-html",
-    revision: overrides.revision ?? 1,
+    revision: overrides.revision ?? 2,
     bindingMode: "envelope",
     root: "div.srp-river-results",
     records: "li.s-item",
-    adRecords: "li.s-item--sponsored",
-    empty: "div.srp-save-null-search",
-    primaryImages: "img.s-item__image-img",
-    accessBlocks: ["form#captcha_form", "div.pgHeading", "section.access-wall", "form.access-login"],
-    attributes: "span.s-item__specific",
-    nextPage: { selector: "a.pagination__next", attribute: "href" },
-    reportedCount: { selector: "h1.srp-controls__count-heading" },
+    ignoredRecords: "li.s-item--watch-list-banner, li.s-item--carousel",
+    adRecords: "li.s-item--sponsored, span.s-item__ad-badge",
+    rewriteBoundary: "li.srp-river-answer--REWRITE_START",
+    empty: "div.srp-save-null-search, h3.srp-save-null-search__heading",
+    primaryImages: "div.s-item__image img, img.s-item__image-img",
+    accessBlocks: EBAY_ACCESS_BLOCKS,
+    attributes: "span.s-item__specific, dl.s-item__attributes, div.s-item__item-specifics > span",
+    nextPage: { selector: "a.pagination__next, nav.pagination a[rel='next']", attribute: "href" },
+    reportedCount: { selector: "h1.srp-controls__count-heading, div.srp-controls__count-heading" },
     defaultCurrency: "USD",
     defaultTimeZone: "America/Los_Angeles",
     listingHosts: overrides.listingHosts ?? ["www.ebay.com", "ebay.com"],
@@ -374,23 +567,118 @@ export function createEbayUsSoldSearchHtmlProfile(
       listingId: { selector: "span.s-item__item-id", attribute: "data-listing-id" },
       eventKey: { selector: "span.s-item__event-id", attribute: "data-event-key" },
       eventProof: { selector: "span.s-item__event-id", attribute: "data-event-proof" },
-      title: { selector: "div.s-item__title" },
-      sold: { selector: "span.s-item__caption-label" },
-      format: { selector: "span.s-item__purchase-options" },
+      title: {
+        selector:
+          "div.s-item__title > span[role='heading'], h3.s-item__title > span[role='heading'], div.s-item__title, h3.s-item__title",
+      },
+      sold: {
+        selector:
+          "span.s-item__caption-label, div.s-item__caption span.POSITIVE, div.s-item__title--tag span.POSITIVE, span.s-item__caption--signal",
+      },
+      format: {
+        selector:
+          "span.s-item__purchase-options, span.s-item__bids, span.s-item__dynamic.s-item__purchaseOptions, span.s-item__format",
+      },
       price: { selector: "span.s-item__price" },
       priceEvidence: { selector: "span.s-item__price-evidence" },
       currency: { selector: "span.s-item__currency", attribute: "data-currency" },
-      shipping: { selector: "span.s-item__shipping" },
+      shipping: { selector: "span.s-item__shipping, span.s-item__logisticsCost" },
       shippingEvidence: { selector: "span.s-item__shipping", attribute: "data-evidence" },
-      date: { selector: "span.s-item__caption-date" },
+      date: {
+        selector:
+          "span.s-item__caption-date, div.s-item__caption span.POSITIVE, div.s-item__title--tag span.POSITIVE, span.s-item__caption--signal",
+      },
       dateSemantics: { selector: "span.s-item__caption-date", attribute: "data-semantic" },
       timeZone: { selector: "span.s-item__caption-date", attribute: "data-time-zone" },
-      condition: { selector: "span.SECONDARY_INFO" },
+      condition: { selector: "span.SECONDARY_INFO, div.s-item__subtitle > span.SECONDARY_INFO" },
       conditionId: { selector: "span.SECONDARY_INFO", attribute: "data-condition-id" },
-      link: { selector: "a.s-item__link", attribute: "href" },
+      link: { selector: "div.s-item__info > a.s-item__link, a.s-item__link", attribute: "href" },
       sellerRef: { selector: "span.s-item__seller-info-text", attribute: "data-ref" },
     },
   });
+}
+export function createEbayUsSoldCardHtmlProfile(overrides: EbayProfileOverrides = {}): HtmlProfile {
+  return validateHtmlProfile({
+    schema: "soldbench.synthetic-html-profile.v1",
+    synthetic: true,
+    id: overrides.id ?? "ebay-us-sold-card-html",
+    revision: overrides.revision ?? 1,
+    bindingMode: "envelope",
+    root: "div.srp-river-results",
+    records: "li.s-card",
+    ignoredRecords: "li.s-card--watch-list-banner, li.s-card--carousel",
+    adRecords: "li.s-card--sponsored, span.s-card__ad-badge",
+    rewriteBoundary: "li.srp-river-answer--REWRITE_START",
+    empty: "div.srp-save-null-search, h3.srp-save-null-search__heading",
+    primaryImages: "div.s-card__media img, img.s-card__image",
+    accessBlocks: EBAY_ACCESS_BLOCKS,
+    attributes: "span.s-card__specific, dl.s-card__attributes, span.s-card__attribute-text",
+    nextPage: { selector: "a.pagination__next, nav.pagination a[rel='next']", attribute: "href" },
+    reportedCount: { selector: "h1.srp-controls__count-heading, div.srp-controls__count-heading" },
+    defaultCurrency: "USD",
+    defaultTimeZone: "America/Los_Angeles",
+    listingHosts: overrides.listingHosts ?? ["www.ebay.com", "ebay.com"],
+    imageHosts: overrides.imageHosts ?? ["i.ebayimg.com"],
+    allowSyntheticSeller: overrides.allowSyntheticSeller ?? false,
+    ...(overrides.shippingContexts ? { shippingContexts: overrides.shippingContexts } : {}),
+    decimal: ".",
+    grouping: ",",
+    fields: {
+      listingId: { selector: "span.s-card__item-id", attribute: "data-listing-id" },
+      eventKey: { selector: "span.s-card__event-id", attribute: "data-event-key" },
+      eventProof: { selector: "span.s-card__event-id", attribute: "data-event-proof" },
+      title: {
+        selector:
+          "div.s-card__title > span.su-styled-text, div.s-card__title > span[role='heading'], div.s-card__title, span.s-card__title",
+      },
+      sold: {
+        selector:
+          "div.s-card__caption span.positive, div.s-card__caption span.POSITIVE, div.s-card__caption span, div.s-card__title--tag span.positive",
+      },
+      format: { selector: "span.s-card__purchase-options, span.s-card__bids, span.s-card__format" },
+      price: { selector: "span.s-card__price" },
+      priceEvidence: { selector: "span.s-card__price-evidence" },
+      currency: { selector: "span.s-card__currency", attribute: "data-currency" },
+      shipping: { selector: "span.s-card__shipping, span.s-card__logistics-cost" },
+      shippingEvidence: { selector: "span.s-card__shipping", attribute: "data-evidence" },
+      date: {
+        selector:
+          "div.s-card__caption span.positive, div.s-card__caption span.POSITIVE, div.s-card__caption span, div.s-card__title--tag span.positive",
+      },
+      dateSemantics: { selector: "div.s-card__caption span", attribute: "data-semantic" },
+      timeZone: { selector: "div.s-card__caption span", attribute: "data-time-zone" },
+      condition: {
+        selector:
+          "div.s-card__subtitle span.su-styled-text, div.s-card__subtitle span.SECONDARY_INFO, div.s-card__subtitle",
+      },
+      conditionId: { selector: "div.s-card__subtitle span", attribute: "data-condition-id" },
+      link: {
+        selector: "div.s-card__details a.s-card__link, div.s-card__title a, a.s-card__link",
+        attribute: "href",
+      },
+      sellerRef: {
+        selector: "span.s-card__seller-info, span.s-card__seller-info-text",
+        attribute: "data-ref",
+      },
+    },
+  });
+}
+export function detectEbayUsSoldHtmlProfile(
+  raw: Uint8Array,
+  overrides: EbayProfileOverrides = {},
+): HtmlProfile {
+  if (raw.byteLength > 0 && raw.byteLength <= 4 * 1024 * 1024) {
+    try {
+      const $ = load(new TextDecoder("utf-8", { fatal: true }).decode(raw), { xml: { xmlMode: false } });
+      $("script,style,template,noscript,iframe,svg").remove();
+      const root = $("div.srp-river-results");
+      if (root.length && root.find("li.s-card").length > 0 && root.find("li.s-item").length === 0)
+        return createEbayUsSoldCardHtmlProfile(overrides);
+    } catch {
+      /* Fall back to the classic s-item profile which will validate and quarantine malformed bytes. */
+    }
+  }
+  return createEbayUsSoldSearchHtmlProfile(overrides);
 }
 export function parseHtmlPage(
   raw: Uint8Array,
@@ -399,15 +687,18 @@ export function parseHtmlPage(
 ): FixturePage {
   const profile = validateHtmlProfile(input),
     profileHash = digest(canonicalJson(profile)),
-    envelope = profile.bindingMode === "envelope";
-  if (raw.byteLength > 1024 * 1024) throw new Error("html_page_too_large");
+    envelope = profile.bindingMode === "envelope",
+    maxBytes = envelope ? 4 * 1024 * 1024 : 1024 * 1024;
+  if (raw.byteLength > maxBytes) throw new Error("html_page_too_large");
   const html = new TextDecoder("utf-8", { fatal: true }).decode(raw);
   if (html.includes("\u0000")) throw new Error("html_text_invalid");
   const $ = load(html, { xml: { xmlMode: false, decodeEntities: true, withStartIndices: true } });
-  if ($("*").length > 12000) throw new Error("html_node_budget_exceeded");
-  $("script,style,template,noscript,iframe").remove();
+  if (!envelope && $("*").length > 12000) throw new Error("html_node_budget_exceeded");
+  $("script,style,template,noscript,iframe,svg").remove();
   const root = $(profile.root);
   if (root.length !== 1) throw new Error("html_page_binding_invalid");
+  if (envelope && ($("*").length > 35000 || root.find("*").length > 20000))
+    throw new Error("html_node_budget_exceeded");
   if (!envelope) {
     if (
       root.attr("data-sb-schema") !== "soldbench.synthetic-html.v1" ||
@@ -425,23 +716,47 @@ export function parseHtmlPage(
   }
   const asOf = root.attr("data-as-of") ?? (envelope ? binding.asOf : "");
   if (instant(asOf) > instant(binding.asOf)) throw new Error("html_page_future_watermark");
+  let rewriteStartIndex: number | null = null;
+  if (envelope && profile.rewriteBoundary) {
+    const boundary = root.find(profile.rewriteBoundary).first();
+    if (boundary.length) {
+      const idx = (boundary[0] as { startIndex?: number | null } | undefined)?.startIndex;
+      if (typeof idx === "number") rewriteStartIndex = idx;
+    }
+  }
   let next: string | null | undefined = root.attr("data-next-cursor");
   if (next === undefined) {
     if (!envelope) throw new Error("html_pagination_unknown");
-    const rawNext = profile.nextPage
-      ? (value(root, profile.nextPage) ?? value($($.root()), profile.nextPage))
-      : null;
-    next = rawNext ? extractNextCursor(rawNext, binding.cursor) : null;
+    if (rewriteStartIndex !== null) next = null;
+    else {
+      const rawNext = profile.nextPage
+        ? (envelopeField(root, $, profile.nextPage).text ??
+          envelopeField($($.root()), $, profile.nextPage).text)
+        : null;
+      next = rawNext ? extractNextCursor(rawNext, binding.cursor) : null;
+    }
   }
   const records: FixtureListing[] = [],
     nodes = root.find(profile.records);
   if (nodes.length > 1000) throw new Error("html_record_budget_exceeded");
   if (nodes.toArray().some((node) => $(node).parents(profile.records).length))
     throw new Error("html_nested_record");
+  const placeholderImage = (url: string) =>
+    /^data:image\//i.test(url) || /\/s\.gif$|s-l64\.|s_1x2\.gif/i.test(url);
   nodes.each((index, node) => {
+    if (rewriteStartIndex !== null) {
+      const startIndex = (node as { startIndex?: number | null }).startIndex;
+      if (typeof startIndex === "number" && startIndex > rewriteStartIndex) return;
+    }
     const row = $(node),
       kind = row.attr("data-kind");
     if (["advertisement", "recommendation"].includes(kind ?? "")) return;
+    if (
+      envelope &&
+      profile.ignoredRecords &&
+      (row.is(profile.ignoredRecords) || row.find(profile.ignoredRecords).length > 0)
+    )
+      return;
     if (
       envelope &&
       profile.adRecords &&
@@ -450,21 +765,49 @@ export function parseHtmlPage(
       return;
     if (!envelope && kind !== "sold-record") throw new Error("html_record_kind_unknown");
     if (envelope && kind !== undefined && kind !== "sold-record") throw new Error("html_record_kind_unknown");
-    const read = (key: FieldName) => {
+    const readField = (
+      key: FieldName,
+      options?: { joinMultiple?: boolean; dedupeListingHosts?: readonly string[] },
+    ) => {
       const field = profile.fields[key];
-      return field ? value(row, field) : null;
+      if (!field) return { text: null, node: null };
+      if (!envelope) return { text: value(row, field), node: null };
+      return envelopeField(row, $, field, options);
     };
+    const read = (key: FieldName) => readField(key).text;
     const soldRaw = read("sold"),
       soldDateRaw = read("date");
     const soldConfirmed =
       soldRaw === "sold" ||
       (envelope && (/^Sold\b/i.test(soldRaw ?? "") || /^Sold\b/i.test(soldDateRaw ?? "")));
-    if (!soldConfirmed) throw new Error("html_sale_not_confirmed");
-    const rawLink = read("link"),
+    if (!soldConfirmed) {
+      if (envelope) {
+        const ghostTitle = read("title");
+        if (ghostTitle && /^shop on ebay$/i.test(ghostTitle)) return;
+        const ghostLink = readField("link", { dedupeListingHosts: profile.listingHosts }).text;
+        if (ghostLink && /^https?:\/\/(?:www\.)?ebay\.com\/itm\/123456(?:[/?#]|$)/i.test(ghostLink)) return;
+      }
+      throw new Error("html_sale_not_confirmed");
+    }
+    const rawLink = readField(
+        "link",
+        envelope ? { dedupeListingHosts: profile.listingHosts } : undefined,
+      ).text,
       parsedLink = rawLink ? canonicalListingLink(rawLink, profile.listingHosts, envelope) : null;
     const listingId = read("listingId") ?? parsedLink?.listingId ?? null,
-      title = read("title"),
-      currency = read("currency") ?? (envelope ? (profile.defaultCurrency ?? null) : null);
+      title = read("title");
+    const formatRaw = readField("format", envelope ? { joinMultiple: true } : undefined).text,
+      priceField = readField("price"),
+      priceRaw = priceField.text,
+      priceEvidenceRaw = read("priceEvidence");
+    const priceRange = envelope && priceRaw !== null && isHtmlPriceRange(priceRaw);
+    const currency =
+      read("currency") ??
+      (envelope
+        ? priceRaw
+          ? detectHtmlCurrency(priceRaw, profile.defaultCurrency ?? null)
+          : (profile.defaultCurrency ?? null)
+        : null);
     if (!listingId || !title || !currency) throw new Error("html_required_field_missing");
     const zone = read("timeZone") ?? (envelope ? (profile.defaultTimeZone ?? null) : null);
     let time: Candidate["time"] = { precision: "unknown" };
@@ -491,35 +834,49 @@ export function parseHtmlPage(
       (envelope && independent && time.precision !== "unknown" ? `${listingId}:${time.value}` : null);
     if (independent && !derivedEventKey) throw new Error("html_event_proof_incomplete");
     const eventKey = independent ? derivedEventKey : null;
-    const formatRaw = read("format"),
-      priceRaw = read("price"),
-      priceEvidenceRaw = read("priceEvidence");
+    const strikethrough =
+      envelope &&
+      priceField.node !== null &&
+      (priceField.node.is(".STRIKETHROUGH, s, del") ||
+        priceField.node.find(".STRIKETHROUGH, s, del").length > 0);
     let format = formatRaw,
       priceEvidence = priceEvidenceRaw;
     if (envelope) {
       if (
         /best\s+offer\s+accepted/i.test(formatRaw ?? "") ||
-        /best\s+offer\s+accepted|strikethrough/i.test(priceEvidenceRaw ?? "")
+        /best\s+offer\s+accepted/i.test(priceEvidenceRaw ?? "")
       ) {
         format = "best_offer";
+        if (priceEvidence !== "actual_paid") priceEvidence = "displayed_only";
+      } else if (strikethrough || /strikethrough/i.test(priceEvidenceRaw ?? "")) {
+        if (/\b\d+\s+bids?\b/i.test(formatRaw ?? "") || /^auction$/i.test(formatRaw ?? ""))
+          format = "auction";
+        else if (/\bbuy\s+it\s+now\b/i.test(formatRaw ?? "") && !/best\s+offer/i.test(formatRaw ?? ""))
+          format = "fixed_price";
+        else format = "best_offer";
         if (priceEvidence !== "actual_paid") priceEvidence = "displayed_only";
       } else if (/\b\d+\s+bids?\b/i.test(formatRaw ?? "") || /^auction$/i.test(formatRaw ?? "")) {
         format = "auction";
         if (priceEvidence === null) priceEvidence = "actual_paid";
       } else if (
         formatRaw === null ||
-        /^(?:buy\s+it\s+now|or\s+best\s+offer|fixed_price)$/i.test(formatRaw)
+        /^(?:buy\s+it\s+now|or\s+best\s+offer|fixed_price)(?:\s*\|\s*(?:buy\s+it\s+now|or\s+best\s+offer|fixed_price))*$/i.test(
+          formatRaw,
+        )
       ) {
         format = "fixed_price";
         if (priceEvidence === null) priceEvidence = "actual_paid";
       }
     }
+    if (priceRange) priceEvidence = "unknown";
     if (!["fixed_price", "auction", "best_offer"].includes(format ?? ""))
       throw new Error("html_format_unknown");
     if (priceEvidence !== null && !["actual_paid", "displayed_only", "unknown"].includes(priceEvidence))
       throw new Error("html_price_evidence_unknown");
     const itemCents =
-      priceRaw === null ? null : parseHtmlMoney(priceRaw, currency, profile.decimal, profile.grouping);
+      priceRaw === null || priceRange
+        ? null
+        : parseHtmlMoney(priceRaw, currency, profile.decimal, profile.grouping);
     if (priceEvidence === "actual_paid" && itemCents === null) throw new Error("html_actual_price_missing");
     const shippingRaw = read("shipping"),
       shippingEvidence = read("shippingEvidence");
@@ -545,25 +902,39 @@ export function parseHtmlPage(
       const cleaned = envelope
         ? shippingRaw
             .replace(/^\+\s*/, "")
-            .replace(/\s+(?:shipping|delivery|estimate)\b.*$/i, "")
+            .replace(/\s+(?:shipping|delivery|postage|estimate|international)\b.*$/i, "")
             .trim()
         : shippingRaw;
       shippingStatus = "observed";
       shippingCents = parseHtmlMoney(cleaned, currency, profile.decimal, profile.grouping);
     } else if (envelope && shippingEvidence === null && shippingRaw) {
-      if (/not\s+specified|calculate/i.test(shippingRaw)) {
+      if (
+        /local\s+pickup|pickup\s+(?:only|in\s+store)|freight|not\s+specified|calculate|see\s+item\s+description/i.test(
+          shippingRaw,
+        )
+      ) {
         shippingStatus = "unknown";
         shippingCents = null;
-      } else if (/^free\b|free\s+.*shipping|免费运费|免运费/i.test(shippingRaw)) {
+      } else if (
+        /^free\b.*(?:shipping|delivery|postage)|free\s+(?:shipping|delivery|postage)|免费运费|免运费/i.test(
+          shippingRaw,
+        )
+      ) {
         shippingStatus = "verified_free_shipping";
         shippingCents = 0;
       } else {
         const cleaned = shippingRaw
           .replace(/^\+\s*/, "")
-          .replace(/\s+(?:shipping|delivery|estimate)\b.*$/i, "")
+          .replace(/\s+(?:shipping|delivery|postage|estimate|international)\b.*$/i, "")
           .trim();
-        shippingStatus = "observed";
-        shippingCents = parseHtmlMoney(cleaned, currency, profile.decimal, profile.grouping);
+        const shipCurrency = detectHtmlCurrency(cleaned, currency);
+        if (shipCurrency === currency) {
+          shippingStatus = "observed";
+          shippingCents = parseHtmlMoney(cleaned, currency, profile.decimal, profile.grouping);
+        } else {
+          shippingStatus = "unknown";
+          shippingCents = null;
+        }
       }
     }
     const shippingContext = read("shippingContextRef");
@@ -594,13 +965,36 @@ export function parseHtmlPage(
         const choices = srcset.split(",");
         if (choices.length > 16) throw new Error("html_image_budget_exceeded");
         for (const part of choices) {
-          const match = /^\s*(\S+)\s+([1-9]\d{0,4})w\s*$/.exec(part);
-          if (!match?.[1] || !match[2]) throw new Error("html_srcset_invalid");
-          imageChoices.push({ url: safeUrl(match[1], profile.imageHosts), width: Number(match[2]) });
+          const widthMatch = /^\s*(\S+)\s+([1-9]\d{0,4})w\s*$/.exec(part);
+          if (widthMatch?.[1] && widthMatch[2]) {
+            if (!(envelope && placeholderImage(widthMatch[1])))
+              imageChoices.push({
+                url: safeUrl(widthMatch[1], profile.imageHosts),
+                width: Number(widthMatch[2]),
+              });
+            continue;
+          }
+          const densityMatch = envelope ? /^\s*(\S+)\s+([1-9]\d?(?:\.\d+)?)x\s*$/.exec(part) : null;
+          if (densityMatch?.[1] && densityMatch[2]) {
+            if (!placeholderImage(densityMatch[1]))
+              imageChoices.push({
+                url: safeUrl(densityMatch[1], profile.imageHosts),
+                width: Math.round(Number(densityMatch[2]) * 1000),
+              });
+            continue;
+          }
+          if (!envelope) throw new Error("html_srcset_invalid");
+          const bare = /^\s*(\S+)\s*$/.exec(part);
+          if (bare?.[1] && !placeholderImage(bare[1]))
+            imageChoices.push({ url: safeUrl(bare[1], profile.imageHosts), width: 0 });
+          else if (!bare?.[1]) throw new Error("html_srcset_invalid");
         }
       } else {
-        const url = image.attr("data-src") || image.attr("src");
-        if (url && !(envelope && (/^data:image\//i.test(url) || /\/s\.gif$|s-l64\./i.test(url))))
+        const url =
+          (envelope ? image.attr("data-high-res-src") : undefined) ||
+          image.attr("data-src") ||
+          image.attr("src");
+        if (url && !(envelope && placeholderImage(url)))
           imageChoices.push({ url: safeUrl(url, profile.imageHosts), width: 0 });
       }
     });
@@ -608,19 +1002,49 @@ export function parseHtmlPage(
     const attributes: Record<string, string> = {},
       attrNodes = row.find(profile.attributes);
     if (attrNodes.length > 32) throw new Error("html_attribute_budget_exceeded");
+    const recordMappedAttribute = (rawLabel: string, rawVal: string) => {
+      const label = rawLabel.replace(/:$/, "").replace(/\s+/g, " ").trim().toLowerCase();
+      const key = EBAY_ITEM_SPECIFIC_MAP[label];
+      if (!key) return;
+      let normalized = rawVal.replace(/\s+/g, " ").trim();
+      if (!normalized || normalized.length > 500) return;
+      if (key === "vram_gb") {
+        const gb = /^(\d{1,3})\s*gb$/i.exec(normalized);
+        if (gb?.[1]) normalized = gb[1];
+      }
+      if (Object.hasOwn(attributes, key)) {
+        if (attributes[key] !== normalized) throw new Error("html_attribute_invalid");
+        return;
+      }
+      if (Object.keys(attributes).length >= 32) throw new Error("html_attribute_budget_exceeded");
+      attributes[key] = normalized;
+    };
     attrNodes.each((_, attrNode) => {
       const attr = $(attrNode),
-        name = attr.attr("data-name"),
-        text = attr.text().trim();
-      if (
-        !name ||
-        !/^[a-z][a-z0-9_]{0,63}$/.test(name) ||
-        Object.hasOwn(attributes, name) ||
-        !text ||
-        text.length > 500
-      )
-        throw new Error("html_attribute_invalid");
-      attributes[name] = text;
+        name = attr.attr("data-name");
+      if (!envelope || name !== undefined) {
+        const text = attr.text().trim();
+        if (
+          !name ||
+          !/^[a-z][a-z0-9_]{0,63}$/.test(name) ||
+          Object.hasOwn(attributes, name) ||
+          !text ||
+          text.length > 500
+        )
+          throw new Error("html_attribute_invalid");
+        attributes[name] = text;
+        return;
+      }
+      if (attr.is("dl")) {
+        attr.find("dt").each((__, dtNode) => {
+          const dt = $(dtNode);
+          const dd = dt.next("dd");
+          if (dd.length) recordMappedAttribute(cleanEnvelopeText(dt), cleanEnvelopeText(dd));
+        });
+        return;
+      }
+      const pair = /^([^:]{1,64}):\s*(.+)$/.exec(cleanEnvelopeText(attr));
+      if (pair?.[1] && pair[2]) recordMappedAttribute(pair[1], pair[2]);
     });
     const sellerRef = profile.allowSyntheticSeller ? read("sellerRef") : null;
     if (sellerRef !== null && !/^synthetic-[a-z0-9_-]{1,64}$/.test(sellerRef))
@@ -651,7 +1075,7 @@ export function parseHtmlPage(
       soldDate: time.precision !== "unknown" ? "present" : "missing",
       seller: profile.allowSyntheticSeller ? (sellerRef ? "present" : "missing") : "withheld",
       primaryImage: imageChoices.length ? "present" : "missing",
-      attributes: attrNodes.length ? "present" : "missing",
+      attributes: Object.keys(attributes).length ? "present" : "missing",
       description: description ? "present" : "missing",
       defects: defects ? "present" : "missing",
     });
@@ -685,14 +1109,30 @@ export function parseHtmlPage(
       ...(imageChoices[0] ? { primaryImage: { role: "primary" as const, url: imageChoices[0].url } } : {}),
     });
   });
-  const emptyNodes = root.find(profile.empty);
-  const emptyConfirmed =
-    emptyNodes.length === 1 &&
-    (emptyNodes.attr("data-confirmed") === "true" ||
-      (envelope &&
-        /no\s+exact\s+matches\s+found|0\s+results\s+found|no\s+results\s+for/i.test(emptyNodes.text())));
+  let emptyConfirmed = false;
+  let emptyConflict = false;
+  if (!envelope) {
+    const emptyNodes = root.find(profile.empty);
+    emptyConfirmed = emptyNodes.length === 1 && emptyNodes.attr("data-confirmed") === "true";
+    emptyConflict = records.length > 0 && emptyNodes.length > 0;
+  } else {
+    for (const branch of splitCssSelectorList(profile.empty)) {
+      const emptyNodes = root.find(branch);
+      if (emptyNodes.length === 1) {
+        const node = emptyNodes.first();
+        if (
+          node.attr("data-confirmed") === "true" ||
+          /no\s+exact\s+matches\s+found|0\s+results\s+found|no\s+results\s+for/i.test(cleanEnvelopeText(node))
+        ) {
+          emptyConfirmed = true;
+          break;
+        }
+      }
+    }
+    emptyConflict = records.length > 0 && emptyConfirmed;
+  }
   if (!records.length && !emptyConfirmed) throw new Error("html_empty_not_confirmed");
-  if (records.length && emptyNodes.length) throw new Error("html_empty_conflict");
+  if (emptyConflict) throw new Error("html_empty_conflict");
   const page: FixturePage = {
     schema: "soldbench.synthetic-page.v1",
     synthetic: true,
@@ -719,7 +1159,9 @@ export function parseHtmlPage(
       estimated: estimated === "true",
     };
   } else if (envelope && profile.reportedCount) {
-    const rawCount = value(root, profile.reportedCount) ?? value($($.root()), profile.reportedCount);
+    const rawCount =
+      envelopeField(root, $, profile.reportedCount).text ??
+      envelopeField($($.root()), $, profile.reportedCount).text;
     if (rawCount) {
       const match = /^([0-9][0-9,]{0,15})\+?\s+results?\b/i.exec(rawCount.trim());
       if (!match?.[1]) throw new Error("html_reported_count_invalid");

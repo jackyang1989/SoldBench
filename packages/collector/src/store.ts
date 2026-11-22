@@ -907,9 +907,10 @@ export class CollectorStore {
     reason: QuarantineReason,
     affectedEventId?: string,
   ) {
+    const maxBytes = this.htmlProfile?.bindingMode === "envelope" ? 4 * 1024 * 1024 : 1024 * 1024;
     if (
       !quarantineReasons.includes(reason) ||
-      raw.byteLength > 1024 * 1024 ||
+      raw.byteLength > maxBytes ||
       (reason === "event_identity_conflict") !== (affectedEventId !== undefined)
     )
       throw new Error("invalid_quarantine_evidence");
@@ -1259,7 +1260,7 @@ export class CollectorStore {
       return images;
     });
   }
-  async finish(lease: Lease) {
+  async finish(lease: Lease, options: { allowIncompleteCursor?: boolean } = {}) {
     if (lease.imageTaskId) throw new Error("image_lease_cannot_finish_parent");
     await transaction(this.db, async (c) => {
       const { job, now } = await this.locked(c, lease);
@@ -1268,7 +1269,11 @@ export class CollectorStore {
           job.id,
         ])
       ).rows;
-      if (!last.some((x) => x.next_cursor === null) || !job.min_page_as_of)
+      if (
+        (!options.allowIncompleteCursor && !last.some((x) => x.next_cursor === null)) ||
+        !last.length ||
+        !job.min_page_as_of
+      )
         throw new Error("collector_run_incomplete");
       if (Number(job.bytes_reserved) !== 0) throw new Error("dispatches_unsettled");
       await c.query(

@@ -93,7 +93,11 @@ export function loadFixtureArtifact(bytes: Uint8Array) {
       )
         throw new Error("fixture_artifact_response_invalid");
       const raw = Buffer.from(row.bytesBase64, "base64"),
-        max = frame.key.startsWith("page:") ? 1024 * 1024 : 5 * 1024 * 1024;
+        max = frame.key.startsWith("page:")
+          ? profile?.bindingMode === "envelope"
+            ? 4 * 1024 * 1024
+            : 1024 * 1024
+          : 5 * 1024 * 1024;
       if (raw.length > max || raw.toString("base64") !== row.bytesBase64)
         throw new Error("fixture_artifact_response_bytes_invalid");
       responses.push({

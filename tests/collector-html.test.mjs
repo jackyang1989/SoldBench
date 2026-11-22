@@ -849,6 +849,18 @@ test("envelope-bound eBay US sold search DOM profile parses natural dates, canon
     const isAuction = i === 1;
     const freeShip = i % 2 === 0;
     const price = isBestOffer ? "$399.99" : `$${260 + i * 5}.00`;
+    const condLabel =
+      i === 0
+        ? "Pre-Owned"
+        : i === 2
+          ? "New with tags"
+          : i === 3
+            ? "Brand New"
+            : i === 4
+              ? "Open Box"
+              : i === 5
+                ? "For parts or not working"
+                : "Good";
     return `
       <li class="s-item">
         <div class="s-item__image-wrapper">
@@ -863,7 +875,7 @@ test("envelope-bound eBay US sold search DOM profile parses natural dates, canon
           <a class="s-item__link" href="https://www.ebay.com/itm/Nintendo-Switch-OLED-${i}/${itemId}?hash=item${i}&amp;_trkparms=ispr%3D1">
             <div class="s-item__title">Nintendo Switch OLED Console Bundle ${i}</div>
           </a>
-          <div class="s-item__subtitle"><span class="SECONDARY_INFO">Pre-Owned</span></div>
+          <div class="s-item__subtitle"><span class="SECONDARY_INFO">${condLabel}</span></div>
           <div class="s-item__details">
             <span class="s-item__price">${price}</span>
             ${isBestOffer ? '<span class="s-item__price-evidence">strikethrough</span>' : ""}
@@ -902,7 +914,13 @@ test("envelope-bound eBay US sold search DOM profile parses natural dates, canon
   assert.deepEqual(parsedPage1.sourceReported, { count: 1240, unit: "listings", estimated: true });
   assert.equal(parsedPage1.records[0].listingId, "235812345600");
   assert.equal(parsedPage1.records[0].recordEvidence.listingUrl, "https://www.ebay.com/itm/235812345600");
-  assert.equal(parsedPage1.records[0].candidate.condition, "good");
+  assert.equal(parsedPage1.records[0].recordEvidence.conditionRaw, "Pre-Owned");
+  assert.equal(parsedPage1.records[0].candidate.condition, undefined);
+  assert.equal(parsedPage1.records[1].candidate.condition, "good");
+  assert.equal(parsedPage1.records[2].candidate.condition, "new_with_tags");
+  assert.equal(parsedPage1.records[3].candidate.condition, undefined);
+  assert.equal(parsedPage1.records[4].candidate.condition, undefined);
+  assert.equal(parsedPage1.records[5].candidate.condition, "defective");
   assert.equal(parsedPage1.records[0].candidate.format, "fixed_price");
   assert.equal(parsedPage1.records[0].candidate.priceStatus, "verified_actual");
   assert.equal(parsedPage1.records[0].candidate.shippingStatus, "verified_free_shipping");

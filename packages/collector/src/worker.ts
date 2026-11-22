@@ -29,14 +29,19 @@ class ImageBackoff extends Error {
 
 /** A fixture-only worker; neither its page nor image transport can access networks. */
 export class OfflineCollectorWorker {
+  readonly limits: { pageBytes: number; imageBytes: number };
   constructor(
     readonly store: CollectorStore,
     readonly transport: CollectorTransport,
     readonly media: PrivateMediaStore,
-    readonly limits = { pageBytes: 1024 * 1024, imageBytes: 5 * 1024 * 1024 },
+    limits?: { pageBytes: number; imageBytes: number },
   ) {
     if (!["memory_fixture", "loopback_fixture"].includes(transport.mode))
       throw new Error("network_collector_not_enabled");
+    this.limits = limits ?? {
+      pageBytes: store.htmlProfile?.bindingMode === "envelope" ? 4 * 1024 * 1024 : 1024 * 1024,
+      imageBytes: 5 * 1024 * 1024,
+    };
   }
   private async response(
     lease: Lease,
@@ -269,7 +274,7 @@ export class OfflineCollectorWorker {
   }
   async runOne(
     sourceId: string,
-    options: { jobId?: string; maxPages?: number; signal?: AbortSignal } = {},
+    options: { jobId?: string; maxPages?: number; completeAtPageLimit?: boolean; signal?: AbortSignal } = {},
   ): Promise<{ jobId: string; status: string } | null> {
     if (
       options.maxPages !== undefined &&
@@ -319,6 +324,10 @@ export class OfflineCollectorWorker {
         await this.images(lease, options.signal);
         processed++;
         if (options.maxPages !== undefined && processed >= options.maxPages && page.nextCursor !== null) {
+          if (options.completeAtPageLimit) {
+            await this.store.finish(lease, { allowIncompleteCursor: true });
+            return { jobId: job.id, status: "completed" };
+          }
           await this.store.defer(lease, "worker_yield", 1, false);
           return { jobId: job.id, status: "retry" };
         }
