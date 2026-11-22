@@ -38,6 +38,7 @@ test("prototype-based pages serve both languages, valid private deep links and s
       "/account/queries",
       "/account/saved",
       "/account/batches",
+      "/account/history",
       "/account/usage",
       "/account/logs",
       "/account/keys",
@@ -939,6 +940,21 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByRole("button", { name: "Export CSV", exact: true }).click();
     const batchCsvExport = await readFile(await (await batchDownload).path(), "utf8");
     assert.match(batchCsvExport, new RegExp(x.q.q));
+    await page.goto(`${origin}/account/history?q=${encodeURIComponent(x.q.q)}`);
+    await page.getByRole("heading", { name: "Archive history", exact: true }).waitFor();
+    await page.getByText(/Supported complete windows: None/).waitFor();
+    await page.getByRole("button", { name: "Load historical trend", exact: true }).click();
+    await page.getByText(/exceeds continuous approved historical coverage/).waitFor();
+    await page.getByRole("checkbox", { name: /Allow partial coverage/ }).check();
+    await page.getByRole("button", { name: "Load historical trend", exact: true }).click();
+    await page.getByRole("heading", { name: /Coverage: Partial/ }).waitFor();
+    await page.getByRole("cell", { name: "Missing gap", exact: true }).first().waitFor();
+    await page.getByRole("link", { name: "简体中文" }).click();
+    await page.getByRole("heading", { name: "历史档案研究", exact: true }).waitFor();
+    await page.getByRole("checkbox", { name: /允许部分覆盖/ }).check();
+    await page.getByRole("button", { name: "加载历史研究", exact: true }).click();
+    await page.getByRole("cell", { name: "数据缺口", exact: true }).first().waitFor();
+    await page.getByRole("link", { name: "English", exact: true }).click();
     await page.goto(`${origin}/account/security`);
     await page.getByRole("heading", { name: "Active sessions" }).waitFor();
     await page.getByRole("button", { name: "Set up authenticator" }).click();

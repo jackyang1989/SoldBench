@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.28.0
+  version: 1.29.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -7873,6 +7873,112 @@ paths:
       x-roles: [owner]
       x-scopes: [sold:read]
       x-credit-policy: '0'
+  /v1/history/coverage:
+    get:
+      operationId: getHistoryCoverage
+      summary: Read actual retained historical archive spans, gaps, and supported windows for a normalized query (0 credits).
+      security: *id001
+      parameters:
+      - *content_language
+      - {name: q, in: query, required: true, schema: *id010}
+      - {name: category, in: query, required: false, schema: {type: string, maxLength: 64}}
+      - {name: brand, in: query, required: false, schema: {type: string, maxLength: 120}}
+      - {name: model, in: query, required: false, schema: {type: string, maxLength: 120}}
+      - {name: condition, in: query, required: false, schema: {type: string, maxLength: 64}}
+      - {name: price_basis, in: query, required: false, schema: {enum: [item, item_plus_observed_shipping]}}
+      - {name: sale_format, in: query, required: false, schema: {enum: [fixed_price, auction, best_offer]}}
+      responses:
+        '200':
+          description: Authorized retained spans and gaps (never inflates gaps into retained days).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/HistoryCoverageResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '429': *content_error
+      x-task: TASK-046
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
+  /v1/history:
+    get:
+      operationId: searchHistoryArchive
+      summary: Search authorized historical archive events with gap-aware buckets and date cursor (0 credits).
+      security: *id001
+      parameters:
+      - *content_language
+      - {name: q, in: query, required: true, schema: *id010}
+      - {name: category, in: query, required: false, schema: {type: string, maxLength: 64}}
+      - {name: brand, in: query, required: false, schema: {type: string, maxLength: 120}}
+      - {name: model, in: query, required: false, schema: {type: string, maxLength: 120}}
+      - {name: condition, in: query, required: false, schema: {type: string, maxLength: 64}}
+      - {name: price_basis, in: query, required: false, schema: {enum: [item, item_plus_observed_shipping]}}
+      - {name: sale_format, in: query, required: false, schema: {enum: [fixed_price, auction, best_offer]}}
+      - {name: min_price_cents, in: query, required: false, schema: {type: integer, minimum: 0}}
+      - {name: max_price_cents, in: query, required: false, schema: {type: integer, minimum: 0}}
+      - {name: window_days, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 1095}}
+      - {name: from_date, in: query, required: false, schema: {type: string, maxLength: 64}}
+      - {name: to_date, in: query, required: false, schema: {type: string, maxLength: 64}}
+      - {name: allow_partial, in: query, required: false, schema: {type: string, enum: ['true', 'false']}}
+      - {name: granularity, in: query, required: false, schema: {enum: [day, week, month]}}
+      - *id005
+      - *id006
+      responses:
+        '200':
+          description: Historical statistics, gap-aware time-series buckets, and single-sale events (multi-unit rows excluded).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/HistorySearchResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '422': *content_error
+        '429': *content_error
+      x-task: TASK-046
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
+  /v1/history/export:
+    post:
+      operationId: exportHistoryArchive
+      summary: Export authorized historical archive records as JSON or formula-safe CSV (0 credits).
+      security: *id001
+      parameters: [*content_language]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ExportHistoryRequest'}
+      responses:
+        '200':
+          description: Private non-cacheable JSON or CSV export with explicit coverage status and excluded multi-unit count.
+          headers:
+            Cache-Control:
+              schema: {type: string, const: 'private, no-store'}
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {$ref: '#/components/schemas/HistorySearchData'}
+                  meta:
+                    type: object
+                    additionalProperties: true
+                required: [data, meta]
+                additionalProperties: false
+            text/csv:
+              schema: {type: string}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '415': *content_error
+        '422': *content_error
+        '429': *content_error
+      x-task: TASK-046
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
 components:
   securitySchemes:
     SupportReceipt:
@@ -12647,5 +12753,232 @@ components:
       properties:
         format: {enum: [csv, json]}
       required: [format]
+      additionalProperties: false
+    HistoryCoveredSpan:
+      type: object
+      properties:
+        start: {type: string, format: date-time}
+        end: {type: string, format: date-time}
+        completeness: {enum: [complete, partial]}
+      required: [start, end, completeness]
+      additionalProperties: false
+    HistoryGap:
+      type: object
+      properties:
+        start: {type: string, format: date-time}
+        end: {type: string, format: date-time}
+      required: [start, end]
+      additionalProperties: false
+    HistoryCoverageResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            query_hash: {type: string}
+            marketplace: {const: ebay_us}
+            evaluated_at: {type: string, format: date-time}
+            earliest_covered_at: {type: [string, 'null'], format: date-time}
+            latest_covered_at: {type: [string, 'null'], format: date-time}
+            actual_retained_days: {type: number, minimum: 0}
+            supported_history_windows:
+              type: array
+              items: {type: integer}
+            covered_spans:
+              type: array
+              items: {$ref: '#/components/schemas/HistoryCoveredSpan'}
+            missing_gaps:
+              type: array
+              items: {$ref: '#/components/schemas/HistoryGap'}
+            total_observed_events: {type: integer, minimum: 0}
+            excluded_multi_unit_rows: {type: integer, minimum: 0}
+            data_mode: {const: synthetic_fixture}
+          required:
+          - query_hash
+          - marketplace
+          - evaluated_at
+          - earliest_covered_at
+          - latest_covered_at
+          - actual_retained_days
+          - supported_history_windows
+          - covered_spans
+          - missing_gaps
+          - total_observed_events
+          - excluded_multi_unit_rows
+          - data_mode
+          additionalProperties: false
+        meta: {$ref: '#/components/schemas/BasicMeta'}
+      required: [data, meta]
+      additionalProperties: false
+    HistoryStats:
+      type: object
+      properties:
+        n_price_verified: {type: integer, minimum: 0}
+        data_insufficient: {type: boolean}
+        median_cents: {type: [integer, 'null']}
+        p25_cents: {type: [integer, 'null']}
+        p75_cents: {type: [integer, 'null']}
+        trimmed_mean_cents: {type: [integer, 'null']}
+      required: [n_price_verified, data_insufficient, median_cents, p25_cents, p75_cents, trimmed_mean_cents]
+      additionalProperties: false
+    HistoryTimeSeriesBucket:
+      type: object
+      properties:
+        start: {type: string, format: date-time}
+        end: {type: string, format: date-time}
+        observation_coverage: {enum: [complete, partial, missing]}
+        sample_count: {type: integer, minimum: 0}
+        median_cents: {type: [integer, 'null']}
+        p25_cents: {type: [integer, 'null']}
+        p75_cents: {type: [integer, 'null']}
+        trimmed_mean_cents: {type: [integer, 'null']}
+      required:
+      - start
+      - end
+      - observation_coverage
+      - sample_count
+      - median_cents
+      - p25_cents
+      - p75_cents
+      - trimmed_mean_cents
+      additionalProperties: false
+    HistoryPrimaryImage:
+      type: object
+      properties:
+        state: {type: string}
+        url: {type: [string, 'null']}
+        width: {type: [integer, 'null']}
+        height: {type: [integer, 'null']}
+      required: [state, url, width, height]
+      additionalProperties: false
+    HistorySaleItem:
+      type: object
+      properties:
+        sale_event_id: *id002
+        source_id: *id002
+        title: {type: [string, 'null']}
+        condition_std: {type: [string, 'null']}
+        sale_format: {enum: [fixed_price, auction, best_offer]}
+        price_usd_cents: {type: integer, minimum: 0}
+        item_price_cents: {type: [integer, 'null']}
+        observed_shipping_cents: {type: [integer, 'null']}
+        sold_at: {type: [string, 'null'], format: date-time}
+        sold_date: {type: object, additionalProperties: true}
+        primary_image: {$ref: '#/components/schemas/HistoryPrimaryImage'}
+      required:
+      - sale_event_id
+      - source_id
+      - title
+      - condition_std
+      - sale_format
+      - price_usd_cents
+      - item_price_cents
+      - observed_shipping_cents
+      - sold_at
+      - sold_date
+      - primary_image
+      additionalProperties: false
+    HistorySearchData:
+      type: object
+      properties:
+        query_hash: {type: string}
+        query: {$ref: '#/components/schemas/SoldQuery'}
+        requested_window:
+          type: object
+          properties:
+            start: {type: string, format: date-time}
+            end: {type: string, format: date-time}
+          required: [start, end]
+          additionalProperties: false
+        coverage_status: {enum: [complete, partial]}
+        earliest_covered_at: {type: [string, 'null'], format: date-time}
+        latest_covered_at: {type: [string, 'null'], format: date-time}
+        actual_retained_days: {type: number, minimum: 0}
+        supported_history_windows:
+          type: array
+          items: {type: integer}
+        missing_gaps:
+          type: array
+          items: {$ref: '#/components/schemas/HistoryGap'}
+        excluded_multi_unit_count: {type: integer, minimum: 0}
+        rights_withheld_count: {type: integer, minimum: 0}
+        stats: {$ref: '#/components/schemas/HistoryStats'}
+        time_series:
+          type: object
+          properties:
+            granularity: {enum: [day, week, month]}
+            timezone: {const: UTC}
+            buckets:
+              type: array
+              items: {$ref: '#/components/schemas/HistoryTimeSeriesBucket'}
+          required: [granularity, timezone, buckets]
+          additionalProperties: false
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/HistorySaleItem'}
+        next_cursor: {type: [string, 'null']}
+      required:
+      - query_hash
+      - query
+      - requested_window
+      - coverage_status
+      - earliest_covered_at
+      - latest_covered_at
+      - actual_retained_days
+      - supported_history_windows
+      - missing_gaps
+      - excluded_multi_unit_count
+      - rights_withheld_count
+      - stats
+      - time_series
+      - items
+      - next_cursor
+      additionalProperties: false
+    HistorySearchResponse:
+      type: object
+      properties:
+        data: {$ref: '#/components/schemas/HistorySearchData'}
+        meta:
+          type: object
+          properties:
+            request_id: {type: string, minLength: 1}
+            credits_charged: {type: integer, const: 0}
+            evaluated_at: {type: string, format: date-time}
+            data_mode: {const: synthetic_fixture}
+            engine_version: {type: string}
+            cleaner_version: {type: string}
+            normalizer_version: {type: string}
+          required:
+          - request_id
+          - credits_charged
+          - evaluated_at
+          - data_mode
+          - engine_version
+          - cleaner_version
+          - normalizer_version
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    ExportHistoryRequest:
+      type: object
+      properties:
+        format: {enum: [csv, json]}
+        q: *id010
+        marketplace: {type: string}
+        category: {type: string}
+        brand: {type: string}
+        model: {type: string}
+        condition: {type: string}
+        price_basis: {enum: [item, item_plus_observed_shipping]}
+        sale_format: {enum: [fixed_price, auction, best_offer]}
+        min_price_cents: {type: integer, minimum: 0}
+        max_price_cents: {type: integer, minimum: 0}
+        attributes: {type: object, additionalProperties: {type: string}}
+        window_days: {type: integer, minimum: 1, maximum: 1095}
+        from_date: {type: string}
+        to_date: {type: string}
+        allow_partial: {type: boolean}
+        granularity: {enum: [day, week, month]}
+      required: [format, q]
       additionalProperties: false
 x-design-evidence: docs/adr/ADR-12.md; docs/contracts/check_contracts.py; not production approval

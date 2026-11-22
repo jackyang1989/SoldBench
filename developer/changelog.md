@@ -1,5 +1,9 @@
 # SoldBench engineering changelog
 
+## 2026-11-22 — V1.1 approved history archive and research API (offline)
+
+OpenAPI 1.29.0 adds `/v1/history/coverage`, `/v1/history`, and `/v1/history/export` (`TASK-046`, 0 credits in synthetic offline build) backed by persisted collector retention spans (`archive_coverage_spans`). Coverage strictly reflects contiguous retained spans without fabricating uncollected multi-year data; out-of-window or gapped ranges return `422 unsupported_window` unless `allow_partial=true` is explicitly selected, multi-unit listing averages are isolated from single-sale stats, gap buckets report `missing` with `null` medians, legacy missing/expired images never fabricate upstream URLs, and source revocation or retention expiry immediately stops distribution.
+
 ## 2026-11-22 — V1.1 merchant batch lookup and CSV workbench (offline)
 
 OpenAPI 1.28.0 adds the offline `/v1/batches*` endpoints (`TASK-045`, maximum 20 items per batch, 1 active batch per account) for dry-run deduplication/credit-cap previews, asynchronous batch submission, versioned cancellation of remaining child jobs, explicit atomic claim of ready items via the existing per-query settlement engine, and formula-safe CSV/JSON export. Unclaimed, failed, cancelled, and revoked items withhold prices rather than filling zero. Live source clearance remains uncertified.

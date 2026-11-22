@@ -14,6 +14,7 @@ import { mountBatches } from "./batches.ts";
 import { mountCatalog } from "./catalog.ts";
 import { mountDeveloper } from "./developer.ts";
 import { editorialNotFound, mountEditorial, siteBlocks } from "./editorial.ts";
+import { mountHistory } from "./history.ts";
 import { mountMcp } from "./mcp.ts";
 import { mountOperations } from "./operations.ts";
 import { mountPayments } from "./payments.ts";
@@ -160,6 +161,7 @@ export function createApp(
   }
   mountQueries(app, config, services.auth, services.query);
   mountBatches(app, config, services.auth, services.query);
+  mountHistory(app, config, services.auth, services.query);
   mountMcp(app, config, services.auth, services.query);
   mountEditorial(app, db, services.query);
   mountDeveloper(app);

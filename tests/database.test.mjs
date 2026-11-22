@@ -183,7 +183,8 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
       "0032_collector_supervisor_state.sql",
     ]);
     assert.deepEqual(await migrate(db, "0033_collector_detail_jobs.sql"), ["0033_collector_detail_jobs.sql"]);
-    assert.deepEqual(await migrate(db), ["0034_batch_queries.sql"]);
+    assert.deepEqual(await migrate(db, "0034_batch_queries.sql"), ["0034_batch_queries.sql"]);
+    assert.deepEqual(await migrate(db), ["0035_archive_history.sql"]);
     assert.deepEqual(await migrate(db), []);
     const detailConstraints = await db.query(
       "SELECT conname FROM pg_constraint WHERE conrelid='collector_detail_jobs'::regclass ORDER BY conname",
@@ -195,6 +196,13 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
     );
     assert.ok(batchConstraints.rows.some((r) => r.conname === "batch_queries_status_check"));
     assert.ok(batchConstraints.rows.some((r) => r.conname === "batch_query_items_submit_status_check"));
+    const archiveConstraints = await db.query(
+      "SELECT conname FROM pg_constraint WHERE conrelid IN ('archive_coverage_spans'::regclass, 'sale_events'::regclass) ORDER BY conname",
+    );
+    assert.ok(archiveConstraints.rows.some((r) => r.conname === "archive_coverage_spans_completeness_check"));
+    assert.ok(
+      archiveConstraints.rows.some((r) => r.conname === "sale_events_listing_aggregation_kind_check"),
+    );
     const mediaColumns = await db.query(
       "SELECT column_name FROM information_schema.columns WHERE table_name='listing_images'",
     );
@@ -226,7 +234,7 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
     const tables = await db.query(
       "SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema='public'",
     );
-    assert.equal(tables.rows[0].n, 83);
+    assert.equal(tables.rows[0].n, 84);
     await assert.rejects(
       transaction(db, async (c) => {
         await c.query("INSERT INTO users(email,password_hash) VALUES('rollback@example.test','fixture')");

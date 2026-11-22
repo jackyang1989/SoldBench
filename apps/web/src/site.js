@@ -177,6 +177,10 @@ function report(error) {
       "This request key was already used for different parameters.",
       "此幂等键已被用于不同的请求参数。",
     ),
+    unsupported_window: t(
+      "The requested window exceeds continuous approved historical coverage. Inspect retained spans or allow partial coverage.",
+      "所选窗口超出连续获准历史覆盖范围。请先核对实际留存跨度或勾选允许部分覆盖。",
+    ),
   };
   const retry = Number(error.retryAfter);
   const text =
@@ -4104,6 +4108,285 @@ async function showBatchWorkbench() {
   await loadAll();
 }
 
+async function showArchiveHistory() {
+  const intro = element(
+    "p",
+    t(
+      "Inspect actual retained archive windows, missing collection gaps, and single-sale historical trends (multi-unit listing averages excluded; missing segments remain null).",
+      "核对真实留存档案时间跨度、采集缺口与单笔成交历史走势（自动排除多件挂牌均价行；缺失时段保持空缺不补零）。",
+    ),
+    "notice",
+  );
+
+  const formCard = element("section", undefined, "card result-card");
+  formCard.append(element("h2", t("Archive window & filters", "档案窗口与筛选")));
+  const form = element("form");
+
+  const qLabel = element("label", t("Query keyword", "关键词"));
+  const qInput = element("input");
+  qInput.maxLength = 120;
+  qInput.required = true;
+  qInput.setAttribute("data-history-q", "");
+  qInput.value = current().searchParams.get("q") ?? "Nintendo Switch";
+  qLabel.append(qInput);
+
+  const winLabel = element("label", t("Window days", "查询天数窗口"));
+  const winSelect = element("select");
+  for (const [val, label] of [
+    ["30", t("30 days", "30 天")],
+    ["90", t("90 days", "90 天")],
+    ["180", t("180 days", "180 天")],
+    ["365", t("365 days", "365 天")],
+    ["custom", t("Custom UTC dates", "自定义 UTC 日期")],
+  ]) {
+    const opt = element("option", label);
+    opt.value = val;
+    winSelect.append(opt);
+  }
+  winSelect.value = "90";
+  winLabel.append(winSelect);
+
+  const fromLabel = element("label", t("From UTC date (YYYY-MM-DD)", "起始 UTC 日期 (YYYY-MM-DD)"));
+  const fromInput = element("input");
+  fromInput.placeholder = "2026-10-01";
+  fromLabel.append(fromInput);
+
+  const toLabel = element("label", t("To UTC date (YYYY-MM-DD)", "结束 UTC 日期 (YYYY-MM-DD)"));
+  const toInput = element("input");
+  toInput.placeholder = "2026-11-17";
+  toLabel.append(toInput);
+
+  const granLabel = element("label", t("Series granularity", "时间序列粒度"));
+  const granSelect = element("select");
+  for (const [val, label] of [
+    ["", t("Auto", "自动")],
+    ["day", t("Daily (UTC)", "按日 (UTC)")],
+    ["week", t("Weekly (UTC)", "按周 (UTC)")],
+    ["month", t("Monthly (UTC)", "按月 (UTC)")],
+  ]) {
+    const opt = element("option", label);
+    opt.value = val;
+    granSelect.append(opt);
+  }
+  granLabel.append(granSelect);
+
+  const partialLabel = element("label", undefined, "actions");
+  const partialCheck = element("input");
+  partialCheck.type = "checkbox";
+  const partialSpan = element(
+    "span",
+    t("Allow partial coverage (mark missing gaps)", "允许部分覆盖（标注缺失缺口）"),
+  );
+  partialLabel.append(partialCheck, partialSpan);
+
+  const btnRow = element("div", undefined, "actions");
+  const covBtn = element("button", t("Check retained coverage", "检查留存覆盖"), "btn ghost");
+  covBtn.type = "button";
+  const runBtn = element("button", t("Load historical trend", "加载历史研究"), "btn brand");
+  runBtn.type = "submit";
+  btnRow.append(covBtn, runBtn);
+  form.append(qLabel, winLabel, fromLabel, toLabel, granLabel, partialLabel, btnRow);
+
+  const covBox = element("div");
+  covBox.setAttribute("data-history-coverage", "");
+  formCard.append(form, covBox);
+
+  const resultBox = element("section", undefined, "card result-card");
+  resultBox.setAttribute("data-history-results", "");
+  output.append(intro, formCard, resultBox);
+
+  const csrf = async () => (await session())?.csrf_token;
+
+  function buildParams(forCoverage = false) {
+    const p = new URLSearchParams({ q: qInput.value.trim() });
+    if (forCoverage) return p;
+    if (winSelect.value === "custom") {
+      if (fromInput.value.trim()) p.set("from_date", fromInput.value.trim());
+      if (toInput.value.trim()) p.set("to_date", toInput.value.trim());
+    } else {
+      p.set("window_days", winSelect.value);
+    }
+    if (partialCheck.checked) p.set("allow_partial", "true");
+    if (granSelect.value) p.set("granularity", granSelect.value);
+    return p;
+  }
+
+  function renderCoverage(cov) {
+    covBox.replaceChildren();
+    const windowsText = cov.supported_history_windows.length
+      ? cov.supported_history_windows.join(", ")
+      : t("None", "无");
+    covBox.append(
+      element(
+        "p",
+        t(
+          `Retained days: ${cov.actual_retained_days} · Supported complete windows: ${windowsText} · Excluded multi-unit rows: ${cov.excluded_multi_unit_rows} · Internal gaps: ${cov.missing_gaps.length}`,
+          `实际留存天数：${cov.actual_retained_days} · 支持完整窗口：${windowsText} · 已排除多件均价行：${cov.excluded_multi_unit_rows} · 内部缺口数：${cov.missing_gaps.length}`,
+        ),
+        "notice",
+      ),
+    );
+    if (cov.covered_spans.length) {
+      const ul = element("ul");
+      for (const s of cov.covered_spans) {
+        ul.append(
+          element(
+            "li",
+            `${s.start.slice(0, 10)} → ${s.end.slice(0, 10)} (${s.completeness === "complete" ? t("complete", "完整") : t("partial", "部分")})`,
+            "small",
+          ),
+        );
+      }
+      covBox.append(ul);
+    }
+  }
+
+  function renderResults(payload, appendItems = false) {
+    if (!appendItems) {
+      resultBox.replaceChildren();
+      resultBox.append(
+        element(
+          "h2",
+          `${t("Coverage", "覆盖状态")}: ${payload.coverage_status === "complete" ? t("Complete", "完整覆盖") : t("Partial (with gaps)", "部分覆盖（含缺口）")}`,
+        ),
+      );
+      resultBox.append(
+        element(
+          "p",
+          t(
+            `Single-sale verified n: ${payload.stats.n_price_verified} · Median: ${amount(payload.stats.median_cents)} · P25/P75: ${amount(payload.stats.p25_cents)} / ${amount(payload.stats.p75_cents)} · Excluded multi-unit rows: ${payload.excluded_multi_unit_count} · Gaps: ${payload.missing_gaps.length}`,
+            `单笔核验样本：${payload.stats.n_price_verified} · 中位价：${amount(payload.stats.median_cents)} · P25/P75：${amount(payload.stats.p25_cents)} / ${amount(payload.stats.p75_cents)} · 排除多件均价：${payload.excluded_multi_unit_count} · 缺口段：${payload.missing_gaps.length}`,
+          ),
+          "small",
+        ),
+      );
+
+      const expBar = element("div", undefined, "actions");
+      for (const fmt of ["csv", "json"]) {
+        const expBtn = button(t(`Export ${fmt.toUpperCase()}`, `导出 ${fmt.toUpperCase()}`), () =>
+          run(async () => {
+            expBtn.disabled = true;
+            try {
+              const p = buildParams(false);
+              const body = { format: fmt, q: p.get("q") };
+              if (p.has("window_days")) body.window_days = Number(p.get("window_days"));
+              if (p.has("from_date")) body.from_date = p.get("from_date");
+              if (p.has("to_date")) body.to_date = p.get("to_date");
+              if (p.get("allow_partial") === "true") body.allow_partial = true;
+              if (p.has("granularity")) body.granularity = p.get("granularity");
+              const out = await post("/v1/history/export", body, await csrf(), undefined, fmt === "csv");
+              const blob =
+                fmt === "csv" ? out : new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
+              download(blob, `soldbench-history-${payload.query_hash.slice(0, 8)}.${fmt}`);
+            } finally {
+              expBtn.disabled = false;
+            }
+          }),
+        );
+        expBtn.className = "btn ghost";
+        expBar.append(expBtn);
+      }
+      resultBox.append(expBar);
+
+      const tsTable = element("div", undefined, "table-scroll");
+      const tsInner = element("table");
+      const tsHead = element("tr");
+      for (const col of [
+        t("Bucket UTC", "UTC 时段"),
+        t("Coverage", "覆盖情况"),
+        t("Samples", "样本数"),
+        t("Median", "中位价"),
+      ]) {
+        tsHead.append(element("th", col));
+      }
+      const tsThead = element("thead");
+      tsThead.append(tsHead);
+      tsInner.append(tsThead);
+      const tsBody = element("tbody");
+      const covLabels = {
+        complete: t("Complete", "完整"),
+        partial: t("Partial", "部分"),
+        missing: t("Missing gap", "数据缺口"),
+      };
+      for (const b of payload.time_series.buckets) {
+        const tr = element("tr");
+        tr.append(element("td", `${b.start.slice(0, 10)} → ${b.end.slice(0, 10)}`));
+        tr.append(element("td", covLabels[b.observation_coverage] ?? b.observation_coverage));
+        tr.append(element("td", String(b.sample_count)));
+        tr.append(element("td", amount(b.median_cents)));
+        tsBody.append(tr);
+      }
+      tsInner.append(tsBody);
+      tsTable.append(tsInner);
+      resultBox.append(tsTable);
+
+      const salesHeading = element("h3", t("Archived single-sale observations", "已归档单笔成交记录"));
+      const salesList = element("ul");
+      salesList.setAttribute("data-history-items", "");
+      resultBox.append(salesHeading, salesList);
+    }
+
+    const salesList = resultBox.querySelector("[data-history-items]");
+    for (const item of payload.items) {
+      const li = element(
+        "li",
+        `${item.sold_at ? item.sold_at.slice(0, 10) : "—"} · ${item.title ?? t("Title withheld", "标题不公开")} · ${amount(item.price_usd_cents)} · ${t("Photo", "主图")}: ${item.primary_image.state}`,
+        "small",
+      );
+      salesList.append(li);
+    }
+    const prevMore = resultBox.querySelector("[data-history-more]");
+    if (prevMore) prevMore.remove();
+    if (payload.next_cursor) {
+      const more = button(t("Load more", "加载更多"), () =>
+        run(async () => {
+          const p = buildParams(false);
+          p.set("cursor", payload.next_cursor);
+          const nextRes = await api(`/v1/history?${p}`);
+          renderResults(nextRes.data, true);
+        }),
+      );
+      more.className = "btn ghost";
+      more.setAttribute("data-history-more", "");
+      resultBox.append(more);
+    }
+  }
+
+  covBtn.addEventListener("click", () =>
+    run(async () => {
+      covBtn.disabled = true;
+      try {
+        const res = await api(`/v1/history/coverage?${buildParams(true)}`);
+        renderCoverage(res.data);
+      } finally {
+        covBtn.disabled = false;
+      }
+    }),
+  );
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    run(async () => {
+      runBtn.disabled = true;
+      try {
+        const res = await api(`/v1/history?${buildParams(false)}`);
+        renderResults(res.data, false);
+      } finally {
+        runBtn.disabled = false;
+      }
+    });
+  });
+
+  if (qInput.value.trim()) {
+    try {
+      const res = await api(`/v1/history/coverage?${buildParams(true)}`);
+      renderCoverage(res.data);
+    } catch {
+      // Leave initial empty query clean without error banner
+    }
+  }
+}
+
 if (page.startsWith("/account"))
   run(async () => {
     const user = await session();
@@ -4124,6 +4407,7 @@ if (page.startsWith("/account"))
     if (page === "/account/logs") return showLogs();
     if (page === "/account/saved") return showSavedResearch();
     if (page === "/account/batches") return showBatchWorkbench();
+    if (page === "/account/history") return showArchiveHistory();
     if (page === "/account/security") return showAccountSecurity();
     if (page === "/account/billing") return showBilling();
     if (page === "/account/keys") {

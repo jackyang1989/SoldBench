@@ -36,6 +36,7 @@ export type Candidate = {
   sellerRef?: string;
   sellerDisplayName?: string;
   shippingContextRef?: string;
+  listingAggregationKind?: "single_sale" | "multi_unit_listing_average" | "listing_summary_only";
 };
 export type Query = {
   sourceId: string;
@@ -99,6 +100,14 @@ export function candidateFromJson(value: unknown): Candidate {
       record.usdConversion.itemCents === null ||
       !validMoney(record.usdConversion.shippingCents) ||
       typeof record.usdConversion.evidenceRef !== "string")
+  ) {
+    throw new Error("invalid_candidate");
+  }
+  if (
+    record.listingAggregationKind !== undefined &&
+    !["single_sale", "multi_unit_listing_average", "listing_summary_only"].includes(
+      record.listingAggregationKind,
+    )
   ) {
     throw new Error("invalid_candidate");
   }
@@ -188,10 +197,13 @@ function evaluateComplete(records: readonly Candidate[], query: Query) {
     if (previous && canonicalJson(previous) !== canonicalJson(record)) conflicts.add(record.eventKey);
     else keyed.set(record.eventKey, record);
   }
+  const singleSale = (r: Candidate) =>
+    r.listingAggregationKind === undefined || r.listingAggregationKind === "single_sale";
   const observed = [...keyed]
     .filter(([key, r]) => !conflicts.has(key) && inWindow(r.time, query.asOf, query.days))
     .map(([, r]) => r);
-  const matched = observed.filter((r) => r.comparable);
+  const singleSales = observed.filter(singleSale);
+  const matched = singleSales.filter((r) => r.comparable);
   const comparable = matched.filter((r) => {
     if (query.saleFormat !== undefined && r.format !== query.saleFormat) return false;
     const amount = priceQualification(r, query.basis).priceCents;
@@ -222,13 +234,15 @@ function evaluateComplete(records: readonly Candidate[], query: Query) {
           ? "event_identity_conflict"
           : !inWindow(record.time, query.asOf, query.days)
             ? "outside_window"
-            : !record.comparable
-              ? record.strongAttributeEvidenceMissing
-                ? "missing_strong_attribute_evidence"
-                : "hard_attribute_mismatch"
-              : !comparableSet.has(record)
-                ? "query_filter"
-                : priceQualification(record, query.basis).reason;
+            : !singleSale(record)
+              ? (record.listingAggregationKind ?? "multi_unit_listing_average")
+              : !record.comparable
+                ? record.strongAttributeEvidenceMissing
+                  ? "missing_strong_attribute_evidence"
+                  : "hard_attribute_mismatch"
+                : !comparableSet.has(record)
+                  ? "query_filter"
+                  : priceQualification(record, query.basis).reason;
     const included = reason === null,
       price = prices.get(record);
     return {
@@ -291,7 +305,7 @@ function evaluateComplete(records: readonly Candidate[], query: Query) {
       conflicting_event_keys: [...conflicts].sort(),
       duplicate_observations: records.length - unidentified - keyed.size,
       outside_window_events: keyed.size - conflicts.size - observed.length,
-      hard_mismatch_events: observed.length - matched.length,
+      hard_mismatch_events: singleSales.length - matched.length,
       query_filter_events: matched.length - comparable.length,
       uncertain_candidates: uncertain.size,
       duplicate_uncertain_observations: unidentified - uncertain.size,
@@ -299,7 +313,10 @@ function evaluateComplete(records: readonly Candidate[], query: Query) {
         uncertain_identity: uncertain.size,
         event_identity_conflict: conflicts.size,
         outside_window: keyed.size - conflicts.size - observed.length,
-        hard_attribute_mismatch: observed.length - matched.length,
+        ...(observed.length > singleSales.length
+          ? { multi_unit_listing_average: observed.length - singleSales.length }
+          : {}),
+        hard_attribute_mismatch: singleSales.length - matched.length,
         ...(query.minPriceCents !== undefined ||
         query.maxPriceCents !== undefined ||
         query.saleFormat !== undefined

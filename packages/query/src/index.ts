@@ -1119,6 +1119,7 @@ export function safeCsvCell(value: unknown) {
 }
 
 export * from "./batch.ts";
+export * from "./history-archive.ts";
 export { PublicResults } from "./public-results.ts";
 export * from "./request-audit.ts";
 export * from "./research.ts";

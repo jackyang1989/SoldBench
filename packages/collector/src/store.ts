@@ -1270,7 +1270,7 @@ export class CollectorStore {
         } else {
           const hasTime = candidate.time.precision === "instant";
           const result = await c.query<{ id: string }>(
-            "INSERT INTO sale_events(listing_id,source_id,observation_id,source_event_key,identity_fingerprint,event_identity_status,sold_at,sold_date_raw,sold_date_precision,source_timezone,sale_format,sale_price_status,item_price_cents,observed_shipping_cents,observed_shipping_status,currency,item_price_usd_cents,shipping_usd_cents,fx_rate_source,evidence_kind,evidence_ref,first_seen_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,'synthetic',$20,$21) RETURNING id",
+            "INSERT INTO sale_events(listing_id,source_id,observation_id,source_event_key,identity_fingerprint,event_identity_status,sold_at,sold_date_raw,sold_date_precision,source_timezone,sale_format,sale_price_status,item_price_cents,observed_shipping_cents,observed_shipping_status,currency,item_price_usd_cents,shipping_usd_cents,fx_rate_source,evidence_kind,evidence_ref,first_seen_at,listing_aggregation_kind) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,'synthetic',$20,$21,$22) RETURNING id",
             [
               listing.id,
               job.source_id,
@@ -1299,6 +1299,7 @@ export class CollectorStore {
               candidate.usdConversion?.evidenceRef ?? null,
               `synthetic:${rawHash}:${index}`,
               now,
+              candidate.listingAggregationKind ?? "single_sale",
             ],
           );
           eventId = result.rows[0]?.id ?? missingRow();
@@ -1415,6 +1416,62 @@ export class CollectorStore {
         "INSERT INTO collector_watermarks(source_id,query_hash,run_id,data_as_of) VALUES($1,$2,$3,$4) ON CONFLICT(source_id,query_hash) DO UPDATE SET run_id=excluded.run_id,data_as_of=excluded.data_as_of WHERE collector_watermarks.data_as_of<=excluded.data_as_of",
         [job.source_id, job.query_hash, job.collector_run_id, job.min_page_as_of],
       );
+      const clearance = (
+        await c.query<{ retention_days: number | null }>(
+          "SELECT x.retention_days FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id WHERE s.id=$1",
+          [job.source_id],
+        )
+      ).rows[0];
+      if (clearance?.retention_days && clearance.retention_days > 0) {
+        const bounds = (
+          await c.query<{
+            single_count: number;
+            multi_unit_count: number;
+            min_sold_at: Date | null;
+            max_sold_at: Date | null;
+          }>(
+            `SELECT
+               count(*) FILTER (WHERE se.listing_aggregation_kind='single_sale')::int AS single_count,
+               count(*) FILTER (WHERE se.listing_aggregation_kind<>'single_sale')::int AS multi_unit_count,
+               min(se.sold_at) FILTER (WHERE se.listing_aggregation_kind='single_sale') AS min_sold_at,
+               max(se.sold_at) FILTER (WHERE se.listing_aggregation_kind='single_sale') AS max_sold_at
+             FROM collector_pages p
+             JOIN sale_event_evidence see ON see.observation_id=p.observation_id AND see.source_id=p.source_id
+             JOIN sale_events se ON se.id=see.sale_event_id
+             WHERE p.job_id=$1`,
+            [job.id],
+          )
+        ).rows[0];
+        const endMs = Math.max(bounds?.max_sold_at?.getTime() ?? 0, job.min_page_as_of.getTime());
+        const minMs = bounds?.min_sold_at?.getTime();
+        const startMs = minMs !== undefined && minMs < endMs ? minMs : endMs - 1000;
+        const retentionUntil = new Date(now.getTime() + clearance.retention_days * 86_400_000);
+        const completeness = options.allowIncompleteCursor ? "partial" : "complete";
+        await c.query(
+          `INSERT INTO archive_coverage_spans(source_id,query_hash,collector_run_id,permission_epoch,window_start,window_end,retention_until,completeness,observed_event_count,multi_unit_listing_row_count,created_at)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+           ON CONFLICT(source_id,query_hash,collector_run_id) DO UPDATE SET
+             window_start=least(archive_coverage_spans.window_start,excluded.window_start),
+             window_end=greatest(archive_coverage_spans.window_end,excluded.window_end),
+             retention_until=greatest(archive_coverage_spans.retention_until,excluded.retention_until),
+             completeness=CASE WHEN archive_coverage_spans.completeness='partial' OR excluded.completeness='partial' THEN 'partial' ELSE 'complete' END,
+             observed_event_count=excluded.observed_event_count,
+             multi_unit_listing_row_count=excluded.multi_unit_listing_row_count`,
+          [
+            job.source_id,
+            job.query_hash,
+            job.collector_run_id,
+            job.permission_epoch,
+            new Date(startMs),
+            new Date(endMs),
+            retentionUntil,
+            completeness,
+            bounds?.single_count ?? 0,
+            bounds?.multi_unit_count ?? 0,
+            now,
+          ],
+        );
+      }
     });
   }
   /** Called under a source lock. Legacy media is adopted only with evidence in this store. */
