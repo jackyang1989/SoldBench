@@ -7,10 +7,10 @@
 | 项目 | 接手信息 |
 |---|---|
 | 仓库 | 私有仓库 `jackyang1989/SoldBench`，远端 `https://github.com/jackyang1989/SoldBench.git` |
-| 主分支基线 | `main` 已合入撤权主图清理收尾（§157）、运营读侧（§158）、信封绑定 eBay US 已售 DOM 解析（§159）、真实 eBay 多布局解析加固/HTTP 传输/原始 HTML 摄入链（§160）、商品详情页解析补证/有界 Chrome 传输闭环（§161）、持久详情补证队列/3 通道监督/eBay US 语料守护运行器（§162）、生产隔离部署模板/校验型 PG16 备份恢复脚本（§163）、V1.1 商家批量查价及 CSV 工作台（§164）、获准历史档案与研究 API（§165）、V1.5 Best Offer 后置实价核验与版本快照链（§166）、Hosted MCP OAuth 2.1/PKCE 及 Passkey（§167）与 V1.5 收藏监控/费用同意提醒及签名 Webhook（§168） |
+| 主分支基线 | `main` 已合入撤权主图清理收尾（§157）、运营读侧（§158）、信封绑定 eBay US 已售 DOM 解析（§159）、真实 eBay 多布局解析加固/HTTP 传输/原始 HTML 摄入链（§160）、商品详情页解析补证/有界 Chrome 传输闭环（§161）、持久详情补证队列/3 通道监督/eBay US 语料守护运行器（§162）、生产隔离部署模板/校验型 PG16 备份恢复脚本（§163）、V1.1 商家批量查价及 CSV 工作台（§164）、获准历史档案与研究 API（§165）、V1.5 Best Offer 后置实价核验与版本快照链（§166）、Hosted MCP OAuth 2.1/PKCE 及 Passkey（§167）、V1.5 收藏监控/费用同意提醒及签名 Webhook（§168）与 V1.5 图片/条码识别查价（§169） |
 | 当前工作区 | 本机主检出 `/Users/jianouyang/Project/SoldBench`（在 `main` 上推进）；旧隔离工作树 `/Users/jianouyang/.codex/worktrees/soldbench-media-recovery/SoldBench` 保留未改，勿再基于已合入分支继续做合成撤权延伸 |
-| 已完成增量 | TASK-014/015/016/017/019/039/044/045/046/047/048/061 的 §157–§168 均已通过隔离 PG16、Chrome 与离线运行包演练；最新候选 `702ff82`（OpenAPI 1.32.0、96 张表、`API-62`）通过 37 套 331 项 Node 测试与 256 文件运行包独立恢复演练；注：本机出口 IP 直连 `www.ebay.com` 返回边缘 403 并按 Fail-Closed 熔断 |
-| 接下来做什么 | **继续按 `docs/开发排期与任务台账.md` 推进全部待开发功能包（勿回退假数据撤权清理）**：下一步推进 V1.5 扩展工程 **TASK-050（图片/条码查价，AT-067）**、TASK-051（库存估值，AT-068）、TASK-049（UK/DE 站点扩展，AT-066）及剩余跨平台/全量复核包，同步保留可用出口网络下 `npm run collector:ebay-daemon` 的 14 日稳定性观测准备 |
+| 已完成增量 | TASK-014/015/016/017/019/039/044/045/046/047/048/050/061 的 §157–§169 均已通过隔离 PG16、Chrome 与离线运行包演练；最新候选 `75d7077`（OpenAPI 1.33.0、98 张表、`API-63`）通过 38 套 334 项 Node 测试与 263 文件运行包独立恢复演练；注：本机出口 IP 直连 `www.ebay.com` 返回边缘 403 并按 Fail-Closed 熔断 |
+| 接下来做什么 | **继续按 `docs/开发排期与任务台账.md` 推进全部待开发功能包（勿回退假数据撤权清理）**：下一步推进 V1.5 扩展工程 **TASK-051（库存估值工作流，AT-068）**、TASK-049（eBay UK/DE 站点扩展，AT-066）及剩余跨平台/全量复核包，同步保留可用出口网络下 `npm run collector:ebay-daemon` 的 14 日稳定性观测准备 |
 
 接手后先在主检出确认分支与工作区状态：
 
@@ -41,13 +41,13 @@ SoldBench 是直接服务**个人卖家、收藏品交易商、二手商家、�
 | 工程与数据库，TASK-011/012/017 | TypeScript 工作区，Hono API、React SSR、PG16、独立查询 Worker、采集监督进程与隔离部署基础设施模板。33 个增量迁移，本机无 DDL 权限启动、断进程、旧包回滚及非 root 三网络 Compose / Caddy / 校验型 PG16 备份恢复演练。入口 `apps/api/src/server.ts`、`scripts/query-worker.mjs`、`packages/db/migrations/`、`infra/` | 台账 §101、§109、§122、§129、§162–163 |
 | 来源准备，TASK-001/003–009 | 45 字段权利和来源事实清单、120 条查询草稿、1,680 时段的验证计划、质量盲审、断源演练、成本和访谈准备。入口 `step0/`。实际来源字段仍待核验 | [第 0 步](../step0/README.md)、台账 §94、§96、§110、§112、§139–143 |
 | 采集与商品主图，TASK-013–016 | 本机 JSON/HTML 分页回放、任务信封绑定的 `li.s-item`/`li.s-card` 双布局 eBay US 已售 DOM 解析加固（`createEbayUsSoldSearchHtmlProfile`/`createEbayUsSoldCardHtmlProfile`/`detectEbayUsSoldHtmlProfile`）、URL 构造与自托管 HTTP/有界浏览器双传输（`EbayUsHttpTransport`/`EbayUsBrowserTransport`）、6 类目 `/itm/<id>` 详页解析与持久队列补证（`collector_detail_jobs`/`CollectorStore.enqueuePendingDetails`/`runDetails`）、原始 HTML 审计与多品类语料守护运行器（`scripts/collector-ebay-intake.mjs`/`scripts/collector-ebay-daemon.mjs`）、观察与事件去重、独立租约、预算结算、降速/熔断、缺包和迟到恢复、定时计划、3 通道监督与主图绑定/转码/补采/到期与撤权分批清理。入口 `packages/collector/src/`、`packages/media/src/`、`scripts/collector-supervisor.mjs`、`scripts/collector-ebay-intake.mjs`、`scripts/collector-ebay-daemon.mjs` | 台账 §91–93、§98–100、§139–162 |
-| 查价与研究，TASK-019/020/027/028/031/032/036/045/046/047/059 | 黄金 121/64/58、可比性及混型号判定，详页成色统一解析，显式领取、详情/主图/诊断、只读复取、人工排除重算、单结果 JSON/CSV、受控公开分享、已交付快照保存对照、V1.1 商家批量查价与 CSV 工作台、获准历史档案覆盖账本/缺口研究 API 以及 V1.5 Best Offer 后置实价核验与不可变快照修订版本链。入口 `packages/core/src/`、`packages/query/src/`、`apps/api/src/{queries,batches,history,best-offers}.ts` | 台账 §54–57、§63–76、§86、§92、§95、§161、§164–166 |
+| 查价与研究，TASK-019/020/027/028/031/032/036/045–048/050/059 | 黄金 121/64/58、可比性及混型号判定，详页成色统一解析，显式领取、详情/主图/诊断、只读复取、人工排除重算、单结果 JSON/CSV、受控公开分享、已交付快照保存对照、V1.1 商家批量查价与 CSV 工作台、获准历史档案覆盖账本/缺口研究 API、V1.5 Best Offer 后置实价核验与版本快照链、收藏监控与签名 Webhook 以及图片/条码识别确认查价。入口 `packages/core/src/`、`packages/query/src/`、`apps/api/src/{queries,batches,history,best-offers,alerts,lookup}.ts` | 台账 §54–57、§63–76、§86、§92、§95、§161、§164–166、§168–169 |
 | 账户与账本，TASK-023–027/033/039/044 | 本机注册/验证、会话、TOTP、恢复码、API key、Hosted MCP OAuth 2.1/PKCE 与 WebAuthn Passkey（ES256/Ed25519，不降级 MFA）、用量/日志、积分桶和原子结算、删除及旧备份防反弹；双语事务邮件从离线发件箱交付。入口 `packages/auth/src/`、`packages/billing/src/`、`apps/api/src/{auth,oauth,passkeys}.ts` | 台账 §40–41、§47、§65、§89、§102、§106、§130–131、§167 |
 | 支付，TASK-029 | Stripe/PayPal 本机签名事件、订阅及退款生命周期、只读对账、晚到事件与旧库补放，入口 `apps/api/src/payments.ts`、`packages/billing/src/payment-lifecycle.ts` | 台账 §49、§68、§70、§73、§108、§132–134 |
-| 英中网页与运营，TASK-031–036/044–048/057–061 | 原型 Search/Research/账户（含批量 CSV 与历史档案研究工作台、`/results/:id` Best Offer 后置核验面板、`/account/security` OAuth 授权与 Passkey 管理、`/account/alerts` 收藏监控与 Webhook 管理）/Playground、公开索引和内容页、CMS 审核/定时/回滚、工单、审批与执行、用户 360、来源监控及主图维护/详情补证队列读侧已接本机服务。入口 `apps/web/src/`、`apps/api/src/operations.ts`、`apps/api/src/ops-telemetry.ts` | 台账 §63–78、§84–88、§95、§103、§105、§121、§147–149、§158、§162、§164–168 |
-| 开发者与运行交付，TASK-037–040/042/044–048 | OpenAPI 1.32.0、双语 Docs、Playground、REST、MCP（支持 API Key 与 OAuth 2.1/PKCE Bearer）、签名 Webhook、Skill 与 TS/Python/curl 示例。可从独立归档解包、启动、验证客户端以及恢复撤权、账务和仍有权主图。入口 `developer/`、`apps/api/src/{mcp,oauth,alerts}.ts`、`scripts/package-offline.py`、`scripts/rehearse-offline.py` | 台账 §83、§88–89、§95、§104、§122–131、§154–162、§164–168 |
+| 英中网页与运营，TASK-031–036/044–048/050/057–061 | 原型 Search/Research/账户（含批量 CSV、历史档案研究、`/account/lookup` 图片与条码查价、`/results/:id` Best Offer 后置核验、`/account/security` OAuth 授权与 Passkey 管理、`/account/alerts` 收藏监控与 Webhook 管理）/Playground、公开索引和内容页、CMS 审核/定时/回滚、工单、审批与执行、用户 360、来源监控及主图维护/详情补证队列读侧已接本机服务。入口 `apps/web/src/`、`apps/api/src/operations.ts`、`apps/api/src/ops-telemetry.ts` | 台账 §63–78、§84–88、§95、§103、§105、§121、§147–149、§158、§162、§164–169 |
+| 开发者与运行交付，TASK-037–040/042/044–048/050 | OpenAPI 1.33.0、双语 Docs、Playground、REST、MCP（支持 API Key 与 OAuth 2.1/PKCE Bearer）、签名 Webhook、图片/条码识别会话、Skill 与 TS/Python/curl 示例。可从独立归档解包、启动、验证客户端以及恢复撤权、账务和仍有权主图。入口 `developer/`、`apps/api/src/{mcp,oauth,alerts,lookup}.ts`、`scripts/package-offline.py`、`scripts/rehearse-offline.py` | 台账 §83、§88–89、§95、§104、§122–131、§154–162、§164–169 |
 
-最新主线候选 `702ff82` 的全量记录（含本机 Chrome 走查）为 37 套、331 项应用测试、5 项接口兼容、20 项第 0 步校验、9 项 Python 测试与 `check_compatibility.py` 零回退，零失败、零跳过。256 文件的独立运行包（SHA-256 `71561e0ff2e167bad7ff037eed87a004a0ef6135c20f805d65e065cb7f04499d`）完成 38 个迁移恢复、过期清理与 REST/curl/TS/MCP 客户端演练（8 个已核验样本、账务完整性核验通过），外部来源请求为零。证据和 SHA-256 见台账 §156–168。GitHub Actions 最近核对的主线运行在创建作业前报 `startup_failure`，作业数为零。不能从该状态推断 runner 或仓库设置的根因。[GitHub Actions 记录](https://github.com/jackyang1989/SoldBench/actions/runs/44851600259)
+最新主线候选 `75d7077` 的全量记录（含本机 Chrome 走查）为 38 套、334 项应用测试、5 项接口兼容、20 项第 0 步校验、9 项 Python 测试与 `check_compatibility.py` 零回退，零失败、零跳过。263 文件的独立运行包（SHA-256 `df1ed608e86b2963d62cd569cfd36bbc60dd0aaa6267f77ffc5d58b58c1dab98`）完成 39 个迁移恢复、过期清理与 REST/curl/TS/MCP 客户端演练（8 个已核验样本、账务完整性核验通过），外部来源请求为零。证据和 SHA-256 见台账 §156–169。GitHub Actions 最近核对的主线运行在创建作业前报 `startup_failure`，作业数为零。不能从该状态推断 runner 或仓库设置的根因。[GitHub Actions 记录](https://github.com/jackyang1989/SoldBench/actions/runs/44851600259)
 
 ## 4. 最新收口与采集能力增量
 
@@ -99,10 +99,14 @@ SoldBench 是直接服务**个人卖家、收藏品交易商、二手商家、�
 
 - **TASK-048，AT-065。** 新增迁移 [0038_alerts_webhooks.sql](../packages/db/migrations/0038_alerts_webhooks.sql)（`watchlists`/`webhook_endpoints`/`alert_events`/`webhook_deliveries`，库表增至 96 张），在 [alerts.ts](../packages/query/src/alerts.ts) 与 [alerts API](../apps/api/src/alerts.ts) 实现 SSRF HTTPS URL 校验、HMAC-SHA256 `t=<ts>,v1=<hex>` 签名与 300s 防重放窗口、`scheduled_refresh` 显式收费同意与 UTC 自然月信用封顶、中英双语切换共用同一规范哈希且 0 credit、`<8`/null 样本屏蔽价格告警、派发前权限与退订复核即熔断（`cancelled_rights_revoked`，0 外发）及 `memory_fixture` 3 次有界退避重试/死信（OpenAPI `1.32.0` / 133 操作 / 204 schema / `API-62`），并交付双语 `/account/alerts` 工作台与 37 套 331 项全绿及 256 文件运行包独立恢复演练。
 
+### 已完成第十三包：V1.5 图片与条码识别查价（台账 §169）
+
+- **TASK-050，AT-067。** 新增迁移 [0039_lookup_inputs.sql](../packages/db/migrations/0039_lookup_inputs.sql)（`lookup_sessions`/`lookup_candidates`，库表增至 98 张），在 [lookup-image.ts](../packages/media/src/lookup-image.ts) 实现魔数先行校验、尺寸与像素炸弹（`<=5000px` / `<=25Mpx`）阻断及 EXIF/XMP/IPTC 剥离转码 WebP 隔离存储；在 [lookup.ts](../packages/query/src/lookup.ts) 与 [lookup API](../apps/api/src/lookup.ts) 实现 GS1 Modulo-10 条码校验、`memory_fixture` 离线识别与非 fixture `503` 熔断、识别 0 credit 与成交查询显式确认计费分离、低置信/失败强制人工 `override_q` 文本回退、错误型号改词隔离、Owner 隔离、`DELETE` 与共享引用计数留存清理（OpenAPI `1.33.0` / 139 操作 / 213 schema / `API-63`）；同步在 [collector-intake.mjs](../scripts/collector-intake.mjs) / [collector-ebay-intake.mjs](../scripts/collector-ebay-intake.mjs) 补充 `--as-of` 时钟透传修复，并交付双语 `/account/lookup` 工作台与 38 套 334 项全绿及 263 文件运行包独立恢复演练。
+
 ### 接下来优先执行（2026-11-21 纠偏后路线）
 
 1. **严禁重回合成数据撤权边角：** §157–§158 已永久收口旧批次撤权与运营读侧；后续继续保持零合成撤权额外投入。
-2. **持续推进未完成扩展与研究能力：** 依次按台账推进 **TASK-050（图片/条码查价，AT-067）**、TASK-051（库存估值，AT-068）、TASK-049（eBay UK/DE 站点扩展，AT-066）等离线功能工程，严格共用单一领域核心与双语/账务不变量。
+2. **持续推进未完成扩展与研究能力：** 依次按台账推进 **TASK-051（库存估值工作流，AT-068）**、TASK-049（eBay UK/DE 站点扩展，AT-066）等离线功能工程，严格共用单一领域核心与双语/账务不变量。
 3. **用真实抓取样本持续校验并准备 14 日稳定性观测：** 使用 `npm run collector:ebay-intake -- --mode=inspect` 与 `--mode=ingest --details-dir=...` 直接接入真实捕获的 eBay US 搜索页与 `/itm/<id>` 详情页，并在可用出口网络就绪后启动 `npm run collector:ebay-daemon -- --allow-live-fetch=true`。
 
 ## 5. 新 Agent 必读顺序
