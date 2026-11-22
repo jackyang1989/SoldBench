@@ -10,7 +10,7 @@ import { createApp, publishNextScheduledContent } from "@soldbench/api";
 import { fixtureSignature, merchant, PaymentLifecycle } from "@soldbench/billing";
 import { provisionFixtureSource } from "@soldbench/collector";
 import { database, migrate } from "@soldbench/db";
-import { PublicResults, SecondMarketplaceService } from "@soldbench/query";
+import { CardsVerticalService, PublicResults, SecondMarketplaceService } from "@soldbench/query";
 import { loadConfig } from "@soldbench/shared";
 import { generate } from "otplib";
 import { measureMobileWeb } from "./helpers/mobile-web.mjs";
@@ -43,6 +43,7 @@ test("prototype-based pages serve both languages, valid private deep links and s
       "/account/inventory",
       "/account/sites",
       "/account/marketplaces",
+      "/account/cards",
       "/account/history",
       "/account/alerts",
       "/account/usage",
@@ -1104,6 +1105,61 @@ test("Chrome walks an empty account from cache miss and registration to explicit
       .waitFor();
     await page.getByRole("button", { name: "预览 Mercari US 已售与在售", exact: true }).click();
     await page.getByText(/已售统计（USD）：已核验=8\/8/).waitFor();
+    await page.getByRole("link", { name: "English", exact: true }).click();
+    const tcgSource = await provisionFixtureSource(db, x.now(), { retentionDays: 7 });
+    const psaSource = await provisionFixtureSource(db, x.now(), { retentionDays: 7 });
+    await db.query("UPDATE sources SET marketplace='tcgplayer_us' WHERE id=$1", [tcgSource.sourceId]);
+    await db.query("UPDATE sources SET marketplace='psa_registry' WHERE id=$1", [psaSource.sourceId]);
+    const cardsSvc = new CardsVerticalService(x.query);
+    for (let i = 0; i < 8; i++) {
+      await cardsSvc.ingestCardSale({
+        productId: "tcg-pkmn-base-4-1st",
+        sourceId: tcgSource.sourceId,
+        eventKey: `chrome-card-${i}`,
+        gradingState: "graded",
+        gradingCompany: "PSA",
+        gradeValue: "10",
+        edition: "1st_edition",
+        currency: "USD",
+        itemMinor: 420000 + i * 5000,
+        shippingMinor: 0,
+        shippingStatus: "verified_free_shipping",
+        salePriceStatus: "verified_actual",
+        soldAt: x.now(),
+        retentionUntil: new Date(Date.parse(x.now()) + 86400000).toISOString(),
+      });
+    }
+    await cardsSvc.ingestGradingPopulation({
+      productId: "tcg-pkmn-base-4-1st",
+      sourceId: psaSource.sourceId,
+      gradingCompany: "PSA",
+      gradeValue: "10",
+      popCount: 121,
+      popHigherCount: 0,
+      asOf: x.now(),
+      retentionUntil: new Date(Date.parse(x.now()) + 86400000).toISOString(),
+    });
+    x.clock.value = new Date(Date.parse(x.now()) + 60000).toISOString();
+    await page.goto(`${origin}/account/cards`);
+    await page
+      .getByRole("heading", {
+        name: "Structured TCG & graded card catalog (product ID authority)",
+      })
+      .waitFor();
+    await page.getByText(/tcg-pkmn-base-4-1st · Charizard \(BS1 #4\/102/).waitFor();
+    await page.getByLabel("Structured card product_id").selectOption("tcg-pkmn-base-4-1st");
+    await page.getByRole("button", { name: "Evaluate card comps & registry pop", exact: true }).click();
+    await page.getByText(/Sold stats \(graded · 1st_edition\): verified=8/).waitFor();
+    await page.getByText(/Grading population \(is_sold_transaction=false · status=available\)/).waitFor();
+    await page.getByRole("link", { name: "简体中文" }).click();
+    await page
+      .getByRole("heading", {
+        name: "结构化卡牌与评级目录（以标准产品 ID 为唯一身份权威）",
+      })
+      .waitFor();
+    await page.getByLabel("标准卡牌产品 ID").selectOption("tcg-pkmn-base-4-1st");
+    await page.getByRole("button", { name: "查询卡牌成交与评级数量", exact: true }).click();
+    await page.getByText(/评级分布参考（非成交交易 is_sold_transaction=false · 状态=available）/).waitFor();
     await page.getByRole("link", { name: "English", exact: true }).click();
     x.clock.value = new Date(Date.parse(x.now()) + 60000).toISOString();
     await page.goto(`${origin}/account/security`);

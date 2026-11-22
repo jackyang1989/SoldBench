@@ -1,5 +1,9 @@
 # SoldBench engineering changelog
 
+## 2026-11-22 — V2 structured TCG & graded card vertical (`tcgplayer_us` / `psa_registry`, offline)
+
+OpenAPI 1.37.0 adds `/v1/cards/products` and `/v1/cards/products/{product_id}/valuation` (`TASK-053`, 0 extra credits in synthetic offline build). Enforces canonical structured card product IDs (`tcg_game`, `set_code`, `card_number`, `edition`, `finish`) rather than free-text listing titles, strictly isolates `raw` ungraded sales from `graded` slabs and mismatched graders/editions/grades, separates non-transaction grading population census metadata (`is_sold_transaction: false`, `excluded_from_sold_stats: true`) from sold statistics, and isolates `tcgplayer_us` vs `psa_registry` source revocation with zero unapproved network requests.
+
 ## 2026-11-22 — V2 second-marketplace first vertical (`mercari_us`, offline)
 
 OpenAPI 1.36.0 adds `/v1/marketplaces`, `/v1/marketplaces/{marketplace}/preview`, and `/v1/marketplaces/{marketplace}/records/{record_id}/image`, plus the additive `sold_search` MCP action `marketplace_preview` (`TASK-052`, 0 extra credits in synthetic offline build). Records `mercari_us` as the selected first vertical candidate while keeping `poshmark_us`, `grailed`, and active-only `depop` explicitly deferred outside first-package scope; enforces strict sold-vs-active isolation so active listings never enter `sold_stats`; deduplicates repeated event observations; serves controlled primary-image bytes via private authenticated proxy without exposing upstream URLs; and enforces immediate per-marketplace revocation across REST, image delivery, and MCP without disrupting eBay US routes.

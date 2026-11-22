@@ -5679,6 +5679,146 @@ async function showSecondMarketplaceWorkbench() {
   });
 }
 
+async function showCardsVerticalWorkbench() {
+  const productsRes = await api("/v1/cards/products");
+  const products = productsRes.data;
+
+  const formatMoney = (minor, currency = "USD") => {
+    if (minor === null || minor === undefined) return t("N/A (not zero)", "未知（非零）");
+    return new Intl.NumberFormat(document.documentElement.lang || "en-US", {
+      style: "currency",
+      currency,
+      currencyDisplay: "code",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(minor / 100);
+  };
+
+  const overviewCard = element("section", undefined, "card result-card");
+  overviewCard.append(
+    element(
+      "h2",
+      t(
+        "Structured TCG & graded card catalog (product ID authority)",
+        "结构化卡牌与评级目录（以标准产品 ID 为唯一身份权威）",
+      ),
+    ),
+    element(
+      "p",
+      t(
+        "Card valuations enforce structured product_id, set code, card number, edition, and raw-vs-graded isolation. Grading population counts are registry metadata and NEVER enter sold statistics.",
+        "卡牌查价强制校验标准 product_id、套系、卡号与版本并严格隔离未评级（Raw）与已评级（Graded）；PSA 评级分布仅作参考元数据，绝不计入成交价格或销量统计。",
+      ),
+      "small",
+    ),
+  );
+
+  const prodList = element("ul");
+  for (const p of products) {
+    prodList.append(
+      element(
+        "li",
+        `${p.product_id} · ${p.card_name} (${p.set_code} #${p.card_number} · ${p.edition} · ${p.finish})`,
+      ),
+    );
+  }
+  overviewCard.append(prodList);
+
+  const formCard = element("section", undefined, "card result-card");
+  formCard.append(
+    element("h2", t("Card valuation & grading population viewer", "卡牌成交估值与评级分布隔离查询")),
+  );
+  const form = element("form", undefined, "stack");
+
+  const prodSelect = element("select");
+  for (const p of products) {
+    const opt = element("option", `${p.product_id} — ${p.card_name} (${p.edition})`);
+    opt.value = p.product_id;
+    prodSelect.append(opt);
+  }
+  const prodLabel = element("label", t("Structured card product_id", "标准卡牌产品 ID"));
+  prodLabel.append(prodSelect);
+
+  const stateSelect = element("select");
+  for (const [val, lbl] of [
+    ["graded", t("Graded slab (isolated from raw)", "已评级（与未评级严格隔离）")],
+    ["raw", t("Raw ungraded card (isolated from graded)", "未评级裸卡（与评级严格隔离）")],
+  ]) {
+    const opt = element("option", lbl);
+    opt.value = val;
+    stateSelect.append(opt);
+  }
+  const stateLabel = element("label", t("Grading state", "评级状态"));
+  stateLabel.append(stateSelect);
+
+  const graderInput = element("input");
+  graderInput.maxLength = 16;
+  graderInput.value = "PSA";
+  const graderLabel = element("label", t("Grading company (when graded)", "评级机构（仅已评级）"));
+  graderLabel.append(graderInput);
+
+  const gradeInput = element("input");
+  gradeInput.maxLength = 16;
+  gradeInput.value = "10";
+  const gradeLabel = element("label", t("Grade value (when graded)", "评分（仅已评级）"));
+  gradeLabel.append(gradeInput);
+
+  const submitBtn = element(
+    "button",
+    t("Evaluate card comps & registry pop", "查询卡牌成交与评级数量"),
+    "btn brand",
+  );
+  submitBtn.type = "submit";
+  form.append(prodLabel, stateLabel, graderLabel, gradeLabel, submitBtn);
+
+  const resultBox = element("div", undefined, "stack");
+  formCard.append(form, resultBox);
+  output.append(overviewCard, formCard);
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    submitBtn.disabled = true;
+    run(async () => {
+      try {
+        const params = new URLSearchParams({ grading_state: stateSelect.value });
+        if (stateSelect.value === "graded") {
+          if (graderInput.value.trim()) params.set("grading_company", graderInput.value.trim());
+          if (gradeInput.value.trim()) params.set("grade_value", gradeInput.value.trim());
+        }
+        const res = await api(
+          `/v1/cards/products/${encodeURIComponent(prodSelect.value)}/valuation?${params}`,
+        );
+        const d = res.data;
+        const st = d.stats;
+        const pop = d.grading_population;
+        const popSummary = pop.entries
+          .map(
+            (e) => `${e.grading_company} ${e.grade_value}: pop=${e.pop_count} (higher=${e.pop_higher_count})`,
+          )
+          .join("; ");
+        resultBox.replaceChildren(
+          element(
+            "p",
+            t(
+              `Sold stats (${d.grading_state} · ${d.product.edition}): verified=${st.n_price_verified} · median=${formatMoney(st.median_cents, st.currency)} · excluded [state:${d.excluded_counts.grading_state_mismatch}, edition:${d.excluded_counts.edition_mismatch}, company:${d.excluded_counts.grading_company_mismatch}, grade:${d.excluded_counts.grade_mismatch}]`,
+              `成交统计（${d.grading_state} · ${d.product.edition}）：已核验=${st.n_price_verified} · 中位数=${formatMoney(st.median_cents, st.currency)} · 排除 [状态:${d.excluded_counts.grading_state_mismatch}, 版本:${d.excluded_counts.edition_mismatch}, 机构:${d.excluded_counts.grading_company_mismatch}, 分数:${d.excluded_counts.grade_mismatch}]`,
+            ),
+          ),
+          element(
+            "p",
+            t(
+              `Grading population (is_sold_transaction=${pop.is_sold_transaction} · status=${pop.registry_status}): ${popSummary || "none"}`,
+              `评级分布参考（非成交交易 is_sold_transaction=${pop.is_sold_transaction} · 状态=${pop.registry_status}）：${popSummary || "无"}`,
+            ),
+          ),
+        );
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+  });
+}
+
 if (page.startsWith("/account"))
   run(async () => {
     const user = await session();
@@ -5703,6 +5843,7 @@ if (page.startsWith("/account"))
     if (page === "/account/inventory") return showInventoryValuationWorkbench();
     if (page === "/account/sites") return showRegionalSitesWorkbench();
     if (page === "/account/marketplaces") return showSecondMarketplaceWorkbench();
+    if (page === "/account/cards") return showCardsVerticalWorkbench();
     if (page === "/account/history") return showArchiveHistory();
     if (page === "/account/alerts") return showAlertsWorkstation();
     if (page === "/account/security") return showAccountSecurity();

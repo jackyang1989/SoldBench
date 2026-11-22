@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.36.0
+  version: 1.37.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -9293,6 +9293,97 @@ paths:
       x-roles: [owner]
       x-scopes: [sold:read]
       x-credit-policy: '0'
+  /v1/cards/products:
+    get:
+      operationId: listCardProducts
+      summary: List structured TCG & graded card catalog identities by game, set code, card number, edition, or search term.
+      security: *id004
+      parameters:
+      - *content_language
+      - name: tcg_game
+        in: query
+        required: false
+        schema: {enum: [pokemon, mtg, yugioh, sports, other]}
+      - name: set_code
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 40}
+      - name: card_number
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 40}
+      - name: edition
+        in: query
+        required: false
+        schema: {enum: [1st_edition, unlimited, shadowless, holo, reverse_holo, promo, standard]}
+      - name: q
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 120}
+      responses:
+        '200':
+          description: Structured card catalog entries.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CardProductListResponse'}
+        '400': *content_error
+      x-task: TASK-053
+      x-roles: [public, owner]
+      x-credit-policy: '0'
+  /v1/cards/products/{product_id}/valuation:
+    get:
+      operationId: getCardProductValuation
+      summary: Evaluate card sold comparables and separated grading population metadata by canonical card product_id with strict raw-vs-graded isolation.
+      security: *id001
+      parameters:
+      - *content_language
+      - name: product_id
+        in: path
+        required: true
+        schema: {type: string, pattern: '^[a-z0-9][a-z0-9-]{2,79}$'}
+      - name: grading_state
+        in: query
+        required: false
+        schema: {enum: [raw, graded]}
+      - name: grading_company
+        in: query
+        required: false
+        schema: {enum: [PSA, BGS, CGC, SGC, TAG]}
+      - name: grade_value
+        in: query
+        required: false
+        schema: {type: string, pattern: '^[0-9]+(\.[0-9]+)?$'}
+      - name: raw_condition
+        in: query
+        required: false
+        schema: {enum: [near_mint, lightly_played, moderately_played, heavily_played, damaged]}
+      - name: edition
+        in: query
+        required: false
+        schema: {enum: [1st_edition, unlimited, shadowless, holo, reverse_holo, promo, standard]}
+      - name: price_basis
+        in: query
+        required: false
+        schema: {enum: [item, item_plus_observed_shipping]}
+      - name: limit
+        in: query
+        required: false
+        schema: {type: integer, minimum: 1, maximum: 200}
+      responses:
+        '200':
+          description: Card sold valuation with raw/graded isolation and separate grading census metadata.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CardValuationResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '422': *content_error
+      x-task: TASK-053
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
 components:
   securitySchemes:
     SupportReceipt:
@@ -16040,6 +16131,117 @@ components:
       type: object
       properties:
         data: {$ref: '#/components/schemas/SecondMarketplacePreviewData'}
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    CardProductRecord:
+      type: object
+      properties:
+        product_id: {type: string}
+        tcg_game: {enum: [pokemon, mtg, yugioh, sports, other]}
+        set_code: {type: string}
+        set_name: {type: string}
+        card_number: {type: string}
+        card_name: {type: string}
+        edition: {enum: [1st_edition, unlimited, shadowless, holo, reverse_holo, promo, standard]}
+        language: {type: string}
+        finish: {type: string}
+        release_year: {type: [integer, 'null']}
+        source_gate_passed: {type: boolean}
+        status: {enum: [preview_offline, gated, active]}
+      required:
+      - product_id
+      - tcg_game
+      - set_code
+      - set_name
+      - card_number
+      - card_name
+      - edition
+      - language
+      - finish
+      - release_year
+      - source_gate_passed
+      - status
+      additionalProperties: false
+    CardProductListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/CardProductRecord'}
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    CardPopulationEntry:
+      type: object
+      properties:
+        grading_company: {enum: [PSA, BGS, CGC, SGC, TAG]}
+        grade_value: {type: string}
+        pop_count: {type: integer, minimum: 0}
+        pop_higher_count: {type: integer, minimum: 0}
+        as_of: {type: string, format: date-time}
+      required: [grading_company, grade_value, pop_count, pop_higher_count, as_of]
+      additionalProperties: false
+    CardGradingPopulationSection:
+      type: object
+      properties:
+        is_sold_transaction: {const: false}
+        excluded_from_sold_stats: {const: true}
+        registry_status: {enum: [available, unavailable_or_revoked]}
+        entries:
+          type: array
+          items: {$ref: '#/components/schemas/CardPopulationEntry'}
+      required: [is_sold_transaction, excluded_from_sold_stats, registry_status, entries]
+      additionalProperties: false
+    CardValuationData:
+      type: object
+      properties:
+        product: {$ref: '#/components/schemas/CardProductRecord'}
+        identity_authority: {const: structured_card_catalog}
+        free_text_title_substitution_allowed: {const: false}
+        canonical_query_hash: {type: string}
+        credits_charged: {type: integer, const: 0}
+        data_mode: {type: string}
+        grading_state: {enum: [raw, graded]}
+        filters: {type: object, additionalProperties: true}
+        stats: {type: object, additionalProperties: true}
+        comps:
+          type: array
+          items: {type: object, additionalProperties: true}
+        excluded_counts: {type: object, additionalProperties: {type: integer}}
+        grading_population: {$ref: '#/components/schemas/CardGradingPopulationSection'}
+        data_as_of: {type: string, format: date-time}
+      required:
+      - product
+      - identity_authority
+      - free_text_title_substitution_allowed
+      - canonical_query_hash
+      - credits_charged
+      - data_mode
+      - grading_state
+      - filters
+      - stats
+      - comps
+      - excluded_counts
+      - grading_population
+      - data_as_of
+      additionalProperties: false
+    CardValuationResponse:
+      type: object
+      properties:
+        data: {$ref: '#/components/schemas/CardValuationData'}
         meta:
           type: object
           properties:

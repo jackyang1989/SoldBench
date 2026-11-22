@@ -5,6 +5,7 @@ import { type Database, isDatabaseConnectionError } from "@soldbench/db";
 import type {
   AlertWebhookService,
   BestOfferVerificationService,
+  CardsVerticalService,
   InventoryValuationService,
   LookupInputService,
   QueryService,
@@ -21,6 +22,7 @@ import { mountAlerts } from "./alerts.ts";
 import { mountAuth } from "./auth.ts";
 import { mountBatches } from "./batches.ts";
 import { mountBestOffers } from "./best-offers.ts";
+import { mountCardsVertical } from "./cards-vertical.ts";
 import { mountCatalog } from "./catalog.ts";
 import { mountDeveloper } from "./developer.ts";
 import { editorialNotFound, mountEditorial, siteBlocks } from "./editorial.ts";
@@ -70,6 +72,7 @@ export function createApp(
     inventory?: InventoryValuationService;
     regionalSites?: RegionalSiteService;
     secondMarketplace?: SecondMarketplaceService;
+    cardsVertical?: CardsVerticalService;
   } = {},
 ) {
   const app = new Hono<{ Variables: { requestId: string } }>();
@@ -195,6 +198,7 @@ export function createApp(
   mountInventory(app, config, services.auth, services.query, services.inventory);
   mountRegionalSites(app, config, services.auth, services.query, services.regionalSites);
   mountSecondMarketplace(app, config, services.auth, services.query, services.secondMarketplace);
+  mountCardsVertical(app, config, services.auth, services.query, services.cardsVertical);
   mountHistory(app, config, services.auth, services.query);
   mountMcp(app, config, services.auth, services.query, services.secondMarketplace);
   mountEditorial(app, db, services.query);
