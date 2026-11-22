@@ -7,10 +7,10 @@
 | 项目 | 接手信息 |
 |---|---|
 | 仓库 | 私有仓库 `jackyang1989/SoldBench`，远端 `https://github.com/jackyang1989/SoldBench.git` |
-| 主分支基线 | `main` 已合入撤权主图清理收尾（§157）、运营读侧（§158）、信封绑定 eBay US 已售 DOM 解析（§159）、真实 eBay 多布局解析加固/HTTP 传输/原始 HTML 摄入链（§160）、商品详情页解析补证/有界 Chrome 传输闭环（§161）与持久详情补证队列/3 通道监督/eBay US 语料守护运行器（§162） |
+| 主分支基线 | `main` 已合入撤权主图清理收尾（§157）、运营读侧（§158）、信封绑定 eBay US 已售 DOM 解析（§159）、真实 eBay 多布局解析加固/HTTP 传输/原始 HTML 摄入链（§160）、商品详情页解析补证/有界 Chrome 传输闭环（§161）、持久详情补证队列/3 通道监督/eBay US 语料守护运行器（§162）与生产隔离部署模板/校验型 PG16 备份恢复脚本（§163） |
 | 当前工作区 | 本机主检出 `/Users/jianouyang/Project/SoldBench`（在 `main` 上推进）；旧隔离工作树 `/Users/jianouyang/.codex/worktrees/soldbench-media-recovery/SoldBench` 保留未改，勿再基于已合入分支继续做合成撤权延伸 |
-| 已完成增量 | TASK-014/015/016/019/039/061 的 §157–§162（双布局搜索解析、URL 构造、HTTP/有界浏览器双传输、6 类目详页解析、持久 `collector_detail_jobs` 队列、3 通道监督进程与 `collector:ebay-daemon` 守护运行器）均已通过含本机 Chrome 在内的 322 项全量回归与 227 文件（33 迁移）独立归档恢复演练；注：本机出口 IP 直连 `www.ebay.com` 返回边缘 403 并按 Fail-Closed 熔断 |
-| 接下来做什么 | **继续严禁在合成数据撤权清理上浪费工时**；优先推进搜索页/商品主图覆盖与研究展示/多布局实测加固、并准备在可用出口网络下用 `npm run collector:ebay-daemon` 执行 `step0/corpus.csv` 连续多品类抓包与 14 日稳定性观测 |
+| 已完成增量 | TASK-014/015/016/017/019/039/061 的 §157–§163（双布局搜索解析、URL 构造、HTTP/有界浏览器双传输、6 类目详页解析、持久 `collector_detail_jobs` 队列、3 通道监督进程、`collector:ebay-daemon` 守护运行器与 `infra/` 隔离容器/三网络拓扑/Caddy/PG16 校验备份脚本）均已通过实测验收；注：本机出口 IP 直连 `www.ebay.com` 返回边缘 403 并按 Fail-Closed 熔断 |
+| 接下来做什么 | **继续按 `docs/开发排期与任务台账.md` 推进全部待开发功能包（勿回退假数据撤权清理）**：下一步推进 V1.1 扩展工程（如 TASK-045 商家批量查价与 CSV 工作台 / TASK-046/047）及网页与研究闭环能力，同步为可用出口网络下的 `npm run collector:ebay-daemon` 14 日稳定性观测做好准备 |
 
 接手后先在主检出确认分支与工作区状态：
 
@@ -38,7 +38,7 @@ SoldBench 是直接服务**个人卖家、收藏品交易商、二手商家、�
 
 | 领域 | 已做的工作及代码入口 | 可核实的记录 |
 |---|---|---|
-| 工程与数据库，TASK-011/012/017 | TypeScript 工作区，Hono API、React SSR、PG16、独立查询 Worker 和采集监督进程。33 个增量迁移，本机无 DDL 权限启动、断进程和旧包回滚演练。入口 `apps/api/src/server.ts`、`scripts/query-worker.mjs`、`packages/db/migrations/` | 台账 §101、§109、§122、§129、§162 |
+| 工程与数据库，TASK-011/012/017 | TypeScript 工作区，Hono API、React SSR、PG16、独立查询 Worker、采集监督进程与隔离部署基础设施模板。33 个增量迁移，本机无 DDL 权限启动、断进程、旧包回滚及非 root 三网络 Compose / Caddy / 校验型 PG16 备份恢复演练。入口 `apps/api/src/server.ts`、`scripts/query-worker.mjs`、`packages/db/migrations/`、`infra/` | 台账 §101、§109、§122、§129、§162–163 |
 | 来源准备，TASK-001/003–009 | 45 字段权利和来源事实清单、120 条查询草稿、1,680 时段的验证计划、质量盲审、断源演练、成本和访谈准备。入口 `step0/`。实际来源字段仍待核验 | [第 0 步](../step0/README.md)、台账 §94、§96、§110、§112、§139–143 |
 | 采集与商品主图，TASK-013–016 | 本机 JSON/HTML 分页回放、任务信封绑定的 `li.s-item`/`li.s-card` 双布局 eBay US 已售 DOM 解析加固（`createEbayUsSoldSearchHtmlProfile`/`createEbayUsSoldCardHtmlProfile`/`detectEbayUsSoldHtmlProfile`）、URL 构造与自托管 HTTP/有界浏览器双传输（`EbayUsHttpTransport`/`EbayUsBrowserTransport`）、6 类目 `/itm/<id>` 详页解析与持久队列补证（`collector_detail_jobs`/`CollectorStore.enqueuePendingDetails`/`runDetails`）、原始 HTML 审计与多品类语料守护运行器（`scripts/collector-ebay-intake.mjs`/`scripts/collector-ebay-daemon.mjs`）、观察与事件去重、独立租约、预算结算、降速/熔断、缺包和迟到恢复、定时计划、3 通道监督与主图绑定/转码/补采/到期与撤权分批清理。入口 `packages/collector/src/`、`packages/media/src/`、`scripts/collector-supervisor.mjs`、`scripts/collector-ebay-intake.mjs`、`scripts/collector-ebay-daemon.mjs` | 台账 §91–93、§98–100、§139–162 |
 | 查价与研究，TASK-019/020/027/028/031/032/036/059 | 黄金 121/64/58、可比性及混型号判定，详页成色统一解析，显式领取、详情/主图/诊断、只读复取、人工排除重算、单结果 JSON/CSV、受控公开分享、已交付快照保存和对照。入口 `packages/core/src/`、`packages/query/src/`、`apps/api/src/queries.ts` | 台账 §54–57、§63–76、§86、§92、§95、§161 |
@@ -75,6 +75,10 @@ SoldBench 是直接服务**个人卖家、收藏品交易商、二手商家、�
 
 - **TASK-014/015/016/019，AT-003/004/009/052/056/074/080。** 新增 SQL 迁移 [0033_collector_detail_jobs.sql](../packages/db/migrations/0033_collector_detail_jobs.sql) 落盘持久化 `collector_detail_jobs` 队列并扩展 `collector_dispatches.kind` / `collector_supervisor_state.lane`；在 [artifact.ts](../packages/collector/src/artifact.ts)、[store.ts](../packages/collector/src/store.ts)、[worker.ts](../packages/collector/src/worker.ts) 与 [health.ts](../packages/collector/src/health.ts) 实现 `enqueuePendingDetails`、`claimDetail`（含超时租约恢复与三队列并发上限）、`finishDetail`、`deferDetailRetry`、`failDetail` 与 `OfflineCollectorWorker.runDetails`，并在 [ops-telemetry.ts](../apps/api/src/ops-telemetry.ts) 与 [site.js](../apps/web/src/site.js) 追加双语 `collector_details` 监控投影；在 [collector-worker.mjs](../scripts/collector-worker.mjs)、[collector-launcher.mjs](../scripts/collector-launcher.mjs) 与 [collector-supervisor.mjs](../scripts/collector-supervisor.mjs) 落地 `--detail-only=true` 三通道独立派发；新增 [ebay-runner.ts](../packages/collector/src/ebay-runner.ts) 与 `npm run collector:ebay-daemon`（[collector-ebay-daemon.mjs](../scripts/collector-ebay-daemon.mjs)），支持 120 条 CSV/结构化 JSON 语料循环抓采、`auto` 仅在 HTTP 200 缺结果根节点时单次切换至 Chromium（遇 401/403/429/挑战零绕过立即熔断）及 `stability-cycles.jsonl` 持续落盘。
 
+### 已完成第七包：生产隔离部署模板、三网络拓扑与校验型 PG16 备份恢复脚本（台账 §163）
+
+- **TASK-017/039，AT-002/042/047。** 在 `infra/` 交付非 root 容器镜像（[Dockerfile.runtime](../infra/Dockerfile.runtime)、[Dockerfile.collector](../infra/Dockerfile.collector)）、三网络隔离编排（[compose.prod.yaml](../infra/compose.prod.yaml)：`edge` / `internal: true` / `collector_egress`，严格禁止采集器接入鉴权/支付密钥）、目标代理与最小权限环境模板（[Caddyfile](../infra/Caddyfile)、[.env.production.example](../infra/.env.production.example)）、[backup-restore.sh](../infra/backup-restore.sh) 校验型 `pg_dump`/`pg_restore` 脚本及 [发布与恢复手册](发布、回滚与撤权恢复手册.md) §S4；[test_infra_deployment.py](../tests/test_infra_deployment.py) 与 `test_runtime_package.py` 共 9 项 Python 验证通过（含真实临时 PG16 备份、字节篡改拦截与还原验收，默认仍锁定离线模式）。
+
 ### 接下来优先执行（2026-11-21 纠偏后路线）
 
 1. **严禁重回合成数据撤权边角：** §157–§158 已永久收口旧批次撤权与运营读侧；后续继续保持零合成撤权额外投入。
@@ -88,7 +92,7 @@ SoldBench 是直接服务**个人卖家、收藏品交易商、二手商家、�
 | 1 | [AGENTS.md](../AGENTS.md)、[v1.4 产品规格](<../SoldBench 开发规格书 v1.4.md>) §0/§3 和相关业务章 | 用户指令、首发范围、来源边界、数据和扣费不变量 |
 | 2 | [决策登记](决策登记.md)、[ADR-13](adr/ADR-13.md)；触及查询时读 [ADR-12](adr/ADR-12.md)，触及身份时读 [ADR-14](adr/ADR-14.md) | 哪些是离线工程冻结规则，哪些还需要真实或经营签收 |
 | 3 | [功能与页面规格](功能与页面规格.md)、[工程实施规格](工程实施规格.md)、[接口与数据契约](接口与数据契约.md)、[OpenAPI](openapi.yaml)；再按下表读领域文档 | 正常路径、错误、权限和服务边界；版本与相关代码输出一致 |
-| 4 | [任务台账](开发排期与任务台账.md) §4 和 §156–162、[验收矩阵](验收矩阵.md)、[交接模板](执行与交接模板.md) | 领取的 TASK、依赖、AT、当前候选、完整验收以及可回退点 |
+| 4 | [任务台账](开发排期与任务台账.md) §4 和 §156–163、[验收矩阵](验收矩阵.md)、[交接模板](执行与交接模板.md) | 领取的 TASK、依赖、AT、当前候选、完整验收以及可回退点 |
 | 5 | [README](../README.md)、[发布与恢复手册](发布、回滚与撤权恢复手册.md)、本包源码及实际测试 | 能在本机复跑对应故障和正常流程，再从证据推进下一包 |
 
 | 接手方向 | 专项阅读 |
