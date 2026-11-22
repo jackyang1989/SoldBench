@@ -101,6 +101,12 @@ export async function collectorHealth(
         [sourceId, from, now],
       )
     ).rows;
+    const details = (
+      await c.query(
+        "SELECT status,count(*)::int n,coalesce(sum(attempts),0)::int attempts FROM collector_detail_jobs WHERE source_id=$1 AND created_at>=$2 AND created_at<=$3 GROUP BY status ORDER BY status",
+        [sourceId, from, now],
+      )
+    ).rows;
     const watermarks = (
       await c.query(
         "SELECT count(*)::int total,count(*) FILTER(WHERE data_as_of>$2)::int future,count(*) FILTER(WHERE data_as_of<=$2 AND data_as_of>=$2-interval '24 hours')::int fresh,count(*) FILTER(WHERE data_as_of<$2-interval '24 hours' AND data_as_of>=$2-interval '72 hours')::int stale,count(*) FILTER(WHERE data_as_of<$2-interval '72 hours')::int expired,min(data_as_of) oldest,max(data_as_of) newest FROM collector_watermarks WHERE source_id=$1",
@@ -231,6 +237,7 @@ export async function collectorHealth(
       images,
       media,
       retries,
+      details,
       budget,
       quarantines,
       measuredCostCents: null,
@@ -285,7 +292,8 @@ async function readDailyEvidence(
   const { rows: transportRows } = await c.query(
     `SELECT to_char(dispatched_at AT TIME ZONE 'UTC','YYYY-MM-DD') AS utc_day,
        count(*) FILTER (WHERE kind='page')::int page_attempts,
-       count(*) FILTER (WHERE kind='image')::int image_attempts
+       count(*) FILTER (WHERE kind='image')::int image_attempts,
+       count(*) FILTER (WHERE kind='detail')::int detail_attempts
      FROM collector_dispatches WHERE source_id=$1 AND dispatched_at>=$2 AND dispatched_at<$3 GROUP BY 1`,
     parameters.slice(0, 3),
   );
@@ -314,6 +322,7 @@ async function readDailyEvidence(
         stoppedOccurrences: row?.stopped_occurrences ?? 0,
         pageAttempts: transport.get(day)?.page_attempts ?? 0,
         imageAttempts: transport.get(day)?.image_attempts ?? 0,
+        detailAttempts: transport.get(day)?.detail_attempts ?? 0,
       };
     }),
   };

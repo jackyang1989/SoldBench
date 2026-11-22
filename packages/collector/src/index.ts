@@ -5,6 +5,7 @@ export * from "./config-snapshot.ts";
 export * from "./ebay-browser-transport.ts";
 export * from "./ebay-detail.ts";
 export * from "./ebay-http-transport.ts";
+export * from "./ebay-runner.ts";
 export * from "./ebay-us.ts";
 export * from "./fixture.ts";
 export * from "./health.ts";

@@ -10,7 +10,7 @@ import { localDatabaseUrl } from "./local-db.mjs";
 
 const args = new Map();
 for (const raw of process.argv.slice(2)) {
-  const match = /^--(fixture|max-pages|clock|status|media-only|expected-job)=(.+)$/.exec(raw);
+  const match = /^--(fixture|max-pages|clock|status|media-only|detail-only|expected-job)=(.+)$/.exec(raw);
   if (!match || args.has(match[1])) throw new Error("invalid_collector_worker_argument");
   args.set(match[1], match[2]);
 }
@@ -18,7 +18,11 @@ if (!args.get("fixture")) throw new Error("fixture_artifact_path_required");
 if (args.has("status") && args.get("status") !== "true") throw new Error("invalid_worker_status_option");
 if (args.has("media-only") && args.get("media-only") !== "true")
   throw new Error("invalid_worker_media_option");
-if (args.has("media-only") && (args.has("status") || args.has("max-pages")))
+if (args.has("detail-only") && args.get("detail-only") !== "true")
+  throw new Error("invalid_worker_detail_option");
+if (args.has("media-only") && (args.has("status") || args.has("max-pages") || args.has("detail-only")))
+  throw new Error("conflicting_worker_options");
+if (args.has("detail-only") && (args.has("status") || args.has("max-pages")))
   throw new Error("conflicting_worker_options");
 const maxPages = args.has("max-pages") ? Number(args.get("max-pages")) : undefined;
 if (
@@ -62,7 +66,7 @@ if (supervised && !lstatSync(directory).isDirectory()) throw new Error("collecto
 const heartbeat = join(
   directory,
   supervised
-    ? `${artifact.jobId}-${args.has("media-only") ? "images" : "pages"}.json`
+    ? `${artifact.jobId}-${args.has("media-only") ? "images" : args.has("detail-only") ? "details" : "pages"}.json`
     : `${args.has("status") ? "collector-status" : "collector-worker"}-${artifact.jobId}${args.has("status") ? "" : `-${process.pid}`}.json`,
 );
 const clock = args.has("clock") ? () => args.get("clock") : undefined;
@@ -100,11 +104,14 @@ try {
     time: new Date().toISOString(),
   });
   let claimed = false,
-    mediaResults = [];
+    mediaResults = [],
+    detailResults = [];
   if (
     !controller.signal.aborted &&
     !args.has("status") &&
-    (args.has("media-only") || !["completed", "failed", "cancelled", "expired"].includes(job.status))
+    (args.has("media-only") ||
+      args.has("detail-only") ||
+      !["completed", "failed", "cancelled", "expired"].includes(job.status))
   ) {
     await store.bindFixtureArtifact({
       jobId: job.id,
@@ -125,6 +132,12 @@ try {
         signal: controller.signal,
       });
       claimed = mediaResults.length > 0;
+    } else if (args.has("detail-only")) {
+      detailResults = await runner.runDetails(artifact.sourceId, {
+        parentJobId: job.id,
+        signal: controller.signal,
+      });
+      claimed = detailResults.length > 0;
     } else
       claimed =
         (await runner.runOne(artifact.sourceId, { jobId: job.id, maxPages, signal: controller.signal })) !==
@@ -145,7 +158,12 @@ try {
     kind: args.has("status") ? "inspection" : "worker_cycle",
     claimed,
     mediaResults,
-    cycleMode: args.has("media-only") ? "primary_image_retry" : "pages",
+    detailResults,
+    cycleMode: args.has("media-only")
+      ? "primary_image_retry"
+      : args.has("detail-only")
+        ? "detail_enrichment"
+        : "pages",
     heartbeatPath: heartbeat,
     lastSuccessAt: lastSuccess?.toISOString() ?? null,
     mode: "offline_fixture",
@@ -185,7 +203,8 @@ try {
   console.log(JSON.stringify(report));
   if (
     ["failed", "cancelled", "expired"].includes(current.status) ||
-    mediaResults.some((r) => ["failed", "expired"].includes(r.status))
+    mediaResults.some((r) => ["failed", "expired"].includes(r.status)) ||
+    detailResults.some((r) => ["failed", "expired"].includes(r.status))
   )
     process.exitCode = 1;
 } catch (error) {

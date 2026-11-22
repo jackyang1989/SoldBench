@@ -68,7 +68,7 @@ export function loadFixtureArtifact(bytes: Uint8Array) {
     if (
       !frame ||
       typeof frame.key !== "string" ||
-      !/^(page:|image:)/.test(frame.key) ||
+      !/^(page:|image:|detail:)/.test(frame.key) ||
       frame.key.length > 2200 ||
       frames.has(frame.key) ||
       !Array.isArray(frame.responses) ||
@@ -97,7 +97,9 @@ export function loadFixtureArtifact(bytes: Uint8Array) {
           ? profile?.bindingMode === "envelope"
             ? 4 * 1024 * 1024
             : 1024 * 1024
-          : 5 * 1024 * 1024;
+          : frame.key.startsWith("detail:")
+            ? 4 * 1024 * 1024
+            : 5 * 1024 * 1024;
       if (raw.length > max || raw.toString("base64") !== row.bytesBase64)
         throw new Error("fixture_artifact_response_bytes_invalid");
       responses.push({

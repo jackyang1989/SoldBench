@@ -1,6 +1,7 @@
 import { instant } from "@soldbench/core";
 import { transaction } from "@soldbench/db";
 import { collectPrimaryImage, type PrivateMediaStore } from "@soldbench/media";
+import { hasEbayDetailAccessBlock, parseEbayUsItemDetailHtml } from "./ebay-detail.ts";
 import {
   type CollectorTransport,
   digest,
@@ -12,7 +13,7 @@ import {
 } from "./fixture.ts";
 import { hasHtmlAccessBlock } from "./html.ts";
 import { CollectorIntegrityError } from "./integrity.ts";
-import type { CollectorStore, Lease } from "./store.ts";
+import type { CollectorStore, DetailLease, Lease } from "./store.ts";
 
 const mediaMaintenanceBatch = 50;
 const dueImageReferences = `SELECT i.id FROM listing_images i JOIN source_observations o
@@ -46,13 +47,13 @@ export class OfflineCollectorWorker {
   private async response(
     lease: Lease,
     key: string,
-    kind: "page" | "image",
+    kind: "page" | "image" | "detail",
     signal?: AbortSignal,
     imageId?: string,
   ) {
     if (signal?.aborted) throw new Error("worker_shutdown");
     await this.store.renew(lease);
-    const max = kind === "page" ? this.limits.pageBytes : this.limits.imageBytes;
+    const max = kind === "image" ? this.limits.imageBytes : this.limits.pageBytes;
     const id = await this.store.reserve(lease, kind, max, key, imageId);
     let responseIndex: number;
     try {
@@ -82,15 +83,17 @@ export class OfflineCollectorWorker {
     const oversized = response.bytes.length > max;
     await this.store.settle(lease, id, Math.min(response.bytes.length, max), digest(response.bytes));
     const html = response.contentType.split(";")[0]?.toLowerCase().trim() === "text/html";
-    if (
+    const blocked =
       [401, 403].includes(response.status) ||
       (html &&
-        (this.store.htmlProfile
-          ? hasHtmlAccessBlock(response.bytes, this.store.htmlProfile)
-          : /captcha|challenge|sign.?in|verify you are human/i.test(
-              Buffer.from(response.bytes.subarray(0, 8192)).toString(),
-            )))
-    ) {
+        (kind === "detail"
+          ? hasEbayDetailAccessBlock(response.bytes)
+          : this.store.htmlProfile
+            ? hasHtmlAccessBlock(response.bytes, this.store.htmlProfile)
+            : /captcha|challenge|sign.?in|verify you are human/i.test(
+                Buffer.from(response.bytes.subarray(0, 8192)).toString(),
+              )));
+    if (blocked) {
       await this.store.stop(lease.sourceId, "source_access_refused");
       throw new Error("source_access_refused");
     }
@@ -102,6 +105,7 @@ export class OfflineCollectorWorker {
       await this.store.recordBackoff(lease, delay);
       if (kind === "image" && !lease.imageTaskId) throw new ImageBackoff(delay);
       if (lease.imageTaskId) await this.store.deferImageRetry(lease, "upstream_rate_limited", delay);
+      else if (lease.detailTaskId) await this.store.deferDetailRetry(lease, "upstream_rate_limited", delay);
       else await this.store.defer(lease, "upstream_rate_limited", delay);
       throw new Error("job_deferred");
     }
@@ -393,6 +397,98 @@ export class OfflineCollectorWorker {
         await this.store.db.query("SELECT status FROM collector_image_jobs WHERE id=$1", [lease.imageTaskId])
       ).rows[0];
       results.push({ taskId: lease.imageTaskId, status: task?.status ?? "unavailable" });
+    }
+    return results;
+  }
+
+  /** Claims and processes bounded item-detail enrichment tasks from `collector_detail_jobs`. */
+  async runDetails(
+    sourceId: string,
+    options: { parentJobId?: string; maxTasks?: number; signal?: AbortSignal } = {},
+  ) {
+    const max = options.maxTasks ?? 20;
+    if (!Number.isSafeInteger(max) || max < 1 || max > 50) throw new Error("invalid_detail_cycle_limit");
+    const results: Array<{ taskId: string; listingId: string; status: string }> = [];
+    for (let i = 0; i < max; i++) {
+      if (options.signal?.aborted) break;
+      let lease: DetailLease | null;
+      try {
+        lease = await this.store.claimDetail(sourceId, 60, options.parentJobId);
+      } catch (error) {
+        if (
+          results.length &&
+          error instanceof Error &&
+          /^(source_circuit_open|source_inactive)$/.test(error.message)
+        )
+          break;
+        throw error;
+      }
+      if (!lease?.detailTaskId) break;
+      try {
+        const { response } = await this.response(
+          lease,
+          `detail:${lease.externalListingId}`,
+          "detail",
+          options.signal,
+        );
+        const contentType = response.contentType.split(";")[0]?.toLowerCase().trim();
+        if (contentType !== "text/html") {
+          await this.store.failDetail(lease, "detail_content_type_invalid");
+        } else {
+          const parsed = parseEbayUsItemDetailHtml(response.bytes, {
+            listingId: lease.externalListingId,
+            ...(this.store.htmlProfile
+              ? {
+                  listingHosts: this.store.htmlProfile.listingHosts,
+                  imageHosts: this.store.htmlProfile.imageHosts,
+                }
+              : {}),
+          });
+          await this.store.finishDetail(lease, parsed);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "detail_failed";
+        const safeReason = /^[a-z_]+$/.test(message) ? message : "detail_failed";
+        if (message === "job_deferred" || message === "source_access_refused") {
+          /* Defer/circuit stop already closed or rescheduled the lease. */
+        } else if (
+          /^(detail_listing_id_mismatch|detail_attribute_conflict|detail_structure_invalid|detail_html_too_large|detail_content_type_invalid|html_attribute_budget_exceeded|html_standard_condition_invalid)$/.test(
+            message,
+          )
+        ) {
+          try {
+            await this.store.failDetail(lease, safeReason);
+          } catch {
+            /* Ignore if source/lease was concurrently stopped or revoked. */
+          }
+        } else if (
+          /^(worker_shutdown|upstream_unavailable|fixture_response_missing|http_request_failed|http_request_timeout|http_response_interrupted|collector_rate_limited|collector_daily_budget_exhausted|collector_budget_day_changed|source_budget_policy_unavailable|response_exceeds_budget)$/.test(
+            message,
+          )
+        ) {
+          try {
+            await this.store.deferDetailRetry(lease, safeReason, message === "worker_shutdown" ? 1 : 60);
+          } catch {
+            /* Ignore if source/lease was concurrently stopped or revoked. */
+          }
+        } else {
+          try {
+            await this.store.failDetail(lease, safeReason);
+          } catch {
+            /* Ignore if source/lease was concurrently stopped or revoked. */
+          }
+        }
+      }
+      const task = (
+        await this.store.db.query("SELECT status FROM collector_detail_jobs WHERE id=$1", [
+          lease.detailTaskId,
+        ])
+      ).rows[0];
+      results.push({
+        taskId: lease.detailTaskId,
+        listingId: lease.externalListingId,
+        status: task?.status ?? "unavailable",
+      });
     }
     return results;
   }

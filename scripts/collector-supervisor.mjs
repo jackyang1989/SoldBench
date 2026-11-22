@@ -85,16 +85,25 @@ async function dueJobs(db, sourceId, cursors) {
           AND ((t.status='retry' AND (t.available_at<=now() OR t.expires_at<=now())) OR (t.status='running' AND t.lease_until<=now()))
           AND (t.expires_at<=now() OR j.status IN ('completed','failed','cancelled','expired'))
          GROUP BY t.parent_job_id
+        UNION ALL
+        SELECT 'details',q.parent_job_id,min(q.available_at) FROM collector_detail_jobs q
+         JOIN collector_jobs j ON j.id=q.parent_job_id WHERE q.source_id=$1
+          AND (
+            (q.status IN ('queued','retry') AND (q.available_at<=now() OR q.expires_at<=now()))
+            OR (q.status='running' AND q.lease_until<=now())
+          )
+          AND (q.expires_at<=now() OR j.status IN ('completed','failed','cancelled','expired'))
+         GROUP BY q.parent_job_id
       ), lanes(lane,after_at,after_id) AS (VALUES
-        ('pages',$2::timestamptz,$3::uuid), ('images',$4::timestamptz,$5::uuid)
+        ('pages',$2::timestamptz,$3::uuid), ('images',$4::timestamptz,$5::uuid), ('details',$6::timestamptz,$7::uuid)
       ) SELECT l.lane,(SELECT count(*)::int FROM ready r WHERE r.lane=l.lane) AS due,
          ARRAY(SELECT jsonb_build_object('id',r.id,'availableAt',r.available_at::text) FROM ready r WHERE r.lane=l.lane
            ORDER BY CASE WHEN l.after_at IS NULL OR (r.available_at,r.id)>(l.after_at,l.after_id) THEN 0 ELSE 1 END,
-                    r.available_at,r.id LIMIT $6) AS candidates
+                    r.available_at,r.id LIMIT $8) AS candidates
        FROM lanes l ORDER BY l.lane DESC`,
       [
         sourceId,
-        ...["pages", "images"].flatMap((lane) => [
+        ...["pages", "images", "details"].flatMap((lane) => [
           cursors[lane]?.availableAt ?? null,
           cursors[lane]?.id ?? null,
         ]),
@@ -390,7 +399,11 @@ async function run(args) {
                 `--fixture=${path}`,
                 `--expected-job=${jobId}`,
                 `--max-ms=${maxMs}`,
-                ...(lane === "images" ? ["--media-only=true"] : []),
+                ...(lane === "images"
+                  ? ["--media-only=true"]
+                  : lane === "details"
+                    ? ["--detail-only=true"]
+                    : []),
               ],
               env,
               signal,
@@ -418,6 +431,7 @@ async function run(args) {
               exitCode: result.exitCode,
               timedOut: result.report.timedOut,
               mediaResults: cycle?.mediaResults ?? [],
+              detailResults: cycle?.detailResults ?? [],
             });
             state = await sourceState(db, sourceId);
           }

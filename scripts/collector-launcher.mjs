@@ -27,12 +27,18 @@ export async function launchCollector(args, input = process.env, signal) {
   loadConfig(input);
   const options = new Map();
   for (const raw of args) {
-    const match = /^--(fixture|max-ms|grace-ms|heap-mb|max-pages|media-only|expected-job)=(.+)$/.exec(raw);
+    const match =
+      /^--(fixture|max-ms|grace-ms|heap-mb|max-pages|media-only|detail-only|expected-job)=(.+)$/.exec(raw);
     if (!match || options.has(match[1])) throw new Error("invalid_collector_launcher_argument");
     options.set(match[1], match[2]);
   }
   if (options.has("media-only") && (options.get("media-only") !== "true" || options.has("max-pages")))
     throw new Error("invalid_collector_media_option");
+  if (
+    options.has("detail-only") &&
+    (options.get("detail-only") !== "true" || options.has("max-pages") || options.has("media-only"))
+  )
+    throw new Error("invalid_collector_detail_option");
   const path = options.get("fixture");
   if (!path) throw new Error("fixture_artifact_path_required");
   function number(key, fallback, min, max) {
@@ -57,6 +63,7 @@ export async function launchCollector(args, input = process.env, signal) {
       `--fixture=${path}`,
       ...(options.has("expected-job") ? [`--expected-job=${options.get("expected-job")}`] : []),
       ...(options.has("media-only") ? ["--media-only=true"] : []),
+      ...(options.has("detail-only") ? ["--detail-only=true"] : []),
       ...(maxPages === undefined ? [] : [`--max-pages=${maxPages}`]),
     ],
     {

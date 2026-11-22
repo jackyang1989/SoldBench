@@ -69,7 +69,26 @@ export function collectorRequestHash(input: CollectorEnqueueInput, profileHash: 
     canonicalJson({ ...stable, ttlSeconds: input.ttlSeconds ?? 3600, parserProfileHash: profileHash }),
   );
 }
-export type Lease = { jobId: string; token: string; sourceId: string; imageTaskId?: string };
+export type Lease = {
+  jobId: string;
+  token: string;
+  sourceId: string;
+  imageTaskId?: string;
+  detailTaskId?: string;
+};
+export type DetailLease = Lease & {
+  detailTaskId: string;
+  externalListingId: string;
+  listingId: string;
+  observationId: string;
+  saleEventId: string;
+};
+export type DetailEnrichmentSummary = {
+  attributesAdded: string[];
+  conditionEnriched: boolean;
+  descriptionEnriched: boolean;
+  defectsEnriched: boolean;
+};
 export type EvidenceItem = {
   listingId: string;
   eventId: string;
@@ -166,6 +185,7 @@ export class CollectorStore {
     }
   }
   private async locked(c: Transaction, lease: Lease, allowCompleted = false) {
+    if (lease.imageTaskId && lease.detailTaskId) throw new Error("invalid_lease_scope");
     const source = await this.source(c, lease.sourceId);
     const job = (
       await c.query<Job>("SELECT * FROM collector_jobs WHERE id=$1 AND source_id=$2 FOR UPDATE", [
@@ -182,6 +202,20 @@ export class CollectorStore {
           )
         ).rows[0]
       : null;
+    const detailTask = lease.detailTaskId
+      ? (
+          await c.query(
+            `SELECT q.*,o.retention_until AS evidence_expires,
+                    EXISTS(SELECT 1 FROM collector_quarantines k WHERE k.affected_event_id=q.sale_event_id) AS quarantined
+             FROM collector_detail_jobs q
+             JOIN source_observations o ON o.id=q.observation_id AND o.source_id=q.source_id
+             JOIN collector_pages p ON p.observation_id=q.observation_id AND p.source_id=q.source_id AND p.job_id=q.parent_job_id
+             WHERE q.id=$1 AND q.source_id=$2 AND q.parent_job_id=$3
+             FOR UPDATE OF q`,
+            [lease.detailTaskId, lease.sourceId, lease.jobId],
+          )
+        ).rows[0]
+      : null;
     if (lease.imageTaskId) {
       if (
         job?.status !== "completed" ||
@@ -194,6 +228,19 @@ export class CollectorStore {
         imageTask.evidence_expires <= now
       )
         throw new Error("collector_image_lease_lost");
+    } else if (lease.detailTaskId) {
+      if (
+        job?.status !== "completed" ||
+        detailTask?.status !== "running" ||
+        detailTask.lease_owner !== lease.token ||
+        !detailTask.lease_until ||
+        detailTask.lease_until <= now ||
+        detailTask.expires_at <= now ||
+        detailTask.quarantined ||
+        !detailTask.evidence_expires ||
+        detailTask.evidence_expires <= now
+      )
+        throw new Error("collector_detail_lease_lost");
     } else if (
       !job ||
       job.lease_owner !== lease.token ||
@@ -239,6 +286,7 @@ export class CollectorStore {
       now,
       retentionDays,
       imageTask,
+      detailTask,
       clearanceExpiresAt: clearance.expires_at as Date | null,
     };
   }
@@ -364,7 +412,7 @@ export class CollectorStore {
       for (const config of configs.rows) {
         const running = (
           await c.query(
-            "SELECT ((SELECT count(*) FROM collector_jobs WHERE source_id=$1 AND status='running' AND lease_until>$2)+(SELECT count(*) FROM collector_image_jobs WHERE source_id=$1 AND status='running' AND lease_until>$2))::int AS n",
+            "SELECT ((SELECT count(*) FROM collector_jobs WHERE source_id=$1 AND status='running' AND lease_until>$2)+(SELECT count(*) FROM collector_image_jobs WHERE source_id=$1 AND status='running' AND lease_until>$2)+(SELECT count(*) FROM collector_detail_jobs WHERE source_id=$1 AND status='running' AND lease_until>$2))::int AS n",
             [sourceId, now],
           )
         ).rows[0].n;
@@ -461,7 +509,38 @@ export class CollectorStore {
         }
         await this.finishImageRetry(c, task.id, task.image_id, task.terminal, task.reason, now);
       }
-      return { pagesClosed: jobs.length, imageRetriesClosed: photos.length };
+      const { rows: details } = await c.query<{
+        id: string;
+        parent_job_id: string;
+        lease_owner: string | null;
+        reason: string;
+        terminal: string;
+      }>(
+        `SELECT q.id,q.parent_job_id,q.lease_owner,
+           CASE WHEN q.expires_at<=$2 THEN 'detail_retry_expired'
+                WHEN q.attempts>=3 THEN 'detail_retry_exhausted' ELSE 'detail_source_or_evidence_changed' END reason,
+           CASE WHEN q.expires_at<=$2 THEN 'expired' ELSE 'failed' END terminal
+         FROM collector_detail_jobs q JOIN collector_jobs j ON j.id=q.parent_job_id AND j.source_id=q.source_id
+         WHERE q.source_id=$1 AND (q.status IN ('queued','retry') OR (q.status='running' AND q.lease_until<=$2))
+           AND (q.expires_at<=$2 OR q.attempts>=3 OR j.status IN ('failed','cancelled','expired'))
+         ORDER BY q.expires_at,q.id LIMIT 50 FOR UPDATE OF j,q`,
+        [sourceId, now],
+      );
+      for (const detailTask of details) {
+        if (detailTask.lease_owner) {
+          const parent = (
+            await c.query<Job>("SELECT * FROM collector_jobs WHERE id=$1", [detailTask.parent_job_id])
+          ).rows[0];
+          if (!parent) missingRow();
+          await this.abandon(c, parent, detailTask.lease_owner);
+        }
+        await this.finishDetailTask(c, detailTask.id, detailTask.terminal, detailTask.reason, now);
+      }
+      return {
+        pagesClosed: jobs.length,
+        imageRetriesClosed: photos.length,
+        ...(details.length ? { detailJobsClosed: details.length } : {}),
+      };
     });
   }
   private async abandon(c: Transaction, job: Job, leaseOwner?: string) {
@@ -479,7 +558,7 @@ export class CollectorStore {
         "UPDATE source_daily_budget SET reserved=reserved-$4,used=used+$4 WHERE source_id=$1 AND day=$2 AND budget_kind=$3",
         [job.source_id, r.budget_day, "bytes", r.max_bytes],
       );
-      if (r.kind === "page")
+      if (r.kind === "page" || r.kind === "detail")
         await c.query(
           "UPDATE source_daily_budget SET reserved=reserved-1,used=used+1 WHERE source_id=$1 AND day=$2 AND budget_kind='pages'",
           [job.source_id, r.budget_day],
@@ -545,7 +624,11 @@ export class CollectorStore {
       ) {
         const retry = await c.query(
           `SELECT 1 FROM collector_image_jobs WHERE source_id=$1 AND parent_job_id=$2
-             AND status IN ('retry','running') AND expires_at>$3 LIMIT 1`,
+             AND status IN ('retry','running') AND expires_at>$3
+           UNION ALL
+           SELECT 1 FROM collector_detail_jobs WHERE source_id=$1 AND parent_job_id=$2
+             AND status IN ('queued','retry','running') AND expires_at>$3
+           LIMIT 1`,
           [job.source_id, job.id, now],
         );
         if (!retry.rowCount) throw new Error("fixture_artifact_job_inactive");
@@ -564,11 +647,18 @@ export class CollectorStore {
     if (!Number.isSafeInteger(seconds) || seconds < 1 || seconds > 300)
       throw new Error("invalid_lease_duration");
     await transaction(this.db, async (c) => {
-      const { job, now, imageTask } = await this.locked(c, lease);
+      const { job, now, imageTask, detailTask } = await this.locked(c, lease);
       if (lease.imageTaskId) {
         await c.query("UPDATE collector_image_jobs SET lease_until=$2 WHERE id=$1", [
           lease.imageTaskId,
           new Date(Math.min(now.getTime() + seconds * 1000, imageTask.expires_at.getTime())),
+        ]);
+        return;
+      }
+      if (lease.detailTaskId) {
+        await c.query("UPDATE collector_detail_jobs SET lease_until=$2 WHERE id=$1", [
+          lease.detailTaskId,
+          new Date(Math.min(now.getTime() + seconds * 1000, detailTask.expires_at.getTime())),
         ]);
         return;
       }
@@ -580,7 +670,7 @@ export class CollectorStore {
   }
   async reserve(
     lease: Lease,
-    kind: "page" | "image",
+    kind: "page" | "image" | "detail",
     maxBytes: number,
     fixtureKey?: string,
     imageId?: string,
@@ -606,6 +696,8 @@ export class CollectorStore {
       )
         throw new Error("image_dispatch_evidence_mismatch");
       if (lease.imageTaskId && kind !== "image") throw new Error("image_lease_cannot_fetch_page");
+      if (lease.detailTaskId && kind !== "detail") throw new Error("detail_lease_cannot_fetch_other");
+      if (kind === "detail" && !lease.detailTaskId) throw new Error("detail_lease_required");
       if (
         job.request_count >= config.max_pages * 4 + 1000 ||
         (kind === "page" && job.page_count >= config.max_pages) ||
@@ -628,7 +720,7 @@ export class CollectorStore {
       if (!rate.rowCount) throw new Error("collector_rate_limited");
       for (const [kindName, amount] of [
         ["bytes", maxBytes],
-        ...(kind === "page" ? [["pages", 1]] : []),
+        ...(kind === "page" || kind === "detail" ? [["pages", 1]] : []),
       ] as Array<[string, number]>) {
         const result = await c.query(
           "UPDATE source_daily_budget SET reserved=reserved+$4 WHERE source_id=$1 AND day=$2 AND budget_kind=$3 AND used+reserved+$4<=cap RETURNING cap",
@@ -640,7 +732,7 @@ export class CollectorStore {
       const responseIndex = 0;
       const id = randomUUID();
       await c.query(
-        "INSERT INTO collector_dispatches(id,job_id,source_id,lease_owner,kind,budget_day,max_bytes,created_at,fixture_key_hash,fixture_response_index,image_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+        "INSERT INTO collector_dispatches(id,job_id,source_id,lease_owner,kind,budget_day,max_bytes,created_at,fixture_key_hash,fixture_response_index,image_id,detail_task_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
         [
           id,
           job.id,
@@ -653,6 +745,7 @@ export class CollectorStore {
           keyHash,
           responseIndex,
           imageId ?? null,
+          lease.detailTaskId ?? null,
         ],
       );
       await c.query(
@@ -686,6 +779,12 @@ export class CollectorStore {
           [lease.imageTaskId],
         );
         if (!updated.rowCount) throw new Error("image_retry_exhausted");
+      } else if (lease.detailTaskId) {
+        const updated = await c.query(
+          "UPDATE collector_detail_jobs SET attempts=attempts+1 WHERE id=$1 AND attempts<3 RETURNING id",
+          [lease.detailTaskId],
+        );
+        if (!updated.rowCount) throw new Error("detail_retry_exhausted");
       }
       const index = (
         await c.query(
@@ -718,11 +817,15 @@ export class CollectorStore {
         await c.query("UPDATE collector_image_jobs SET attempts=greatest(0,attempts-1) WHERE id=$1", [
           lease.imageTaskId,
         ]);
+      if (lease.detailTaskId && row.kind === "detail" && row.dispatched_at)
+        await c.query("UPDATE collector_detail_jobs SET attempts=greatest(0,attempts-1) WHERE id=$1", [
+          lease.detailTaskId,
+        ]);
       await c.query(
         "UPDATE source_daily_budget SET reserved=reserved-$3 WHERE source_id=$1 AND day=$2 AND budget_kind='bytes'",
         [job.source_id, row.budget_day, row.max_bytes],
       );
-      if (row.kind === "page")
+      if (row.kind === "page" || row.kind === "detail")
         await c.query(
           "UPDATE source_daily_budget SET reserved=reserved-1 WHERE source_id=$1 AND day=$2 AND budget_kind='pages'",
           [job.source_id, row.budget_day],
@@ -774,7 +877,7 @@ export class CollectorStore {
         "UPDATE source_daily_budget SET reserved=reserved-$3,used=used+$4 WHERE source_id=$1 AND day=$2 AND budget_kind='bytes'",
         [lease.sourceId, r.budget_day, r.max_bytes, bytes],
       );
-      if (r.kind === "page")
+      if (r.kind === "page" || r.kind === "detail")
         await c.query(
           "UPDATE source_daily_budget SET reserved=reserved-1,used=used+1 WHERE source_id=$1 AND day=$2 AND budget_kind='pages'",
           [lease.sourceId, r.budget_day],
@@ -806,6 +909,7 @@ export class CollectorStore {
           Math.min(
             x.now.getTime() + x.retentionDays * 86400000,
             x.imageTask?.evidence_expires?.getTime() ?? Infinity,
+            x.detailTask?.evidence_expires?.getTime() ?? Infinity,
             x.clearanceExpiresAt?.getTime() ?? Infinity,
           ),
         ).toISOString(),
@@ -814,6 +918,7 @@ export class CollectorStore {
   }
   async defer(lease: Lease, reason: string, delaySeconds: number, terminal = false) {
     if (lease.imageTaskId) throw new Error("image_lease_cannot_mutate_parent");
+    if (lease.detailTaskId) throw new Error("detail_lease_cannot_mutate_parent");
     await transaction(this.db, async (c) => {
       const { job, now } = await this.locked(c, lease);
       await this.abandon(c, job);
@@ -877,7 +982,16 @@ export class CollectorStore {
         [sourceId],
       )
     ).rows;
-    for (const task of mediaTasks) {
+    const detailTasks = (
+      await c.query(
+        "SELECT DISTINCT parent_job_id FROM collector_detail_jobs WHERE source_id=$1 AND status='running'",
+        [sourceId],
+      )
+    ).rows;
+    const seenParents = new Set<string>();
+    for (const task of [...mediaTasks, ...detailTasks]) {
+      if (seenParents.has(task.parent_job_id)) continue;
+      seenParents.add(task.parent_job_id);
       const parent = (
         await c.query<Job>("SELECT * FROM collector_jobs WHERE id=$1 FOR UPDATE", [task.parent_job_id])
       ).rows[0];
@@ -889,6 +1003,10 @@ export class CollectorStore {
     );
     await c.query(
       "UPDATE collector_image_jobs SET status='failed',lease_owner=NULL,lease_until=NULL,failure_reason=$2,finished_at=$3 WHERE source_id=$1 AND status IN ('retry','running')",
+      [sourceId, reason, now],
+    );
+    await c.query(
+      "UPDATE collector_detail_jobs SET status='failed',lease_owner=NULL,lease_until=NULL,failure_reason=$2,finished_at=$3 WHERE source_id=$1 AND status IN ('queued','retry','running')",
       [sourceId, reason, now],
     );
     await c.query("UPDATE sources SET ops_version=ops_version+1 WHERE id=$1", [sourceId]);
@@ -923,6 +1041,7 @@ export class CollectorStore {
     )
       throw new Error("invalid_quarantine_evidence");
     if (lease.imageTaskId) throw new Error("image_lease_cannot_mutate_parent");
+    if (lease.detailTaskId) throw new Error("detail_lease_cannot_mutate_parent");
     return transaction(this.db, async (c) => {
       const { job, now } = await this.locked(c, lease);
       const dispatch = (
@@ -1583,15 +1702,19 @@ export class CollectorStore {
         if (job.status !== "completed") continue;
         const busy = (
           await c.query(
-            "SELECT ((SELECT count(*) FROM collector_jobs WHERE source_id=$1 AND status='running' AND lease_until>$2)+(SELECT count(*) FROM collector_image_jobs WHERE source_id=$1 AND status='running' AND lease_until>$2))::int n",
+            "SELECT ((SELECT count(*) FROM collector_jobs WHERE source_id=$1 AND status='running' AND lease_until>$2)+(SELECT count(*) FROM collector_image_jobs WHERE source_id=$1 AND status='running' AND lease_until>$2)+(SELECT count(*) FROM collector_detail_jobs WHERE source_id=$1 AND status='running' AND lease_until>$2))::int n",
             [sourceId, now],
           )
         ).rows[0].n;
         if (busy >= config.concurrency_cap) continue;
         const parentBusy = (
-          await c.query("SELECT 1 FROM collector_image_jobs WHERE parent_job_id=$1 AND status='running'", [
-            job.id,
-          ])
+          await c.query(
+            `SELECT 1 FROM collector_image_jobs WHERE parent_job_id=$1 AND status='running'
+             UNION ALL
+             SELECT 1 FROM collector_detail_jobs WHERE parent_job_id=$1 AND status='running'
+             LIMIT 1`,
+            [job.id],
+          )
         ).rowCount;
         if (parentBusy || Number(job.bytes_reserved) > 0) continue;
         const token = randomUUID();
@@ -1686,6 +1809,95 @@ export class CollectorStore {
     });
   }
 
+  private async finishDetailTask(c: Transaction, id: string, status: string, reason: string, now: Date) {
+    await c.query(
+      "UPDATE collector_detail_jobs SET status=$2,lease_owner=NULL,lease_until=NULL,failure_reason=$3,finished_at=$4 WHERE id=$1",
+      [id, status, reason, now],
+    );
+  }
+
+  private async applyDetailEvidenceToRow(
+    c: Transaction,
+    row: {
+      sale_event_id: string;
+      listing_id: string;
+      source_id: string;
+      observation_id: string;
+      evidence: unknown;
+    },
+    detail: EbayItemDetailEvidence,
+  ): Promise<DetailEnrichmentSummary> {
+    const existing = recordEvidenceFromJson(row.evidence);
+    const mergedAttributes: Record<string, string> = { ...existing.attributes };
+    const attributesAdded: string[] = [];
+    for (const [k, v] of Object.entries(detail.attributes)) {
+      if (Object.hasOwn(mergedAttributes, k)) {
+        if (mergedAttributes[k] !== v) throw new Error("detail_attribute_conflict");
+      } else {
+        mergedAttributes[k] = v;
+        attributesAdded.push(k);
+      }
+    }
+    if (Object.keys(mergedAttributes).length > 32) throw new Error("html_attribute_budget_exceeded");
+
+    const existingStandard =
+      existing.schema === "soldbench.record-evidence.v2" ? existing.conditionStandard : null;
+    const conditionRaw = existing.conditionRaw ?? detail.conditionRaw;
+    const conditionId = existing.conditionId ?? detail.conditionId;
+    const conditionStandard = existingStandard ?? detail.conditionStandard;
+    if (conditionStandard !== null && !isStandardCondition(conditionStandard))
+      throw new Error("html_standard_condition_invalid");
+
+    const existingDescription =
+      existing.schema === "soldbench.record-evidence.v2" ? existing.description : null;
+    const existingDefects = existing.schema === "soldbench.record-evidence.v2" ? existing.defects : null;
+    const description = existingDescription ?? detail.description;
+    const defects = existingDefects ?? detail.defects;
+    const listingUrl = existing.listingUrl ?? detail.canonicalUrl;
+
+    const nextEvidence = recordEvidenceFromJson({
+      schema: "soldbench.record-evidence.v2",
+      profileHash: existing.profileHash,
+      recordIndex: existing.recordIndex,
+      listingUrl,
+      conditionId,
+      conditionRaw,
+      conditionStandard,
+      description,
+      defects,
+      priceRaw: existing.priceRaw,
+      shippingRaw: existing.shippingRaw,
+      soldDateRaw: existing.soldDateRaw,
+      sourceTimeZone: existing.sourceTimeZone,
+      attributes: mergedAttributes,
+      fields: {
+        listingUrl: listingUrl ? "present" : "missing",
+        condition: conditionRaw || conditionId || conditionStandard ? "present" : "missing",
+        price: existing.fields.price,
+        shipping: existing.fields.shipping,
+        soldDate: existing.fields.soldDate,
+        seller: existing.fields.seller,
+        primaryImage: existing.fields.primaryImage,
+        attributes: Object.keys(mergedAttributes).length ? "present" : "missing",
+        description: description ? "present" : "missing",
+        defects: defects ? "present" : "missing",
+      },
+    });
+    await c.query(
+      "UPDATE listing_record_evidence SET evidence=$5 WHERE sale_event_id=$1 AND listing_id=$2 AND source_id=$3 AND observation_id=$4",
+      [row.sale_event_id, row.listing_id, row.source_id, row.observation_id, JSON.stringify(nextEvidence)],
+    );
+    return {
+      attributesAdded,
+      conditionEnriched:
+        (existingStandard === null || existingStandard === "unknown") &&
+        conditionStandard !== null &&
+        conditionStandard !== "unknown",
+      descriptionEnriched: !existingDescription && Boolean(description),
+      defectsEnriched: !existingDefects && Boolean(defects),
+    };
+  }
+
   /** Enriches same-observation listing record evidence from a verified item detail page without mutating prices or billing. */
   async enrichRecordEvidence(input: {
     sourceId: string;
@@ -1730,72 +1942,308 @@ export class CollectorStore {
       if (!rows.length) return { updated: 0 };
 
       for (const row of rows) {
-        const existing = recordEvidenceFromJson(row.evidence);
-        const mergedAttributes: Record<string, string> = { ...existing.attributes };
-        for (const [k, v] of Object.entries(input.detail.attributes)) {
-          if (Object.hasOwn(mergedAttributes, k)) {
-            if (mergedAttributes[k] !== v) throw new Error("detail_attribute_conflict");
-          } else {
-            mergedAttributes[k] = v;
-          }
-        }
-        if (Object.keys(mergedAttributes).length > 32) throw new Error("html_attribute_budget_exceeded");
-
-        const existingStandard =
-          existing.schema === "soldbench.record-evidence.v2" ? existing.conditionStandard : null;
-        const conditionRaw = existing.conditionRaw ?? input.detail.conditionRaw;
-        const conditionId = existing.conditionId ?? input.detail.conditionId;
-        const conditionStandard = existingStandard ?? input.detail.conditionStandard;
-        if (conditionStandard !== null && !isStandardCondition(conditionStandard))
-          throw new Error("html_standard_condition_invalid");
-
-        const existingDescription =
-          existing.schema === "soldbench.record-evidence.v2" ? existing.description : null;
-        const existingDefects = existing.schema === "soldbench.record-evidence.v2" ? existing.defects : null;
-        const description = existingDescription ?? input.detail.description;
-        const defects = existingDefects ?? input.detail.defects;
-        const listingUrl = existing.listingUrl ?? input.detail.canonicalUrl;
-
-        const nextEvidence = recordEvidenceFromJson({
-          schema: "soldbench.record-evidence.v2",
-          profileHash: existing.profileHash,
-          recordIndex: existing.recordIndex,
-          listingUrl,
-          conditionId,
-          conditionRaw,
-          conditionStandard,
-          description,
-          defects,
-          priceRaw: existing.priceRaw,
-          shippingRaw: existing.shippingRaw,
-          soldDateRaw: existing.soldDateRaw,
-          sourceTimeZone: existing.sourceTimeZone,
-          attributes: mergedAttributes,
-          fields: {
-            listingUrl: listingUrl ? "present" : "missing",
-            condition: conditionRaw || conditionId || conditionStandard ? "present" : "missing",
-            price: existing.fields.price,
-            shipping: existing.fields.shipping,
-            soldDate: existing.fields.soldDate,
-            seller: existing.fields.seller,
-            primaryImage: existing.fields.primaryImage,
-            attributes: Object.keys(mergedAttributes).length ? "present" : "missing",
-            description: description ? "present" : "missing",
-            defects: defects ? "present" : "missing",
-          },
-        });
-        await c.query(
-          "UPDATE listing_record_evidence SET evidence=$5 WHERE sale_event_id=$1 AND listing_id=$2 AND source_id=$3 AND observation_id=$4",
-          [
-            row.sale_event_id,
-            row.listing_id,
-            row.source_id,
-            row.observation_id,
-            JSON.stringify(nextEvidence),
-          ],
-        );
+        await this.applyDetailEvidenceToRow(c, row, input.detail);
       }
       return { updated: rows.length };
+    });
+  }
+
+  /** Enqueues bounded item-detail enrichment tasks for completed job records missing category, condition, description, or strong attributes. */
+  async enqueuePendingDetails(input: {
+    sourceId: string;
+    jobId: string;
+    maxDetails?: number;
+    ttlSeconds?: number;
+  }): Promise<{ enqueued: number; externalListingIds: string[] }> {
+    const maxDetails = input.maxDetails ?? 20;
+    const ttlSeconds = input.ttlSeconds ?? 3600;
+    if (!Number.isSafeInteger(maxDetails) || maxDetails < 1 || maxDetails > 50)
+      throw new Error("invalid_detail_queue_limit");
+    if (!Number.isSafeInteger(ttlSeconds) || ttlSeconds < 60 || ttlSeconds > 86400)
+      throw new Error("invalid_detail_queue_ttl");
+    return transaction(this.db, async (c) => {
+      const { source, now } = await this.readScope(c, input.sourceId);
+      const clearance = (
+        await c.query("SELECT expires_at FROM source_clearances WHERE id=$1", [source.source_clearance_id])
+      ).rows[0];
+      const job = (
+        await c.query<Job>("SELECT * FROM collector_jobs WHERE id=$1 AND source_id=$2 FOR SHARE", [
+          input.jobId,
+          input.sourceId,
+        ])
+      ).rows[0];
+      if (job?.status !== "completed" || job.permission_epoch !== source.permission_epoch)
+        throw new Error("detail_parent_job_unavailable");
+      const candidates = (
+        await c.query<{
+          observation_id: string;
+          listing_id: string;
+          sale_event_id: string;
+          external_listing_id: string;
+          retention_until: Date;
+        }>(
+          `SELECT e.observation_id, e.listing_id, e.sale_event_id, l.external_listing_id, o.retention_until
+           FROM listing_record_evidence e
+           JOIN collector_pages p ON p.observation_id=e.observation_id AND p.source_id=e.source_id
+           JOIN sold_listings l ON l.id=e.listing_id AND l.source_id=e.source_id
+           JOIN source_observations o ON o.id=e.observation_id AND o.source_id=e.source_id
+           WHERE p.job_id=$1
+             AND e.source_id=$2
+             AND l.external_listing_id ~ '^[0-9]{6,19}$'
+             AND o.retention_until IS NOT NULL AND o.retention_until>$3
+             AND NOT EXISTS(SELECT 1 FROM collector_quarantines q WHERE q.affected_event_id=e.sale_event_id)
+             AND (
+               coalesce(e.evidence #>> '{attributes,category}', '')=''
+               OR coalesce(e.evidence->>'conditionStandard', '') IN ('', 'unknown')
+               OR coalesce(e.evidence->>'description', '')=''
+               OR e.evidence->'attributes' IS NULL
+               OR e.evidence->'attributes'='{}'::jsonb
+             )
+           ORDER BY e.record_index, e.sale_event_id
+           LIMIT $4`,
+          [input.jobId, input.sourceId, now, maxDetails],
+        )
+      ).rows;
+      const externalListingIds: string[] = [];
+      for (const item of candidates) {
+        const expiresAt = new Date(
+          Math.min(
+            now.getTime() + ttlSeconds * 1000,
+            item.retention_until.getTime(),
+            clearance?.expires_at?.getTime() ?? Infinity,
+          ),
+        );
+        if (expiresAt <= now) continue;
+        const inserted = await c.query(
+          `INSERT INTO collector_detail_jobs(
+             source_id,parent_job_id,observation_id,listing_id,sale_event_id,external_listing_id,
+             status,attempts,available_at,expires_at,created_at
+           ) VALUES($1,$2,$3,$4,$5,$6,'queued',0,$7,$8,$7)
+           ON CONFLICT(source_id,observation_id,listing_id,sale_event_id) DO NOTHING
+           RETURNING id`,
+          [
+            input.sourceId,
+            input.jobId,
+            item.observation_id,
+            item.listing_id,
+            item.sale_event_id,
+            item.external_listing_id,
+            now,
+            expiresAt,
+          ],
+        );
+        if (inserted.rowCount) externalListingIds.push(item.external_listing_id);
+      }
+      return { enqueued: externalListingIds.length, externalListingIds };
+    });
+  }
+
+  async claimDetail(
+    sourceId: string,
+    leaseSeconds = 60,
+    onlyParentJobId?: string,
+  ): Promise<DetailLease | null> {
+    if (!Number.isSafeInteger(leaseSeconds) || leaseSeconds < 1 || leaseSeconds > 300)
+      throw new Error("invalid_lease_duration");
+    return transaction(this.db, async (c) => {
+      const source = await this.source(c, sourceId),
+        now = await this.now(c);
+      await this.budgetPolicy(c, source, now);
+      if (source.retry_after_until && source.retry_after_until > now) return null;
+      const tasks = (
+        await c.query(
+          `SELECT q.* FROM collector_detail_jobs q
+           JOIN collector_jobs j ON j.id=q.parent_job_id
+           WHERE q.source_id=$1
+             AND ($2::uuid IS NULL OR q.parent_job_id=$2)
+             AND (
+               (q.status IN ('queued','retry') AND (q.available_at<=$3 OR q.expires_at<=$3))
+               OR (q.status='running' AND q.lease_until<=$3)
+             )
+             AND (
+               (j.status='completed' AND NOT EXISTS(
+                 SELECT 1 FROM collector_detail_jobs busy
+                 WHERE busy.parent_job_id=q.parent_job_id AND busy.status='running' AND busy.lease_until>$3
+               ))
+               OR j.status IN ('failed','cancelled','expired')
+               OR q.expires_at<=$3
+             )
+           ORDER BY CASE WHEN j.status='completed' AND q.expires_at>$3 THEN 0 ELSE 1 END,
+                    q.available_at, q.created_at, q.external_listing_id, q.id
+           LIMIT 50`,
+          [sourceId, onlyParentJobId ?? null, now],
+        )
+      ).rows;
+      for (const task of tasks) {
+        const job = (
+          await c.query<Job>("SELECT * FROM collector_jobs WHERE id=$1 FOR UPDATE", [task.parent_job_id])
+        ).rows[0];
+        const current = (
+          await c.query("SELECT * FROM collector_detail_jobs WHERE id=$1 FOR UPDATE", [task.id])
+        ).rows[0];
+        if (!job || !current || !["queued", "retry", "running"].includes(current.status)) continue;
+        if (current.status === "running") {
+          if (current.lease_until > now) continue;
+          await this.abandon(c, job, current.lease_owner);
+          job.bytes_reserved = (
+            await c.query("SELECT bytes_reserved FROM collector_jobs WHERE id=$1", [job.id])
+          ).rows[0].bytes_reserved;
+          await c.query(
+            "UPDATE collector_detail_jobs SET status='retry',lease_owner=NULL,lease_until=NULL WHERE id=$1",
+            [current.id],
+          );
+        }
+        const config = (
+          await c.query<Config>("SELECT * FROM collector_configs WHERE id=$1 AND source_id=$2", [
+            job.config_id,
+            sourceId,
+          ])
+        ).rows[0];
+        const run = (
+          await c.query(
+            "SELECT collector_version,parser_version,parser_profile_hash,permission_snapshot_hash FROM collector_runs WHERE id=$1",
+            [job.collector_run_id],
+          )
+        ).rows[0];
+        const expired = current.expires_at <= now;
+        const linked = (
+          await c.query(
+            `SELECT 1 FROM listing_record_evidence e
+             JOIN collector_pages p ON p.observation_id=e.observation_id AND p.source_id=e.source_id
+             JOIN source_observations o ON o.id=e.observation_id AND o.source_id=e.source_id
+             WHERE e.sale_event_id=$1 AND e.listing_id=$2 AND e.observation_id=$3
+               AND p.job_id=$4 AND e.source_id=$5 AND o.retention_until>$6
+               AND NOT EXISTS(SELECT 1 FROM collector_quarantines k WHERE k.affected_event_id=e.sale_event_id)`,
+            [current.sale_event_id, current.listing_id, current.observation_id, job.id, sourceId, now],
+          )
+        ).rowCount;
+        const valid =
+          Boolean(linked) &&
+          job.permission_epoch === source.permission_epoch &&
+          config?.enabled &&
+          config.access_method === "offline_fixture" &&
+          run?.collector_version === COLLECTOR_VERSION &&
+          run.parser_version === PARSER_VERSION &&
+          run.parser_profile_hash === this.profileHash &&
+          run.permission_snapshot_hash === collectorConfigHash(source, config);
+        if (
+          expired ||
+          current.attempts >= 3 ||
+          !valid ||
+          ["failed", "cancelled", "expired"].includes(job.status)
+        ) {
+          const reason = expired
+            ? "detail_retry_expired"
+            : current.attempts >= 3
+              ? "detail_retry_exhausted"
+              : "detail_source_or_evidence_changed";
+          await this.finishDetailTask(c, current.id, expired ? "expired" : "failed", reason, now);
+          continue;
+        }
+        if (job.status !== "completed") continue;
+        const busy = (
+          await c.query(
+            "SELECT ((SELECT count(*) FROM collector_jobs WHERE source_id=$1 AND status='running' AND lease_until>$2)+(SELECT count(*) FROM collector_image_jobs WHERE source_id=$1 AND status='running' AND lease_until>$2)+(SELECT count(*) FROM collector_detail_jobs WHERE source_id=$1 AND status='running' AND lease_until>$2))::int n",
+            [sourceId, now],
+          )
+        ).rows[0].n;
+        if (busy >= config.concurrency_cap) continue;
+        const parentBusy = (
+          await c.query(
+            `SELECT 1 FROM collector_image_jobs WHERE parent_job_id=$1 AND status='running'
+             UNION ALL
+             SELECT 1 FROM collector_detail_jobs WHERE parent_job_id=$1 AND status='running'
+             LIMIT 1`,
+            [job.id],
+          )
+        ).rowCount;
+        if (parentBusy || Number(job.bytes_reserved) > 0) continue;
+        const token = randomUUID();
+        await c.query(
+          "UPDATE collector_detail_jobs SET status='running',lease_owner=$2,lease_until=$3 WHERE id=$1",
+          [
+            current.id,
+            token,
+            new Date(Math.min(now.getTime() + leaseSeconds * 1000, current.expires_at.getTime())),
+          ],
+        );
+        return {
+          jobId: job.id,
+          sourceId,
+          token,
+          detailTaskId: current.id,
+          externalListingId: current.external_listing_id,
+          listingId: current.listing_id,
+          observationId: current.observation_id,
+          saleEventId: current.sale_event_id,
+        };
+      }
+      return null;
+    });
+  }
+
+  async finishDetail(
+    lease: Lease,
+    detail: EbayItemDetailEvidence,
+  ): Promise<{ updated: number; enrichedFields: DetailEnrichmentSummary }> {
+    if (!lease.detailTaskId) throw new Error("detail_lease_required");
+    return transaction(this.db, async (c) => {
+      await this.readScope(c, lease.sourceId);
+      const { now, detailTask } = await this.locked(c, lease, true);
+      if (detail.listingId !== detailTask.external_listing_id) throw new Error("detail_listing_id_mismatch");
+      const row = (
+        await c.query<{
+          sale_event_id: string;
+          listing_id: string;
+          source_id: string;
+          observation_id: string;
+          evidence: unknown;
+        }>(
+          `SELECT sale_event_id, listing_id, source_id, observation_id, evidence
+           FROM listing_record_evidence
+           WHERE sale_event_id=$1 AND listing_id=$2 AND source_id=$3 AND observation_id=$4
+           FOR UPDATE`,
+          [detailTask.sale_event_id, detailTask.listing_id, lease.sourceId, detailTask.observation_id],
+        )
+      ).rows[0];
+      if (!row) throw new Error("collector_database_row_missing");
+      const enrichedFields = await this.applyDetailEvidenceToRow(c, row, detail);
+      await c.query(
+        "UPDATE collector_detail_jobs SET status='completed',lease_owner=NULL,lease_until=NULL,failure_reason=NULL,enriched_fields=$2,finished_at=$3 WHERE id=$1",
+        [lease.detailTaskId, JSON.stringify(enrichedFields), now],
+      );
+      return { updated: 1, enrichedFields };
+    });
+  }
+
+  async deferDetailRetry(lease: Lease, reason: string, delaySeconds = 30) {
+    if (
+      !lease.detailTaskId ||
+      !Number.isSafeInteger(delaySeconds) ||
+      delaySeconds < 1 ||
+      delaySeconds > 86400
+    )
+      throw new Error("invalid_detail_retry");
+    return transaction(this.db, async (c) => {
+      const { job, now, detailTask } = await this.locked(c, lease, true);
+      await this.abandon(c, job, lease.token);
+      const attempts = detailTask.attempts;
+      const next = new Date(now.getTime() + delaySeconds * 1000),
+        terminal = attempts >= 3 || next >= detailTask.expires_at;
+      await c.query(
+        "UPDATE collector_detail_jobs SET status=$2,lease_owner=NULL,lease_until=NULL,available_at=$3,failure_reason=$4,finished_at=$5 WHERE id=$1",
+        [detailTask.id, terminal ? "failed" : "retry", next, reason, terminal ? now : null],
+      );
+      return terminal ? "failed" : "retry";
+    });
+  }
+
+  async failDetail(lease: Lease, reason: string) {
+    if (!lease.detailTaskId) throw new Error("detail_lease_required");
+    await transaction(this.db, async (c) => {
+      const { job, now } = await this.locked(c, lease, true);
+      await this.abandon(c, job, lease.token);
+      await this.finishDetailTask(c, lease.detailTaskId as string, "failed", reason, now);
     });
   }
 }

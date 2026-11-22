@@ -179,8 +179,16 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
     assert.deepEqual(await migrate(db, "0031_offline_auth_mail_delivery.sql"), [
       "0031_offline_auth_mail_delivery.sql",
     ]);
-    assert.deepEqual(await migrate(db), ["0032_collector_supervisor_state.sql"]);
+    assert.deepEqual(await migrate(db, "0032_collector_supervisor_state.sql"), [
+      "0032_collector_supervisor_state.sql",
+    ]);
+    assert.deepEqual(await migrate(db), ["0033_collector_detail_jobs.sql"]);
     assert.deepEqual(await migrate(db), []);
+    const detailConstraints = await db.query(
+      "SELECT conname FROM pg_constraint WHERE conrelid='collector_detail_jobs'::regclass ORDER BY conname",
+    );
+    assert.ok(detailConstraints.rows.some((r) => r.conname === "collector_detail_jobs_status_check"));
+    assert.ok(detailConstraints.rows.some((r) => r.conname === "collector_detail_jobs_check1"));
     const mediaColumns = await db.query(
       "SELECT column_name FROM information_schema.columns WHERE table_name='listing_images'",
     );
@@ -212,7 +220,7 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
     const tables = await db.query(
       "SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema='public'",
     );
-    assert.equal(tables.rows[0].n, 80);
+    assert.equal(tables.rows[0].n, 81);
     await assert.rejects(
       transaction(db, async (c) => {
         await c.query("INSERT INTO users(email,password_hash) VALUES('rollback@example.test','fixture')");

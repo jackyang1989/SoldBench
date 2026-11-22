@@ -533,7 +533,7 @@ function extractNextCursor(raw: string, currentCursor: string): string {
   if (!candidate || candidate === currentCursor) throw new Error("html_pagination_unknown");
   return candidate;
 }
-type EbayProfileOverrides = Partial<
+export type EbayProfileOverrides = Partial<
   Pick<
     HtmlProfile,
     "id" | "revision" | "listingHosts" | "imageHosts" | "allowSyntheticSeller" | "shippingContexts"

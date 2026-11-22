@@ -317,6 +317,34 @@ export async function telemetry(c: Transaction, now: Date, view: TelemetryView, 
          ORDER BY r.captured_at DESC NULLS LAST,s.id LIMIT $4`,
         scope,
       );
+      await table(
+        "collector_details",
+        [
+          "source_id",
+          "details_queued",
+          "details_retry",
+          "details_running",
+          "details_completed",
+          "details_failed",
+          "details_expired",
+          "details_attempts",
+        ],
+        `SELECT s.id source_id,
+           count(q.id) FILTER (WHERE q.status='queued')::int details_queued,
+           count(q.id) FILTER (WHERE q.status='retry')::int details_retry,
+           count(q.id) FILTER (WHERE q.status='running')::int details_running,
+           count(q.id) FILTER (WHERE q.status='completed')::int details_completed,
+           count(q.id) FILTER (WHERE q.status='failed')::int details_failed,
+           count(q.id) FILTER (WHERE q.status='expired')::int details_expired,
+           coalesce(sum(q.attempts),0)::int details_attempts
+         FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id
+         LEFT JOIN collector_detail_jobs q ON q.source_id=s.id AND q.created_at BETWEEN $1 AND $2
+         WHERE s.access_method='offline_fixture' AND x.provider='synthetic_fixture' AND ($3::uuid IS NULL OR s.id=$3)
+         GROUP BY s.id
+         ORDER BY (count(q.id) FILTER (WHERE q.status IN ('queued','retry','running'))>0) DESC,s.id
+         LIMIT $4`,
+        scope,
+      );
       break;
     case "records":
       await table(
