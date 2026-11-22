@@ -1,26 +1,23 @@
 # SoldBench 项目交接
 
-交接日期：2026-11-21（Asia/Singapore）。交接内容涵盖产品、代码、可复验证据、剩余工作和上线条件。任务状态与排期以[开发排期与任务台账](开发排期与任务台账.md)为准，本文用于找到接手起点。
+交接日期：2026-11-22（Asia/Singapore）。交接内容涵盖产品、代码、可复验证据、剩余工作和上线条件。任务状态与排期以[开发排期与任务台账](开发排期与任务台账.md)为准，本文用于找到接手起点。
 
 ## 1. 先接哪里
 
 | 项目 | 接手信息 |
 |---|---|
 | 仓库 | 私有仓库 `jackyang1989/SoldBench`，远端 `https://github.com/jackyang1989/SoldBench.git` |
-| 主分支基线 | `main` 已合入撤权主图分批清理（§157）、主图维护状态运营读侧（§158）与任务信封绑定的 eBay US 已售搜索 DOM 结构化解析（§159） |
-| 当前工作区 | 本机主检出 `/Users/jianouyang/Project/SoldBench`；隔离工作树 `/Users/jianouyang/.codex/worktrees/soldbench-media-recovery/SoldBench` |
+| 主分支基线 | `main` 已合入 `codex/collector-revocation-batch` 收尾（§157）、主图维护状态运营读侧（§158）与任务信封绑定的 eBay US 已售搜索 DOM 结构化解析（§159） |
+| 当前工作区 | 本机主检出 `/Users/jianouyang/Project/SoldBench`（在 `main` 上推进）；旧隔离工作树 `/Users/jianouyang/.codex/worktrees/soldbench-media-recovery/SoldBench` 保留未改，勿再基于已合入分支继续做合成撤权延伸 |
 | 已完成增量 | TASK-014/015/016/039/061 的撤权主图分批清理回执（§157）、主图维护状态接入采集监督与双语运营台（§158）、信封绑定 eBay US 已售搜索 DOM 结构化解析与漂移/挑战熔断保护（§159）均已通过全量回归与独立归档恢复演练 |
-| 接下来做什么 | 围绕真实 eBay 采集稳定性扩展多页面变体/品类强属性提取样本与线上持续观察准备，或按 §7 推进外部实测与部署前置 |
+| 接下来做什么 | **停止在合成数据撤权清理上继续扩展**；优先扩展真实 eBay US 已售页面多布局变体解析、品类强属性结构化提取、非合成原始 HTML 响应接入管线与抓取出错熔断稳定性 |
 
-如接手人在已有工作树，先运行：
+接手后先在主检出确认分支与工作区状态：
 
 ```sh
 git status --short --branch
 git worktree list
-git fetch --no-tags origin main codex/collector-revocation-batch
-git log -1 --oneline origin/main
-git log -1 --oneline origin/codex/collector-revocation-batch
-git diff --stat origin/main...origin/codex/collector-revocation-batch
+git log -n 5 --oneline main
 ```
 
 保留已有未提交改动。若该分支已被某个工作树检出，进入对应工作树续接。需要新隔离工作树时按 Codex 的工作树入口建立。用户要求每个整包验收后安全合并到 `main`，不要把未验候选或其他人的改动带入主线。
@@ -66,6 +63,12 @@ SoldBench 是直接服务**个人卖家、收藏品交易商、二手商家、�
 
 - **TASK-014/015/016，AT-003/004/009/056/074。** `packages/collector/src/html.ts` 在完全保留既有 `root_attributes` 合成模式兼容的同时，新增 `bindingMode: "envelope"`、`parseNaturalSoldDate` 与 `createEbayUsSoldSearchHtmlProfile()`：由任务信封绑定 `sourceId`、`queryHash`、`cursor`、`asOf`，直接从 eBay US `.srp-river-results` / `li.s-item` DOM 提取已售记录，自动剔除 `.s-item--sponsored` 广告与 `s-l64`/`s.gif` 占位图，从 `/itm/…` 提取规范链接与 `listingId`，解析 `"Sold Nov 15, 2026"` 自然语言日期，将 `"Best offer accepted"`／划线价归为 `displayed_only` 排除出默认价格统计，支持 `_pgn` 分页与首屏结果计数，并在挑战页或 DOM 结构漂移时 Fail-Closed 熔断/隔离。
 
+### 接下来优先执行（2026-11-21 纠偏后路线）
+
+1. **止损停建合成数据撤权边角：** §157–§158 已完成既有 `codex/collector-revocation-batch` 批次的撤权清理与运营读侧闭环；此后不得再针对合成数据/本地 spool 撤权扩展边角任务，所有采集新工时一律服务于真实网页抓取与结构化提取稳定性。
+2. **扩展真实 eBay US 已售 DOM 解析覆盖（基于 [采集管线实施契约](采集管线实施契约.md) §23）：** 扩充真实列表页与详情页多布局变体（含价格区间、多币种、促销/划线价、运费未知与 Best Offer 标注、分页与空结果辨识）、类目强属性结构化提取及 DOM 漂移识别测试样本。
+3. **非合成原始响应摄入与隔离恢复验证：** 打通外部获取或离线归档的真实 eBay HTML 原始响应直接进入信封绑定解析、去重入库与失败隔离重放链路，确认在无 `offline_fixture` 假设下的持续稳定产数。
+
 ## 5. 新 Agent 必读顺序
 
 | 顺序 | 阅读 | 读完确认什么 |
@@ -73,12 +76,12 @@ SoldBench 是直接服务**个人卖家、收藏品交易商、二手商家、�
 | 1 | [AGENTS.md](../AGENTS.md)、[v1.4 产品规格](<../SoldBench 开发规格书 v1.4.md>) §0/§3 和相关业务章 | 用户指令、首发范围、来源边界、数据和扣费不变量 |
 | 2 | [决策登记](决策登记.md)、[ADR-13](adr/ADR-13.md)；触及查询时读 [ADR-12](adr/ADR-12.md)，触及身份时读 [ADR-14](adr/ADR-14.md) | 哪些是离线工程冻结规则，哪些还需要真实或经营签收 |
 | 3 | [功能与页面规格](功能与页面规格.md)、[工程实施规格](工程实施规格.md)、[接口与数据契约](接口与数据契约.md)、[OpenAPI](openapi.yaml)；再按下表读领域文档 | 正常路径、错误、权限和服务边界；版本与相关代码输出一致 |
-| 4 | [任务台账](开发排期与任务台账.md) §4 和 §156–157、[验收矩阵](验收矩阵.md)、[交接模板](执行与交接模板.md) | 领取的 TASK、依赖、AT、当前候选、完整验收以及可回退点 |
+| 4 | [任务台账](开发排期与任务台账.md) §4 和 §156–159、[验收矩阵](验收矩阵.md)、[交接模板](执行与交接模板.md) | 领取的 TASK、依赖、AT、当前候选、完整验收以及可回退点 |
 | 5 | [README](../README.md)、[发布与恢复手册](发布、回滚与撤权恢复手册.md)、本包源码及实际测试 | 能在本机复跑对应故障和正常流程，再从证据推进下一包 |
 
 | 接手方向 | 专项阅读 |
 |---|---|
-| 正在接手的采集包 | [采集管线实施契约](采集管线实施契约.md) §16–22、[采集稳定性专项](采集稳定性专项规格.md)、[搜索字段与统计](搜索页采集字段与统计契约.md)、[真实来源权利档案](../step0/access-rights.md) |
+| 正在接手的采集包 | [采集管线实施契约](采集管线实施契约.md) §16–23、[采集稳定性专项](采集稳定性专项规格.md)、[搜索字段与统计](搜索页采集字段与统计契约.md)、[真实来源权利档案](../step0/access-rights.md) |
 | 网页、内容和运营 | [原型 HTML](<../SoldBench Prototype.html>)、[实施基线](整站原型与设计实施基线.md)、[原型补齐规格](原型功能追踪与补齐规格.md)、[运营后端契约](运营后端实施契约.md)、[多语言规格](多语言与商业交付补充规格.md) |
 | 查询、统计、身份和资金 | [查询账本与交付](查询账本与交付实施契约.md)、[账户与访问](账户与访问实施契约.md)、[Stripe 与 PayPal](Stripe与PayPal接入规格.md)、[账户删除与恢复](账户删除与恢复保护实施契约.md) |
 | REST、MCP、竞品或扩展 | [MCP 与开发者交付](MCP与开发者交付契约.md)、[契约验证说明](contracts/README.md)、[竞品能力实施路线图](竞品能力实施规格与路线图.md)、[国际站点规划](国际站点规划与品牌评估_20261116.md) |
@@ -128,4 +131,4 @@ python3 scripts/rehearse-offline.py "$soldbench_evidence_dir/runtime.tar.gz" \
 3. **支付、邮件和部署（TASK-017/023/029/034/038–043）。** 商户资格和渠道沙盒、真实邮件送达、正式条款、服务器、DNS/TLS、报警、出口隔离、外部依赖、实际 MCP 宿主及跨机灾备待验。生产备份恢复目标按台账实测。真实试点与公开发布由阶段负责人根据证据签收。
 4. **工程复核。** 本机测试、真实线上集成和独立复核分别记录。GitHub Actions 要拿到实际作业和输出才能登记为通过。发布状态、定价、数据覆盖和 SLA 均以实际验收和用户签收为依据。
 
-接手工作到这里可以直接从 §4 第一包开始。每包完成时把实际证据写回原 TASK，合并后顺排接续。
+接手工作到这里请先停止一切假数据撤权/清理边角延伸，直接按 §4「接下来优先执行（2026-11-21 纠偏后路线）」与台账 §159 推进真实 eBay US 已售采集解析与摄入稳定性包；每包完成时把实际证据写回原 TASK，合并后顺排接续。
