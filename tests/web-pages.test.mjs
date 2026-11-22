@@ -39,6 +39,7 @@ test("prototype-based pages serve both languages, valid private deep links and s
       "/account/lookup",
       "/account/saved",
       "/account/batches",
+      "/account/inventory",
       "/account/history",
       "/account/alerts",
       "/account/usage",
@@ -995,6 +996,38 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByRole("link", { name: "简体中文" }).click();
     await page.getByRole("heading", { name: "图片上传与条码识别" }).waitFor();
     await page.getByRole("link", { name: "查看已提交的成交查询" }).waitFor();
+    await page.getByRole("link", { name: "English", exact: true }).click();
+    x.clock.value = new Date(Date.parse(x.now()) + 60000).toISOString();
+    await page.goto(`${origin}/account/inventory`);
+    await page.getByRole("heading", { name: "Import inventory & preview mapping" }).waitFor();
+    const invCsv = page.locator("[data-inventory-csv]");
+    await invCsv.fill(
+      [
+        "sku,title,quantity,currency,q",
+        `SKU-MATCH,Matched Stock Lot,2,USD,${x.q.q}`,
+        "SKU-NOMODEL,Missing Model Box,1,USD,",
+        `SKU-EUR,Non USD Item,1,EUR,${x.q.q}`,
+      ].join("\n"),
+    );
+    await page.getByRole("button", { name: "Preview mapping & cost", exact: true }).click();
+    await page.getByText(/Mapped: 1 · Missing model: 1 · Non-USD: 1/).waitFor();
+    await page.getByRole("checkbox", { name: /I agree to submit mapped comparable queries/ }).check();
+    await page.getByRole("button", { name: "Create valuation", exact: true }).click();
+    await page.getByText("Inventory valuation created (0 upfront credits charged).").waitFor();
+    while (await x.query.workOnce("inventory-browser-worker")) {
+      // process mapped SKU query
+    }
+    await page.getByRole("button", { name: "Refresh status", exact: true }).click();
+    await page.getByRole("button", { name: "Claim ready", exact: true }).click();
+    await page.getByText(/Valued 1\/3 SKUs \(2\/4 units\)/).waitFor();
+    await page.getByText("N/A (not zero)").first().waitFor();
+    const invDownload = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Export CSV", exact: true }).click();
+    const invCsvExport = await readFile(await (await invDownload).path(), "utf8");
+    assert.match(invCsvExport, /SKU-MATCH/);
+    await page.getByRole("link", { name: "简体中文" }).click();
+    await page.getByRole("heading", { name: "导入库存清单与映射预览" }).waitFor();
+    await page.getByText("未知（非零）").first().waitFor();
     await page.getByRole("link", { name: "English", exact: true }).click();
     x.clock.value = new Date(Date.parse(x.now()) + 60000).toISOString();
     await page.goto(`${origin}/account/security`);

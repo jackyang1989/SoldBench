@@ -5186,6 +5186,254 @@ async function showLookupWorkstation() {
   await refresh();
 }
 
+async function showInventoryValuationWorkbench() {
+  const csrf = async () => (await session())?.csrf_token ?? "";
+  const formatCents = (value) =>
+    value === null || value === undefined ? t("N/A (not zero)", "未知（非零）") : amount(value);
+
+  const importCard = element("section", undefined, "card result-card");
+  importCard.append(
+    element("h2", t("Import inventory & preview mapping", "导入库存清单与映射预览")),
+    element(
+      "p",
+      t(
+        "Observed comparable estimates are not guaranteed sale prices. Missing models, unsupported non-USD currencies, and low-sample (<8) items stay null and are excluded from USD portfolio totals.",
+        "估值基于已观察可比成交记录，并非保证成交售价。缺失型号、非美元货币及有效样本不足 8 条的商品保持空值不填零，不纳入美元组合汇总分母。",
+      ),
+      "small",
+    ),
+  );
+
+  const form = element("form", undefined, "stack");
+  const nameInput = element("input");
+  nameInput.maxLength = 120;
+  nameInput.value = "November stock valuation";
+  const nameLabel = element("label", t("Valuation name", "估值名称"));
+  nameLabel.append(nameInput);
+
+  const csvArea = element("textarea");
+  csvArea.rows = 6;
+  csvArea.setAttribute("data-inventory-csv", "");
+  csvArea.value = [
+    "sku,title,quantity,currency,q",
+    "SKU-GB-01,Nintendo Game Boy Lot,2,USD,Nintendo Game Boy",
+    "SKU-MISSING,Unidentified Crate,1,USD,",
+    "SKU-EUR,European Edition,1,EUR,Nintendo Game Boy",
+  ].join("\n");
+  const csvLabel = element(
+    "label",
+    t(
+      "Inventory CSV (columns: sku,title,quantity,currency,q[,cost_basis_cents,category,brand,model,condition,window_days,price_basis])",
+      "库存 CSV（列名：sku,title,quantity,currency,q[,cost_basis_cents,category,brand,model,condition,window_days,price_basis]）",
+    ),
+  );
+  csvLabel.append(csvArea);
+
+  const previewOut = element("div", undefined, "notice");
+  previewOut.setAttribute("aria-live", "polite");
+  previewOut.textContent = t(
+    "Preview mapping to inspect exclusions and maximum credits before creating.",
+    "创建前请先预览映射与预计最大消耗额度。",
+  );
+
+  const consentCheck = element("input");
+  consentCheck.type = "checkbox";
+  const consentLabel = element("label", undefined, "checkbox");
+  consentLabel.append(
+    consentCheck,
+    document.createTextNode(
+      t(
+        " I agree to submit mapped comparable queries and charge credits only on explicit claim.",
+        " 我确认同意提交已映射商品查询，并在显式领取结果时按实际唯一查询扣费。",
+      ),
+    ),
+  );
+
+  const previewBtn = button(t("Preview mapping & cost", "预览映射与预估费用"), () => {
+    previewBtn.disabled = true;
+    run(async () => {
+      try {
+        const res = await post("/v1/inventory/valuations/preview", { csv: csvArea.value }, await csrf());
+        const s = res.data.summary;
+        previewOut.textContent = t(
+          `Rows: ${s.total_rows} · Units: ${s.total_units} · Mapped: ${s.mapped_rows} · Missing model: ${s.unmapped_rows} · Non-USD: ${s.currency_unsupported_rows} · Est. max credits: ${s.estimated_max_credits}`,
+          `行数：${s.total_rows} · 总件数：${s.total_units} · 已映射：${s.mapped_rows} · 缺型号：${s.unmapped_rows} · 非美元：${s.currency_unsupported_rows} · 预计最大扣费：${s.estimated_max_credits}`,
+        );
+      } finally {
+        previewBtn.disabled = false;
+      }
+    });
+  });
+  previewBtn.className = "btn ghost";
+
+  const createBtn = element("button", t("Create valuation", "创建估值任务"), "btn brand");
+  createBtn.type = "submit";
+  const btnBar = element("div", undefined, "actions");
+  btnBar.append(previewBtn, createBtn);
+  form.append(nameLabel, csvLabel, previewOut, consentLabel, btnBar);
+  importCard.append(form);
+
+  const listCard = element("section", undefined, "card result-card");
+  listCard.append(element("h2", t("Valuation runs", "库存估值列表")));
+  const listBody = element("div", undefined, "stack");
+  listCard.append(listBody);
+  output.append(importCard, listCard);
+
+  async function refresh() {
+    const res = await api("/v1/inventory/valuations");
+    listBody.replaceChildren();
+    if (!res.data.length) {
+      listBody.append(element("p", t("No inventory valuations created yet.", "暂无库存估值记录。")));
+      return;
+    }
+    for (const v of res.data) {
+      const card = element("article", undefined, "card stack");
+      card.append(element("h3", `${v.name} · ${v.status} · v${v.version}`));
+      card.append(
+        element(
+          "p",
+          t(
+            `Portfolio median (USD): ${formatCents(v.portfolio_median_cents)} (P25: ${formatCents(v.portfolio_p25_cents)} / P75: ${formatCents(v.portfolio_p75_cents)})`,
+            `组合估值中位总价 (USD)：${formatCents(v.portfolio_median_cents)}（P25：${formatCents(v.portfolio_p25_cents)} / P75：${formatCents(v.portfolio_p75_cents)}）`,
+          ),
+        ),
+        element(
+          "p",
+          t(
+            `Denominator: Valued ${v.denominator.valued_rows}/${v.denominator.total_rows} SKUs (${v.denominator.valued_units}/${v.denominator.total_units} units) · Excluded ${v.denominator.excluded_rows} rows · Credits charged: ${v.total_credits_charged}`,
+            `汇总分母：已估值 ${v.denominator.valued_rows}/${v.denominator.total_rows} 个 SKU（${v.denominator.valued_units}/${v.denominator.total_units} 件）· 排除 ${v.denominator.excluded_rows} 行 · 已扣额度：${v.total_credits_charged}`,
+          ),
+          "small",
+        ),
+      );
+
+      const tblWrap = element("div", undefined, "table-scroll");
+      const tbl = element("table");
+      const hdr = element("tr");
+      for (const col of [
+        t("SKU", "SKU"),
+        t("Title", "商品名称"),
+        t("Qty", "数量"),
+        t("Currency", "币种"),
+        t("Status", "状态"),
+        t("Samples", "样本"),
+        t("Unit median", "单件中位"),
+        t("Line median", "小计中位"),
+        t("As of", "数据时点"),
+      ]) {
+        hdr.append(element("th", col));
+      }
+      const thead = element("thead");
+      thead.append(hdr);
+      const tbody = element("tbody");
+      for (const item of v.items) {
+        const tr = element("tr");
+        tr.append(
+          element("td", item.sku),
+          element("td", item.title),
+          element("td", String(item.quantity)),
+          element("td", item.declared_currency),
+          element("td", item.valuation_status),
+          element("td", String(item.n_price_verified)),
+          element("td", formatCents(item.unit_median_cents)),
+          element("td", formatCents(item.line_median_cents)),
+          element("td", item.data_as_of ? item.data_as_of.slice(0, 16) : "—"),
+        );
+        tbody.append(tr);
+      }
+      tbl.append(thead, tbody);
+      tblWrap.append(tbl);
+      card.append(tblWrap);
+
+      const actionsRow = element("div", undefined, "actions");
+      const refreshBtn = button(t("Refresh status", "刷新状态"), () =>
+        run(async () => {
+          refreshBtn.disabled = true;
+          try {
+            await refresh();
+          } finally {
+            refreshBtn.disabled = false;
+          }
+        }),
+      );
+      refreshBtn.className = "btn ghost";
+
+      const claimBtn = button(t("Claim ready", "领取已就绪估值"), () =>
+        run(async () => {
+          claimBtn.disabled = true;
+          try {
+            const out = await post(
+              `/v1/inventory/valuations/${v.id}/claim`,
+              {},
+              await csrf(),
+              crypto.randomUUID(),
+            );
+            await refresh();
+            message(
+              t(
+                `Claimed ${out.data.claim.claimed_query_ids.length} queries (${out.data.claim.credits_charged_now} credits charged).`,
+                `已领取 ${out.data.claim.claimed_query_ids.length} 项查询（本次扣费 ${out.data.claim.credits_charged_now} 额度）。`,
+              ),
+            );
+          } finally {
+            claimBtn.disabled = false;
+          }
+        }),
+      );
+
+      const exportBtn = button(t("Export CSV", "导出 CSV"), () =>
+        run(async () => {
+          exportBtn.disabled = true;
+          try {
+            const blob = await post(
+              `/v1/inventory/valuations/${v.id}/export`,
+              { format: "csv" },
+              await csrf(),
+              undefined,
+              true,
+            );
+            download(blob, `soldbench-inventory-${v.id}.csv`);
+          } finally {
+            exportBtn.disabled = false;
+          }
+        }),
+      );
+      exportBtn.className = "btn ghost";
+
+      actionsRow.append(refreshBtn, claimBtn, exportBtn);
+      card.append(actionsRow);
+      listBody.append(card);
+    }
+  }
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    createBtn.disabled = true;
+    run(async () => {
+      try {
+        await post(
+          "/v1/inventory/valuations",
+          {
+            name: nameInput.value.trim() || undefined,
+            csv: csvArea.value,
+            billing_consent_accepted: consentCheck.checked,
+          },
+          await csrf(),
+          crypto.randomUUID(),
+        );
+        await refresh();
+        message(
+          t("Inventory valuation created (0 upfront credits charged).", "库存估值已创建（提交阶段未扣费）。"),
+        );
+      } finally {
+        createBtn.disabled = false;
+      }
+    });
+  });
+
+  await refresh();
+}
+
 if (page.startsWith("/account"))
   run(async () => {
     const user = await session();
@@ -5207,6 +5455,7 @@ if (page.startsWith("/account"))
     if (page === "/account/lookup") return showLookupWorkstation();
     if (page === "/account/saved") return showSavedResearch();
     if (page === "/account/batches") return showBatchWorkbench();
+    if (page === "/account/inventory") return showInventoryValuationWorkbench();
     if (page === "/account/history") return showArchiveHistory();
     if (page === "/account/alerts") return showAlertsWorkstation();
     if (page === "/account/security") return showAccountSecurity();

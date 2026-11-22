@@ -5,6 +5,7 @@ import { type Database, isDatabaseConnectionError } from "@soldbench/db";
 import type {
   AlertWebhookService,
   BestOfferVerificationService,
+  InventoryValuationService,
   LookupInputService,
   QueryService,
 } from "@soldbench/query";
@@ -22,6 +23,7 @@ import { mountCatalog } from "./catalog.ts";
 import { mountDeveloper } from "./developer.ts";
 import { editorialNotFound, mountEditorial, siteBlocks } from "./editorial.ts";
 import { mountHistory } from "./history.ts";
+import { mountInventory } from "./inventory.ts";
 import { mountLookup } from "./lookup.ts";
 import { mountMcp } from "./mcp.ts";
 import { mountOAuth } from "./oauth.ts";
@@ -61,6 +63,7 @@ export function createApp(
     bestOffers?: BestOfferVerificationService;
     alerts?: AlertWebhookService;
     lookup?: LookupInputService;
+    inventory?: InventoryValuationService;
   } = {},
 ) {
   const app = new Hono<{ Variables: { requestId: string } }>();
@@ -183,6 +186,7 @@ export function createApp(
   mountBestOffers(app, config, services.auth, services.query, services.bestOffers);
   mountAlerts(app, config, services.auth, services.query, services.alerts);
   mountLookup(app, config, services.auth, services.query, services.lookup);
+  mountInventory(app, config, services.auth, services.query, services.inventory);
   mountHistory(app, config, services.auth, services.query);
   mountMcp(app, config, services.auth, services.query);
   mountEditorial(app, db, services.query);

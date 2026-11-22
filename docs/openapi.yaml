@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.33.0
+  version: 1.34.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -8847,6 +8847,246 @@ paths:
       x-roles: [owner]
       x-scopes: [sold:read]
       x-credit-policy: '0'
+  /v1/inventory/valuations/preview:
+    post:
+      operationId: previewInventoryValuation
+      summary: Validate an inventory CSV or JSON payload, map SKUs, isolate non-USD rows, and preview unique query credits at 0 cost.
+      security: *id001
+      parameters: [*content_language]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/InventoryPreviewRequest'}
+      responses:
+        '200':
+          description: Dry-run inventory mapping and cost preview.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InventoryPreviewResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '415': *content_error
+      x-task: TASK-051
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
+  /v1/inventory/valuations:
+    get:
+      operationId: listInventoryValuations
+      summary: List recent inventory valuation runs owned by the caller.
+      security: *id001
+      parameters: [*content_language]
+      responses:
+        '200':
+          description: Owner inventory valuation summaries.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InventoryValuationListResponse'}
+        '401': *content_error
+        '403': *content_error
+      x-task: TASK-051
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
+    post:
+      operationId: createInventoryValuation
+      summary: Create an inventory valuation run after explicit billing consent, enqueueing deduplicated batch queries with 0 upfront charge.
+      security: *id001
+      parameters:
+      - *content_language
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema: {type: string, minLength: 16, maxLength: 128}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateInventoryValuationRequest'}
+      responses:
+        '201':
+          description: Inventory valuation created (or idempotently replayed).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InventoryValuationEnvelopeResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '409': *content_error
+        '415': *content_error
+      x-task: TASK-051
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
+  /v1/inventory/valuations/{id}:
+    get:
+      operationId: getInventoryValuation
+      summary: Retrieve live inventory valuation progress, per-SKU comparable evidence, and explicit denominator breakdown.
+      security: *id001
+      parameters:
+      - *content_language
+      - name: id
+        in: path
+        required: true
+        schema: *id002
+      responses:
+        '200':
+          description: Current owner inventory valuation snapshot.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InventoryValuationResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+      x-task: TASK-051
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
+  /v1/inventory/valuations/{id}/claim:
+    post:
+      operationId: claimInventoryValuation
+      summary: Atomically claim completed unique queries linked to an inventory valuation.
+      security: *id001
+      parameters:
+      - *content_language
+      - name: id
+        in: path
+        required: true
+        schema: *id002
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema: {type: string, minLength: 16, maxLength: 128}
+      responses:
+        '200':
+          description: Claim outcome and refreshed inventory valuation totals.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InventoryClaimResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '409': *content_error
+      x-task: TASK-051
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: 0..20
+  /v1/inventory/valuations/{id}/cancel:
+    post:
+      operationId: cancelInventoryValuation
+      summary: Cancel an active inventory valuation and its remaining queued/running child jobs.
+      security: *id001
+      parameters:
+      - *content_language
+      - name: id
+        in: path
+        required: true
+        schema: *id002
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema: {type: string, minLength: 16, maxLength: 128}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CancelInventoryValuationRequest'}
+      responses:
+        '200':
+          description: Cancelled inventory valuation view.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InventoryValuationResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '409': *content_error
+        '415': *content_error
+      x-task: TASK-051
+      x-roles: [owner]
+      x-scopes: [jobs:read]
+      x-credit-policy: '0'
+  /v1/inventory/valuations/{id}/revalue:
+    post:
+      operationId: revalueInventoryValuation
+      summary: Create a new versioned inventory valuation run from an existing inventory mapping after explicit billing consent.
+      security: *id001
+      parameters:
+      - *content_language
+      - name: id
+        in: path
+        required: true
+        schema: *id002
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema: {type: string, minLength: 16, maxLength: 128}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RevalueInventoryValuationRequest'}
+      responses:
+        '201':
+          description: Re-valuation snapshot created without mutating the original valuation.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InventoryValuationEnvelopeResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '409': *content_error
+        '415': *content_error
+      x-task: TASK-051
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
+  /v1/inventory/valuations/{id}/export:
+    post:
+      operationId: exportInventoryValuation
+      summary: Export inventory valuation evidence and explicit exclusions as JSON or formula-safe CSV after live source-rights checks.
+      security: *id001
+      parameters:
+      - *content_language
+      - name: id
+        in: path
+        required: true
+        schema: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ExportInventoryValuationRequest'}
+      responses:
+        '200':
+          description: Rights-verified inventory valuation export in JSON or CSV format.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data_mode: {const: synthetic_fixture}
+                  exported_at: {type: string, format: date-time}
+                  valuation: {$ref: '#/components/schemas/InventoryValuationRecord'}
+                required: [data_mode, exported_at, valuation]
+                additionalProperties: false
+            text/csv:
+              schema: {type: string}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '415': *content_error
+      x-task: TASK-051
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
 components:
   securitySchemes:
     SupportReceipt:
@@ -14845,5 +15085,371 @@ components:
           required: [request_id, credits_charged]
           additionalProperties: false
       required: [data, meta]
+      additionalProperties: false
+    InventoryPreviewRequest:
+      type: object
+      properties:
+        items:
+          type: array
+          items: {type: object, additionalProperties: true}
+          minItems: 1
+          maxItems: 20
+        csv: {type: string, minLength: 1, maxLength: 65536}
+      additionalProperties: false
+    InventoryPreviewItemRecord:
+      type: object
+      properties:
+        row_index: {type: integer, minimum: 0, maximum: 19}
+        sku: {type: string}
+        title: {type: string}
+        quantity: {type: integer, minimum: 1, maximum: 10000}
+        declared_currency: {type: string}
+        cost_basis_cents: {type: [integer, 'null']}
+        mapped_q: {type: [string, 'null']}
+        mapped_category: {type: [string, 'null']}
+        mapped_brand: {type: [string, 'null']}
+        mapped_model: {type: [string, 'null']}
+        mapped_condition: {type: [string, 'null']}
+        window_days: {type: integer, enum: [30, 90, 180, 365]}
+        price_basis: {enum: [item, item_plus_observed_shipping]}
+        mapping_status: {enum: [mapped, unmapped_missing_model, currency_unsupported, invalid_parameters]}
+        mapping_note: {type: [string, 'null']}
+        canonical_query_hash: {type: [string, 'null']}
+        deduplicated_in_valuation: {type: boolean}
+      required:
+      - row_index
+      - sku
+      - title
+      - quantity
+      - declared_currency
+      - cost_basis_cents
+      - mapped_q
+      - mapped_category
+      - mapped_brand
+      - mapped_model
+      - mapped_condition
+      - window_days
+      - price_basis
+      - mapping_status
+      - mapping_note
+      - canonical_query_hash
+      - deduplicated_in_valuation
+      additionalProperties: false
+    InventoryPreviewSummaryRecord:
+      type: object
+      properties:
+        total_rows: {type: integer, minimum: 1, maximum: 20}
+        total_units: {type: integer, minimum: 1}
+        mapped_rows: {type: integer, minimum: 0}
+        unmapped_rows: {type: integer, minimum: 0}
+        currency_unsupported_rows: {type: integer, minimum: 0}
+        invalid_rows: {type: integer, minimum: 0}
+        unique_query_count: {type: integer, minimum: 0}
+        duplicate_query_rows: {type: integer, minimum: 0}
+        estimated_max_credits: {type: integer, minimum: 0}
+        currency: {const: USD}
+        valuation_disclaimer: {const: observed_comparable_estimate_not_guaranteed_sale_price}
+      required:
+      - total_rows
+      - total_units
+      - mapped_rows
+      - unmapped_rows
+      - currency_unsupported_rows
+      - invalid_rows
+      - unique_query_count
+      - duplicate_query_rows
+      - estimated_max_credits
+      - currency
+      - valuation_disclaimer
+      additionalProperties: false
+    InventoryPreviewResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            items:
+              type: array
+              items: {$ref: '#/components/schemas/InventoryPreviewItemRecord'}
+            summary: {$ref: '#/components/schemas/InventoryPreviewSummaryRecord'}
+          required: [items, summary]
+          additionalProperties: false
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    CreateInventoryValuationRequest:
+      type: object
+      properties:
+        name: {type: string, minLength: 1, maxLength: 120}
+        items:
+          type: array
+          items: {type: object, additionalProperties: true}
+          minItems: 1
+          maxItems: 20
+        csv: {type: string, minLength: 1, maxLength: 65536}
+        billing_consent_accepted: {type: boolean}
+      additionalProperties: false
+    InventoryValuationItemRecord:
+      type: object
+      properties:
+        row_index: {type: integer, minimum: 0, maximum: 19}
+        sku: {type: string}
+        title: {type: string}
+        quantity: {type: integer, minimum: 1, maximum: 10000}
+        declared_currency: {type: string}
+        unit_cost_basis_cents: {type: [integer, 'null']}
+        line_cost_basis_cents: {type: [integer, 'null']}
+        mapped_q: {type: [string, 'null']}
+        mapped_category: {type: [string, 'null']}
+        mapped_brand: {type: [string, 'null']}
+        mapped_model: {type: [string, 'null']}
+        mapped_condition: {type: [string, 'null']}
+        window_days: {type: integer, enum: [30, 90, 180, 365]}
+        price_basis: {enum: [item, item_plus_observed_shipping]}
+        mapping_status: {enum: [mapped, unmapped_missing_model, currency_unsupported, invalid_parameters]}
+        mapping_note: {type: [string, 'null']}
+        canonical_query_hash: {type: [string, 'null']}
+        query_id: {type: [string, 'null']}
+        valuation_status:
+          enum:
+          - valued
+          - insufficient_samples
+          - unclaimed
+          - pending
+          - rights_revoked
+          - cancelled
+          - failed
+          - expired
+          - unmapped_missing_model
+          - currency_unsupported
+          - invalid_parameters
+        sample_confidence: {enum: [sufficient, limited, insufficient, none]}
+        n_price_verified: {type: integer, minimum: 0}
+        credits_charged: {type: integer, minimum: 0}
+        unit_p25_cents: {type: [integer, 'null']}
+        unit_median_cents: {type: [integer, 'null']}
+        unit_p75_cents: {type: [integer, 'null']}
+        line_p25_cents: {type: [integer, 'null']}
+        line_median_cents: {type: [integer, 'null']}
+        line_p75_cents: {type: [integer, 'null']}
+        data_as_of: {type: [string, 'null'], format: date-time}
+        exclusion_reason: {type: [string, 'null']}
+      required:
+      - row_index
+      - sku
+      - title
+      - quantity
+      - declared_currency
+      - unit_cost_basis_cents
+      - line_cost_basis_cents
+      - mapped_q
+      - mapped_category
+      - mapped_brand
+      - mapped_model
+      - mapped_condition
+      - window_days
+      - price_basis
+      - mapping_status
+      - mapping_note
+      - canonical_query_hash
+      - query_id
+      - valuation_status
+      - sample_confidence
+      - n_price_verified
+      - credits_charged
+      - unit_p25_cents
+      - unit_median_cents
+      - unit_p75_cents
+      - line_p25_cents
+      - line_median_cents
+      - line_p75_cents
+      - data_as_of
+      - exclusion_reason
+      additionalProperties: false
+    InventoryDenominatorRecord:
+      type: object
+      properties:
+        valued_rows: {type: integer, minimum: 0}
+        total_rows: {type: integer, minimum: 1}
+        valued_units: {type: integer, minimum: 0}
+        total_units: {type: integer, minimum: 1}
+        excluded_rows: {type: integer, minimum: 0}
+        excluded_units: {type: integer, minimum: 0}
+        breakdown: {type: object, additionalProperties: {type: integer, minimum: 0}}
+      required: [valued_rows, total_rows, valued_units, total_units, excluded_rows, excluded_units, breakdown]
+      additionalProperties: false
+    InventoryValuationRecord:
+      type: object
+      properties:
+        id: *id002
+        name: {type: string}
+        status: {enum: [draft_mapping, queued, running, ready_to_claim, completed, partial, cancelled, failed]}
+        version: {type: integer, minimum: 1}
+        batch_id: {type: [string, 'null']}
+        revaluation_of_id: {type: [string, 'null']}
+        billing_consent_accepted: {type: boolean}
+        estimated_max_credits: {type: integer, minimum: 0}
+        total_credits_charged: {type: integer, minimum: 0}
+        currency: {const: USD}
+        valuation_disclaimer: {const: observed_comparable_estimate_not_guaranteed_sale_price}
+        portfolio_p25_cents: {type: [integer, 'null']}
+        portfolio_median_cents: {type: [integer, 'null']}
+        portfolio_p75_cents: {type: [integer, 'null']}
+        total_cost_basis_cents: {type: [integer, 'null']}
+        cost_basis_rows: {type: integer, minimum: 0}
+        denominator: {$ref: '#/components/schemas/InventoryDenominatorRecord'}
+        as_of_range:
+          type: object
+          properties:
+            oldest_as_of: {type: [string, 'null'], format: date-time}
+            newest_as_of: {type: [string, 'null'], format: date-time}
+          required: [oldest_as_of, newest_as_of]
+          additionalProperties: false
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        completed_at: {type: [string, 'null'], format: date-time}
+        cancelled_at: {type: [string, 'null'], format: date-time}
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/InventoryValuationItemRecord'}
+      required:
+      - id
+      - name
+      - status
+      - version
+      - batch_id
+      - revaluation_of_id
+      - billing_consent_accepted
+      - estimated_max_credits
+      - total_credits_charged
+      - currency
+      - valuation_disclaimer
+      - portfolio_p25_cents
+      - portfolio_median_cents
+      - portfolio_p75_cents
+      - total_cost_basis_cents
+      - cost_basis_rows
+      - denominator
+      - as_of_range
+      - created_at
+      - updated_at
+      - completed_at
+      - cancelled_at
+      - items
+      additionalProperties: false
+    InventoryValuationEnvelopeResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            valuation: {$ref: '#/components/schemas/InventoryValuationRecord'}
+            replayed: {type: boolean}
+          required: [valuation, replayed]
+          additionalProperties: false
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    InventoryValuationResponse:
+      type: object
+      properties:
+        data: {$ref: '#/components/schemas/InventoryValuationRecord'}
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    InventoryValuationListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/InventoryValuationRecord'}
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    InventoryClaimResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            valuation: {$ref: '#/components/schemas/InventoryValuationRecord'}
+            claim:
+              type: object
+              properties:
+                claimed_query_ids:
+                  type: array
+                  items: *id002
+                already_delivered_query_ids:
+                  type: array
+                  items: *id002
+                failed_items:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      item_index: {type: integer, minimum: 0}
+                      query_id: *id002
+                      code: {type: string}
+                      message: {type: string}
+                    required: [item_index, query_id, code, message]
+                    additionalProperties: false
+                credits_charged_now: {type: integer, minimum: 0}
+                batch_total_credits_charged: {type: integer, minimum: 0}
+              required: [claimed_query_ids, already_delivered_query_ids, failed_items, credits_charged_now, batch_total_credits_charged]
+              additionalProperties: false
+          required: [valuation, claim]
+          additionalProperties: false
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, minimum: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    CancelInventoryValuationRequest:
+      type: object
+      properties:
+        version: {type: integer, minimum: 1}
+      required: [version]
+      additionalProperties: false
+    RevalueInventoryValuationRequest:
+      type: object
+      properties:
+        billing_consent_accepted: {type: boolean}
+        name: {type: string, minLength: 1, maxLength: 120}
+        window_days: {type: integer, enum: [30, 90, 180, 365]}
+      required: [billing_consent_accepted]
+      additionalProperties: false
+    ExportInventoryValuationRequest:
+      type: object
+      properties:
+        format: {enum: [csv, json]}
+      required: [format]
       additionalProperties: false
 x-design-evidence: docs/adr/ADR-12.md; docs/contracts/check_contracts.py; not production approval

@@ -1,5 +1,9 @@
 # SoldBench engineering changelog
 
+## 2026-11-22 — V1.5 inventory valuation workflow (offline)
+
+OpenAPI 1.34.0 adds `/v1/inventory/valuations*` (`TASK-051`, 0 preview credits; standard batch claim billing only on explicit consent + claim). Supports RFC-4180 CSV/JSON SKU import (`<=20` rows), product mapping preview with explicit credit estimation, strict USD isolation (marking non-USD rows `currency_unsupported` rather than guessing FX), explicit exclusion of unmapped or `<8`-sample items (`null`, never zero), portfolio valuation ranges with exact `denominator` row/unit breakdowns and `as_of_range`, formula-safe CSV export, explicit source-rights enforcement on every read/export, and versioned re-valuations.
+
 ## 2026-11-22 — V1.5 image upload & barcode lookup identification (offline)
 
 OpenAPI 1.33.0 adds `/v1/lookup/image`, `/v1/lookup/barcode`, `/v1/lookup/sessions`, `/v1/lookup/sessions/{id}`, and `/v1/lookup/sessions/{id}/confirm` (`TASK-050`, 0 identification credits in synthetic offline build). Uploaded images verify JPEG/PNG/WebP magic bytes prior to decode, reject oversized files (>5 MiB), pixel bombs (>25M pixels / >5000px), animated frames, or spoofed MIME types, strip EXIF/XMP/IPTC metadata during WebP sanitization, enforce GS1 check-digit validation on UPC/EAN/GTIN/ISBN-13 barcodes, require explicit candidate confirmation or manual text fallback before submitting any standard sold query, and support immediate delete + retention cleanup.
