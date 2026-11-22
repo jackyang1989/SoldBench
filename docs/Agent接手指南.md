@@ -7,10 +7,10 @@
 | 项目 | 接手信息 |
 |---|---|
 | 仓库 | 私有仓库 `jackyang1989/SoldBench`，远端 `https://github.com/jackyang1989/SoldBench.git` |
-| 主分支基线 | `main` 已合入撤权主图清理收尾（§157）、运营读侧（§158）、信封绑定 eBay US 已售 DOM 解析（§159）、真实 eBay 多布局解析加固/HTTP 传输/原始 HTML 摄入链（§160）、商品详情页解析补证/有界 Chrome 传输闭环（§161）、持久详情补证队列/3 通道监督/eBay US 语料守护运行器（§162）与生产隔离部署模板/校验型 PG16 备份恢复脚本（§163） |
+| 主分支基线 | `main` 已合入撤权主图清理收尾（§157）、运营读侧（§158）、信封绑定 eBay US 已售 DOM 解析（§159）、真实 eBay 多布局解析加固/HTTP 传输/原始 HTML 摄入链（§160）、商品详情页解析补证/有界 Chrome 传输闭环（§161）、持久详情补证队列/3 通道监督/eBay US 语料守护运行器（§162）、生产隔离部署模板/校验型 PG16 备份恢复脚本（§163）与 V1.1 商家批量查价及 CSV 工作台（§164） |
 | 当前工作区 | 本机主检出 `/Users/jianouyang/Project/SoldBench`（在 `main` 上推进）；旧隔离工作树 `/Users/jianouyang/.codex/worktrees/soldbench-media-recovery/SoldBench` 保留未改，勿再基于已合入分支继续做合成撤权延伸 |
-| 已完成增量 | TASK-014/015/016/017/019/039/061 的 §157–§163（双布局搜索解析、URL 构造、HTTP/有界浏览器双传输、6 类目详页解析、持久 `collector_detail_jobs` 队列、3 通道监督进程、`collector:ebay-daemon` 守护运行器与 `infra/` 隔离容器/三网络拓扑/Caddy/PG16 校验备份脚本）均已通过实测验收；注：本机出口 IP 直连 `www.ebay.com` 返回边缘 403 并按 Fail-Closed 熔断 |
-| 接下来做什么 | **继续按 `docs/开发排期与任务台账.md` 推进全部待开发功能包（勿回退假数据撤权清理）**：下一步推进 V1.1 扩展工程（如 TASK-045 商家批量查价与 CSV 工作台 / TASK-046/047）及网页与研究闭环能力，同步为可用出口网络下的 `npm run collector:ebay-daemon` 14 日稳定性观测做好准备 |
+| 已完成增量 | TASK-014/015/016/017/019/039/045/061 的 §157–§164 均已通过隔离 PG16、Chrome 与离线运行包演练；最新候选 `7c8410c`（OpenAPI 1.28.0、83 张表、`API-57`）通过 33 套 324 项 Node 测试与 232 文件运行包独立恢复演练；注：本机出口 IP 直连 `www.ebay.com` 返回边缘 403 并按 Fail-Closed 熔断 |
+| 接下来做什么 | **继续按 `docs/开发排期与任务台账.md` 推进全部待开发功能包（勿回退假数据撤权清理）**：下一步推进 V1.1 扩展工程 **TASK-046 获准历史档案与研究 API（AT-063）**、TASK-047（Best Offer 后查）、TASK-044（MCP OAuth/Passkey）及 V1.5 能力，同步保留可用出口网络下 `npm run collector:ebay-daemon` 的 14 日稳定性观测准备 |
 
 接手后先在主检出确认分支与工作区状态：
 
@@ -41,13 +41,13 @@ SoldBench 是直接服务**个人卖家、收藏品交易商、二手商家、�
 | 工程与数据库，TASK-011/012/017 | TypeScript 工作区，Hono API、React SSR、PG16、独立查询 Worker、采集监督进程与隔离部署基础设施模板。33 个增量迁移，本机无 DDL 权限启动、断进程、旧包回滚及非 root 三网络 Compose / Caddy / 校验型 PG16 备份恢复演练。入口 `apps/api/src/server.ts`、`scripts/query-worker.mjs`、`packages/db/migrations/`、`infra/` | 台账 §101、§109、§122、§129、§162–163 |
 | 来源准备，TASK-001/003–009 | 45 字段权利和来源事实清单、120 条查询草稿、1,680 时段的验证计划、质量盲审、断源演练、成本和访谈准备。入口 `step0/`。实际来源字段仍待核验 | [第 0 步](../step0/README.md)、台账 §94、§96、§110、§112、§139–143 |
 | 采集与商品主图，TASK-013–016 | 本机 JSON/HTML 分页回放、任务信封绑定的 `li.s-item`/`li.s-card` 双布局 eBay US 已售 DOM 解析加固（`createEbayUsSoldSearchHtmlProfile`/`createEbayUsSoldCardHtmlProfile`/`detectEbayUsSoldHtmlProfile`）、URL 构造与自托管 HTTP/有界浏览器双传输（`EbayUsHttpTransport`/`EbayUsBrowserTransport`）、6 类目 `/itm/<id>` 详页解析与持久队列补证（`collector_detail_jobs`/`CollectorStore.enqueuePendingDetails`/`runDetails`）、原始 HTML 审计与多品类语料守护运行器（`scripts/collector-ebay-intake.mjs`/`scripts/collector-ebay-daemon.mjs`）、观察与事件去重、独立租约、预算结算、降速/熔断、缺包和迟到恢复、定时计划、3 通道监督与主图绑定/转码/补采/到期与撤权分批清理。入口 `packages/collector/src/`、`packages/media/src/`、`scripts/collector-supervisor.mjs`、`scripts/collector-ebay-intake.mjs`、`scripts/collector-ebay-daemon.mjs` | 台账 §91–93、§98–100、§139–162 |
-| 查价与研究，TASK-019/020/027/028/031/032/036/059 | 黄金 121/64/58、可比性及混型号判定，详页成色统一解析，显式领取、详情/主图/诊断、只读复取、人工排除重算、单结果 JSON/CSV、受控公开分享、已交付快照保存和对照。入口 `packages/core/src/`、`packages/query/src/`、`apps/api/src/queries.ts` | 台账 §54–57、§63–76、§86、§92、§95、§161 |
+| 查价与研究，TASK-019/020/027/028/031/032/036/045/059 | 黄金 121/64/58、可比性及混型号判定，详页成色统一解析，显式领取、详情/主图/诊断、只读复取、人工排除重算、单结果 JSON/CSV、受控公开分享、已交付快照保存对照及 V1.1 商家批量查价（20 项/批、1 活跃批、去重预览、原子 claim、取消与防注入导出）。入口 `packages/core/src/`、`packages/query/src/`、`apps/api/src/{queries,batches}.ts` | 台账 §54–57、§63–76、§86、§92、§95、§161、§164 |
 | 账户与账本，TASK-023–027/033/039 | 本机注册/验证、会话、TOTP、恢复码、API key、用量/日志、积分桶和原子结算、删除及旧备份防反弹；双语事务邮件从离线发件箱交付。入口 `packages/auth/src/`、`packages/billing/src/`、`apps/api/src/auth.ts` | 台账 §40–41、§47、§65、§89、§102、§106、§130–131 |
 | 支付，TASK-029 | Stripe/PayPal 本机签名事件、订阅及退款生命周期、只读对账、晚到事件与旧库补放，入口 `apps/api/src/payments.ts`、`packages/billing/src/payment-lifecycle.ts` | 台账 §49、§68、§70、§73、§108、§132–134 |
-| 英中网页与运营，TASK-031–036/057–061 | 原型 Search/Research/账户/Playground、公开索引和内容页、CMS 审核/定时/回滚、工单、审批与执行、用户 360、来源监控及主图维护/详情补证队列读侧已接本机服务。入口 `apps/web/src/`、`apps/api/src/operations.ts`、`apps/api/src/ops-telemetry.ts` | 台账 §63–78、§84–88、§95、§103、§105、§121、§147–149、§158、§162 |
-| 开发者与运行交付，TASK-037–040/042 | OpenAPI 1.27.0、双语 Docs、Playground、REST、MCP、Skill 与 TS/Python/curl 示例。可从独立归档解包、启动、验证客户端以及恢复撤权、账务和仍有权主图。入口 `developer/`、`apps/api/src/mcp.ts`、`scripts/package-offline.py`、`scripts/rehearse-offline.py` | 台账 §83、§88–89、§95、§104、§122–131、§154–162 |
+| 英中网页与运营，TASK-031–036/045/057–061 | 原型 Search/Research/账户（含批量 CSV 工作台）/Playground、公开索引和内容页、CMS 审核/定时/回滚、工单、审批与执行、用户 360、来源监控及主图维护/详情补证队列读侧已接本机服务。入口 `apps/web/src/`、`apps/api/src/operations.ts`、`apps/api/src/ops-telemetry.ts` | 台账 §63–78、§84–88、§95、§103、§105、§121、§147–149、§158、§162、§164 |
+| 开发者与运行交付，TASK-037–040/042/045 | OpenAPI 1.28.0、双语 Docs、Playground、REST、MCP、Skill 与 TS/Python/curl 示例。可从独立归档解包、启动、验证客户端以及恢复撤权、账务和仍有权主图。入口 `developer/`、`apps/api/src/mcp.ts`、`scripts/package-offline.py`、`scripts/rehearse-offline.py` | 台账 §83、§88–89、§95、§104、§122–131、§154–162、§164 |
 
-最新主线候选 `83bb3cb` 的全量记录（含本机 Chrome 走查）为 32 套、322 项应用测试、5 项接口兼容、20 项第 0 步校验与 5 项归档检查，零失败、零跳过。227 文件的独立运行包（SHA-256 `d728bb838528c38326a8ba3dc583cd7d6e0ebf54c9c57c454a4530fcc67c7a5a`）完成 33 个迁移恢复、过期清理与 REST/curl/TS/MCP 客户端演练，合成采集 2 页、8 张主图，外部来源请求为零。证据和 SHA-256 见台账 §156–162。GitHub Actions 最近核对的主线运行在创建作业前报 `startup_failure`，作业数为零。不能从该状态推断 runner 或仓库设置的根因。[GitHub Actions 记录](https://github.com/jackyang1989/SoldBench/actions/runs/44851600259)
+最新主线候选 `7c8410c` 的全量记录（含本机 Chrome 走查）为 33 套、324 项应用测试、5 项接口兼容、20 项第 0 步校验、9 项 Python 测试与 `check_compatibility.py` 零回退，零失败、零跳过。232 文件的独立运行包（SHA-256 `6649c4ff36bc95c90f1a016c69c919766c0a75550b8eadf03d25e835c98e949c`）完成 34 个迁移恢复、过期清理与 REST/curl/TS/MCP 客户端演练，合成采集 2 页、8 张主图，外部来源请求为零。证据和 SHA-256 见台账 §156–164。GitHub Actions 最近核对的主线运行在创建作业前报 `startup_failure`，作业数为零。不能从该状态推断 runner 或仓库设置的根因。[GitHub Actions 记录](https://github.com/jackyang1989/SoldBench/actions/runs/44851600259)
 
 ## 4. 最新收口与采集能力增量
 
@@ -79,11 +79,15 @@ SoldBench 是直接服务**个人卖家、收藏品交易商、二手商家、�
 
 - **TASK-017/039，AT-002/042/047。** 在 `infra/` 交付非 root 容器镜像（[Dockerfile.runtime](../infra/Dockerfile.runtime)、[Dockerfile.collector](../infra/Dockerfile.collector)）、三网络隔离编排（[compose.prod.yaml](../infra/compose.prod.yaml)：`edge` / `internal: true` / `collector_egress`，严格禁止采集器接入鉴权/支付密钥）、目标代理与最小权限环境模板（[Caddyfile](../infra/Caddyfile)、[.env.production.example](../infra/.env.production.example)）、[backup-restore.sh](../infra/backup-restore.sh) 校验型 `pg_dump`/`pg_restore` 脚本及 [发布与恢复手册](发布、回滚与撤权恢复手册.md) §S4；[test_infra_deployment.py](../tests/test_infra_deployment.py) 与 `test_runtime_package.py` 共 9 项 Python 验证通过（含真实临时 PG16 备份、字节篡改拦截与还原验收，默认仍锁定离线模式）。
 
+### 已完成第八包：V1.1 商家批量查价与 CSV 工作台（台账 §164）
+
+- **TASK-045，AT-062。** 新增迁移 [0034_batch_queries.sql](../packages/db/migrations/0034_batch_queries.sql)（库表总计 83 张，通过部分唯一索引强制每 owner 仅 1 个活跃批量任务），在 [batch.ts](../packages/query/src/batch.ts) 与 [batches.ts](../apps/api/src/batches.ts) 实现 `parseBatchCsv`（20 项上限、BOM/转义、必填 `q`）与 `BatchQueryService`（0 credit 预览去重与额度预估、幂等提交与取消、逐唯一查询派生幂等键调用 `QueryService.result(..., true)` 原子领取及中途 `insufficient_credits` 断点恢复、撤权复查与防公式注入 CSV/JSON 导出），同步 `OpenAPI 1.28.0` / `API-57` 并交付英中 `/account/batches` CSV 工作台。
+
 ### 接下来优先执行（2026-11-21 纠偏后路线）
 
 1. **严禁重回合成数据撤权边角：** §157–§158 已永久收口旧批次撤权与运营读侧；后续继续保持零合成撤权额外投入。
-2. **用真实抓取样本持续校验与补齐页面变体：** 使用 `npm run collector:ebay-intake -- --mode=inspect` 与 `--mode=ingest --details-dir=...` 直接接入真实捕获的 eBay US 搜索页与 `/itm/<id>` 详情页（涵盖 6 大类目、促销区间、跨区站点与异常页），按实测缺口微调选择器/Item Specifics 词典与主图覆盖率。
-3. **验证可控实测抓包与 14 日连续采集稳定性：** 在正式可用出口网络与目标配置就绪后，以显式 `--allow-live-fetch=true` 启动 `npm run collector:ebay-daemon`（配合 `EbayUsHttpTransport` / `EbayUsBrowserTransport` 与 `collector_detail_jobs` 详页队列）执行连续多品类抓采与 14 个自然日稳定性观测。
+2. **持续推进未完成扩展与研究能力：** 依次按台账推进 **TASK-046（获准历史档案与研究 API，AT-063）**、TASK-047（Best Offer 后查）、TASK-044（OAuth/Passkey）、TASK-048/050/051 等V1.1/V1.5 离线功能工程，严格共用单一领域核心与双语/账务不变量。
+3. **用真实抓取样本持续校验并准备 14 日稳定性观测：** 使用 `npm run collector:ebay-intake -- --mode=inspect` 与 `--mode=ingest --details-dir=...` 直接接入真实捕获的 eBay US 搜索页与 `/itm/<id>` 详情页，并在可用出口网络就绪后启动 `npm run collector:ebay-daemon -- --allow-live-fetch=true`。
 
 ## 5. 新 Agent 必读顺序
 
