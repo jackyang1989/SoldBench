@@ -7,10 +7,10 @@
 | 项目 | 接手信息 |
 |---|---|
 | 仓库 | 私有仓库 `jackyang1989/SoldBench`，远端 `https://github.com/jackyang1989/SoldBench.git` |
-| 主分支基线 | `main` 已合入撤权主图清理收尾（§157）、运营读侧（§158）、信封绑定 eBay US 已售 DOM 解析（§159）与真实 eBay 多布局解析加固/自托管传输/原始 HTML 摄入链（§160） |
+| 主分支基线 | `main` 已合入撤权主图清理收尾（§157）、运营读侧（§158）、信封绑定 eBay US 已售 DOM 解析（§159）、真实 eBay 多布局解析加固/HTTP 传输/原始 HTML 摄入链（§160）与商品详情页解析补证/有界 Chrome 传输闭环（§161） |
 | 当前工作区 | 本机主检出 `/Users/jianouyang/Project/SoldBench`（在 `main` 上推进）；旧隔离工作树 `/Users/jianouyang/.codex/worktrees/soldbench-media-recovery/SoldBench` 保留未改，勿再基于已合入分支继续做合成撤权延伸 |
-| 已完成增量 | TASK-014/015/016/039/061 的 §157–§159 以及 §160（`li.s-item`/`li.s-card` 双布局 DOM 解析与成色/多币种/价格区间/`REWRITE_START` 加固、`buildEbayUsSoldSearchUrl`、`EbayUsHttpTransport`、`collector:ebay-intake` 审计/入库 CLI）均已通过含本机 Chrome 在内的全量回归与独立归档恢复演练 |
-| 接下来做什么 | **继续严禁在合成数据撤权清理上浪费工时**；优先使用 `npm run collector:ebay-intake -- --mode=inspect/ingest` 验证真实采集到的 eBay US 样本并微调字段覆盖，或基于受控 `EbayUsHttpTransport` 做实测抓取与连续 14 日稳定性观测 |
+| 已完成增量 | TASK-014/015/016/019/039/061 的 §157–§161（双布局搜索解析、URL 构造、HTTP/有界浏览器双传输、`parseEbayUsItemDetailHtml`、同事件补证 `CollectorStore.enrichRecordEvidence`、研究成色统一与 `collector:ebay-intake` 审计/入库/抓取 CLI）均已通过含本机 Chrome 在内的 319 项全量回归与 223 文件独立归档恢复演练；注：本机出口 IP 直连 `www.ebay.com` 返回边缘 403 并按 Fail-Closed 熔断 |
+| 接下来做什么 | **继续严禁在合成数据撤权清理上浪费工时**；优先在具备合规可用出口网络的环境中以 `npm run collector:ebay-intake` 验证真实 eBay US 搜索+详情混合样本并微调字段覆盖，及执行 14 日连续采集稳定性观测 |
 
 接手后先在主检出确认分支与工作区状态：
 
@@ -40,14 +40,14 @@ SoldBench 是直接服务**个人卖家、收藏品交易商、二手商家、�
 |---|---|---|
 | 工程与数据库，TASK-011/012/017 | TypeScript 工作区，Hono API、React SSR、PG16、独立查询 Worker 和采集监督进程。32 个增量迁移，本机无 DDL 权限启动、断进程和旧包回滚演练。入口 `apps/api/src/server.ts`、`scripts/query-worker.mjs`、`packages/db/migrations/` | 台账 §101、§109、§122、§129 |
 | 来源准备，TASK-001/003–009 | 45 字段权利和来源事实清单、120 条查询草稿、1,680 时段的验证计划、质量盲审、断源演练、成本和访谈准备。入口 `step0/`。实际来源字段仍待核验 | [第 0 步](../step0/README.md)、台账 §94、§96、§110、§112、§139–143 |
-| 采集与商品主图，TASK-013–016 | 本机 JSON/HTML 分页回放、任务信封绑定的 `li.s-item`/`li.s-card` 双布局 eBay US 已售 DOM 解析加固（`createEbayUsSoldSearchHtmlProfile`/`createEbayUsSoldCardHtmlProfile`/`detectEbayUsSoldHtmlProfile`）、URL 构造与自托管有界 HTTP 传输（`EbayUsHttpTransport`）、原始 HTML 审计与入库（`scripts/collector-ebay-intake.mjs`）、观察与事件去重、独立租约、预算结算、降速/熔断、缺包和迟到恢复、定时计划、主图绑定/转码/补采/到期与撤权分批清理。入口 `packages/collector/src/`、`packages/media/src/`、`scripts/collector-supervisor.mjs`、`scripts/collector-ebay-intake.mjs` | 台账 §91–93、§98–100、§139–160 |
-| 查价与研究，TASK-019/020/027/028/031/032/036/059 | 黄金 121/64/58、可比性及混型号判定，显式领取、详情/主图/诊断、只读复取、人工排除重算、单结果 JSON/CSV、受控公开分享、已交付快照保存和对照。入口 `packages/core/src/`、`packages/query/src/`、`apps/api/src/queries.ts` | 台账 §54–57、§63–76、§86、§92、§95 |
+| 采集与商品主图，TASK-013–016 | 本机 JSON/HTML 分页回放、任务信封绑定的 `li.s-item`/`li.s-card` 双布局 eBay US 已售 DOM 解析加固（`createEbayUsSoldSearchHtmlProfile`/`createEbayUsSoldCardHtmlProfile`/`detectEbayUsSoldHtmlProfile`）、URL 构造与自托管 HTTP/有界浏览器双传输（`EbayUsHttpTransport`/`EbayUsBrowserTransport`）、6 类目 `/itm/<id>` 详页解析与同事件事务性补证（`parseEbayUsItemDetailHtml`/`CollectorStore.enrichRecordEvidence`）、原始 HTML 审计与入库（`scripts/collector-ebay-intake.mjs`）、观察与事件去重、独立租约、预算结算、降速/熔断、缺包和迟到恢复、定时计划、主图绑定/转码/补采/到期与撤权分批清理。入口 `packages/collector/src/`、`packages/media/src/`、`scripts/collector-supervisor.mjs`、`scripts/collector-ebay-intake.mjs` | 台账 §91–93、§98–100、§139–161 |
+| 查价与研究，TASK-019/020/027/028/031/032/036/059 | 黄金 121/64/58、可比性及混型号判定，详页成色统一解析，显式领取、详情/主图/诊断、只读复取、人工排除重算、单结果 JSON/CSV、受控公开分享、已交付快照保存和对照。入口 `packages/core/src/`、`packages/query/src/`、`apps/api/src/queries.ts` | 台账 §54–57、§63–76、§86、§92、§95、§161 |
 | 账户与账本，TASK-023–027/033/039 | 本机注册/验证、会话、TOTP、恢复码、API key、用量/日志、积分桶和原子结算、删除及旧备份防反弹；双语事务邮件从离线发件箱交付。入口 `packages/auth/src/`、`packages/billing/src/`、`apps/api/src/auth.ts` | 台账 §40–41、§47、§65、§89、§102、§106、§130–131 |
 | 支付，TASK-029 | Stripe/PayPal 本机签名事件、订阅及退款生命周期、只读对账、晚到事件与旧库补放，入口 `apps/api/src/payments.ts`、`packages/billing/src/payment-lifecycle.ts` | 台账 §49、§68、§70、§73、§108、§132–134 |
 | 英中网页与运营，TASK-031–036/057–061 | 原型 Search/Research/账户/Playground、公开索引和内容页、CMS 审核/定时/回滚、工单、审批与执行、用户 360、来源监控及主图维护状态读侧已接本机服务。入口 `apps/web/src/`、`apps/api/src/operations.ts`、`apps/api/src/ops-telemetry.ts` | 台账 §63–78、§84–88、§95、§103、§105、§121、§147–149、§158 |
-| 开发者与运行交付，TASK-037–040/042 | OpenAPI 1.27.0、双语 Docs、Playground、REST、MCP、Skill 与 TS/Python/curl 示例。可从独立归档解包、启动、验证客户端以及恢复撤权、账务和仍有权主图。入口 `developer/`、`apps/api/src/mcp.ts`、`scripts/package-offline.py`、`scripts/rehearse-offline.py` | 台账 §83、§88–89、§95、§104、§122–131、§154–160 |
+| 开发者与运行交付，TASK-037–040/042 | OpenAPI 1.27.0、双语 Docs、Playground、REST、MCP、Skill 与 TS/Python/curl 示例。可从独立归档解包、启动、验证客户端以及恢复撤权、账务和仍有权主图。入口 `developer/`、`apps/api/src/mcp.ts`、`scripts/package-offline.py`、`scripts/rehearse-offline.py` | 台账 §83、§88–89、§95、§104、§122–131、§154–161 |
 
-最新主线候选 `f1e6532` 的全量记录（含本机 Chrome 走查）为 30 套、315 项应用测试、5 项接口兼容，零失败、零跳过。219 文件的独立运行包（SHA-256 `8da4edc236e1a6fead729fb63b849cedc862b51497a6e9f7bc4962d58c3d6678`）完成恢复、过期清理与客户端演练，合成采集 2 页、8 张主图，外部来源请求为零。证据和 SHA-256 见台账 §156–160。GitHub Actions 最近核对的主线运行在创建作业前报 `startup_failure`，作业数为零。不能从该状态推断 runner 或仓库设置的根因。[GitHub Actions 记录](https://github.com/jackyang1989/SoldBench/actions/runs/44851600259)
+最新主线候选 `296abb4` 的全量记录（含本机 Chrome 走查）为 31 套、319 项应用测试、5 项接口兼容、20 项第 0 步校验与 5 项归档检查，零失败、零跳过。223 文件的独立运行包（SHA-256 `509a4635ede120db633a72939d87b1ed19dd47dd6fa346b2aaf58f86bdd200b8`）完成恢复、过期清理与 REST/curl/TS/MCP 客户端演练，合成采集 2 页、8 张主图，外部来源请求为零。证据和 SHA-256 见台账 §156–161。GitHub Actions 最近核对的主线运行在创建作业前报 `startup_failure`，作业数为零。不能从该状态推断 runner 或仓库设置的根因。[GitHub Actions 记录](https://github.com/jackyang1989/SoldBench/actions/runs/44851600259)
 
 ## 4. 最新收口与采集能力增量
 
@@ -67,11 +67,15 @@ SoldBench 是直接服务**个人卖家、收藏品交易商、二手商家、�
 
 - **TASK-014/015/016，AT-003/004/009/056/074。** 在保持既有 `root_attributes` 兼容前提下，[html.ts](../packages/collector/src/html.ts) 将经典 `createEbayUsSoldSearchHtmlProfile()` 升级至 revision 2 并新增 2025/2026 `createEbayUsSoldCardHtmlProfile()`（`li.s-card`）与 `detectEbayUsSoldHtmlProfile()`：按优先级分支读取选择器并去除 `.clipped`/`.LIGHT_HIGHLIGHT` 噪音、跳过首条 `"Shop on eBay"` 假卡、遇 `REWRITE_START` 截断并停止翻页、修复并导出 `mapStandardCondition`（停止把 `"Pre-Owned"`/`"Open Box"` 错映射并正确识别 `defective`）、识别 `C $`/`£`/`€` 多币种与价格区间（`$19.99 to $49.99` 标 `unknown`）、拦截 `"Free local pickup"` 未知运费、识别划线 Best Offer、支持 `1x`/`2x` `srcset` 与 `EBAY_ITEM_SPECIFIC_MAP` 结构化属性提取，并把 `envelope` 页预算提升至 4 MiB / 去脚本 SVG 后 35k 节点；同步在 [ebay-us.ts](../packages/collector/src/ebay-us.ts)、[ebay-http-transport.ts](../packages/collector/src/ebay-http-transport.ts) 与 [collector-ebay-intake.mjs](../scripts/collector-ebay-intake.mjs) 交付 URL 构造、防压缩炸弹流式 HTTP/HTTPS 传输（挑战重定向即返回 `403` 熔断）、按页上限完成水位落库 `completeAtPageLimit` 以及 `inspect`/`ingest`/`fetch` 入口。
 
+### 已完成第五包：eBay US 商品详情页解析、同事件补证与有界浏览器传输（台账 §161）
+
+- **TASK-014/015/019，AT-003/004/009/056/074。** 在 [ebay-detail.ts](../packages/collector/src/ebay-detail.ts) 与 [ebay-us.ts](../packages/collector/src/ebay-us.ts) 新增 `buildEbayUsItemDetailUrl`、`parseEbayUsItemDetailHtml`、`hasEbayDetailAccessBlock`、`EBAY_BREADCRUMB_CATEGORY_MAP` 与 `mapEbayBreadcrumbsToCategory`，覆盖 6 个首发类目面包屑与扩展 Item Specifics、严格成色、缺陷与正文解析（对 item ID 不一致及属性冲突 Fail-Closed）；在 [store.ts](../packages/collector/src/store.ts) 与 [research.ts](../packages/query/src/research.ts) 新增 `CollectorStore.enrichRecordEvidence` 与 `effectiveCondition` 完成同观察事务补证与研究读侧成色统一；在 [ebay-browser-transport.ts](../packages/collector/src/ebay-browser-transport.ts)、[ebay-http-transport.ts](../packages/collector/src/ebay-http-transport.ts) 与 [collector-ebay-intake.mjs](../scripts/collector-ebay-intake.mjs) 新增自托管 Chromium `EbayUsBrowserTransport`（资源隔离 + `maxRedirects: 0` 逐跳挑战预检拦截）、`detail:<listingId>` 与 `--attr-*`/`--details-dir`/`--transport=browser`/`--fetch-details=true` 联动闭环。实网探针确认本机出口 IP 直连 `www.ebay.com` 返回边缘 403 并按预期 Fail-Closed 熔断，严禁自动绕过。
+
 ### 接下来优先执行（2026-11-21 纠偏后路线）
 
 1. **严禁重回合成数据撤权边角：** §157–§158 已永久收口旧批次撤权与运营读侧；后续继续保持零合成撤权额外投入。
-2. **用真实抓取样本持续校验与补齐页面变体：** 使用 `npm run collector:ebay-intake -- --mode=inspect` 与 `--mode=ingest` 直接接入真实捕获的 eBay US HTML 原始页（涵盖不同品类、促销区间、跨区站点与异常页），按实测缺口微调选择器/Item Specifics 词典与主图覆盖率。
-3. **验证可控实测抓包与 14 日连续采集稳定性：** 在正式网络权限及目标主机配置就绪后，以显式 `--allow-live-fetch=true` 接入 `EbayUsHttpTransport` 执行限速抓取、挑战熔断演练、14 个连续自然日证据沉淀及后续详情页按需补充队列。
+2. **用真实抓取样本持续校验与补齐页面变体：** 使用 `npm run collector:ebay-intake -- --mode=inspect` 与 `--mode=ingest --details-dir=...` 直接接入真实捕获的 eBay US 搜索页与 `/itm/<id>` 详情页（涵盖 6 大类目、促销区间、跨区站点与异常页），按实测缺口微调选择器/Item Specifics 词典与主图覆盖率。
+3. **验证可控实测抓包与 14 日连续采集稳定性：** 在正式可用出口网络与目标配置就绪后，以显式 `--allow-live-fetch=true` 接入 `EbayUsHttpTransport` / `EbayUsBrowserTransport` 执行限速抓取、详情补证与连续 14 个自然日稳定性观测。
 
 ## 5. 新 Agent 必读顺序
 
@@ -80,12 +84,12 @@ SoldBench 是直接服务**个人卖家、收藏品交易商、二手商家、�
 | 1 | [AGENTS.md](../AGENTS.md)、[v1.4 产品规格](<../SoldBench 开发规格书 v1.4.md>) §0/§3 和相关业务章 | 用户指令、首发范围、来源边界、数据和扣费不变量 |
 | 2 | [决策登记](决策登记.md)、[ADR-13](adr/ADR-13.md)；触及查询时读 [ADR-12](adr/ADR-12.md)，触及身份时读 [ADR-14](adr/ADR-14.md) | 哪些是离线工程冻结规则，哪些还需要真实或经营签收 |
 | 3 | [功能与页面规格](功能与页面规格.md)、[工程实施规格](工程实施规格.md)、[接口与数据契约](接口与数据契约.md)、[OpenAPI](openapi.yaml)；再按下表读领域文档 | 正常路径、错误、权限和服务边界；版本与相关代码输出一致 |
-| 4 | [任务台账](开发排期与任务台账.md) §4 和 §156–160、[验收矩阵](验收矩阵.md)、[交接模板](执行与交接模板.md) | 领取的 TASK、依赖、AT、当前候选、完整验收以及可回退点 |
+| 4 | [任务台账](开发排期与任务台账.md) §4 和 §156–161、[验收矩阵](验收矩阵.md)、[交接模板](执行与交接模板.md) | 领取的 TASK、依赖、AT、当前候选、完整验收以及可回退点 |
 | 5 | [README](../README.md)、[发布与恢复手册](发布、回滚与撤权恢复手册.md)、本包源码及实际测试 | 能在本机复跑对应故障和正常流程，再从证据推进下一包 |
 
 | 接手方向 | 专项阅读 |
 |---|---|
-| 正在接手的采集包 | [采集管线实施契约](采集管线实施契约.md) §16–24、[采集稳定性专项](采集稳定性专项规格.md)、[搜索字段与统计](搜索页采集字段与统计契约.md)、[真实来源权利档案](../step0/access-rights.md) |
+| 正在接手的采集包 | [采集管线实施契约](采集管线实施契约.md) §16–25、[采集稳定性专项](采集稳定性专项规格.md)、[搜索字段与统计](搜索页采集字段与统计契约.md)、[真实来源权利档案](../step0/access-rights.md) |
 | 网页、内容和运营 | [原型 HTML](<../SoldBench Prototype.html>)、[实施基线](整站原型与设计实施基线.md)、[原型补齐规格](原型功能追踪与补齐规格.md)、[运营后端契约](运营后端实施契约.md)、[多语言规格](多语言与商业交付补充规格.md) |
 | 查询、统计、身份和资金 | [查询账本与交付](查询账本与交付实施契约.md)、[账户与访问](账户与访问实施契约.md)、[Stripe 与 PayPal](Stripe与PayPal接入规格.md)、[账户删除与恢复](账户删除与恢复保护实施契约.md) |
 | REST、MCP、竞品或扩展 | [MCP 与开发者交付](MCP与开发者交付契约.md)、[契约验证说明](contracts/README.md)、[竞品能力实施路线图](竞品能力实施规格与路线图.md)、[国际站点规划](国际站点规划与品牌评估_20261116.md) |
@@ -135,4 +139,4 @@ python3 scripts/rehearse-offline.py "$soldbench_evidence_dir/runtime.tar.gz" \
 3. **支付、邮件和部署（TASK-017/023/029/034/038–043）。** 商户资格和渠道沙盒、真实邮件送达、正式条款、服务器、DNS/TLS、报警、出口隔离、外部依赖、实际 MCP 宿主及跨机灾备待验。生产备份恢复目标按台账实测。真实试点与公开发布由阶段负责人根据证据签收。
 4. **工程复核。** 本机测试、真实线上集成和独立复核分别记录。GitHub Actions 要拿到实际作业和输出才能登记为通过。发布状态、定价、数据覆盖和 SLA 均以实际验收和用户签收为依据。
 
-接手工作到这里请先停止一切假数据撤权/清理边角延伸，直接按 §4「接下来优先执行（2026-11-21 纠偏后路线）」与台账 §160 推进真实 eBay US 已售采集样本验证、页面变体扩展与连续抓取稳定性；每包完成时把实际证据写回原 TASK，合并后顺排接续。
+接手工作到这里请先停止一切假数据撤权/清理边角延伸，直接按 §4「接下来优先执行（2026-11-21 纠偏后路线）」与台账 §160–§161 推进真实 eBay US 搜索与详情页实测样本验证、页面变体扩展与连续抓取稳定性；每包完成时把实际证据写回原 TASK，合并后顺排接续。
