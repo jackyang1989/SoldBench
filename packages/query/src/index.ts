@@ -1122,6 +1122,7 @@ export * from "./alerts.ts";
 export * from "./batch.ts";
 export * from "./best-offer.ts";
 export * from "./history-archive.ts";
+export * from "./lookup.ts";
 export { PublicResults } from "./public-results.ts";
 export * from "./request-audit.ts";
 export * from "./research.ts";

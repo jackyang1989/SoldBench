@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.32.0
+  version: 1.33.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -8685,6 +8685,168 @@ paths:
       x-roles: [owner]
       x-scopes: [sold:read]
       x-credit-policy: '0'
+  /v1/lookup/image:
+    post:
+      operationId: createImageLookup
+      summary: Upload a base64-encoded product photo for safe validation, EXIF removal, and recognition candidate generation before any paid lookup.
+      security: *id001
+      parameters: [*content_language]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateImageLookupRequest'}
+      responses:
+        '201':
+          description: Sanitized upload session with ranked candidates or explicit text-fallback instructions (0 identification credits).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LookupSessionResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '413': *content_error
+        '415': *content_error
+        '429': *content_error
+        '503': *content_error
+      x-task: TASK-050
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
+  /v1/lookup/barcode:
+    post:
+      operationId: createBarcodeLookup
+      summary: Validate a UPC/EAN/GTIN/ISBN-13 barcode and return candidate versions for confirmation prior to paid sold lookup.
+      security: *id001
+      parameters: [*content_language]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateBarcodeLookupRequest'}
+      responses:
+        '201':
+          description: Validated barcode lookup session with ranked candidates or text-fallback guidance (0 identification credits).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LookupSessionResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '415': *content_error
+        '429': *content_error
+        '503': *content_error
+      x-task: TASK-050
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
+  /v1/lookup/sessions:
+    get:
+      operationId: listLookupSessions
+      summary: List recent image and barcode identification sessions owned by the caller.
+      security: *id001
+      parameters: [*content_language]
+      responses:
+        '200':
+          description: Owner lookup identification sessions.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LookupSessionListResponse'}
+        '401': *content_error
+        '403': *content_error
+      x-task: TASK-050
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
+  /v1/lookup/sessions/{id}:
+    get:
+      operationId: getLookupSession
+      summary: Fetch an owned lookup session and its candidates.
+      security: *id001
+      parameters:
+      - *content_language
+      - name: id
+        in: path
+        required: true
+        schema: *id002
+      responses:
+        '200':
+          description: Lookup session details and candidates.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LookupSessionResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+      x-task: TASK-050
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
+    delete:
+      operationId: deleteLookupSession
+      summary: Delete an uploaded lookup session and remove any retained derivative image from storage.
+      security: *id001
+      parameters:
+      - *content_language
+      - name: id
+        in: path
+        required: true
+        schema: *id002
+      responses:
+        '204':
+          description: Lookup session and uploaded media removed.
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+      x-task: TASK-050
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
+  /v1/lookup/sessions/{id}/confirm:
+    post:
+      operationId: confirmLookupSession
+      summary: Confirm a candidate or enter manual text-search fallback to submit a standard sold lookup.
+      security: *id001
+      parameters:
+      - *content_language
+      - name: id
+        in: path
+        required: true
+        schema: *id002
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 128}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ConfirmLookupSessionRequest'}
+      responses:
+        '200':
+          description: Confirmed session referencing an already completed sold query snapshot.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ConfirmLookupSessionResponse'}
+        '202':
+          description: Confirmed session with queued/running sold query job.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ConfirmLookupSessionResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '409': *content_error
+        '410': *content_error
+        '415': *content_error
+        '503': *content_error
+      x-task: TASK-050
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
 components:
   securitySchemes:
     SupportReceipt:
@@ -14489,6 +14651,192 @@ components:
         data:
           type: array
           items: {$ref: '#/components/schemas/WebhookDeliveryRecord'}
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    CreateImageLookupRequest:
+      type: object
+      properties:
+        image_base64: {type: string, minLength: 1, maxLength: 8000000}
+        mime_type: {type: string, minLength: 3, maxLength: 80}
+        filename: {type: string, minLength: 1, maxLength: 160}
+        retention_hours: {type: integer, minimum: 1, maximum: 24}
+      required: [image_base64]
+      additionalProperties: false
+    CreateBarcodeLookupRequest:
+      type: object
+      properties:
+        barcode: {type: string, minLength: 4, maxLength: 32}
+        format: {enum: [upc_a, ean_13, ean_8, gtin_14, isbn_13]}
+        retention_hours: {type: integer, minimum: 1, maximum: 24}
+      required: [barcode]
+      additionalProperties: false
+    LookupCandidateRecord:
+      type: object
+      properties:
+        id: *id002
+        rank: {type: integer, minimum: 1, maximum: 10}
+        label: {type: string}
+        suggested_q: {type: string}
+        category: {type: [string, 'null']}
+        brand: {type: [string, 'null']}
+        model: {type: [string, 'null']}
+        variant: {type: [string, 'null']}
+        suggested_condition: {type: [string, 'null']}
+        confidence: {type: number, minimum: 0, maximum: 1}
+        requires_confirmation: {type: boolean}
+      required:
+      - id
+      - rank
+      - label
+      - suggested_q
+      - category
+      - brand
+      - model
+      - variant
+      - suggested_condition
+      - confidence
+      - requires_confirmation
+      additionalProperties: false
+    LookupSessionRecord:
+      type: object
+      properties:
+        id: *id002
+        input_kind: {enum: [image, barcode]}
+        status: {enum: [candidates_ready, fallback_text_required, confirmed, recognition_failed, expired, deleted]}
+        barcode_value: {type: [string, 'null']}
+        barcode_format:
+          oneOf:
+          - {enum: [upc_a, ean_13, ean_8, gtin_14, isbn_13]}
+          - {type: 'null'}
+        detected_mime_type: {type: [string, 'null']}
+        image_sha256: {type: [string, 'null']}
+        image_width: {type: [integer, 'null']}
+        image_height: {type: [integer, 'null']}
+        image_bytes: {type: [integer, 'null']}
+        original_had_exif: {type: boolean}
+        exif_stripped: {type: boolean}
+        confidence_threshold: {type: number, minimum: 0, maximum: 1}
+        top_confidence: {type: [number, 'null'], minimum: 0, maximum: 1}
+        ambiguity_reason: {type: [string, 'null']}
+        fallback_to_text: {type: boolean}
+        failure_code: {type: [string, 'null']}
+        identification_credits_charged: {type: integer, const: 0}
+        sold_lookup_credit_policy: {const: up_to_1_credit_on_explicit_claim}
+        confirmed_candidate_id: {type: [string, 'null']}
+        confirmed_query_id: {type: [string, 'null']}
+        confirmed_query_params:
+          oneOf:
+          - {type: object, additionalProperties: true}
+          - {type: 'null'}
+        confirmed_at: {type: [string, 'null'], format: date-time}
+        retention_expires_at: {type: string, format: date-time}
+        deleted_at: {type: [string, 'null'], format: date-time}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        candidates:
+          type: array
+          items: {$ref: '#/components/schemas/LookupCandidateRecord'}
+      required:
+      - id
+      - input_kind
+      - status
+      - barcode_value
+      - barcode_format
+      - detected_mime_type
+      - image_sha256
+      - image_width
+      - image_height
+      - image_bytes
+      - original_had_exif
+      - exif_stripped
+      - confidence_threshold
+      - top_confidence
+      - ambiguity_reason
+      - fallback_to_text
+      - failure_code
+      - identification_credits_charged
+      - sold_lookup_credit_policy
+      - confirmed_candidate_id
+      - confirmed_query_id
+      - confirmed_query_params
+      - confirmed_at
+      - retention_expires_at
+      - deleted_at
+      - created_at
+      - updated_at
+      - candidates
+      additionalProperties: false
+    LookupSessionResponse:
+      type: object
+      properties:
+        data: {$ref: '#/components/schemas/LookupSessionRecord'}
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    LookupSessionListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/LookupSessionRecord'}
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    ConfirmLookupSessionRequest:
+      type: object
+      properties:
+        candidate_id: *id002
+        override_q: {type: string, minLength: 1, maxLength: 120}
+        category: {type: [string, 'null'], maxLength: 60}
+        brand: {type: [string, 'null'], maxLength: 120}
+        model: {type: [string, 'null'], maxLength: 120}
+        condition: {type: [string, 'null'], maxLength: 40}
+        window_days: {type: integer, enum: [30, 90, 180, 365]}
+        price_basis: {enum: [item, item_plus_observed_shipping]}
+        limit: {type: integer, minimum: 1, maximum: 200}
+        allow_stale: {type: boolean}
+        sale_format: {enum: [fixed_price, auction, best_offer]}
+      additionalProperties: false
+    LookupSubmissionRecord:
+      type: object
+      properties:
+        query_id: *id002
+        job_id: {type: [string, 'null']}
+        reused: {type: boolean}
+        status: {enum: [queued, running, completed]}
+        expires_at: {type: [string, 'null'], format: date-time}
+      required: [query_id, job_id, reused, status, expires_at]
+      additionalProperties: false
+    ConfirmLookupSessionResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            session: {$ref: '#/components/schemas/LookupSessionRecord'}
+            submission: {$ref: '#/components/schemas/LookupSubmissionRecord'}
+            replayed: {type: boolean}
+          required: [session, submission, replayed]
+          additionalProperties: false
         meta:
           type: object
           properties:

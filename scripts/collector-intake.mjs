@@ -52,10 +52,10 @@ async function assertArtifactFormat(spool, artifact) {
   if (other) throw new Error("fixture_spool_file_conflict");
 }
 
-async function exposeFixture(db, spool, pending, loaded) {
+async function exposeFixture(db, spool, pending, loaded, clock = undefined) {
   const { artifact, hash, pageHashes } = loaded;
   const name = artifact.htmlProfile ? "collector-html-fixture" : "collector-fixture";
-  const store = new CollectorStore(db, undefined, { htmlProfile: artifact.htmlProfile });
+  const store = new CollectorStore(db, clock, { htmlProfile: artifact.htmlProfile });
   const path = join(spool, `${name}-${artifact.jobId}.json`);
   await store.bindFixtureArtifact({ ...artifact, hash, pageHashes }, async () => {
     await assertArtifactFormat(spool, artifact);
@@ -66,7 +66,7 @@ async function exposeFixture(db, spool, pending, loaded) {
   return path;
 }
 
-export async function intakeFixture(db, spool, sourceId, loaded) {
+export async function intakeFixture(db, spool, sourceId, loaded, clock = undefined) {
   const { artifact, hash } = loaded;
   if (!fixtureJobId.test(sourceId) || artifact.sourceId !== sourceId)
     throw new Error("fixture_intake_source_mismatch");
@@ -81,7 +81,7 @@ export async function intakeFixture(db, spool, sourceId, loaded) {
   const incoming = join(spool, "collector-incoming");
   const directory = pendingDir(spool, sourceId);
   const pending = join(directory, `${artifact.jobId}.${hash}.json`);
-  const store = new CollectorStore(db, undefined, { htmlProfile: artifact.htmlProfile });
+  const store = new CollectorStore(db, clock, { htmlProfile: artifact.htmlProfile });
   await store.bindFixtureArtifact({ ...artifact, hash, pageHashes: loaded.pageHashes }, async () => {
     await ensureDirectory(spool);
     await ensureDirectory(incoming);
@@ -90,7 +90,7 @@ export async function intakeFixture(db, spool, sourceId, loaded) {
     await publishOnce(pending, loaded);
     await syncDirectory(directory);
   });
-  return exposeFixture(db, spool, pending, loaded);
+  return exposeFixture(db, spool, pending, loaded, clock);
 }
 
 export function createFixtureIntakeScanner(db, spool, sourceId, scanLimit = 10000) {

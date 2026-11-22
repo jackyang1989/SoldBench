@@ -355,7 +355,13 @@ async function ingestRawPages({
   const loaded = loadFixtureArtifact(Buffer.from(JSON.stringify(artifact)));
   const spool = resolve(options.get("spool") ?? process.env.COLLECTOR_DEMO_DIR ?? ".local");
   mkdirSync(spool, { recursive: true, mode: 0o700 });
-  const artifactPath = await intakeFixture(db, spool, source.sourceId, loaded);
+  const artifactPath = await intakeFixture(
+    db,
+    spool,
+    source.sourceId,
+    loaded,
+    asOfArg ? () => asOf : undefined,
+  );
   const worker = new OfflineCollectorWorker(
     store,
     loaded.transport,

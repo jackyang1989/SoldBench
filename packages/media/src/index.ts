@@ -6,6 +6,14 @@ import { AppError } from "@soldbench/shared";
 import sharp from "sharp";
 import { approvedImageUrl, type ImageCandidate, selectPrimaryImage } from "./primary.ts";
 
+export {
+  type AllowedInputImageMime,
+  LOOKUP_IMAGE_MAX_BYTES,
+  LOOKUP_IMAGE_MAX_DIMENSION,
+  LOOKUP_IMAGE_MAX_PIXELS,
+  type SanitizedLookupImage,
+  sanitizeLookupImage,
+} from "./lookup-image.ts";
 export { approvedImageUrl, type ImageCandidate, selectPrimaryImage } from "./primary.ts";
 export { decryptImageSourceUrl, encryptImageSourceUrl } from "./url-encryption.ts";
 

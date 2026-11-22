@@ -36,6 +36,7 @@ test("prototype-based pages serve both languages, valid private deep links and s
       "/reset-password",
       "/account",
       "/account/queries",
+      "/account/lookup",
       "/account/saved",
       "/account/batches",
       "/account/history",
@@ -982,6 +983,20 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByRole("link", { name: "简体中文" }).click();
     await page.getByRole("heading", { name: "创建监控与价格提醒" }).waitFor();
     await page.getByRole("link", { name: "English", exact: true }).click();
+    x.clock.value = new Date(Date.parse(x.now()) + 60000).toISOString();
+    await page.goto(`${origin}/account/lookup`);
+    await page.getByRole("heading", { name: "Upload & barcode recognition" }).waitFor();
+    await page.getByRole("button", { name: "Identify barcode" }).click();
+    await page.getByText(/multiple_versions/).waitFor();
+    await page.getByLabel(/Confirmed search keyword/).fill(x.q.q);
+    await page.getByRole("button", { name: "Confirm & Run Sold Lookup" }).click();
+    await page.getByText("Confirmed sold lookup submitted.").waitFor();
+    await page.getByRole("link", { name: "Open confirmed sold lookup" }).waitFor();
+    await page.getByRole("link", { name: "简体中文" }).click();
+    await page.getByRole("heading", { name: "图片上传与条码识别" }).waitFor();
+    await page.getByRole("link", { name: "查看已提交的成交查询" }).waitFor();
+    await page.getByRole("link", { name: "English", exact: true }).click();
+    x.clock.value = new Date(Date.parse(x.now()) + 60000).toISOString();
     await page.goto(`${origin}/account/security`);
     await page.getByRole("heading", { name: "Active sessions" }).waitFor();
     await page.getByRole("heading", { name: "Connected OAuth clients" }).waitFor();

@@ -1,5 +1,9 @@
 # SoldBench engineering changelog
 
+## 2026-11-22 — V1.5 image upload & barcode lookup identification (offline)
+
+OpenAPI 1.33.0 adds `/v1/lookup/image`, `/v1/lookup/barcode`, `/v1/lookup/sessions`, `/v1/lookup/sessions/{id}`, and `/v1/lookup/sessions/{id}/confirm` (`TASK-050`, 0 identification credits in synthetic offline build). Uploaded images verify JPEG/PNG/WebP magic bytes prior to decode, reject oversized files (>5 MiB), pixel bombs (>25M pixels / >5000px), animated frames, or spoofed MIME types, strip EXIF/XMP/IPTC metadata during WebP sanitization, enforce GS1 check-digit validation on UPC/EAN/GTIN/ISBN-13 barcodes, require explicit candidate confirmation or manual text fallback before submitting any standard sold query, and support immediate delete + retention cleanup.
+
 ## 2026-11-22 — V1.5 saved watchlists, alerts, and signed webhooks (offline)
 
 OpenAPI 1.32.0 adds `/v1/watchlists*`, `/v1/alerts/unsubscribe`, and `/v1/webhooks*` (`TASK-048`, 0 extra credits in synthetic offline build). Scheduled refreshes require explicit `billing_consent_accepted=true` and a monthly credit cap (skipping over-budget evaluations without dispatching queries), switching notification locale preserves `canonical_query_hash` at 0 cost, outbound webhook URLs reject private/loopback/metadata targets (SSRF protection), deliveries carry replay-bounded `t=...,v1=...` HMAC-SHA256 signatures with bounded retries and dead-letter status, and any source revocation or one-click unsubscribe cancels pending deliveries with 0 dispatch.

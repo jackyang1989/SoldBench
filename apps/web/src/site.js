@@ -4935,6 +4935,257 @@ async function showAlertsWorkstation() {
   await refresh();
 }
 
+function bytesToBase64(bytes) {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 8192) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+  }
+  return btoa(binary);
+}
+
+async function showLookupWorkstation() {
+  const csrf = async () => (await session())?.csrf_token ?? "";
+  const disclosure = element("section", undefined, "card result-card");
+  disclosure.append(
+    element("h2", t("Upload & barcode recognition", "图片上传与条码识别")),
+    element(
+      "p",
+      t(
+        "Image sanitization strips EXIF metadata automatically and barcode/image recognition charges 0 credits. Confirm a candidate or enter text keywords below to submit a standard sold lookup (charges up to 1 credit only on explicit claim).",
+        "图片上传会自动剥离 EXIF 元数据；识别图片或校验条码均不扣费（0 额度）。请在下方确认候选型号或改用文本关键词后再提交标准成交查询（仅显式领取时按规则最多扣 1 额度）。",
+      ),
+      "small",
+    ),
+  );
+
+  const formsWrap = element("div", undefined, "grid");
+
+  const imgForm = element("form", undefined, "stack");
+  const fileInput = element("input");
+  fileInput.type = "file";
+  fileInput.accept = "image/jpeg,image/png,image/webp";
+  fileInput.required = true;
+  const fileLabel = element(
+    "label",
+    t("Product image (JPEG/PNG/WebP, max 5 MiB)", "商品图片（JPEG/PNG/WebP，最大 5 MiB）"),
+  );
+  fileLabel.append(fileInput);
+
+  const imgSubmit = element("button", t("Identify image", "识别图片"), "btn brand");
+  imgSubmit.type = "submit";
+  imgForm.append(fileLabel, imgSubmit);
+
+  const barcodeForm = element("form", undefined, "stack");
+  const barcodeInput = element("input");
+  barcodeInput.type = "text";
+  barcodeInput.maxLength = 32;
+  barcodeInput.required = true;
+  barcodeInput.value = "045496730017";
+  const barcodeLabel = element(
+    "label",
+    t("Barcode (UPC-A / EAN-13 / GTIN-14 / ISBN-13)", "条码（UPC-A / EAN-13 / GTIN-14 / ISBN-13）"),
+  );
+  barcodeLabel.append(barcodeInput);
+
+  const barcodeSubmit = element("button", t("Identify barcode", "识别条码"), "btn brand");
+  barcodeSubmit.type = "submit";
+  barcodeForm.append(barcodeLabel, barcodeSubmit);
+
+  formsWrap.append(imgForm, barcodeForm);
+  disclosure.append(formsWrap);
+
+  const listCard = element("section", undefined, "card result-card");
+  listCard.append(element("h2", t("Lookup sessions & candidate confirmation", "识别会话与候选确认")));
+  const listBody = element("div", undefined, "stack");
+  listCard.append(listBody);
+  output.append(disclosure, listCard);
+
+  async function refresh() {
+    const res = await api("/v1/lookup/sessions");
+    listBody.replaceChildren();
+    if (!res.data.length) {
+      listBody.append(
+        element("p", t("No image or barcode lookup sessions yet.", "暂无图片或条码识别会话。")),
+      );
+      return;
+    }
+    for (const s of res.data) {
+      const card = element("article", undefined, "card stack");
+      const heading =
+        s.input_kind === "barcode"
+          ? `${t("Barcode", "条码")}: ${s.barcode_value ?? ""}`
+          : `${t("Image upload", "图片上传")} (${s.image_width ?? "?"}x${s.image_height ?? "?"} WebP)`;
+      card.append(element("h3", heading));
+      card.append(
+        element(
+          "p",
+          t(
+            `Status: ${s.status} · EXIF stripped: ${s.exif_stripped ? "yes" : "no"} · Identification credits: 0`,
+            `状态：${s.status} · 已剥离 EXIF：${s.exif_stripped ? "是" : "否"} · 识别扣费：0 额度`,
+          ),
+          "small",
+        ),
+      );
+      if (s.ambiguity_reason || s.fallback_to_text) {
+        card.append(
+          element(
+            "p",
+            t(
+              `Guidance: ${s.ambiguity_reason ?? "manual_review"}${s.fallback_to_text ? " — edit text keywords below before searching." : " — confirm exact model or adjust keywords below."}`,
+              `提示：${s.ambiguity_reason ?? "请人工核对"}${s.fallback_to_text ? " — 置信不足或识别失败，请在下方填写文本关键词再查价。" : " — 请选择准确候选型号或在下方调整关键词。"}`,
+            ),
+            "small",
+          ),
+        );
+      }
+
+      if (s.status === "confirmed" && safeId(s.confirmed_query_id)) {
+        const actionsRow = element("div", undefined, "actions");
+        actionsRow.append(
+          link(
+            t("Open confirmed sold lookup", "查看已提交的成交查询"),
+            `${prefix}/results/${s.confirmed_query_id}`,
+          ),
+        );
+        card.append(actionsRow);
+      } else if (!["expired", "deleted"].includes(s.status)) {
+        const confirmForm = element("form", undefined, "stack");
+        let selectedCandidateId = s.candidates[0]?.id ?? "";
+        if (s.candidates.length) {
+          const candSelect = element("select");
+          for (const c of s.candidates) {
+            const opt = element("option", `${c.label} (${Math.round(c.confidence * 100)}%)`);
+            opt.value = c.id;
+            candSelect.append(opt);
+          }
+          candSelect.value = selectedCandidateId;
+          const candLabel = element("label", t("Identified candidate", "识别候选"));
+          candLabel.append(candSelect);
+          confirmForm.append(candLabel);
+          candSelect.addEventListener("change", () => {
+            selectedCandidateId = candSelect.value;
+            const picked = s.candidates.find((c) => c.id === selectedCandidateId);
+            if (picked) qInput.value = picked.suggested_q;
+          });
+        }
+
+        const qInput = element("input");
+        qInput.type = "text";
+        qInput.maxLength = 120;
+        qInput.required = true;
+        qInput.value = s.candidates[0]?.suggested_q ?? "";
+        const qLabel = element(
+          "label",
+          t("Confirmed search keyword (editable text fallback)", "确认查询关键词（可手动纠错或文本回退）"),
+        );
+        qLabel.append(qInput);
+        confirmForm.append(qLabel);
+
+        const rowActions = element("div", undefined, "actions");
+        const confirmBtn = element("button", t("Confirm & Run Sold Lookup", "确认并查询成交价"), "btn brand");
+        confirmBtn.type = "submit";
+        const deleteBtn = button(t("Delete Upload", "删除上传"), () => {
+          deleteBtn.disabled = true;
+          run(async () => {
+            try {
+              await api(`/v1/lookup/sessions/${encodeURIComponent(s.id)}`, {
+                method: "DELETE",
+                headers: {
+                  "Accept-Language": document.documentElement.lang,
+                  "X-CSRF-Token": await csrf(),
+                },
+              });
+              await refresh();
+              message(t("Lookup session and media removed.", "识别会话与图片文件已删除。"));
+            } finally {
+              deleteBtn.disabled = false;
+            }
+          });
+        });
+        deleteBtn.className = "btn ghost";
+        rowActions.append(confirmBtn, deleteBtn);
+        confirmForm.append(rowActions);
+
+        confirmForm.addEventListener("submit", (event) => {
+          event.preventDefault();
+          confirmBtn.disabled = true;
+          run(async () => {
+            try {
+              const payload = {
+                override_q: qInput.value.trim(),
+                ...(selectedCandidateId && !s.fallback_to_text ? { candidate_id: selectedCandidateId } : {}),
+              };
+              await post(
+                `/v1/lookup/sessions/${encodeURIComponent(s.id)}/confirm`,
+                payload,
+                await csrf(),
+                crypto.randomUUID(),
+              );
+              await refresh();
+              message(t("Confirmed sold lookup submitted.", "已确认并提交成交查价请求。"));
+            } finally {
+              confirmBtn.disabled = false;
+            }
+          });
+        });
+        card.append(confirmForm);
+      }
+      listBody.append(card);
+    }
+  }
+
+  imgForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const file = fileInput.files?.[0];
+    if (!file) return;
+    imgSubmit.disabled = true;
+    run(async () => {
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        await post(
+          "/v1/lookup/image",
+          {
+            image_base64: bytesToBase64(bytes),
+            mime_type: file.type || undefined,
+            filename: file.name,
+          },
+          await csrf(),
+        );
+        await refresh();
+        message(
+          t(
+            "Image sanitized (EXIF stripped, 0 credits). Review candidates below.",
+            "图片已安全处理并剥离 EXIF（0 额度）。请在下方确认候选。",
+          ),
+        );
+      } finally {
+        imgSubmit.disabled = false;
+      }
+    });
+  });
+
+  barcodeForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    barcodeSubmit.disabled = true;
+    run(async () => {
+      try {
+        await post("/v1/lookup/barcode", { barcode: barcodeInput.value.trim() }, await csrf());
+        await refresh();
+        message(
+          t(
+            "Barcode validated (0 credits). Confirm candidate version below.",
+            "条码校验通过（0 额度）。请在下方确认对应版本。",
+          ),
+        );
+      } finally {
+        barcodeSubmit.disabled = false;
+      }
+    });
+  });
+
+  await refresh();
+}
+
 if (page.startsWith("/account"))
   run(async () => {
     const user = await session();
@@ -4953,6 +5204,7 @@ if (page.startsWith("/account"))
     );
     if (page === "/account/usage") return showUsage();
     if (page === "/account/logs") return showLogs();
+    if (page === "/account/lookup") return showLookupWorkstation();
     if (page === "/account/saved") return showSavedResearch();
     if (page === "/account/batches") return showBatchWorkbench();
     if (page === "/account/history") return showArchiveHistory();

@@ -56,6 +56,7 @@ export const webPages = [
   "/reset-password",
   "/account",
   "/account/queries",
+  "/account/lookup",
   "/account/saved",
   "/account/batches",
   "/account/history",
@@ -171,6 +172,7 @@ export function renderPage(
     "/reset-password": ["Choose a new password", "设置新密码"],
     "/account": ["Overview", "账户概览"],
     "/account/queries": ["Research history", "研究历史"],
+    "/account/lookup": ["Image & Barcode Lookup", "图片与条码查价"],
     "/account/saved": ["Saved research", "已保存的研究"],
     "/account/batches": ["Batch lookup & CSV", "批量查价与 CSV"],
     "/account/history": ["Archive history", "历史档案研究"],
@@ -1128,6 +1130,7 @@ export function renderPage(
               [
                 "/account",
                 "/account/queries",
+                "/account/lookup",
                 "/account/saved",
                 "/account/batches",
                 "/account/history",

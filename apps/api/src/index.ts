@@ -2,7 +2,12 @@ import { randomUUID } from "node:crypto";
 import type { AuthService } from "@soldbench/auth";
 import type { PaymentLifecycle } from "@soldbench/billing";
 import { type Database, isDatabaseConnectionError } from "@soldbench/db";
-import type { AlertWebhookService, BestOfferVerificationService, QueryService } from "@soldbench/query";
+import type {
+  AlertWebhookService,
+  BestOfferVerificationService,
+  LookupInputService,
+  QueryService,
+} from "@soldbench/query";
 import { AppError, type Config } from "@soldbench/shared";
 import { operationsPanels, renderPage, webClient, webCss, webPages } from "@soldbench/web";
 import { Hono } from "hono";
@@ -17,6 +22,7 @@ import { mountCatalog } from "./catalog.ts";
 import { mountDeveloper } from "./developer.ts";
 import { editorialNotFound, mountEditorial, siteBlocks } from "./editorial.ts";
 import { mountHistory } from "./history.ts";
+import { mountLookup } from "./lookup.ts";
 import { mountMcp } from "./mcp.ts";
 import { mountOAuth } from "./oauth.ts";
 import { mountOperations } from "./operations.ts";
@@ -54,6 +60,7 @@ export function createApp(
     payments?: PaymentLifecycle;
     bestOffers?: BestOfferVerificationService;
     alerts?: AlertWebhookService;
+    lookup?: LookupInputService;
   } = {},
 ) {
   const app = new Hono<{ Variables: { requestId: string } }>();
@@ -175,6 +182,7 @@ export function createApp(
   mountBatches(app, config, services.auth, services.query);
   mountBestOffers(app, config, services.auth, services.query, services.bestOffers);
   mountAlerts(app, config, services.auth, services.query, services.alerts);
+  mountLookup(app, config, services.auth, services.query, services.lookup);
   mountHistory(app, config, services.auth, services.query);
   mountMcp(app, config, services.auth, services.query);
   mountEditorial(app, db, services.query);
