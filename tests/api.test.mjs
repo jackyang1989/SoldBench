@@ -170,6 +170,14 @@ test("developer resource groups navigate to both official local language variant
     "/v1/sold/{id}/best-offers",
     "/v1/sold/{id}/best-offers/verify",
     "/v1/sold/{id}/revisions",
+    "/.well-known/oauth-protected-resource",
+    "/.well-known/oauth-authorization-server",
+    "/oauth/authorize",
+    "/oauth/token",
+    "/oauth/revoke",
+    "/v1/oauth/grants",
+    "/v1/auth/passkeys",
+    "/auth/passkeys/login/verify",
   ]) {
     assert.ok(
       inventory.operations.some((op) => op.path === path && op.status === "local_route_present"),

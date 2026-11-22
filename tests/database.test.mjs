@@ -185,7 +185,10 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
     assert.deepEqual(await migrate(db, "0033_collector_detail_jobs.sql"), ["0033_collector_detail_jobs.sql"]);
     assert.deepEqual(await migrate(db, "0034_batch_queries.sql"), ["0034_batch_queries.sql"]);
     assert.deepEqual(await migrate(db, "0035_archive_history.sql"), ["0035_archive_history.sql"]);
-    assert.deepEqual(await migrate(db), ["0036_best_offer_verifications.sql"]);
+    assert.deepEqual(await migrate(db, "0036_best_offer_verifications.sql"), [
+      "0036_best_offer_verifications.sql",
+    ]);
+    assert.deepEqual(await migrate(db), ["0037_oauth_passkeys.sql"]);
     assert.deepEqual(await migrate(db), []);
     const detailConstraints = await db.query(
       "SELECT conname FROM pg_constraint WHERE conrelid='collector_detail_jobs'::regclass ORDER BY conname",
@@ -217,6 +220,17 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
     assert.ok(
       bestOfferConstraints.rows.some((r) => r.conname === "query_evidence_revisions_credits_charged_check"),
     );
+    const oauthPasskeyConstraints = await db.query(
+      "SELECT conname FROM pg_constraint WHERE conrelid IN ('oauth_clients'::regclass, 'oauth_authorization_codes'::regclass, 'oauth_tokens'::regclass, 'user_passkeys'::regclass) ORDER BY conname",
+    );
+    assert.ok(oauthPasskeyConstraints.rows.some((r) => r.conname === "oauth_clients_client_type_check"));
+    assert.ok(
+      oauthPasskeyConstraints.rows.some(
+        (r) => r.conname === "oauth_authorization_codes_code_challenge_method_check",
+      ),
+    );
+    assert.ok(oauthPasskeyConstraints.rows.some((r) => r.conname === "oauth_tokens_scopes_check"));
+    assert.ok(oauthPasskeyConstraints.rows.some((r) => r.conname === "user_passkeys_algorithm_check"));
     const mediaColumns = await db.query(
       "SELECT column_name FROM information_schema.columns WHERE table_name='listing_images'",
     );
@@ -248,7 +262,7 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
     const tables = await db.query(
       "SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema='public'",
     );
-    assert.equal(tables.rows[0].n, 86);
+    assert.equal(tables.rows[0].n, 92);
     await assert.rejects(
       transaction(db, async (c) => {
         await c.query("INSERT INTO users(email,password_hash) VALUES('rollback@example.test','fixture')");

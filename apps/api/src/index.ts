@@ -17,7 +17,9 @@ import { mountDeveloper } from "./developer.ts";
 import { editorialNotFound, mountEditorial, siteBlocks } from "./editorial.ts";
 import { mountHistory } from "./history.ts";
 import { mountMcp } from "./mcp.ts";
+import { mountOAuth } from "./oauth.ts";
 import { mountOperations } from "./operations.ts";
+import { mountPasskeys } from "./passkeys.ts";
 import { mountPayments } from "./payments.ts";
 import { mountPublicResults } from "./public-results.ts";
 import { mountQueries } from "./queries.ts";
@@ -32,7 +34,7 @@ function documentLocale(method: string, pathname: string, accept?: string) {
     method !== "GET" ||
     !accept ||
     !parseAccept(accept).some(({ type, q }) => type.toLowerCase() === "text/html" && q > 0) ||
-    /^\/(?:v1|web|auth|billing|webhooks|admin|assets|mcp|\.well-known)(?:\/|$)/.test(path) ||
+    /^\/(?:v1|web|auth|oauth|billing|webhooks|admin|assets|mcp|\.well-known)(?:\/|$)/.test(path) ||
     /^\/(?:ready|health|docs\/search|docs\/implementation-status\.json|support\/receipt)(?:\/|$)/.test(
       path,
     ) ||
@@ -99,6 +101,8 @@ export function createApp(
     );
   });
   mountAuth(app, config, services.auth);
+  mountOAuth(app, config, services.auth);
+  mountPasskeys(app, config, services.auth);
   mountCatalog(app, db, services.query);
   app.get("/health", (c) => c.json({ status: "ok", data_mode: config.dataMode, collector_enabled: false }));
   app.get("/ready", async (c) => {

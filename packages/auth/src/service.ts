@@ -4,7 +4,8 @@ import { AppError, type Locale } from "@soldbench/shared";
 import { generateSecret, generateURI, verify } from "otplib";
 import { AuthCrypto, type AuthSecrets, hashPassword, verifyPassword } from "./crypto.ts";
 export const AUTH_VERSION = "1.1.0";
-const scopes = ["sold:read", "jobs:read", "usage:read"];
+export const AUTH_SCOPES = ["sold:read", "jobs:read", "usage:read"] as const;
+const scopes: string[] = [...AUTH_SCOPES];
 type User = {
   id: string;
   email: string;
@@ -32,6 +33,8 @@ export type Identity = {
   userId: string;
   sessionId: string | null;
   keyId: string | null;
+  oauthTokenId?: string | null;
+  oauthClientId?: string | null;
   scopes: string[];
   emailVerified: boolean;
   mfaPending: boolean;
@@ -830,8 +833,154 @@ export class AuthService {
       )
         deny("forbidden", 403, "Administrator MFA is required.");
       if (recent) await this.sensitive(c, user, row, now);
+    } else if (identity.oauthTokenId) {
+      if (recent) deny("forbidden", 403, "A recently authenticated session is required.");
+      const tokenRow = (
+        await c.query(
+          `SELECT t.id,t.scopes,t.access_expires_at,t.rotated_at,t.revoked_at,
+                  g.status AS grant_status,cl.status AS client_status
+           FROM oauth_tokens t
+           JOIN oauth_grants g ON g.id=t.grant_id
+           JOIN oauth_clients cl ON cl.client_id=t.client_id
+           WHERE t.id=$1 AND t.user_id=$2 FOR SHARE OF t,g,cl`,
+          [identity.oauthTokenId, user.id],
+        )
+      ).rows[0];
+      if (
+        !tokenRow ||
+        tokenRow.revoked_at ||
+        tokenRow.rotated_at ||
+        tokenRow.access_expires_at <= now ||
+        tokenRow.grant_status !== "active" ||
+        tokenRow.client_status !== "active"
+      )
+        deny();
+      if (!(tokenRow.scopes as string[]).includes(scope))
+        deny("forbidden", 403, "OAuth token scope is insufficient.");
     } else deny();
     return user;
+  }
+  async bearerIdentity(secret: string, scope: string, expectedResource?: string): Promise<Identity> {
+    if (secret.startsWith("sb_k_")) return this.keyIdentity(secret, scope);
+    if (!/^sb_oa_[A-Za-z0-9_-]{43}$/.test(secret)) deny();
+    return transaction(this.db, async (c) => {
+      const hash = this.crypto.hash("oauth.access-token", secret);
+      const found = (
+        await c.query<{ user_id: string }>("SELECT user_id FROM oauth_tokens WHERE access_token_hash=$1", [
+          hash,
+        ])
+      ).rows[0];
+      if (!found) deny();
+      const user = await this.user(c, found.user_id);
+      if (user.status !== "active" || !user.email_verified_at) deny();
+      const row = (
+        await c.query<{
+          id: string;
+          client_id: string;
+          scopes: string[];
+          resource: string;
+          access_expires_at: Date;
+          rotated_at: Date | null;
+          revoked_at: Date | null;
+          grant_status: string;
+          client_status: string;
+        }>(
+          `SELECT t.id,t.client_id,t.scopes,t.resource,t.access_expires_at,t.rotated_at,t.revoked_at,
+                  g.status AS grant_status,cl.status AS client_status
+           FROM oauth_tokens t
+           JOIN oauth_grants g ON g.id=t.grant_id
+           JOIN oauth_clients cl ON cl.client_id=t.client_id
+           WHERE t.access_token_hash=$1 AND t.user_id=$2
+           FOR UPDATE OF t`,
+          [hash, user.id],
+        )
+      ).rows[0];
+      const now = await this.now(c);
+      if (
+        !row ||
+        row.revoked_at ||
+        row.rotated_at ||
+        row.access_expires_at <= now ||
+        row.grant_status !== "active" ||
+        row.client_status !== "active"
+      )
+        deny();
+      if (expectedResource && row.resource !== expectedResource)
+        deny("forbidden", 403, "OAuth token resource mismatch.");
+      if (!row.scopes.includes(scope))
+        deny("forbidden", 403, "This OAuth token does not have the required scope.");
+      await c.query("UPDATE oauth_tokens SET last_used_at=$2 WHERE id=$1", [row.id, now]);
+      return {
+        userId: user.id,
+        sessionId: null,
+        keyId: null,
+        oauthTokenId: row.id,
+        oauthClientId: row.client_id,
+        scopes: row.scopes,
+        emailVerified: true,
+        mfaPending: false,
+      };
+    });
+  }
+  async assertRecentSessionLocked(c: Transaction, token: string, allowPending = false) {
+    const { user, row, now } = await this.session(c, token, allowPending);
+    await this.sensitive(c, user, row, now);
+    return { user, row, now };
+  }
+  async createPasskeySessionLocked(
+    c: Transaction,
+    userId: string,
+    requestId: string,
+    deviceLabel: string,
+    userVerified: boolean,
+  ) {
+    const user = await this.user(c, userId);
+    const now = await this.now(c);
+    const mfa = await this.enabledMfa(c, user.id);
+    const satisfiedMfa = Boolean(mfa) && userVerified;
+    const mfaPending = user.is_admin ? !satisfiedMfa : Boolean(mfa) && !userVerified;
+    const mfaAt = satisfiedMfa ? now : null;
+    const token = this.crypto.token("sb_s_");
+    const csrf = this.crypto.hash("auth.csrf", token);
+    const expires = new Date(now.getTime() + (user.is_admin ? 43200000 : 604800000));
+    await c.query(
+      "UPDATE sessions SET revoked_at=$2 WHERE id IN (SELECT id FROM sessions WHERE user_id=$1 AND revoked_at IS NULL AND expires_at>$2 ORDER BY created_at DESC,id OFFSET 19)",
+      [user.id, now],
+    );
+    await c.query(
+      "INSERT INTO sessions(user_id,token_hash,csrf_hash,credential_version,mfa_pending,mfa_at,expires_at,authenticated_at,created_at,device_label) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$8,$9)",
+      [
+        user.id,
+        this.crypto.hash("auth.session", token),
+        this.crypto.hash("auth.csrf-store", csrf),
+        user.credential_version,
+        mfaPending,
+        mfaAt,
+        expires,
+        now,
+        deviceLabel,
+      ],
+    );
+    await this.audit(c, user.id, "auth.passkey_login", user.id, requestId);
+    return {
+      token,
+      view: {
+        user_id: user.id,
+        email_verified: Boolean(user.email_verified_at),
+        expires_at: expires.toISOString(),
+        csrf_token: csrf,
+        mfa_required: mfaPending,
+      },
+    };
+  }
+  async recordAuditLocked(
+    c: Transaction,
+    userId: string,
+    action: string,
+    objectId: string,
+    requestId: string,
+  ) {
+    await this.audit(c, userId, action, objectId, requestId);
   }
   async keyIdentity(secret: string, scope: string): Promise<Identity> {
     if (!/^sb_k_[A-Za-z0-9_-]{43}$/.test(secret)) deny();

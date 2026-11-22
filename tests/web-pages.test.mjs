@@ -969,6 +969,13 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByRole("link", { name: "English", exact: true }).click();
     await page.goto(`${origin}/account/security`);
     await page.getByRole("heading", { name: "Active sessions" }).waitFor();
+    await page.getByRole("heading", { name: "Connected OAuth clients" }).waitFor();
+    await page.getByRole("heading", { name: "Passkeys" }).waitFor();
+    await page.getByRole("link", { name: "简体中文" }).click();
+    await page.getByRole("heading", { name: "已授权 OAuth 客户端" }).waitFor();
+    await page.getByRole("heading", { name: "通行密钥" }).waitFor();
+    await page.getByRole("link", { name: "English", exact: true }).click();
+    await page.getByRole("heading", { name: "Active sessions" }).waitFor();
     await page.getByRole("button", { name: "Set up authenticator" }).click();
     const secret = await page.locator(".security-secrets code").textContent();
     const totp = () => generate({ secret, epoch: Date.parse(x.now()) / 1000 });

@@ -110,10 +110,14 @@ export function mountMcp(app: Hono<Env>, config: Config, auth?: AuthService, que
       throw new AppError("invalid_parameter", 400, "MCP accepts Bearer API keys only.");
     const token = /^Bearer (\S+)$/.exec(c.req.header("Authorization") ?? "")?.[1];
     if (!token) {
-      c.header("WWW-Authenticate", "Bearer");
+      c.header(
+        "WWW-Authenticate",
+        `Bearer resource_metadata="${config.origin}/.well-known/oauth-protected-resource"`,
+      );
       throw new AppError("unauthenticated", 401, "An API key is required.");
     }
-    const initial = await authService.keyIdentity(token, "sold:read"),
+    const mcpResource = `${config.origin}/mcp`;
+    const initial = await authService.bearerIdentity(token, "sold:read", mcpResource),
       requestId = c.get("requestId"),
       audit = new RequestAuditService(service);
     async function invoke(
@@ -135,7 +139,7 @@ export function mountMcp(app: Hono<Env>, config: Config, auth?: AuthService, que
       let actor = initial,
         errorCode: string | undefined;
       try {
-        actor = await authService.keyIdentity(token ?? "", scope);
+        actor = await authService.bearerIdentity(token ?? "", scope, mcpResource);
         await service.rate(actor);
         return output(await work(actor, trace));
       } catch (error) {

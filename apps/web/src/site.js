@@ -3558,7 +3558,12 @@ function accountDeletion() {
 }
 
 async function showAccountSecurity(codes) {
-  const [sessions, mfa] = await Promise.all([api("/account/sessions"), api("/account/mfa")]);
+  const [sessions, mfa, grants, passkeys] = await Promise.all([
+    api("/account/sessions"),
+    api("/account/mfa"),
+    api("/v1/oauth/grants"),
+    api("/v1/auth/passkeys"),
+  ]);
   output.replaceChildren();
   const state = element("section", undefined, "card result-card");
   state.append(element("h2", t("Two-factor authentication", "双重验证")));
@@ -3712,7 +3717,109 @@ async function showAccountSecurity(codes) {
       () => location.assign(`${prefix}/login`),
     ),
   );
-  output.append(state, signIns, credentials, accountDeletion());
+  const connectedClients = element("section", undefined, "card result-card");
+  connectedClients.append(
+    element("h2", t("Connected OAuth clients", "已授权 OAuth 客户端")),
+    element(
+      "p",
+      t(
+        "Manage MCP OAuth 2.1 client permissions. Revoking a grant invalidates its active tokens immediately without altering source rights.",
+        "管理已授权的 MCP OAuth 2.1 客户端权限。撤销授权将立即失效其有效令牌，且不会绕过来源权限检查。",
+      ),
+      "small",
+    ),
+  );
+  if (!grants.data.length) {
+    connectedClients.append(
+      element("p", t("No OAuth clients authorized yet.", "暂无已授权的 OAuth 客户端。"), "small"),
+    );
+  } else {
+    const grantList = element("ul", undefined, "plain-list");
+    for (const grant of grants.data) {
+      const row = element("li");
+      row.append(
+        element(
+          "span",
+          `${grant.client_name} (${grant.client_id}) · ${grant.scopes.join(" ")} · ${
+            grant.status === "active" ? t("Active", "有效") : t("Revoked", "已撤销")
+          }`,
+        ),
+      );
+      if (grant.status === "active") {
+        const revokeBtn = button(t("Revoke access", "撤销授权"), () =>
+          run(async () => {
+            revokeBtn.disabled = true;
+            try {
+              await api(`/v1/oauth/grants/${grant.id}`, {
+                method: "DELETE",
+                headers: { "X-CSRF-Token": (await session())?.csrf_token ?? "" },
+              });
+              await showAccountSecurity();
+              message(t("OAuth client access revoked.", "已撤销该 OAuth 客户端授权。"));
+            } finally {
+              revokeBtn.disabled = false;
+            }
+          }),
+        );
+        revokeBtn.className = "btn ghost";
+        row.append(" ", revokeBtn);
+      }
+      grantList.append(row);
+    }
+    connectedClients.append(grantList);
+  }
+
+  const passkeySection = element("section", undefined, "card result-card");
+  passkeySection.append(
+    element("h2", t("Passkeys", "通行密钥")),
+    element(
+      "p",
+      t(
+        "WebAuthn public-key credentials for sign-in. Revoking a passkey never lowers your password or TOTP MFA requirements.",
+        "用于登录的 WebAuthn 公钥通行密钥。移除通行密钥不会降低账户原有密码或双重验证要求。",
+      ),
+      "small",
+    ),
+  );
+  if (!passkeys.data.length) {
+    passkeySection.append(element("p", t("No passkeys registered.", "暂未绑定通行密钥。"), "small"));
+  } else {
+    const pkList = element("ul", undefined, "plain-list");
+    for (const item of passkeys.data) {
+      const row = element("li");
+      row.append(
+        element(
+          "span",
+          `${item.label} (${item.algorithm}) · ${
+            item.revoked_at ? t("Revoked", "已撤销") : t("Active", "有效")
+          }`,
+        ),
+      );
+      if (!item.revoked_at) {
+        const removeBtn = button(t("Revoke passkey", "移除通行密钥"), () =>
+          run(async () => {
+            removeBtn.disabled = true;
+            try {
+              await api(`/v1/auth/passkeys/${item.id}`, {
+                method: "DELETE",
+                headers: { "X-CSRF-Token": (await session())?.csrf_token ?? "" },
+              });
+              await showAccountSecurity();
+              message(t("Passkey revoked.", "通行密钥已移除。"));
+            } finally {
+              removeBtn.disabled = false;
+            }
+          }),
+        );
+        removeBtn.className = "btn ghost";
+        row.append(" ", removeBtn);
+      }
+      pkList.append(row);
+    }
+    passkeySection.append(pkList);
+  }
+
+  output.append(state, signIns, connectedClients, passkeySection, credentials, accountDeletion());
 }
 
 async function showSavedResearch() {

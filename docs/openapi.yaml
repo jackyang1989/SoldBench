@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.30.0
+  version: 1.31.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -8078,6 +8078,355 @@ paths:
       x-roles: [owner]
       x-scopes: [sold:read]
       x-credit-policy: '0'
+  /.well-known/oauth-protected-resource:
+    get:
+      operationId: getOAuthProtectedResource
+      summary: Read RFC 9728 OAuth 2.1 protected resource metadata for the Hosted MCP endpoint.
+      security: []
+      parameters: [*content_language]
+      responses:
+        '200':
+          description: Protected resource metadata pointing to the SoldBench OAuth authorization server.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OAuthProtectedResourceMetadata'}
+      x-task: TASK-044
+      x-roles: [public]
+      x-scopes: []
+      x-credit-policy: '0'
+  /.well-known/oauth-authorization-server:
+    get:
+      operationId: getOAuthAuthorizationServer
+      summary: Read RFC 8414 OAuth 2.1 authorization server metadata (PKCE S256 required).
+      security: []
+      parameters: [*content_language]
+      responses:
+        '200':
+          description: Authorization server metadata for Hosted MCP PKCE clients.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OAuthAuthorizationServerMetadata'}
+      x-task: TASK-044
+      x-roles: [public]
+      x-scopes: []
+      x-credit-policy: '0'
+  /oauth/authorize:
+    get:
+      operationId: previewOAuthAuthorize
+      summary: Validate Hosted MCP OAuth 2.1 PKCE parameters and return explicit consent details.
+      security: *id001
+      parameters:
+      - *content_language
+      - name: response_type
+        in: query
+        required: true
+        schema: {type: string, const: code}
+      - name: client_id
+        in: query
+        required: true
+        schema: {type: string}
+      - name: redirect_uri
+        in: query
+        required: true
+        schema: {type: string}
+      - name: scope
+        in: query
+        required: true
+        schema: {type: string}
+      - name: state
+        in: query
+        required: true
+        schema: {type: string}
+      - name: code_challenge
+        in: query
+        required: true
+        schema: {type: string}
+      - name: code_challenge_method
+        in: query
+        required: true
+        schema: {type: string, const: S256}
+      - name: resource
+        in: query
+        required: false
+        schema: {type: string}
+      responses:
+        '200':
+          description: Validated client consent request details.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OAuthAuthorizePreviewResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+      x-task: TASK-044
+      x-roles: [owner]
+      x-scopes: []
+      x-credit-policy: '0'
+    post:
+      operationId: approveOAuthAuthorize
+      summary: Record explicit user consent or denial for a Hosted MCP OAuth authorization request.
+      security: *id001
+      parameters: [*content_language]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/OAuthAuthorizeDecisionRequest'}
+      responses:
+        '200':
+          description: Consent result containing single-use authorization code or access_denied redirect.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OAuthAuthorizeDecisionResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '415': *content_error
+      x-task: TASK-044
+      x-roles: [owner]
+      x-scopes: []
+      x-credit-policy: '0'
+  /oauth/token:
+    post:
+      operationId: exchangeOAuthToken
+      summary: Exchange a PKCE S256 authorization code or rotating refresh token for short-lived bearer tokens.
+      security: []
+      parameters: [*content_language]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema: {$ref: '#/components/schemas/OAuthTokenRequest'}
+          application/json:
+            schema: {$ref: '#/components/schemas/OAuthTokenRequest'}
+      responses:
+        '200':
+          description: OAuth 2.1 access and rotating refresh token payload (0 credits).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OAuthTokenResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '415': *content_error
+      x-task: TASK-044
+      x-roles: [public]
+      x-scopes: []
+      x-credit-policy: '0'
+  /oauth/revoke:
+    post:
+      operationId: revokeOAuthToken
+      summary: Revoke an OAuth access token or refresh token family (RFC 7009).
+      security: []
+      parameters: [*content_language]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema: {$ref: '#/components/schemas/OAuthRevokeRequest'}
+          application/json:
+            schema: {$ref: '#/components/schemas/OAuthRevokeRequest'}
+      responses:
+        '200':
+          description: Token revocation acknowledgement.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revoked: {type: boolean}
+                required: [revoked]
+                additionalProperties: false
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '415': *content_error
+      x-task: TASK-044
+      x-roles: [public]
+      x-scopes: []
+      x-credit-policy: '0'
+  /v1/oauth/grants:
+    get:
+      operationId: listOAuthGrants
+      summary: List per-client OAuth consent grants owned by the authenticated session user.
+      security: *id001
+      parameters: [*content_language]
+      responses:
+        '200':
+          description: Owner OAuth client grants list.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OAuthGrantListResponse'}
+        '401': *content_error
+        '403': *content_error
+      x-task: TASK-044
+      x-roles: [owner]
+      x-scopes: []
+      x-credit-policy: '0'
+  /v1/oauth/grants/{id}:
+    delete:
+      operationId: revokeOAuthGrant
+      summary: Revoke an OAuth client grant and immediately invalidate all active tokens for that client.
+      security: *id001
+      parameters:
+      - *content_language
+      - name: id
+        in: path
+        required: true
+        schema: *id002
+      responses:
+        '204':
+          description: Grant and all client tokens revoked immediately.
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+      x-task: TASK-044
+      x-roles: [owner]
+      x-scopes: []
+      x-credit-policy: '0'
+  /v1/auth/passkeys:
+    get:
+      operationId: listPasskeys
+      summary: List registered WebAuthn passkeys for the signed-in owner account.
+      security: *id001
+      parameters: [*content_language]
+      responses:
+        '200':
+          description: Account passkey metadata list.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PasskeyListResponse'}
+        '401': *content_error
+        '403': *content_error
+      x-task: TASK-044
+      x-roles: [owner]
+      x-scopes: []
+      x-credit-policy: '0'
+  /v1/auth/passkeys/register/options:
+    post:
+      operationId: beginPasskeyRegistration
+      summary: Create single-use WebAuthn registration options requiring a recent session.
+      security: *id001
+      parameters: [*content_language]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PasskeyRegisterOptionsRequest'}
+      responses:
+        '200':
+          description: Single-use WebAuthn registration challenge and RP options.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PasskeyOptionsResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '415': *content_error
+      x-task: TASK-044
+      x-roles: [owner]
+      x-scopes: []
+      x-credit-policy: '0'
+  /v1/auth/passkeys/register/verify:
+    post:
+      operationId: completePasskeyRegistration
+      summary: Verify WebAuthn challenge and origin and store a public-key passkey for the owner account.
+      security: *id001
+      parameters: [*content_language]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PasskeyRegisterVerifyRequest'}
+      responses:
+        '201':
+          description: Registered passkey record.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PasskeyRegisterResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '409': *content_error
+        '410': *content_error
+        '415': *content_error
+      x-task: TASK-044
+      x-roles: [owner]
+      x-scopes: []
+      x-credit-policy: '0'
+  /v1/auth/passkeys/{id}:
+    delete:
+      operationId: revokePasskey
+      summary: Revoke a passkey with recent authentication without lowering existing password or MFA policy.
+      security: *id001
+      parameters:
+      - *content_language
+      - name: id
+        in: path
+        required: true
+        schema: *id002
+      responses:
+        '204':
+          description: Passkey revoked.
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+      x-task: TASK-044
+      x-roles: [owner]
+      x-scopes: []
+      x-credit-policy: '0'
+  /auth/passkeys/login/options:
+    post:
+      operationId: beginPasskeyLogin
+      summary: Issue a single-use WebAuthn authentication challenge for passkey sign-in.
+      security: []
+      parameters: [*content_language]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PasskeyLoginOptionsRequest'}
+      responses:
+        '200':
+          description: WebAuthn login challenge and allowed credentials.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PasskeyOptionsResponse'}
+        '400': *content_error
+        '403': *content_error
+        '415': *content_error
+      x-task: TASK-044
+      x-roles: [public]
+      x-scopes: []
+      x-credit-policy: '0'
+  /auth/passkeys/login/verify:
+    post:
+      operationId: completePasskeyLogin
+      summary: Verify a signed WebAuthn passkey assertion (with monotonic sign_count and MFA preservation) and set session cookie.
+      security: []
+      parameters: [*content_language]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PasskeyLoginVerifyRequest'}
+      responses:
+        '200':
+          description: Authenticated session view (with mfa_required=true if MFA or admin policy requires secondary verification).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PasskeySessionResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '410': *content_error
+        '415': *content_error
+      x-task: TASK-044
+      x-roles: [public]
+      x-scopes: []
+      x-credit-policy: '0'
 components:
   securitySchemes:
     SupportReceipt:
@@ -13303,6 +13652,297 @@ components:
             credits_charged: {type: integer, const: 0}
             reused: {type: boolean}
           required: [request_id, credits_charged, reused]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    OAuthProtectedResourceMetadata:
+      type: object
+      properties:
+        resource: {type: string}
+        authorization_servers:
+          type: array
+          items: {type: string}
+        scopes_supported:
+          type: array
+          items: {type: string}
+        bearer_methods_supported:
+          type: array
+          items: {type: string}
+        resource_name: {type: string}
+      required: [resource, authorization_servers, scopes_supported, bearer_methods_supported]
+      additionalProperties: true
+    OAuthAuthorizationServerMetadata:
+      type: object
+      properties:
+        issuer: {type: string}
+        authorization_endpoint: {type: string}
+        token_endpoint: {type: string}
+        revocation_endpoint: {type: string}
+        response_types_supported:
+          type: array
+          items: {type: string}
+        grant_types_supported:
+          type: array
+          items: {type: string}
+        code_challenge_methods_supported:
+          type: array
+          items: {type: string}
+        scopes_supported:
+          type: array
+          items: {type: string}
+      required:
+      - issuer
+      - authorization_endpoint
+      - token_endpoint
+      - revocation_endpoint
+      - response_types_supported
+      - grant_types_supported
+      - code_challenge_methods_supported
+      additionalProperties: true
+    OAuthAuthorizePreview:
+      type: object
+      properties:
+        client:
+          type: object
+          properties:
+            client_id: {type: string}
+            name: {type: string}
+            client_type: {enum: [public, confidential]}
+          required: [client_id, name, client_type]
+          additionalProperties: false
+        redirect_uri: {type: string}
+        scopes:
+          type: array
+          items: {type: string}
+        resource: {type: string}
+        state: {type: string}
+        code_challenge_method: {const: S256}
+        consent_required: {type: boolean}
+      required: [client, redirect_uri, scopes, resource, state, code_challenge_method, consent_required]
+      additionalProperties: false
+    OAuthAuthorizePreviewResponse:
+      type: object
+      properties:
+        data: {$ref: '#/components/schemas/OAuthAuthorizePreview'}
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    OAuthAuthorizeDecisionRequest:
+      type: object
+      properties:
+        response_type: {type: string}
+        client_id: {type: string}
+        redirect_uri: {type: string}
+        scope: {type: string}
+        state: {type: string}
+        code_challenge: {type: string}
+        code_challenge_method: {type: string}
+        resource: {type: string}
+        approved: {type: boolean}
+      required: [response_type, client_id, redirect_uri, scope, state, code_challenge, code_challenge_method, approved]
+      additionalProperties: false
+    OAuthAuthorizeDecisionResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            approved: {type: boolean}
+            code: {type: [string, 'null']}
+            state: {type: string}
+            redirect_to: {type: string}
+            expires_at: {type: string, format: date-time}
+          required: [approved, code, state, redirect_to]
+          additionalProperties: false
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    OAuthTokenRequest:
+      type: object
+      properties:
+        grant_type: {type: string}
+        client_id: {type: string}
+        client_secret: {type: string}
+        code: {type: string}
+        redirect_uri: {type: string}
+        code_verifier: {type: string}
+        resource: {type: string}
+        refresh_token: {type: string}
+        scope: {type: string}
+      required: [grant_type]
+      additionalProperties: true
+    OAuthTokenResponse:
+      type: object
+      properties:
+        access_token: {type: string}
+        token_type: {const: Bearer}
+        expires_in: {type: integer, minimum: 1}
+        refresh_token: {type: string}
+        scope: {type: string}
+        resource: {type: string}
+      required: [access_token, token_type, expires_in, refresh_token, scope, resource]
+      additionalProperties: false
+    OAuthRevokeRequest:
+      type: object
+      properties:
+        token: {type: string}
+        client_id: {type: string}
+        client_secret: {type: string}
+      required: [token]
+      additionalProperties: true
+    OAuthGrant:
+      type: object
+      properties:
+        id: *id002
+        client_id: {type: string}
+        client_name: {type: string}
+        client_type: {enum: [public, confidential]}
+        scopes:
+          type: array
+          items: {type: string}
+        resource: {type: string}
+        status: {enum: [active, revoked]}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        revoked_at: {type: [string, 'null'], format: date-time}
+      required: [id, client_id, client_name, client_type, scopes, resource, status, created_at, updated_at, revoked_at]
+      additionalProperties: false
+    OAuthGrantListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/OAuthGrant'}
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    PasskeyRecord:
+      type: object
+      properties:
+        id: *id002
+        credential_id: {type: string}
+        algorithm: {enum: [ES256, Ed25519]}
+        label: {type: string}
+        sign_count: {type: integer, minimum: 0}
+        transports:
+          type: array
+          items: {type: string}
+        created_at: {type: string, format: date-time}
+        last_used_at: {type: [string, 'null'], format: date-time}
+        revoked_at: {type: [string, 'null'], format: date-time}
+      required: [id, credential_id, algorithm, label, sign_count, transports, created_at, last_used_at, revoked_at]
+      additionalProperties: false
+    PasskeyListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/PasskeyRecord'}
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    PasskeyOptionsResponse:
+      type: object
+      properties:
+        data: {type: object, additionalProperties: true}
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    PasskeyRegisterOptionsRequest:
+      type: object
+      properties:
+        label: {type: string, minLength: 1, maxLength: 80}
+      additionalProperties: false
+    PasskeyRegisterVerifyRequest:
+      type: object
+      properties:
+        credential_id: {type: string}
+        public_key_spki_pem: {type: string}
+        algorithm: {enum: [ES256, Ed25519]}
+        label: {type: string}
+        transports:
+          type: array
+          items: {type: string}
+        client_data_json: {type: string}
+        authenticator_data: {type: string}
+      required: [credential_id, public_key_spki_pem, algorithm, client_data_json, authenticator_data]
+      additionalProperties: false
+    PasskeyRegisterResponse:
+      type: object
+      properties:
+        data: {$ref: '#/components/schemas/PasskeyRecord'}
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    PasskeyLoginOptionsRequest:
+      type: object
+      properties:
+        email: {type: string}
+      additionalProperties: false
+    PasskeyLoginVerifyRequest:
+      type: object
+      properties:
+        credential_id: {type: string}
+        client_data_json: {type: string}
+        authenticator_data: {type: string}
+        signature: {type: string}
+      required: [credential_id, client_data_json, authenticator_data, signature]
+      additionalProperties: false
+    PasskeySessionResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            user_id: *id002
+            email_verified: {type: boolean}
+            expires_at: {type: string, format: date-time}
+            csrf_token: {type: string}
+            mfa_required: {type: boolean}
+          required: [user_id, email_verified, expires_at, csrf_token, mfa_required]
+          additionalProperties: false
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
           additionalProperties: false
       required: [data, meta]
       additionalProperties: false

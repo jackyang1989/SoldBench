@@ -107,7 +107,7 @@ documented_paths = set()
 for line in (DOCS/'接口与数据契约.md').read_text().splitlines():
     if line.startswith('| API-'):
         for code_span in re.findall(r'`([^`]+)`', line):
-            documented_paths.update(re.findall(r'/[a-zA-Z0-9_/{\}-]+', code_span))
+            documented_paths.update(re.findall(r'/[a-zA-Z0-9_./{\}-]+', code_span))
 require(documented_paths == set(SPEC['paths']), 'API table and OpenAPI paths diverged')
 for path, methods in SPEC['paths'].items():
     for method, operation in methods.items():

@@ -1,5 +1,9 @@
 # SoldBench engineering changelog
 
+## 2026-11-22 — V1.1 Hosted MCP OAuth 2.1/PKCE and WebAuthn Passkeys (offline)
+
+OpenAPI 1.31.0 adds Hosted MCP OAuth 2.1 discovery (`/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`), PKCE S256 consent & token endpoints (`/oauth/authorize`, `/oauth/token`, `/oauth/revoke`), per-client owner grant management (`/v1/oauth/grants*`), and WebAuthn Passkey management & sign-in (`/v1/auth/passkeys*`, `/auth/passkeys/login/*`, `TASK-044`, 0 query credits). Tokens enforce exact `redirect_uri`, `S256` PKCE verification, MCP resource audience binding, single-use authorization codes, client-isolated refresh token rotation with family revocation on replay, immediate revocation via grants/tokens, and source-rights preservation. Passkey sign-in validates ES256/Ed25519 signatures, single-use challenges, `rpIdHash`/origin binding, and monotonic `sign_count` without bypassing or downgrading existing TOTP/admin MFA policies.
+
 ## 2026-11-22 — V1.5 Best Offer post-lookup verification and snapshot revisions (offline)
 
 OpenAPI 1.30.0 adds `/v1/sold/{id}/best-offers`, `/v1/sold/{id}/best-offers/verify`, and `/v1/sold/{id}/revisions` (`TASK-047`, `0` credits in synthetic offline build — post-lookup Best Offer verification never silently consumes standard query credits). Requests apply only to delivered snapshots, bind evidence strictly to existing `sale_event_evidence` observations with per-query item caps (10 items), attempt caps (3 retries), and UTC expiry deadlines, circuit-break immediately on `401`/`403` into `collector_circuits`, keep unverified Best Offer displayed prices excluded from default pricing (never `0`), and preserve the original delivered snapshot (revision 1) alongside versioned `query_evidence_revisions` (revision 2+).
