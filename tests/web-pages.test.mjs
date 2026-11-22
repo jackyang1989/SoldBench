@@ -39,6 +39,7 @@ test("prototype-based pages serve both languages, valid private deep links and s
       "/account/saved",
       "/account/batches",
       "/account/history",
+      "/account/alerts",
       "/account/usage",
       "/account/logs",
       "/account/keys",
@@ -966,6 +967,20 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByRole("checkbox", { name: /允许部分覆盖/ }).check();
     await page.getByRole("button", { name: "加载历史研究", exact: true }).click();
     await page.getByRole("cell", { name: "数据缺口", exact: true }).first().waitFor();
+    await page.getByRole("link", { name: "English", exact: true }).click();
+    x.clock.value = new Date(Date.parse(x.now()) + 60000).toISOString();
+    await page.goto(`${origin}/account/alerts`);
+    await page.getByRole("heading", { name: "Create watchlist alert" }).waitFor();
+    await page.getByRole("button", { name: "Create watchlist" }).click();
+    await page.getByText("Watchlist created (0 credits).").waitFor();
+    await page.getByLabel("Public HTTPS URL").fill("https://hooks.example.test/ui-webhook");
+    await page.getByRole("button", { name: "Add webhook" }).click();
+    await page.getByText("Webhook endpoint registered.").waitFor();
+    await page.getByText("Copy signing secret now").waitFor();
+    await page.getByRole("button", { name: "Switch language" }).first().click();
+    await page.getByText("Watchlist language updated (0 credits).").waitFor();
+    await page.getByRole("link", { name: "简体中文" }).click();
+    await page.getByRole("heading", { name: "创建监控与价格提醒" }).waitFor();
     await page.getByRole("link", { name: "English", exact: true }).click();
     await page.goto(`${origin}/account/security`);
     await page.getByRole("heading", { name: "Active sessions" }).waitFor();

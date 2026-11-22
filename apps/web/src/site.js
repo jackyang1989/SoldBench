@@ -4660,6 +4660,281 @@ async function showArchiveHistory() {
   }
 }
 
+async function showAlertsWorkstation() {
+  const csrf = async () => (await session())?.csrf_token ?? "";
+  const secretBox = element("div", undefined, "security-secrets");
+  secretBox.setAttribute("aria-live", "polite");
+
+  const wlCard = element("section", undefined, "card result-card");
+  wlCard.append(
+    element("h2", t("Create watchlist alert", "创建监控与价格提醒")),
+    element(
+      "p",
+      t(
+        "Passive alerts reuse delivered snapshots at 0 extra credits. Scheduled refreshes require explicit billing consent and a monthly cap. Switching notification language never changes your query or charges credits.",
+        "被动监控直接复用已交付快照（额外 0 额度）；定时重查必须明确勾选收费同意并设定月度上限；切换提醒语言不会改变查询口径或产生额外扣费。",
+      ),
+      "small",
+    ),
+  );
+
+  const wlForm = element("form");
+  const wlName = element("input");
+  wlName.required = true;
+  wlName.maxLength = 120;
+  wlName.value = "Price alert watch";
+  const wlNameLabel = element("label", t("Watchlist name", "监控名称"));
+  wlNameLabel.append(wlName);
+
+  const wlQuery = element("input");
+  wlQuery.maxLength = 120;
+  wlQuery.value = "Nintendo Switch";
+  const wlQueryLabel = element("label", t("Search keyword", "查询关键词"));
+  wlQueryLabel.append(wlQuery);
+
+  const wlTrigger = element("select");
+  for (const [val, label] of [
+    ["price_below", t("Median price at or below threshold", "中位价低于等于阈值")],
+    ["price_above", t("Median price at or above threshold", "中位价高于等于阈值")],
+    ["low_credits", t("Account credits low", "账户余额不足提醒")],
+    ["job_completed", t("Subscribed job completed", "订阅查询任务完成")],
+  ]) {
+    const opt = element("option", label);
+    opt.value = val;
+    wlTrigger.append(opt);
+  }
+  const wlTriggerLabel = element("label", t("Trigger condition", "触发条件"));
+  wlTriggerLabel.append(wlTrigger);
+
+  const wlThreshold = element("input");
+  wlThreshold.type = "number";
+  wlThreshold.min = "0";
+  wlThreshold.value = "25000";
+  const wlThresholdLabel = element("label", t("Threshold (cents or credits)", "阈值（美分或额度数）"));
+  wlThresholdLabel.append(wlThreshold);
+
+  const wlSchedule = element("select");
+  for (const [val, label] of [
+    ["passive_reuse", t("Passive reuse (0 extra credits)", "被动复用（额外 0 额度）")],
+    ["scheduled_refresh", t("Scheduled refresh (requires consent)", "定时刷新（需收费同意）")],
+  ]) {
+    const opt = element("option", label);
+    opt.value = val;
+    wlSchedule.append(opt);
+  }
+  const wlScheduleLabel = element("label", t("Evaluation mode", "评估模式"));
+  wlScheduleLabel.append(wlSchedule);
+
+  const wlConsent = element("input");
+  wlConsent.type = "checkbox";
+  const wlConsentLabel = element(
+    "label",
+    t("Consent to billed scheduled refreshes", "明确同意按次消耗定时刷新额度"),
+  );
+  wlConsentLabel.prepend(wlConsent, " ");
+
+  const wlCap = element("input");
+  wlCap.type = "number";
+  wlCap.min = "0";
+  wlCap.max = "1000";
+  wlCap.value = "10";
+  const wlCapLabel = element("label", t("Monthly credit cap", "月度额度上限"));
+  wlCapLabel.append(wlCap);
+
+  const wlLocale = element("select");
+  for (const [val, label] of [
+    ["en", "English"],
+    ["zh-CN", "简体中文"],
+  ]) {
+    const opt = element("option", label);
+    opt.value = val;
+    wlLocale.append(opt);
+  }
+  wlLocale.value = document.documentElement.lang === "zh-CN" ? "zh-CN" : "en";
+  const wlLocaleLabel = element("label", t("Notification language", "通知语言"));
+  wlLocaleLabel.append(wlLocale);
+
+  const wlSubmit = element("button", t("Create watchlist", "创建监控"), "btn brand");
+  wlSubmit.type = "submit";
+  wlForm.append(
+    wlNameLabel,
+    wlQueryLabel,
+    wlTriggerLabel,
+    wlThresholdLabel,
+    wlScheduleLabel,
+    wlConsentLabel,
+    wlCapLabel,
+    wlLocaleLabel,
+    wlSubmit,
+  );
+  wlCard.append(wlForm);
+
+  const whCard = element("section", undefined, "card result-card");
+  whCard.append(element("h2", t("Signed webhooks", "签名 Webhook 端点")));
+  const whForm = element("form");
+  const whName = element("input");
+  whName.required = true;
+  whName.value = "Inventory sync";
+  const whNameLabel = element("label", t("Endpoint name", "端点名称"));
+  whNameLabel.append(whName);
+
+  const whUrl = element("input");
+  whUrl.required = true;
+  whUrl.placeholder = "https://hooks.example.test/soldbench";
+  const whUrlLabel = element("label", t("Public HTTPS URL", "公网 HTTPS 地址"));
+  whUrlLabel.append(whUrl);
+
+  const whSubmit = element("button", t("Add webhook", "添加 Webhook"), "btn ghost");
+  whSubmit.type = "submit";
+  whForm.append(whNameLabel, whUrlLabel, whSubmit);
+  whCard.append(whForm);
+
+  const listsContainer = element("div");
+  output.append(secretBox, wlCard, whCard, listsContainer);
+
+  async function refresh() {
+    const [wlRes, whRes, delivRes] = await Promise.all([
+      api("/v1/watchlists"),
+      api("/v1/webhooks"),
+      api("/v1/webhooks/deliveries"),
+    ]);
+    listsContainer.replaceChildren();
+
+    const activeWatchlists = element("section", undefined, "card result-card");
+    activeWatchlists.append(element("h2", t("Watchlists", "监控规则")));
+    if (!wlRes.data.length) {
+      activeWatchlists.append(element("p", t("No watchlists yet.", "暂无监控规则。"), "small"));
+    } else {
+      const list = element("ul", undefined, "plain-list");
+      for (const item of wlRes.data) {
+        const li = element("li");
+        li.append(
+          element(
+            "span",
+            `${item.name} · ${item.trigger_kind} · ${item.locale} · ${item.status} · ${item.credits_used_this_period}/${item.max_credits_per_month}`,
+          ),
+        );
+        const toggleLocale = button(t("Switch language", "切换语言"), () =>
+          run(async () => {
+            await api(`/v1/watchlists/${item.id}`, {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+                "X-CSRF-Token": await csrf(),
+              },
+              body: JSON.stringify({ locale: item.locale === "en" ? "zh-CN" : "en" }),
+            });
+            await refresh();
+            message(t("Watchlist language updated (0 credits).", "已切换通知语言（0 额度）。"));
+          }),
+        );
+        toggleLocale.className = "btn ghost";
+        const evalBtn = button(t("Evaluate", "立即评估"), () =>
+          run(async () => {
+            await post(`/v1/watchlists/${item.id}/evaluate`, {}, await csrf());
+            await refresh();
+            message(t("Watchlist evaluated.", "已完成监控评估。"));
+          }),
+        );
+        evalBtn.className = "btn ghost";
+        li.append(" ", toggleLocale, " ", evalBtn);
+        list.append(li);
+      }
+      activeWatchlists.append(list);
+    }
+
+    const endpointsCard = element("section", undefined, "card result-card");
+    endpointsCard.append(element("h2", t("Webhook endpoints", "Webhook 端点")));
+    if (!whRes.data.length) {
+      endpointsCard.append(element("p", t("No webhooks registered.", "暂无 Webhook 端点。"), "small"));
+    } else {
+      const list = element("ul", undefined, "plain-list");
+      for (const ep of whRes.data) {
+        const li = element("li");
+        li.append(element("span", `${ep.name} (${ep.target_url}) · ${ep.secret_prefix}… · ${ep.status}`));
+        list.append(li);
+      }
+      endpointsCard.append(list);
+    }
+
+    const delivRows = delivRes.data.map((d) => [
+      d.status,
+      `${d.attempts} / ${d.max_attempts}`,
+      d.last_http_status == null ? "—" : String(d.last_http_status),
+      d.last_error ?? "—",
+    ]);
+    const delivCard = accountTable(
+      t("Recent webhook deliveries", "近期投递与死信状态"),
+      [t("Status", "状态"), t("Attempts", "尝试次数"), t("HTTP", "状态码"), t("Error", "错误")],
+      delivRows,
+    );
+
+    listsContainer.append(activeWatchlists, endpointsCard, delivCard);
+  }
+
+  wlForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    run(async () => {
+      wlSubmit.disabled = true;
+      try {
+        const trig = wlTrigger.value;
+        const threshold = Number.parseInt(wlThreshold.value || "0", 10);
+        const res = await post(
+          "/v1/watchlists",
+          {
+            name: wlName.value,
+            query: trig === "low_credits" ? {} : { q: wlQuery.value || "Nintendo Switch" },
+            trigger_kind: trig,
+            ...(trig === "price_below" || trig === "price_above" ? { threshold_cents: threshold } : {}),
+            ...(trig === "low_credits" ? { low_credits_threshold: threshold } : {}),
+            schedule_mode: wlSchedule.value,
+            billing_consent_accepted: wlConsent.checked,
+            max_credits_per_month: wlSchedule.value === "scheduled_refresh" ? Number(wlCap.value || 1) : 0,
+            locale: wlLocale.value,
+          },
+          await csrf(),
+        );
+        secretBox.replaceChildren(
+          element("h3", t("One-time unsubscribe token", "一次性退订令牌")),
+          element("code", res.data.unsubscribe_token),
+        );
+        await refresh();
+        message(t("Watchlist created (0 credits).", "监控规则已创建（0 额度）。"));
+      } finally {
+        wlSubmit.disabled = false;
+      }
+    });
+  });
+
+  whForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    run(async () => {
+      whSubmit.disabled = true;
+      try {
+        const res = await post(
+          "/v1/webhooks",
+          {
+            name: whName.value,
+            target_url: whUrl.value,
+            event_types: ["price_alert", "low_credits", "job_completed"],
+          },
+          await csrf(),
+        );
+        secretBox.replaceChildren(
+          element("h3", t("Copy signing secret now", "请立即保存 HMAC 签名密钥")),
+          element("code", res.data.signing_secret),
+        );
+        await refresh();
+        message(t("Webhook endpoint registered.", "已注册签名 Webhook 端点。"));
+      } finally {
+        whSubmit.disabled = false;
+      }
+    });
+  });
+
+  await refresh();
+}
+
 if (page.startsWith("/account"))
   run(async () => {
     const user = await session();
@@ -4681,6 +4956,7 @@ if (page.startsWith("/account"))
     if (page === "/account/saved") return showSavedResearch();
     if (page === "/account/batches") return showBatchWorkbench();
     if (page === "/account/history") return showArchiveHistory();
+    if (page === "/account/alerts") return showAlertsWorkstation();
     if (page === "/account/security") return showAccountSecurity();
     if (page === "/account/billing") return showBilling();
     if (page === "/account/keys") {

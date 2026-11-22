@@ -2,13 +2,14 @@ import { randomUUID } from "node:crypto";
 import type { AuthService } from "@soldbench/auth";
 import type { PaymentLifecycle } from "@soldbench/billing";
 import { type Database, isDatabaseConnectionError } from "@soldbench/db";
-import type { BestOfferVerificationService, QueryService } from "@soldbench/query";
+import type { AlertWebhookService, BestOfferVerificationService, QueryService } from "@soldbench/query";
 import { AppError, type Config } from "@soldbench/shared";
 import { operationsPanels, renderPage, webClient, webCss, webPages } from "@soldbench/web";
 import { Hono } from "hono";
 import { compress } from "hono/compress";
 import { parseAccept } from "hono/utils/accept";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { mountAlerts } from "./alerts.ts";
 import { mountAuth } from "./auth.ts";
 import { mountBatches } from "./batches.ts";
 import { mountBestOffers } from "./best-offers.ts";
@@ -52,6 +53,7 @@ export function createApp(
     query?: QueryService;
     payments?: PaymentLifecycle;
     bestOffers?: BestOfferVerificationService;
+    alerts?: AlertWebhookService;
   } = {},
 ) {
   const app = new Hono<{ Variables: { requestId: string } }>();
@@ -172,6 +174,7 @@ export function createApp(
   mountQueries(app, config, services.auth, services.query);
   mountBatches(app, config, services.auth, services.query);
   mountBestOffers(app, config, services.auth, services.query, services.bestOffers);
+  mountAlerts(app, config, services.auth, services.query, services.alerts);
   mountHistory(app, config, services.auth, services.query);
   mountMcp(app, config, services.auth, services.query);
   mountEditorial(app, db, services.query);

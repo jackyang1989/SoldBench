@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.31.0
+  version: 1.32.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -8427,6 +8427,264 @@ paths:
       x-roles: [public]
       x-scopes: []
       x-credit-policy: '0'
+  /v1/watchlists:
+    get:
+      operationId: listWatchlists
+      summary: List saved query watchlists and alert rules owned by the authenticated user.
+      security: *id001
+      parameters: [*content_language]
+      responses:
+        '200':
+          description: Owner watchlist rules list (0 credits).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/WatchlistListResponse'}
+        '401': *content_error
+        '403': *content_error
+      x-task: TASK-048
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
+    post:
+      operationId: createWatchlist
+      summary: Create a saved query watchlist (scheduled refresh requires explicit billing consent and monthly cap).
+      security: *id001
+      parameters: [*content_language]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateWatchlistRequest'}
+      responses:
+        '201':
+          description: Created watchlist plus one-time unsubscribe token (0 credits).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CreateWatchlistResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '415': *content_error
+        '422': *content_error
+      x-task: TASK-048
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
+  /v1/watchlists/{id}:
+    patch:
+      operationId: updateWatchlist
+      summary: Update watchlist status, locale, thresholds, or consented budget cap (0 credits).
+      security: *id001
+      parameters:
+      - *content_language
+      - name: id
+        in: path
+        required: true
+        schema: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PatchWatchlistRequest'}
+      responses:
+        '200':
+          description: Updated watchlist record.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/WatchlistResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '409': *content_error
+        '415': *content_error
+      x-task: TASK-048
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
+    delete:
+      operationId: deleteWatchlist
+      summary: Delete an owner watchlist and cancel any associated pending deliveries.
+      security: *id001
+      parameters:
+      - *content_language
+      - name: id
+        in: path
+        required: true
+        schema: *id002
+      responses:
+        '204':
+          description: Watchlist deleted.
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+      x-task: TASK-048
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
+  /v1/watchlists/{id}/evaluate:
+    post:
+      operationId: evaluateWatchlist
+      summary: Evaluate an active watchlist against authorized delivered snapshots, balance, or jobs while enforcing monthly credit caps.
+      security: *id001
+      parameters:
+      - *content_language
+      - name: id
+        in: path
+        required: true
+        schema: *id002
+      responses:
+        '200':
+          description: Watchlist evaluation outcome (0 additional credits in offline build).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/WatchlistEvaluationResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+      x-task: TASK-048
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
+  /v1/alerts/unsubscribe:
+    post:
+      operationId: unsubscribeAlertWatchlist
+      summary: Unsubscribe a watchlist via one-time unsubscribe token and halt future webhook deliveries.
+      security: []
+      parameters: [*content_language]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UnsubscribeAlertRequest'}
+      responses:
+        '200':
+          description: Unsubscribe confirmation.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/UnsubscribeAlertResponse'}
+        '400': *content_error
+        '410': *content_error
+        '415': *content_error
+      x-task: TASK-048
+      x-roles: [public]
+      x-scopes: []
+      x-credit-policy: '0'
+  /v1/webhooks:
+    get:
+      operationId: listWebhookEndpoints
+      summary: List registered outbound webhook endpoints owned by the user (without exposing secrets).
+      security: *id001
+      parameters: [*content_language]
+      responses:
+        '200':
+          description: Webhook endpoints list.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/WebhookEndpointListResponse'}
+        '401': *content_error
+        '403': *content_error
+      x-task: TASK-048
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
+    post:
+      operationId: createWebhookEndpoint
+      summary: Register a verified HTTPS webhook endpoint (SSRF-validated) and return HMAC signing secret once.
+      security: *id001
+      parameters: [*content_language]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateWebhookEndpointRequest'}
+      responses:
+        '201':
+          description: Created webhook endpoint and one-time HMAC signing secret.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CreateWebhookEndpointResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '415': *content_error
+        '422': *content_error
+      x-task: TASK-048
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
+  /v1/webhooks/{id}:
+    patch:
+      operationId: updateWebhookEndpoint
+      summary: Pause, disable, or update subscribed event types for a webhook endpoint.
+      security: *id001
+      parameters:
+      - *content_language
+      - name: id
+        in: path
+        required: true
+        schema: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PatchWebhookEndpointRequest'}
+      responses:
+        '200':
+          description: Updated webhook endpoint metadata.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/WebhookEndpointResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '415': *content_error
+      x-task: TASK-048
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
+    delete:
+      operationId: deleteWebhookEndpoint
+      summary: Delete a webhook endpoint and its pending deliveries.
+      security: *id001
+      parameters:
+      - *content_language
+      - name: id
+        in: path
+        required: true
+        schema: *id002
+      responses:
+        '204':
+          description: Webhook endpoint deleted.
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+      x-task: TASK-048
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
+  /v1/webhooks/deliveries:
+    get:
+      operationId: listWebhookDeliveries
+      summary: List recent webhook delivery attempts, retries, dead-letter states, and rights-revoked cancellations.
+      security: *id001
+      parameters: [*content_language]
+      responses:
+        '200':
+          description: Owner webhook delivery audit list.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/WebhookDeliveryListResponse'}
+        '401': *content_error
+        '403': *content_error
+      x-task: TASK-048
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
 components:
   securitySchemes:
     SupportReceipt:
@@ -13937,6 +14195,300 @@ components:
             mfa_required: {type: boolean}
           required: [user_id, email_verified, expires_at, csrf_token, mfa_required]
           additionalProperties: false
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    WatchlistRecord:
+      type: object
+      properties:
+        id: *id002
+        name: {type: string}
+        canonical_query_hash: {type: string}
+        query: {type: object, additionalProperties: true}
+        trigger_kind: {enum: [price_below, price_above, low_credits, job_completed]}
+        threshold_cents: {type: [integer, 'null'], minimum: 0}
+        low_credits_threshold: {type: [integer, 'null'], minimum: 0}
+        schedule_mode: {enum: [passive_reuse, scheduled_refresh]}
+        billing_consent_accepted: {type: boolean}
+        max_credits_per_month: {type: integer, minimum: 0, maximum: 1000}
+        credits_used_this_period: {type: integer, minimum: 0}
+        budget_period_key: {type: string}
+        locale: {enum: [en, zh-CN]}
+        status: {enum: [active, paused, unsubscribed]}
+        last_evaluated_at: {type: [string, 'null'], format: date-time}
+        last_query_id: {type: [string, 'null']}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+      required:
+      - id
+      - name
+      - canonical_query_hash
+      - query
+      - trigger_kind
+      - threshold_cents
+      - low_credits_threshold
+      - schedule_mode
+      - billing_consent_accepted
+      - max_credits_per_month
+      - credits_used_this_period
+      - budget_period_key
+      - locale
+      - status
+      - last_evaluated_at
+      - last_query_id
+      - created_at
+      - updated_at
+      additionalProperties: false
+    WatchlistListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/WatchlistRecord'}
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    CreateWatchlistRequest:
+      type: object
+      properties:
+        name: {type: string, minLength: 1, maxLength: 120}
+        query: {type: object, additionalProperties: true}
+        trigger_kind: {enum: [price_below, price_above, low_credits, job_completed]}
+        threshold_cents: {type: [integer, 'null'], minimum: 0}
+        low_credits_threshold: {type: [integer, 'null'], minimum: 0}
+        schedule_mode: {enum: [passive_reuse, scheduled_refresh]}
+        billing_consent_accepted: {type: boolean}
+        max_credits_per_month: {type: integer, minimum: 0, maximum: 1000}
+        locale: {enum: [en, zh-CN]}
+      required: [name, trigger_kind, schedule_mode]
+      additionalProperties: false
+    CreateWatchlistResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            watchlist: {$ref: '#/components/schemas/WatchlistRecord'}
+            unsubscribe_token: {type: string}
+          required: [watchlist, unsubscribe_token]
+          additionalProperties: false
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    PatchWatchlistRequest:
+      type: object
+      properties:
+        name: {type: string, minLength: 1, maxLength: 120}
+        status: {enum: [active, paused]}
+        locale: {enum: [en, zh-CN]}
+        threshold_cents: {type: [integer, 'null'], minimum: 0}
+        low_credits_threshold: {type: [integer, 'null'], minimum: 0}
+        schedule_mode: {enum: [passive_reuse, scheduled_refresh]}
+        billing_consent_accepted: {type: boolean}
+        max_credits_per_month: {type: integer, minimum: 0, maximum: 1000}
+      additionalProperties: false
+    WatchlistResponse:
+      type: object
+      properties:
+        data: {$ref: '#/components/schemas/WatchlistRecord'}
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    WatchlistEvaluationResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            watchlist_id: *id002
+            evaluated: {type: boolean}
+            triggered: {type: boolean}
+            skipped_reason: {type: [string, 'null']}
+            event: {type: [object, 'null'], additionalProperties: true}
+            deliveries_queued: {type: integer, minimum: 0}
+            credits_charged: {type: integer, const: 0}
+          required: [watchlist_id, evaluated, triggered, skipped_reason, event, deliveries_queued, credits_charged]
+          additionalProperties: false
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    UnsubscribeAlertRequest:
+      type: object
+      properties:
+        token: {type: string, minLength: 16, maxLength: 256}
+      required: [token]
+      additionalProperties: false
+    UnsubscribeAlertResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            unsubscribed: {type: boolean}
+            watchlist_id: *id002
+          required: [unsubscribed, watchlist_id]
+          additionalProperties: false
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    WebhookEndpointRecord:
+      type: object
+      properties:
+        id: *id002
+        name: {type: string}
+        target_url: {type: string}
+        secret_prefix: {type: string}
+        event_types:
+          type: array
+          items: {enum: [price_alert, low_credits, job_completed]}
+        status: {enum: [active, paused, disabled]}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        revoked_at: {type: [string, 'null'], format: date-time}
+      required: [id, name, target_url, secret_prefix, event_types, status, created_at, updated_at, revoked_at]
+      additionalProperties: false
+    WebhookEndpointListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/WebhookEndpointRecord'}
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    CreateWebhookEndpointRequest:
+      type: object
+      properties:
+        name: {type: string, minLength: 1, maxLength: 120}
+        target_url: {type: string, minLength: 8, maxLength: 2048}
+        event_types:
+          type: array
+          items: {enum: [price_alert, low_credits, job_completed]}
+          minItems: 1
+          maxItems: 3
+      required: [name, target_url, event_types]
+      additionalProperties: false
+    CreateWebhookEndpointResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            endpoint: {$ref: '#/components/schemas/WebhookEndpointRecord'}
+            signing_secret: {type: string}
+          required: [endpoint, signing_secret]
+          additionalProperties: false
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    PatchWebhookEndpointRequest:
+      type: object
+      properties:
+        status: {enum: [active, paused, disabled]}
+        event_types:
+          type: array
+          items: {enum: [price_alert, low_credits, job_completed]}
+          minItems: 1
+          maxItems: 3
+      additionalProperties: false
+    WebhookEndpointResponse:
+      type: object
+      properties:
+        data: {$ref: '#/components/schemas/WebhookEndpointRecord'}
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    WebhookDeliveryRecord:
+      type: object
+      properties:
+        id: *id002
+        endpoint_id: *id002
+        alert_event_id: *id002
+        query_id: {type: [string, 'null']}
+        status: {enum: [pending, retry, delivered, dead_letter, cancelled_rights_revoked]}
+        attempts: {type: integer, minimum: 0, maximum: 5}
+        max_attempts: {type: integer, minimum: 1, maximum: 5}
+        next_attempt_at: {type: string, format: date-time}
+        last_http_status: {type: [integer, 'null']}
+        last_error: {type: [string, 'null']}
+        delivered_at: {type: [string, 'null'], format: date-time}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+      required:
+      - id
+      - endpoint_id
+      - alert_event_id
+      - query_id
+      - status
+      - attempts
+      - max_attempts
+      - next_attempt_at
+      - last_http_status
+      - last_error
+      - delivered_at
+      - created_at
+      - updated_at
+      additionalProperties: false
+    WebhookDeliveryListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/WebhookDeliveryRecord'}
         meta:
           type: object
           properties:

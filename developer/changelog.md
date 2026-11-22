@@ -1,5 +1,9 @@
 # SoldBench engineering changelog
 
+## 2026-11-22 — V1.5 saved watchlists, alerts, and signed webhooks (offline)
+
+OpenAPI 1.32.0 adds `/v1/watchlists*`, `/v1/alerts/unsubscribe`, and `/v1/webhooks*` (`TASK-048`, 0 extra credits in synthetic offline build). Scheduled refreshes require explicit `billing_consent_accepted=true` and a monthly credit cap (skipping over-budget evaluations without dispatching queries), switching notification locale preserves `canonical_query_hash` at 0 cost, outbound webhook URLs reject private/loopback/metadata targets (SSRF protection), deliveries carry replay-bounded `t=...,v1=...` HMAC-SHA256 signatures with bounded retries and dead-letter status, and any source revocation or one-click unsubscribe cancels pending deliveries with 0 dispatch.
+
 ## 2026-11-22 — V1.1 Hosted MCP OAuth 2.1/PKCE and WebAuthn Passkeys (offline)
 
 OpenAPI 1.31.0 adds Hosted MCP OAuth 2.1 discovery (`/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`), PKCE S256 consent & token endpoints (`/oauth/authorize`, `/oauth/token`, `/oauth/revoke`), per-client owner grant management (`/v1/oauth/grants*`), and WebAuthn Passkey management & sign-in (`/v1/auth/passkeys*`, `/auth/passkeys/login/*`, `TASK-044`, 0 query credits). Tokens enforce exact `redirect_uri`, `S256` PKCE verification, MCP resource audience binding, single-use authorization codes, client-isolated refresh token rotation with family revocation on replay, immediate revocation via grants/tokens, and source-rights preservation. Passkey sign-in validates ES256/Ed25519 signatures, single-use challenges, `rpIdHash`/origin binding, and monotonic `sign_count` without bypassing or downgrading existing TOTP/admin MFA policies.

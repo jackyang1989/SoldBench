@@ -188,7 +188,8 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
     assert.deepEqual(await migrate(db, "0036_best_offer_verifications.sql"), [
       "0036_best_offer_verifications.sql",
     ]);
-    assert.deepEqual(await migrate(db), ["0037_oauth_passkeys.sql"]);
+    assert.deepEqual(await migrate(db, "0037_oauth_passkeys.sql"), ["0037_oauth_passkeys.sql"]);
+    assert.deepEqual(await migrate(db), ["0038_alerts_webhooks.sql"]);
     assert.deepEqual(await migrate(db), []);
     const detailConstraints = await db.query(
       "SELECT conname FROM pg_constraint WHERE conrelid='collector_detail_jobs'::regclass ORDER BY conname",
@@ -231,6 +232,13 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
     );
     assert.ok(oauthPasskeyConstraints.rows.some((r) => r.conname === "oauth_tokens_scopes_check"));
     assert.ok(oauthPasskeyConstraints.rows.some((r) => r.conname === "user_passkeys_algorithm_check"));
+    const alertConstraints = await db.query(
+      "SELECT conname FROM pg_constraint WHERE conrelid IN ('watchlists'::regclass, 'webhook_endpoints'::regclass, 'webhook_deliveries'::regclass) ORDER BY conname",
+    );
+    assert.ok(alertConstraints.rows.some((r) => r.conname === "watchlists_schedule_mode_check"));
+    assert.ok(alertConstraints.rows.some((r) => r.conname === "watchlists_trigger_kind_check"));
+    assert.ok(alertConstraints.rows.some((r) => r.conname === "webhook_endpoints_event_types_check"));
+    assert.ok(alertConstraints.rows.some((r) => r.conname === "webhook_deliveries_status_check"));
     const mediaColumns = await db.query(
       "SELECT column_name FROM information_schema.columns WHERE table_name='listing_images'",
     );
@@ -262,7 +270,7 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
     const tables = await db.query(
       "SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema='public'",
     );
-    assert.equal(tables.rows[0].n, 92);
+    assert.equal(tables.rows[0].n, 96);
     await assert.rejects(
       transaction(db, async (c) => {
         await c.query("INSERT INTO users(email,password_hash) VALUES('rollback@example.test','fixture')");
