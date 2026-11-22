@@ -1,5 +1,9 @@
 # SoldBench engineering changelog
 
+## 2026-11-22 — V1.1 merchant batch lookup and CSV workbench (offline)
+
+OpenAPI 1.28.0 adds the offline `/v1/batches*` endpoints (`TASK-045`, maximum 20 items per batch, 1 active batch per account) for dry-run deduplication/credit-cap previews, asynchronous batch submission, versioned cancellation of remaining child jobs, explicit atomic claim of ready items via the existing per-query settlement engine, and formula-safe CSV/JSON export. Unclaimed, failed, cancelled, and revoked items withhold prices rather than filling zero. Live source clearance remains uncertified.
+
 ## 2026-11-19 — bilingual publication and offline payment recovery
 
 The local operator content studio can review, publish, restore and withdraw bilingual announcements, FAQs and guides. Separate administrator sessions author and approve revisions. The published version is stored in PostgreSQL and shared across both languages. OpenAPI 1.19 also documents the fixture-only operator command for late payment confirmation. It preserves the original verified event and uses the existing settlement transaction and audit rules.

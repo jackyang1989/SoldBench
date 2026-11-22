@@ -10,6 +10,7 @@ import { compress } from "hono/compress";
 import { parseAccept } from "hono/utils/accept";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { mountAuth } from "./auth.ts";
+import { mountBatches } from "./batches.ts";
 import { mountCatalog } from "./catalog.ts";
 import { mountDeveloper } from "./developer.ts";
 import { editorialNotFound, mountEditorial, siteBlocks } from "./editorial.ts";
@@ -158,6 +159,7 @@ export function createApp(
     }
   }
   mountQueries(app, config, services.auth, services.query);
+  mountBatches(app, config, services.auth, services.query);
   mountMcp(app, config, services.auth, services.query);
   mountEditorial(app, db, services.query);
   mountDeveloper(app);

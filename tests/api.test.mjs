@@ -154,7 +154,17 @@ test("developer resource groups navigate to both official local language variant
   const spec = await (await app.request("/openapi.json")).json();
   assert.equal(inventory.schema_version, spec.info.version);
   assert.equal(inventory.operations.length, Object.values(spec.paths).flatMap(Object.keys).length);
-  for (const path of ["/mcp", "/admin/recovery", "/admin/support", "/v1/categories", "/billing/offers"]) {
+  for (const path of [
+    "/mcp",
+    "/admin/recovery",
+    "/admin/support",
+    "/v1/categories",
+    "/billing/offers",
+    "/v1/batches",
+    "/v1/batches/preview",
+    "/v1/batches/{id}/claim",
+    "/v1/batches/{id}/export",
+  ]) {
     assert.ok(
       inventory.operations.some((op) => op.path === path && op.status === "local_route_present"),
       path,

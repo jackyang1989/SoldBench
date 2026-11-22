@@ -37,6 +37,7 @@ test("prototype-based pages serve both languages, valid private deep links and s
       "/account",
       "/account/queries",
       "/account/saved",
+      "/account/batches",
       "/account/usage",
       "/account/logs",
       "/account/keys",
@@ -910,6 +911,34 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByRole("button", { name: "Refresh order" }).click();
     await page.getByText(/paypal.*Confirmed/).waitFor();
     await page.getByRole("cell", { name: "Succeeded", exact: true }).waitFor();
+    await page.goto(`${origin}/account/batches`);
+    await page.getByRole("heading", { name: "Batch lookup & CSV", exact: true }).waitFor();
+    const batchCsv = page.locator("[data-batch-csv]");
+    await batchCsv.fill(`q,limit,window_days\n${x.q.q},12,90\n${x.q.q},12,90\nUncovered Batch Row,50,90\n`);
+    await page.getByRole("button", { name: "Preview dedupe & cost", exact: true }).click();
+    await page.getByText(/Duplicates: 1/).waitFor();
+    await page.getByRole("button", { name: "Submit batch", exact: true }).click();
+    await page.getByText(/Batch submitted without upfront credit charge/).waitFor();
+    await page.getByRole("button", { name: "Cancel remaining", exact: true }).click();
+    await page.getByText(/Remaining queued items cancelled/).waitFor();
+    await page.getByRole("link", { name: "简体中文" }).click();
+    await page.getByRole("heading", { name: "批量查价与 CSV", exact: true }).waitFor();
+    await page.getByRole("cell", { name: "已取消", exact: true }).first().waitFor();
+    await page.getByRole("link", { name: "English", exact: true }).click();
+    await page.getByRole("heading", { name: "Batch lookup & CSV", exact: true }).waitFor();
+    await batchCsv.fill(`q,limit,window_days\n${x.q.q},15,90\n${x.q.q},15,90\n`);
+    await page.getByRole("button", { name: "Submit batch", exact: true }).click();
+    await page.getByText(/Batch submitted without upfront credit charge/).waitFor();
+    while (await x.query.workOnce("batch-browser-worker")) {
+      // finish queued item
+    }
+    await page.getByRole("button", { name: "Refresh status", exact: true }).click();
+    await page.getByRole("button", { name: /Claim ready/ }).click();
+    await page.getByText(/Claimed 1 queries \(1 credits charged now\)/).waitFor();
+    const batchDownload = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Export CSV", exact: true }).click();
+    const batchCsvExport = await readFile(await (await batchDownload).path(), "utf8");
+    assert.match(batchCsvExport, new RegExp(x.q.q));
     await page.goto(`${origin}/account/security`);
     await page.getByRole("heading", { name: "Active sessions" }).waitFor();
     await page.getByRole("button", { name: "Set up authenticator" }).click();

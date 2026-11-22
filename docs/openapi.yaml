@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.27.0
+  version: 1.28.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -7685,6 +7685,194 @@ paths:
       x-task: TASK-029
       x-roles: [owner]
       x-credit-policy: '0'
+  /v1/batches/preview:
+    post:
+      operationId: previewBatchQueries
+      summary: Normalize, deduplicate, and estimate maximum credits for a CSV or JSON batch (1-20 items).
+      security: *id001
+      parameters: [*content_language]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/BatchPreviewRequest'}
+      responses:
+        '200':
+          description: Dry-run validation, in-batch deduplication, 10-minute reuse check, and upper-bound credit estimate.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BatchPreviewResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '415': *content_error
+        '429': *content_error
+      x-task: TASK-045
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
+  /v1/batches:
+    get:
+      operationId: listBatchQueries
+      summary: List the owner's batch lookup jobs (cursor-paginated).
+      security: *id001
+      parameters: [*content_language, *id005, *id006]
+      responses:
+        '200':
+          description: Cursor-paginated owner batch summaries.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BatchListResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '429': *content_error
+      x-task: TASK-045
+      x-roles: [owner]
+      x-scopes: [jobs:read]
+      x-credit-policy: '0'
+    post:
+      operationId: createBatchQuery
+      summary: Submit an asynchronous merchant batch of 1 to 20 sold queries (1 active batch per owner).
+      security: *id001
+      parameters: [*content_language, *id003]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateBatchRequest'}
+      responses:
+        '202':
+          description: Batch accepted or idempotently replayed; no credits charged at submission.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BatchCreatedResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '409': *content_error
+        '415': *content_error
+        '429': *content_error
+      x-task: TASK-045
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0; async batch submission reuses existing dedupe/submit orchestration with zero upfront deduction.'
+  /v1/batches/{id}:
+    get:
+      operationId: getBatchQuery
+      summary: Read batch progress and delivered item summaries (unclaimed item stats remain withheld).
+      security: *id001
+      parameters: [*content_language, &batch_id {name: id, in: path, required: true, schema: *id002}]
+      responses:
+        '200':
+          description: Current batch and per-item status after verifying owner and source rights.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BatchViewResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '429': *content_error
+      x-task: TASK-045
+      x-roles: [owner]
+      x-scopes: [jobs:read]
+      x-credit-policy: '0'
+  /v1/batches/{id}/cancel:
+    post:
+      operationId: cancelBatchQuery
+      summary: Cancel still-queued or running child jobs in an active batch without altering completed items.
+      security: *id001
+      parameters: [*content_language, *batch_id, *id003]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CancelBatchRequest'}
+      responses:
+        '200':
+          description: Cancelled batch state or idempotent replay.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BatchViewResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '409': *content_error
+        '415': *content_error
+        '429': *content_error
+      x-task: TASK-045
+      x-roles: [owner]
+      x-scopes: [jobs:read]
+      x-credit-policy: '0'
+  /v1/batches/{id}/claim:
+    post:
+      operationId: claimBatchQuery
+      summary: Explicitly claim all or selected ready items in a batch using atomic per-query settlement.
+      security: *id001
+      parameters: [*content_language, *batch_id, *id003]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ClaimBatchRequest'}
+      responses:
+        '200':
+          description: Per-query atomic claim outcomes including partial failures without double-charging.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ClaimBatchResponse'}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '409': *content_error
+        '415': *content_error
+        '429': *content_error
+      x-task: TASK-045
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0..20; delegates each unique ready_to_claim query to POST /v1/sold/{id}/claim settlement.'
+  /v1/batches/{id}/export:
+    post:
+      operationId: exportBatchQuery
+      summary: Export authorized delivered batch summaries as JSON or formula-safe CSV (0 credits).
+      security: *id001
+      parameters: [*content_language, *batch_id]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ExportBatchRequest'}
+      responses:
+        '200':
+          description: Private non-cacheable JSON or formula-guarded CSV batch export with unclaimed/revoked prices left null.
+          headers:
+            Cache-Control:
+              schema: {type: string, const: 'private, no-store'}
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data_mode: {const: synthetic_fixture}
+                  exported_at: {type: string, format: date-time}
+                  batch: {$ref: '#/components/schemas/BatchView'}
+                required: [data_mode, exported_at, batch]
+                additionalProperties: false
+            text/csv:
+              schema: {type: string}
+        '400': *content_error
+        '401': *content_error
+        '403': *content_error
+        '404': *content_error
+        '415': *content_error
+        '429': *content_error
+      x-task: TASK-045
+      x-roles: [owner]
+      x-scopes: [sold:read]
+      x-credit-policy: '0'
 components:
   securitySchemes:
     SupportReceipt:
@@ -12123,5 +12311,341 @@ components:
       required:
       - data
       - meta
+      additionalProperties: false
+    BatchPreviewRequest:
+      type: object
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            type: object
+            additionalProperties: true
+        csv:
+          type: string
+          minLength: 1
+          maxLength: 65536
+      additionalProperties: false
+    BatchPreviewItem:
+      type: object
+      properties:
+        item_index: {type: integer, minimum: 0, maximum: 19}
+        input_query: {type: object, additionalProperties: true}
+        normalized_query:
+          oneOf:
+          - {$ref: '#/components/schemas/SoldQuery'}
+          - {type: 'null'}
+        canonical_query_hash: {type: [string, 'null']}
+        valid: {type: boolean}
+        deduplicated_in_batch: {type: boolean}
+        primary_item_index: {type: [integer, 'null'], minimum: 0, maximum: 19}
+        reusable: {type: boolean}
+        covered_offline: {type: boolean}
+        estimated_max_credits: {type: integer, enum: [0, 1]}
+        error_code: {type: [string, 'null']}
+        error_message: {type: [string, 'null']}
+      required:
+      - item_index
+      - input_query
+      - normalized_query
+      - canonical_query_hash
+      - valid
+      - deduplicated_in_batch
+      - primary_item_index
+      - reusable
+      - covered_offline
+      - estimated_max_credits
+      - error_code
+      - error_message
+      additionalProperties: false
+    BatchPreviewResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            max_items_allowed: {type: integer, const: 20}
+            max_active_batches_per_owner: {type: integer, const: 1}
+            total_rows: {type: integer, minimum: 1, maximum: 20}
+            valid_rows: {type: integer, minimum: 0, maximum: 20}
+            unique_executable_queries: {type: integer, minimum: 0, maximum: 20}
+            duplicate_rows: {type: integer, minimum: 0, maximum: 20}
+            invalid_rows: {type: integer, minimum: 0, maximum: 20}
+            reusable_queries: {type: integer, minimum: 0, maximum: 20}
+            max_estimated_credits: {type: integer, minimum: 0, maximum: 20}
+            current_available_credits: {type: integer, minimum: 0}
+            sufficient_credits_for_max: {type: boolean}
+            items:
+              type: array
+              minItems: 1
+              maxItems: 20
+              items: {$ref: '#/components/schemas/BatchPreviewItem'}
+          required:
+          - max_items_allowed
+          - max_active_batches_per_owner
+          - total_rows
+          - valid_rows
+          - unique_executable_queries
+          - duplicate_rows
+          - invalid_rows
+          - reusable_queries
+          - max_estimated_credits
+          - current_available_credits
+          - sufficient_credits_for_max
+          - items
+          additionalProperties: false
+        meta: {$ref: '#/components/schemas/BasicMeta'}
+      required: [data, meta]
+      additionalProperties: false
+    CreateBatchRequest:
+      type: object
+      properties:
+        name: {type: string, minLength: 1, maxLength: 120}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            type: object
+            additionalProperties: true
+        csv: {type: string, minLength: 1, maxLength: 65536}
+      additionalProperties: false
+    BatchStatsSummary:
+      type: object
+      properties:
+        n_total: {type: integer, minimum: 0}
+        n_comparable: {type: integer, minimum: 0}
+        n_price_verified: {type: integer, minimum: 0}
+        median_cents: {type: [integer, 'null']}
+        p25_cents: {type: [integer, 'null']}
+        p75_cents: {type: [integer, 'null']}
+        trimmed_mean_cents: {type: [integer, 'null']}
+      required:
+      - n_total
+      - n_comparable
+      - n_price_verified
+      - median_cents
+      - p25_cents
+      - p75_cents
+      - trimmed_mean_cents
+      additionalProperties: false
+    BatchItemView:
+      type: object
+      properties:
+        item_index: {type: integer, minimum: 0, maximum: 19}
+        input_query: {type: object, additionalProperties: true}
+        canonical_query_hash: {type: [string, 'null']}
+        deduplicated_in_batch: {type: boolean}
+        primary_item_index: {type: [integer, 'null'], minimum: 0, maximum: 19}
+        query_id: {type: [string, 'null'], format: uuid}
+        job_id: {type: [string, 'null'], format: uuid}
+        status: {enum: [queued, running, ready_to_claim, delivered, failed, cancelled, expired]}
+        reused: {type: boolean}
+        claimable: {type: boolean}
+        potential_credits: {type: integer, enum: [0, 1]}
+        credits_charged: {type: integer, enum: [0, 1]}
+        rights_unavailable: {type: boolean}
+        freshness_state: {type: [string, 'null'], enum: [fresh, stale, expired, 'null']}
+        data_as_of: {type: [string, 'null'], format: date-time}
+        error_code: {type: [string, 'null']}
+        error_message: {type: [string, 'null']}
+        stats:
+          oneOf:
+          - {$ref: '#/components/schemas/BatchStatsSummary'}
+          - {type: 'null'}
+      required:
+      - item_index
+      - input_query
+      - canonical_query_hash
+      - deduplicated_in_batch
+      - primary_item_index
+      - query_id
+      - job_id
+      - status
+      - reused
+      - claimable
+      - potential_credits
+      - credits_charged
+      - rights_unavailable
+      - freshness_state
+      - data_as_of
+      - error_code
+      - error_message
+      - stats
+      additionalProperties: false
+    BatchView:
+      type: object
+      properties:
+        id: *id002
+        name: {type: string, minLength: 1, maxLength: 120}
+        status: {enum: [queued, running, completed, partial, failed, cancelled]}
+        version: {type: integer, minimum: 1}
+        total_items: {type: integer, minimum: 1, maximum: 20}
+        unique_query_count: {type: integer, minimum: 1, maximum: 20}
+        estimated_max_credits: {type: integer, minimum: 0, maximum: 20}
+        total_credits_charged: {type: integer, minimum: 0, maximum: 20}
+        counts:
+          type: object
+          properties:
+            queued: {type: integer, minimum: 0}
+            running: {type: integer, minimum: 0}
+            ready_to_claim: {type: integer, minimum: 0}
+            delivered: {type: integer, minimum: 0}
+            failed: {type: integer, minimum: 0}
+            cancelled: {type: integer, minimum: 0}
+            expired: {type: integer, minimum: 0}
+          required: [queued, running, ready_to_claim, delivered, failed, cancelled, expired]
+          additionalProperties: false
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        completed_at: {type: [string, 'null'], format: date-time}
+        cancelled_at: {type: [string, 'null'], format: date-time}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items: {$ref: '#/components/schemas/BatchItemView'}
+      required:
+      - id
+      - name
+      - status
+      - version
+      - total_items
+      - unique_query_count
+      - estimated_max_credits
+      - total_credits_charged
+      - counts
+      - created_at
+      - updated_at
+      - completed_at
+      - cancelled_at
+      - items
+      additionalProperties: false
+    BatchViewResponse:
+      type: object
+      properties:
+        data: {$ref: '#/components/schemas/BatchView'}
+        meta: {$ref: '#/components/schemas/BasicMeta'}
+      required: [data, meta]
+      additionalProperties: false
+    BatchCreatedResponse:
+      type: object
+      properties:
+        data: {$ref: '#/components/schemas/BatchView'}
+        meta:
+          type: object
+          properties:
+            request_id: {type: string, minLength: 1}
+            credits_charged: {type: integer, const: 0}
+            reused: {type: boolean}
+          required: [request_id, credits_charged, reused]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    BatchListResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            items:
+              type: array
+              items:
+                type: object
+                properties:
+                  id: *id002
+                  name: {type: string, minLength: 1, maxLength: 120}
+                  status: {enum: [queued, running, completed, partial, failed, cancelled]}
+                  version: {type: integer, minimum: 1}
+                  total_items: {type: integer, minimum: 1, maximum: 20}
+                  unique_query_count: {type: integer, minimum: 1, maximum: 20}
+                  estimated_max_credits: {type: integer, minimum: 0, maximum: 20}
+                  created_at: {type: string, format: date-time}
+                  updated_at: {type: string, format: date-time}
+                  completed_at: {type: [string, 'null'], format: date-time}
+                  cancelled_at: {type: [string, 'null'], format: date-time}
+                required:
+                - id
+                - name
+                - status
+                - version
+                - total_items
+                - unique_query_count
+                - estimated_max_credits
+                - created_at
+                - updated_at
+                - completed_at
+                - cancelled_at
+                additionalProperties: false
+            next_cursor: {type: [string, 'null']}
+          required: [items, next_cursor]
+          additionalProperties: false
+        meta: {$ref: '#/components/schemas/BasicMeta'}
+      required: [data, meta]
+      additionalProperties: false
+    CancelBatchRequest:
+      type: object
+      properties:
+        version: {type: integer, minimum: 1}
+      required: [version]
+      additionalProperties: false
+    ClaimBatchRequest:
+      type: object
+      properties:
+        item_indices:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items: {type: integer, minimum: 0, maximum: 19}
+      additionalProperties: false
+    ClaimBatchResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            batch: {$ref: '#/components/schemas/BatchView'}
+            claimed_query_ids:
+              type: array
+              items: *id002
+            already_delivered_query_ids:
+              type: array
+              items: *id002
+            failed_items:
+              type: array
+              items:
+                type: object
+                properties:
+                  item_index: {type: integer, minimum: 0, maximum: 19}
+                  query_id: *id002
+                  code: {type: string}
+                  message: {type: string}
+                required: [item_index, query_id, code, message]
+                additionalProperties: false
+            credits_charged_now: {type: integer, minimum: 0, maximum: 20}
+            batch_total_credits_charged: {type: integer, minimum: 0, maximum: 20}
+          required:
+          - batch
+          - claimed_query_ids
+          - already_delivered_query_ids
+          - failed_items
+          - credits_charged_now
+          - batch_total_credits_charged
+          additionalProperties: false
+        meta:
+          type: object
+          properties:
+            request_id: {type: string, minLength: 1}
+            credits_charged: {type: integer, minimum: 0, maximum: 20}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    ExportBatchRequest:
+      type: object
+      properties:
+        format: {enum: [csv, json]}
+      required: [format]
       additionalProperties: false
 x-design-evidence: docs/adr/ADR-12.md; docs/contracts/check_contracts.py; not production approval

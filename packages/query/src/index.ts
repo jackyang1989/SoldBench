@@ -1118,6 +1118,7 @@ export function safeCsvCell(value: unknown) {
   return csv(value);
 }
 
+export * from "./batch.ts";
 export { PublicResults } from "./public-results.ts";
 export * from "./request-audit.ts";
 export * from "./research.ts";

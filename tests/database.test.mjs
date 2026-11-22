@@ -182,13 +182,19 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
     assert.deepEqual(await migrate(db, "0032_collector_supervisor_state.sql"), [
       "0032_collector_supervisor_state.sql",
     ]);
-    assert.deepEqual(await migrate(db), ["0033_collector_detail_jobs.sql"]);
+    assert.deepEqual(await migrate(db, "0033_collector_detail_jobs.sql"), ["0033_collector_detail_jobs.sql"]);
+    assert.deepEqual(await migrate(db), ["0034_batch_queries.sql"]);
     assert.deepEqual(await migrate(db), []);
     const detailConstraints = await db.query(
       "SELECT conname FROM pg_constraint WHERE conrelid='collector_detail_jobs'::regclass ORDER BY conname",
     );
     assert.ok(detailConstraints.rows.some((r) => r.conname === "collector_detail_jobs_status_check"));
     assert.ok(detailConstraints.rows.some((r) => r.conname === "collector_detail_jobs_check1"));
+    const batchConstraints = await db.query(
+      "SELECT conname FROM pg_constraint WHERE conrelid IN ('batch_queries'::regclass, 'batch_query_items'::regclass) ORDER BY conname",
+    );
+    assert.ok(batchConstraints.rows.some((r) => r.conname === "batch_queries_status_check"));
+    assert.ok(batchConstraints.rows.some((r) => r.conname === "batch_query_items_submit_status_check"));
     const mediaColumns = await db.query(
       "SELECT column_name FROM information_schema.columns WHERE table_name='listing_images'",
     );
@@ -220,7 +226,7 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
     const tables = await db.query(
       "SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema='public'",
     );
-    assert.equal(tables.rows[0].n, 81);
+    assert.equal(tables.rows[0].n, 83);
     await assert.rejects(
       transaction(db, async (c) => {
         await c.query("INSERT INTO users(email,password_hash) VALUES('rollback@example.test','fixture')");

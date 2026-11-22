@@ -169,6 +169,14 @@ function report(error) {
       "验证码无效、已过期或已使用。请请求新验证码后重试。",
     ),
     reauthentication_required: t("Sign in again to continue this action.", "请重新登录后继续此操作。"),
+    state_conflict: t(
+      "An active batch or state conflict prevents this action. Refresh and try again.",
+      "存在进行中的批量任务或状态冲突。请刷新后重试。",
+    ),
+    idempotency_conflict: t(
+      "This request key was already used for different parameters.",
+      "此幂等键已被用于不同的请求参数。",
+    ),
   };
   const retry = Number(error.retryAfter);
   const text =
@@ -3745,6 +3753,357 @@ async function showSavedResearch() {
   await refresh();
 }
 
+async function showBatchWorkbench() {
+  const statusLabel = (s) =>
+    ({
+      queued: t("Queued", "排队中"),
+      running: t("Running", "计算中"),
+      ready_to_claim: t("Ready to claim", "待显式领取"),
+      delivered: t("Delivered", "已交付"),
+      failed: t("Failed", "失败"),
+      cancelled: t("Cancelled", "已取消"),
+      expired: t("Expired", "已过期"),
+      completed: t("Completed", "已完成"),
+      partial: t("Partial", "部分完成"),
+    })[s] ?? s;
+
+  const intro = element(
+    "p",
+    t(
+      "Upload or paste CSV (max 20 rows, 1 active batch per account). Preview deduplication and upper-bound credits before submitting; claim ready items explicitly with zero upfront deduction.",
+      "上传或粘贴 CSV（每次最多 20 行、每账户仅限 1 个活跃批量任务）。提交前先预览去重与最大预估额度；提交不提前扣费，就绪后显式领取结算。",
+    ),
+    "notice",
+  );
+
+  const formCard = element("section", undefined, "card result-card");
+  formCard.append(element("h2", t("CSV batch input", "CSV 批量输入")));
+  const form = element("form");
+  const nameLabel = element("label", t("Batch name (optional)", "批量名称（可选）"));
+  const nameInput = element("input");
+  nameInput.maxLength = 120;
+  nameInput.placeholder = t("e.g. Handheld inventory check", "例如：掌机库存复核");
+  nameLabel.append(nameInput);
+
+  const fileLabel = element("label", t("Choose CSV file", "选择 CSV 文件"));
+  const fileInput = element("input");
+  fileInput.type = "file";
+  fileInput.accept = ".csv,text/csv";
+  fileLabel.append(fileInput);
+
+  const csvLabel = element("label", t("CSV rows (header must include q)", "CSV 内容（表头须包含 q）"));
+  const csvArea = element("textarea");
+  csvArea.rows = 6;
+  csvArea.setAttribute("data-batch-csv", "");
+  csvArea.value =
+    "q,condition,window_days\nNintendo Switch OLED,like_new,90\nNintendo Switch OLED,like_new,90\n";
+  csvLabel.append(csvArea);
+
+  fileInput.addEventListener("change", () => {
+    const file = fileInput.files?.[0];
+    if (!file) return;
+    run(async () => {
+      csvArea.value = await file.text();
+    });
+  });
+
+  const btnRow = element("div", undefined, "actions");
+  const sampleBtn = element("button", t("Load sample CSV", "加载示例 CSV"), "btn ghost");
+  sampleBtn.type = "button";
+  sampleBtn.addEventListener("click", () => {
+    csvArea.value =
+      "q,category,window_days\nNintendo Game Boy,video_games,90\nNintendo Game Boy,video_games,90\nUncovered Item,video_games,90\n";
+  });
+  const previewBtn = element("button", t("Preview dedupe & cost", "预览去重与额度上限"), "btn ghost");
+  previewBtn.type = "button";
+  const submitBtn = element("button", t("Submit batch", "提交批量任务"), "btn brand");
+  submitBtn.type = "submit";
+  btnRow.append(sampleBtn, previewBtn, submitBtn);
+  form.append(nameLabel, fileLabel, csvLabel, btnRow);
+
+  const previewBox = element("div");
+  previewBox.setAttribute("data-batch-preview", "");
+  formCard.append(form, previewBox);
+
+  const activeBox = element("section", undefined, "card result-card");
+  activeBox.setAttribute("data-batch-detail", "");
+  const listBox = element("section", undefined, "card result-card");
+  listBox.setAttribute("data-batch-list", "");
+  output.append(intro, formCard, activeBox, listBox);
+
+  const csrf = async () => (await session())?.csrf_token;
+  let activeId = safeId(current().searchParams.get("batch") ?? "");
+  let submitAttempt = null;
+  let claimAttempt = null;
+  let cancelAttempt = null;
+
+  function renderPreview(preview) {
+    previewBox.replaceChildren();
+    const summary = element(
+      "p",
+      t(
+        `Rows: ${preview.total_rows} · Valid: ${preview.valid_rows} · Unique: ${preview.unique_executable_queries} · Duplicates: ${preview.duplicate_rows} · Reusable: ${preview.reusable_queries} · Est. max credits: ${preview.max_estimated_credits} (available: ${preview.current_available_credits})`,
+        `总行数：${preview.total_rows} · 有效：${preview.valid_rows} · 唯一查询：${preview.unique_executable_queries} · 批内重复：${preview.duplicate_rows} · 10分钟复用：${preview.reusable_queries} · 预计上限：${preview.max_estimated_credits} credits（可用余额：${preview.current_available_credits}）`,
+      ),
+      "notice",
+    );
+    previewBox.append(summary);
+    const list = element("ul");
+    for (const item of preview.items) {
+      const text = item.valid
+        ? `#${item.item_index + 1} ${item.normalized_query?.q ?? ""} — ${
+            item.deduplicated_in_batch
+              ? t(`duplicate of #${item.primary_item_index + 1}`, `重复 #${item.primary_item_index + 1}`)
+              : item.reusable
+                ? t("10m reuse", "10分钟复用")
+                : item.covered_offline
+                  ? t("covered offline", "离线语料覆盖")
+                  : t("uncovered offline", "无离线语料")
+          } · ${t("max credits", "预计上限")}: ${item.estimated_max_credits}`
+        : `#${item.item_index + 1} — ${t("invalid", "无效")}: ${item.error_code ?? "invalid_parameter"}`;
+      list.append(element("li", text, "small"));
+    }
+    previewBox.append(list);
+  }
+
+  function renderBatch(batch) {
+    activeBox.replaceChildren();
+    activeBox.append(element("h2", `${batch.name} · ${statusLabel(batch.status)}`));
+    activeBox.append(
+      element(
+        "p",
+        t(
+          `Items: ${batch.total_items} (${batch.unique_query_count} unique) · Est. max credits: ${batch.estimated_max_credits} · Charged so far: ${batch.total_credits_charged}`,
+          `条目：${batch.total_items}（唯一 ${batch.unique_query_count}）· 预计上限：${batch.estimated_max_credits} · 已实际扣费：${batch.total_credits_charged}`,
+        ),
+        "small",
+      ),
+    );
+    const bar = element("div", undefined, "actions");
+    const refreshBtn = button(t("Refresh status", "刷新进度"), () =>
+      run(async () => {
+        await loadBatch(batch.id);
+      }),
+    );
+    refreshBtn.className = "btn ghost";
+    bar.append(refreshBtn);
+
+    const readyCount = batch.items.filter((i) => i.claimable).length;
+    if (readyCount > 0) {
+      const maxPotential = batch.items.reduce((sum, i) => (i.claimable ? sum + i.potential_credits : sum), 0);
+      const claimBtn = button(
+        t(
+          `Claim ready (${readyCount} items, up to ${maxPotential} credits)`,
+          `领取就绪结果（${readyCount} 项，最多 ${maxPotential} credits）`,
+        ),
+        () =>
+          run(async () => {
+            claimBtn.disabled = true;
+            try {
+              const shape = `${batch.id}:${batch.items.map((i) => `${i.item_index}:${i.status}`).join(",")}`;
+              if (claimAttempt?.shape !== shape) claimAttempt = { shape, key: crypto.randomUUID() };
+              const res = await post(`/v1/batches/${batch.id}/claim`, {}, await csrf(), claimAttempt.key);
+              message(
+                t(
+                  `Claimed ${res.data.claimed_query_ids.length} queries (${res.data.credits_charged_now} credits charged now).`,
+                  `已领取 ${res.data.claimed_query_ids.length} 项查询（本次扣费 ${res.data.credits_charged_now} credits）。`,
+                ),
+              );
+              await loadAll();
+            } finally {
+              claimBtn.disabled = false;
+            }
+          }),
+      );
+      bar.append(claimBtn);
+    }
+
+    if (["queued", "running"].includes(batch.status)) {
+      const cancelBtn = button(t("Cancel remaining", "取消剩余任务"), () =>
+        run(async () => {
+          cancelBtn.disabled = true;
+          try {
+            const shape = `${batch.id}:${batch.version}`;
+            if (cancelAttempt?.shape !== shape) cancelAttempt = { shape, key: crypto.randomUUID() };
+            await post(
+              `/v1/batches/${batch.id}/cancel`,
+              { version: batch.version },
+              await csrf(),
+              cancelAttempt.key,
+            );
+            message(t("Remaining queued items cancelled.", "已取消剩余排队条目。"));
+            await loadAll();
+          } finally {
+            cancelBtn.disabled = false;
+          }
+        }),
+      );
+      cancelBtn.className = "btn ghost";
+      bar.append(cancelBtn);
+    }
+
+    for (const fmt of ["csv", "json"]) {
+      const exportBtn = button(t(`Export ${fmt.toUpperCase()}`, `导出 ${fmt.toUpperCase()}`), () =>
+        run(async () => {
+          exportBtn.disabled = true;
+          try {
+            const out = await post(
+              `/v1/batches/${batch.id}/export`,
+              { format: fmt },
+              await csrf(),
+              undefined,
+              fmt === "csv",
+            );
+            const blob =
+              fmt === "csv" ? out : new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
+            download(blob, `soldbench-batch-${batch.id}.${fmt}`);
+          } finally {
+            exportBtn.disabled = false;
+          }
+        }),
+      );
+      exportBtn.className = "btn ghost";
+      bar.append(exportBtn);
+    }
+    activeBox.append(bar);
+
+    const table = element("div", undefined, "table-scroll");
+    const inner = element("table");
+    const head = element("tr");
+    for (const col of [
+      t("#", "序号"),
+      t("Query", "查询"),
+      t("Status", "状态"),
+      t("Median", "中位价"),
+      t("Verified n", "有效样本"),
+      t("Credits", "扣费"),
+      t("Action", "操作"),
+    ]) {
+      head.append(element("th", col));
+    }
+    const thead = element("thead");
+    thead.append(head);
+    inner.append(thead);
+    const tbody = element("tbody");
+    for (const item of batch.items) {
+      const tr = element("tr");
+      tr.append(element("td", String(item.item_index + 1)));
+      tr.append(element("td", String(item.input_query?.q ?? "")));
+      const statusText = item.rights_unavailable
+        ? t("Rights unavailable", "权限已不可用")
+        : `${statusLabel(item.status)}${item.error_code ? ` (${item.error_code})` : ""}`;
+      tr.append(element("td", statusText));
+      tr.append(element("td", item.stats ? amount(item.stats.median_cents) : "—"));
+      tr.append(element("td", item.stats ? String(item.stats.n_price_verified) : "—"));
+      tr.append(element("td", String(item.credits_charged)));
+      const actCell = element("td");
+      if (item.claimable && item.query_id) {
+        const oneBtn = button(
+          t(`Claim (${item.potential_credits})`, `领取 (${item.potential_credits})`),
+          () =>
+            run(async () => {
+              oneBtn.disabled = true;
+              try {
+                const res = await post(
+                  `/v1/batches/${batch.id}/claim`,
+                  { item_indices: [item.item_index] },
+                  await csrf(),
+                  crypto.randomUUID(),
+                );
+                message(
+                  t(
+                    `Item #${item.item_index + 1} processed (${res.data.credits_charged_now} credits charged).`,
+                    `第 #${item.item_index + 1} 项已处理（本次扣费 ${res.data.credits_charged_now}）。`,
+                  ),
+                );
+                await loadAll();
+              } finally {
+                oneBtn.disabled = false;
+              }
+            }),
+        );
+        oneBtn.className = "btn ghost";
+        actCell.append(oneBtn);
+      } else if (item.status === "delivered" && safeId(item.query_id) && !item.rights_unavailable) {
+        actCell.append(link(t("Open result", "查看结果"), `${prefix}/results/${item.query_id}`));
+      } else {
+        actCell.textContent = "—";
+      }
+      tr.append(actCell);
+      tbody.append(tr);
+    }
+    inner.append(tbody);
+    table.append(inner);
+    activeBox.append(table);
+  }
+
+  async function loadBatch(id) {
+    const { data } = await api(`/v1/batches/${id}`);
+    activeId = data.id;
+    renderBatch(data);
+  }
+
+  async function loadAll() {
+    const { data } = await api("/v1/batches");
+    listBox.replaceChildren(element("h2", t("Recent batches", "近期批量任务")));
+    if (!data.items.length) {
+      listBox.append(element("p", t("No batches yet.", "暂无批量任务。"), "notice"));
+      activeBox.replaceChildren();
+      return;
+    }
+    const ul = element("ul");
+    for (const b of data.items) {
+      const li = element("li");
+      const open = button(`${b.name} (${statusLabel(b.status)} · ${b.total_items})`, () =>
+        run(async () => {
+          await loadBatch(b.id);
+        }),
+      );
+      open.className = "btn ghost";
+      li.append(open);
+      ul.append(li);
+    }
+    listBox.append(ul);
+    const target = activeId && data.items.some((b) => b.id === activeId) ? activeId : data.items[0].id;
+    await loadBatch(target);
+  }
+
+  previewBtn.addEventListener("click", () =>
+    run(async () => {
+      previewBtn.disabled = true;
+      try {
+        const res = await post("/v1/batches/preview", { csv: csvArea.value }, await csrf());
+        renderPreview(res.data);
+      } finally {
+        previewBtn.disabled = false;
+      }
+    }),
+  );
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    run(async () => {
+      submitBtn.disabled = true;
+      try {
+        const payload = {
+          ...(nameInput.value.trim() ? { name: nameInput.value.trim() } : {}),
+          csv: csvArea.value,
+        };
+        const shape = JSON.stringify(payload);
+        if (submitAttempt?.shape !== shape) submitAttempt = { shape, key: crypto.randomUUID() };
+        const res = await post("/v1/batches", payload, await csrf(), submitAttempt.key);
+        activeId = res.data.id;
+        message(t("Batch submitted without upfront credit charge.", "批量任务已提交（尚未扣费）。"));
+        await loadAll();
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+  });
+
+  await loadAll();
+}
+
 if (page.startsWith("/account"))
   run(async () => {
     const user = await session();
@@ -3764,6 +4123,7 @@ if (page.startsWith("/account"))
     if (page === "/account/usage") return showUsage();
     if (page === "/account/logs") return showLogs();
     if (page === "/account/saved") return showSavedResearch();
+    if (page === "/account/batches") return showBatchWorkbench();
     if (page === "/account/security") return showAccountSecurity();
     if (page === "/account/billing") return showBilling();
     if (page === "/account/keys") {
