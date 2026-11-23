@@ -3078,6 +3078,148 @@ if (page === "/pricing") {
   });
 }
 
+async function renderPromoAndOffersSection(container) {
+  let redemptions = [];
+  let catalog = null;
+  try {
+    const [redRes, offerRes] = await Promise.all([
+      api("/v1/billing/promos/redemptions"),
+      api("/v1/billing/offer-versions"),
+    ]);
+    redemptions = redRes.data.items ?? [];
+    catalog = offerRes.data;
+  } catch (error) {
+    if (error.status === 503 || error.status === 401 || error.status === 403) return;
+    throw error;
+  }
+
+  const promoCard = element("section", undefined, "card result-card");
+  promoCard.append(
+    element("h2", t("Promo credit campaigns", "促销额度活动兑换")),
+    element(
+      "p",
+      t(
+        "Each promo campaign may be redeemed once per account into an expiring promo wallet; existing orders and ledger rows remain immutable.",
+        "每个促销活动每账户限兑一次，额度计入带有效期的促销桶并按最短有效期优先消耗；历史订单与流水不可改写。",
+      ),
+      "small",
+    ),
+  );
+
+  const form = element("form", undefined, "stack");
+  const codeInput = element("input");
+  codeInput.maxLength = 48;
+  codeInput.required = true;
+  codeInput.placeholder = "LAUNCH50_PREVIEW";
+  const codeLabel = element("label", t("Promo code", "促销兑换码"));
+  codeLabel.append(codeInput);
+  const submitBtn = element("button", t("Redeem promo code", "兑换促销码"), "btn brand");
+  submitBtn.type = "submit";
+  form.append(codeLabel, submitBtn);
+
+  const promoNotice = element("p", undefined, "summary-note");
+  promoNotice.hidden = true;
+  promoCard.append(form, promoNotice);
+
+  const tableHost = element("div", undefined, "stack");
+  function drawRedemptions(items) {
+    if (!items.length) {
+      tableHost.replaceChildren(
+        element("p", t("No promo campaigns redeemed yet.", "当前尚未兑换任何促销活动。"), "small"),
+      );
+      return;
+    }
+    tableHost.replaceChildren(
+      accountTable(
+        t("Redeemed promo grants", "已兑换促销记录"),
+        [
+          t("Campaign", "活动码"),
+          t("Granted", "发放额度"),
+          t("Remaining", "剩余额度"),
+          t("Wallet status", "桶状态"),
+          t("Expires", "到期时间"),
+        ],
+        items.map((r) => [
+          r.campaign_code,
+          String(r.credits_granted),
+          String(r.remaining_balance),
+          r.wallet_status,
+          r.expires_at,
+        ]),
+      ),
+    );
+  }
+  drawRedemptions(redemptions);
+  promoCard.append(tableHost);
+
+  let idemKey = crypto.randomUUID();
+  let lastCode = "";
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const rawCode = codeInput.value.trim().toUpperCase();
+    if (!rawCode) return;
+    if (rawCode !== lastCode) {
+      idemKey = crypto.randomUUID();
+      lastCode = rawCode;
+    }
+    submitBtn.disabled = true;
+    run(async () => {
+      try {
+        const res = await post(
+          "/v1/billing/promos/redeem",
+          { code: rawCode },
+          (await session())?.csrf_token,
+          idemKey,
+        );
+        const d = res.data;
+        promoNotice.hidden = false;
+        promoNotice.textContent = `${t("Promo granted", "促销额度已发放")}: ${d.campaign_code} (+${d.credits_granted} ${t("credits", "额度")}, ${t("expires", "到期")} ${d.expires_at})`;
+        const refreshed = await api("/v1/billing/promos/redemptions");
+        drawRedemptions(refreshed.data.items ?? []);
+        idemKey = crypto.randomUUID();
+        lastCode = "";
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+  });
+
+  const versionsCard = element("section", undefined, "card result-card");
+  versionsCard.append(
+    element("h2", t("Pricing offer versions (commercial approval gate)", "版本化报价目录（待商业审批）")),
+    element(
+      "p",
+      t(
+        "Baseline fixture prices remain separate from draft annual/high-volume versions. Candidate versions require commercial sign-off and never modify existing orders.",
+        "既有基线报价与年付/高用量候选版本严格分离；候选版本需完成商业与成本审批才可激活，绝不回溯修改原订单。",
+      ),
+      "small",
+    ),
+  );
+  if (catalog?.versions?.length) {
+    versionsCard.append(
+      accountTable(
+        t("Offer version ledger", "报价版本台账"),
+        [
+          t("Version", "版本"),
+          t("Plan / Cadence", "套餐与周期"),
+          t("Amount (USD)", "参考金额"),
+          t("Credits", "额度"),
+          t("Status", "状态"),
+        ],
+        catalog.versions.map((v) => [
+          v.offer_version,
+          `${v.plan_code} · ${v.billing_cadence}`,
+          amount(v.amount_cents),
+          String(v.credits),
+          v.commercial_approved ? `${v.status} (approved)` : `${v.status} · approval pending`,
+        ]),
+      ),
+    );
+  }
+  container.append(promoCard, versionsCard);
+}
+
 async function showBilling() {
   let data, prices, transactions;
   try {
@@ -3098,6 +3240,7 @@ async function showBilling() {
       ),
     );
     output.replaceChildren(link(t("View usage", "查看用量"), `${prefix}/account/usage`));
+    await renderPromoAndOffersSection(output);
     return;
   }
   const labels = {
@@ -3263,6 +3406,7 @@ async function showBilling() {
       ]),
     ),
   );
+  await renderPromoAndOffersSection(output);
   if (checkoutId) await checkOrder(checkoutId);
 }
 

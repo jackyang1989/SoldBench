@@ -209,6 +209,9 @@ test("developer resource groups navigate to both official local language variant
     "/v1/auctions/houses",
     "/v1/auctions/{house}/lots",
     "/v1/auctions/{house}/lots/{lot_id}/image",
+    "/v1/billing/promos/redeem",
+    "/v1/billing/promos/redemptions",
+    "/v1/billing/offer-versions",
   ]) {
     assert.ok(
       inventory.operations.some((op) => op.path === path && op.status === "local_route_present"),

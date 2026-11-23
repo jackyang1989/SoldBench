@@ -200,7 +200,8 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
     assert.deepEqual(await migrate(db, "0044_auction_sales_vertical.sql"), [
       "0044_auction_sales_vertical.sql",
     ]);
-    assert.deepEqual(await migrate(db), ["0045_global_ebay_sites.sql"]);
+    assert.deepEqual(await migrate(db, "0045_global_ebay_sites.sql"), ["0045_global_ebay_sites.sql"]);
+    assert.deepEqual(await migrate(db), ["0046_promo_offers.sql"]);
     assert.deepEqual(await migrate(db), []);
     const detailConstraints = await db.query(
       "SELECT conname FROM pg_constraint WHERE conrelid='collector_detail_jobs'::regclass ORDER BY conname",
@@ -313,6 +314,21 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
       assert.equal(row?.legal_gate_passed, false);
       assert.equal(row?.economics_gate_passed, false);
     }
+    const promoCampaigns = await db.query(
+      "SELECT code, credits, status, commercial_approved FROM promo_campaigns ORDER BY code",
+    );
+    assert.equal(promoCampaigns.rowCount, 2);
+    assert.equal(promoCampaigns.rows[0].code, "EXPIRED10_PREVIEW");
+    assert.equal(promoCampaigns.rows[1].code, "LAUNCH50_PREVIEW");
+    assert.equal(promoCampaigns.rows[1].commercial_approved, false);
+    const offerVersions = await db.query(
+      "SELECT offer_version, status, commercial_approved FROM pricing_offer_versions ORDER BY offer_version",
+    );
+    assert.equal(offerVersions.rowCount, 6);
+    assert.equal(
+      offerVersions.rows.every((r) => r.commercial_approved === false),
+      true,
+    );
     const mediaColumns = await db.query(
       "SELECT column_name FROM information_schema.columns WHERE table_name='listing_images'",
     );
@@ -344,7 +360,7 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
     const tables = await db.query(
       "SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema='public'",
     );
-    assert.equal(tables.rows[0].n, 111);
+    assert.equal(tables.rows[0].n, 114);
     await assert.rejects(
       transaction(db, async (c) => {
         await c.query("INSERT INTO users(email,password_hash) VALUES('rollback@example.test','fixture')");

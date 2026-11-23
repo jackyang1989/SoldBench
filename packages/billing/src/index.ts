@@ -424,3 +424,4 @@ export {
   verifyFixture,
 } from "./payment-fixtures.ts";
 export { offerVersion, PaymentLifecycle } from "./payment-lifecycle.ts";
+export { type PromoActor, PromoOfferService } from "./promo-offers.ts";

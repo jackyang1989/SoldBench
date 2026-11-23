@@ -1,5 +1,9 @@
 # SoldBench engineering changelog
 
+## 2026-11-24 — Promo campaigns, versioned pricing offers & Hosted Ask AI ADR (`TASK-062`, offline)
+
+OpenAPI 1.40.0 adds `/v1/billing/promos/redeem`, `/v1/billing/promos/redemptions`, and `/v1/billing/offer-versions` (`TASK-062`, `0` query credits charged). Enforces strict one-redemption-per-owner-per-campaign uniqueness under 100-way concurrency via PostgreSQL `FOR UPDATE` + `Idempotency-Key` ledger grants (`credit_wallets` `bucket_type='promo'` honoring earliest-expiry-first consumption and immutable historical `payments`), keeps candidate annual/high-volume `pricing_offer_versions` explicitly gated `commercial_approved=false` (`pending_commercial_approval`) without rewriting baseline checkout offers, adds bilingual promo & offer-version management UI on `/account/billing`, and formally defers Hosted Generative Ask AI (`ADR-17` / `DEC-18`) to a separate 12-person-day approved scope while retaining MCP and bilingual docs.
+
 ## 2026-11-22 — V2 global eBay regional sites FR/IT/ES/CA/AU expansion (offline)
 
 OpenAPI 1.39.0 adds `/v1/global-sites`, `/v1/global-sites/{site}/localization`, `/v1/global-fx-rates`, and `/v1/global-sites/{site}/sold-preview` (`TASK-055`, 0 extra credits in synthetic offline build) while preserving V1.5 `/v1/sites*` contracts unchanged. Adds `ebay_fr`, `ebay_it`, `ebay_es`, `ebay_ca`, and `ebay_au` alongside `CAD` and `AUD`, full native localization catalogs (`fr`, `it`, `es`, `en-CA`, `fr-CA`, `en-AU`), localized TVA/IVA/GST/HST/QST disclosures, native condition/sold-date parsers and timezones, and strict per-site release-gate & revocation isolation (never inheriting US/UK/DE source clearance).

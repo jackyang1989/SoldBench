@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: SoldBench API — offline implementation contract
-  version: 1.39.0
+  version: 1.40.0
   description: Design baseline 2026-11-16. No service is deployed. Production source access and payment approvals remain external
     gates. All fixtures are synthetic.
 x-payment-policy:
@@ -9594,6 +9594,69 @@ paths:
       x-roles: [owner]
       x-scopes: [sold:read]
       x-credit-policy: '0'
+  /v1/billing/promos/redeem:
+    post:
+      operationId: redeemPromoCampaign
+      summary: Redeem an eligible single-use promo campaign code into an expiring promo credit bucket with atomic Idempotency-Key deduplication.
+      security: *id009
+      parameters:
+      - *content_language
+      - *id003
+      - *id008
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PromoRedeemRequest'}
+      responses:
+        '200':
+          description: Promo credits granted into an expiring promo wallet or replayed idempotently.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PromoRedeemResponse'}
+        '400': *content_error
+        '401': *content_error
+        '402': *content_error
+        '403': *content_error
+        '404': *content_error
+        '409': *content_error
+      x-task: TASK-062
+      x-roles: [owner]
+      x-credit-policy: '0'
+  /v1/billing/promos/redemptions:
+    get:
+      operationId: listPromoRedemptions
+      summary: List owner-scoped promo campaign redemptions alongside live remaining wallet balances.
+      security: *id009
+      parameters: [*content_language]
+      responses:
+        '200':
+          description: Owner-scoped promo redemption ledger summary.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PromoRedemptionListResponse'}
+        '401': *content_error
+        '403': *content_error
+      x-task: TASK-062
+      x-roles: [owner]
+      x-credit-policy: '0'
+  /v1/billing/offer-versions:
+    get:
+      operationId: listPricingOfferVersions
+      summary: List immutable baseline fixture offers and gated candidate annual or high-volume offer versions requiring commercial approval.
+      security: *id009
+      parameters: [*content_language]
+      responses:
+        '200':
+          description: Versioned pricing offer catalog preserving immutable historical order snapshots.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OfferVersionCatalogResponse'}
+        '401': *content_error
+        '403': *content_error
+      x-task: TASK-062
+      x-roles: [owner]
+      x-credit-policy: '0'
 components:
   securitySchemes:
     SupportReceipt:
@@ -16751,6 +16814,155 @@ components:
       type: object
       properties:
         data: {$ref: '#/components/schemas/GlobalSoldPreviewRecord'}
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    PromoRedeemRequest:
+      type: object
+      properties:
+        code: {type: string, minLength: 1, maxLength: 64}
+      required: [code]
+      additionalProperties: false
+    PromoRedeemData:
+      type: object
+      properties:
+        redemption_id: {type: string, format: uuid}
+        campaign_code: {type: string}
+        credits_granted: {type: integer, minimum: 1}
+        wallet_id: {type: string, format: uuid}
+        grant_id: {type: string, format: uuid}
+        expires_at: {type: string, format: date-time}
+        replayed: {type: boolean}
+        commercial_approved: {type: boolean}
+      required:
+      - redemption_id
+      - campaign_code
+      - credits_granted
+      - wallet_id
+      - grant_id
+      - expires_at
+      - replayed
+      - commercial_approved
+      additionalProperties: false
+    PromoRedeemResponse:
+      type: object
+      properties:
+        data: {$ref: '#/components/schemas/PromoRedeemData'}
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    PromoRedemptionItem:
+      type: object
+      properties:
+        redemption_id: {type: string, format: uuid}
+        campaign_code: {type: string}
+        title_en: {type: string}
+        title_zh: {type: string}
+        grant_id: {type: string, format: uuid}
+        wallet_id: {type: string, format: uuid}
+        credits_granted: {type: integer, minimum: 1}
+        remaining_balance: {type: integer, minimum: 0}
+        wallet_status: {enum: [active, expired, frozen, revoked]}
+        expires_at: {type: string, format: date-time}
+        redeemed_at: {type: string, format: date-time}
+        commercial_approved: {type: boolean}
+      required:
+      - redemption_id
+      - campaign_code
+      - title_en
+      - title_zh
+      - grant_id
+      - wallet_id
+      - credits_granted
+      - remaining_balance
+      - wallet_status
+      - expires_at
+      - redeemed_at
+      - commercial_approved
+      additionalProperties: false
+    PromoRedemptionListResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            items:
+              type: array
+              items: {$ref: '#/components/schemas/PromoRedemptionItem'}
+          required: [items]
+          additionalProperties: false
+        meta:
+          type: object
+          properties:
+            request_id: {type: string}
+            credits_charged: {type: integer, const: 0}
+          required: [request_id, credits_charged]
+          additionalProperties: false
+      required: [data, meta]
+      additionalProperties: false
+    PricingOfferVersion:
+      type: object
+      properties:
+        offer_version: {type: string}
+        plan_code: {enum: [starter, pro, purchased_1500, starter_annual, pro_annual, enterprise_volume]}
+        billing_cadence: {enum: [monthly, annual, one_time, custom]}
+        currency: {type: string, const: USD}
+        amount_cents: {type: integer, minimum: 1}
+        credits: {type: integer, minimum: 1}
+        status: {enum: [fixture_baseline, pending_commercial_approval, approved, retired]}
+        commercial_approved: {type: boolean}
+        effective_from: {type: string, format: date-time}
+        effective_until:
+          oneOf:
+          - {type: string, format: date-time}
+          - {type: 'null'}
+        notes_en: {type: string}
+        notes_zh: {type: string}
+      required:
+      - offer_version
+      - plan_code
+      - billing_cadence
+      - currency
+      - amount_cents
+      - credits
+      - status
+      - commercial_approved
+      - effective_from
+      - effective_until
+      - notes_en
+      - notes_zh
+      additionalProperties: false
+    OfferVersionCatalogData:
+      type: object
+      properties:
+        offline_fixture_only: {type: boolean, const: true}
+        commercial_approval_required: {type: boolean, const: true}
+        historical_orders_immutable: {type: boolean, const: true}
+        versions:
+          type: array
+          items: {$ref: '#/components/schemas/PricingOfferVersion'}
+      required:
+      - offline_fixture_only
+      - commercial_approval_required
+      - historical_orders_immutable
+      - versions
+      additionalProperties: false
+    OfferVersionCatalogResponse:
+      type: object
+      properties:
+        data: {$ref: '#/components/schemas/OfferVersionCatalogData'}
         meta:
           type: object
           properties:

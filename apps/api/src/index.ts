@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AuthService } from "@soldbench/auth";
-import type { PaymentLifecycle } from "@soldbench/billing";
+import type { BillingService, PaymentLifecycle, PromoOfferService } from "@soldbench/billing";
 import { type Database, isDatabaseConnectionError } from "@soldbench/db";
 import type {
   AlertWebhookService,
@@ -36,6 +36,7 @@ import { mountOAuth } from "./oauth.ts";
 import { mountOperations } from "./operations.ts";
 import { mountPasskeys } from "./passkeys.ts";
 import { mountPayments } from "./payments.ts";
+import { mountPromoOffers } from "./promo-offers.ts";
 import { mountPublicResults } from "./public-results.ts";
 import { mountQueries } from "./queries.ts";
 import { mountRegionalSites } from "./regional-sites.ts";
@@ -66,8 +67,10 @@ export function createApp(
   db: Database,
   services: {
     auth?: AuthService;
+    billing?: BillingService;
     query?: QueryService;
     payments?: PaymentLifecycle;
+    promoOffers?: PromoOfferService;
     bestOffers?: BestOfferVerificationService;
     alerts?: AlertWebhookService;
     lookup?: LookupInputService;
@@ -210,6 +213,13 @@ export function createApp(
   mountPublicResults(app, config, services.auth, services.query);
   mountOperations(app, config, services.auth, services.query, services.payments);
   mountPayments(app, config, services.auth, config.paymentFixtures ? services.payments : undefined);
+  mountPromoOffers(
+    app,
+    config,
+    services.auth,
+    services.billing ?? services.query?.billing ?? services.payments?.billing,
+    services.promoOffers,
+  );
   app.notFound((c) => {
     const locale = documentLocale(c.req.method, c.req.path, c.req.header("Accept"));
     if (locale) return editorialNotFound(c, locale);
