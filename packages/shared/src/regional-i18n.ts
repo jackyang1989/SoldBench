@@ -1,6 +1,17 @@
 import { IntlMessageFormat } from "intl-messageformat";
 
-export const REGIONAL_LOCALES = ["en", "zh-CN", "en-GB", "de"] as const;
+export const REGIONAL_LOCALES = [
+  "en",
+  "zh-CN",
+  "en-GB",
+  "de",
+  "fr",
+  "it",
+  "es",
+  "en-CA",
+  "fr-CA",
+  "en-AU",
+] as const;
 export type RegionalLocale = (typeof REGIONAL_LOCALES)[number];
 
 const enCatalog = {
@@ -113,6 +124,167 @@ export const regionalMessages: Record<RegionalLocale, Record<RegionalMessageKey,
     "email.reset_body":
       "Setzen Sie Ihr Passwort unter {url} zurück. Dieser einmalige Link läuft in {expiresMinutes} Minuten ab.",
   },
+  fr: {
+    "site.heading": "Recherche de ventes régionales (FR / UE)",
+    "site.selector_label": "Site eBay cible (sélection explicite)",
+    "site.locale_label": "Langue d'affichage (ne modifie jamais le site)",
+    "site.mode_notice":
+      "Changer la langue n'altère ni le site, ni la devise EUR, ni le fuseau Europe/Paris, ni les crédits.",
+    "site.currency_notice":
+      "Les prix sont calculés strictement en EUR sans mélange. La conversion nécessite une preuve de taux FX.",
+    "site.shipping_label": "Frais de livraison",
+    "site.tax_disclosure":
+      "Les montants EUR reflètent les annonces observées (TVA incluse si indiquée) ; les frais inconnus restent null.",
+    "site.sample_insufficient": "Moins de 8 ventes vérifiées ({count}) ; la médiane reste null.",
+    "site.sample_limited": "Échantillon vérifié limité ({count} ventes comparables).",
+    "site.sample_sufficient": "Échantillon vérifié suffisant ({count} ventes comparables).",
+    "site.rights_revoked": "Les droits de source pour ce site ont été révoqués ou non validés.",
+    "site.stale_notice": "Instantané différé ; 0 crédit débité lors de la consultation approuvée.",
+    "site.fx_unavailable": "Preuve FX vérifiée indisponible ; vue convertie masquée.",
+    "site.fx_evidence_label": "Vue indicative convertie ({currency}) via {provider}",
+    "site.legal_imprint": "Mentions légales, CGU et provenance des données SoldBench France",
+    "site.legal_privacy": "Politique de confidentialité et révocation des droits de source",
+    "email.verify_subject": "Confirmez votre adresse e-mail SoldBench",
+    "email.verify_body":
+      "Confirmez votre compte sur {url}. Ce lien à usage unique expire dans {expiresMinutes} minutes.",
+    "email.reset_subject": "Réinitialisez votre mot de passe SoldBench",
+    "email.reset_body":
+      "Réinitialisez votre mot de passe sur {url}. Ce lien expire dans {expiresMinutes} minutes.",
+  },
+  it: {
+    "site.heading": "Ricerca vendite regionali (IT / UE)",
+    "site.selector_label": "Sito eBay di destinazione (selezione esplicita)",
+    "site.locale_label": "Lingua di visualizzazione (non cambia il mercato)",
+    "site.mode_notice":
+      "Cambiare lingua non modifica il sito, la valuta EUR, il fuso Europe/Rome o i crediti.",
+    "site.currency_notice":
+      "I prezzi nativi sono calcolati rigorosamente in EUR. La conversione richiede evidenza FX verificata.",
+    "site.shipping_label": "Spedizione",
+    "site.tax_disclosure":
+      "I valori in EUR seguono quanto osservato (IVA inclusa ove indicata); la spedizione sconosciuta resta null.",
+    "site.sample_insufficient": "Meno di 8 vendite verificate ({count}); la mediana rimane null.",
+    "site.sample_limited": "Campione verificato limitato ({count} vendite comparabili).",
+    "site.sample_sufficient": "Campione verificato sufficiente ({count} vendite comparabili).",
+    "site.rights_revoked": "I diritti della fonte per questo sito sono revocati o non approvati.",
+    "site.stale_notice": "Istantanea differita; 0 crediti addebitati per la consultazione approvata.",
+    "site.fx_unavailable": "Evidenza FX verificata non disponibile; vista convertita omessa.",
+    "site.fx_evidence_label": "Vista indicativa convertita ({currency}) tramite {provider}",
+    "site.legal_imprint": "Note legali, termini e trasparenza fonti SoldBench Italia",
+    "site.legal_privacy": "Informativa privacy e revoca dei diritti di fonte",
+    "email.verify_subject": "Conferma il tuo indirizzo email SoldBench",
+    "email.verify_body":
+      "Verifica il tuo account su {url}. Questo link monouso scade tra {expiresMinutes} minuti.",
+    "email.reset_subject": "Reimposta la tua password SoldBench",
+    "email.reset_body":
+      "Reimposta la password su {url}. Questo link monouso scade tra {expiresMinutes} minuti.",
+  },
+  es: {
+    "site.heading": "Investigación de ventas regionales (ES / UE)",
+    "site.selector_label": "Sitio eBay objetivo (selección explícita)",
+    "site.locale_label": "Idioma de interfaz (nunca cambia el sitio)",
+    "site.mode_notice":
+      "Cambiar de idioma nunca modifica el sitio, la moneda EUR, la zona Europe/Madrid ni los créditos.",
+    "site.currency_notice":
+      "Los precios se calculan estrictamente en EUR sin mezclar divisas. El cambio requiere evidencia FX.",
+    "site.shipping_label": "Envío",
+    "site.tax_disclosure":
+      "Los importes en EUR reflejan datos observados (IVA incluido si figura); el envío desconocido permanece null.",
+    "site.sample_insufficient": "Menos de 8 ventas verificadas ({count}); la mediana sigue null.",
+    "site.sample_limited": "Muestra verificada limitada ({count} ventas comparables).",
+    "site.sample_sufficient": "Muestra verificada suficiente ({count} ventas comparables).",
+    "site.rights_revoked": "Los derechos de origen para este sitio fueron revocados o no aprobados.",
+    "site.stale_notice": "Instantánea diferida; 0 créditos al consultar registros aprobados.",
+    "site.fx_unavailable": "Evidencia FX verificada no disponible; vista convertida omitida.",
+    "site.fx_evidence_label": "Vista indicativa convertida ({currency}) vía {provider}",
+    "site.legal_imprint": "Aviso legal, términos y procedencia de datos SoldBench España",
+    "site.legal_privacy": "Política de privacidad y revocación de derechos de origen",
+    "email.verify_subject": "Confirma tu correo electrónico de SoldBench",
+    "email.verify_body":
+      "Verifica tu cuenta en {url}. Este enlace de un solo uso caduca en {expiresMinutes} minutos.",
+    "email.reset_subject": "Restablece tu contraseña de SoldBench",
+    "email.reset_body": "Restablece tu contraseña en {url}. Este enlace caduca en {expiresMinutes} minutos.",
+  },
+  "en-CA": {
+    "site.heading": "Regional marketplace research (Canada · CAD)",
+    "site.selector_label": "Target marketplace site (explicit selection)",
+    "site.locale_label": "Display language (never changes marketplace)",
+    "site.mode_notice":
+      "Switching between English and Canadian French never alters marketplace, CAD currency, America/Toronto timezone, or credits.",
+    "site.currency_notice":
+      "Canadian prices are evaluated strictly in CAD without mixing USD. Cross-currency views require verified FX evidence.",
+    "site.shipping_label": "Shipping",
+    "site.tax_disclosure":
+      "Canadian CAD figures exclude GST/HST/PST/QST unless explicitly observed on the listing; unknown shipping remains null.",
+    "site.sample_insufficient": "Fewer than 8 verified sales ({count}); median remains null.",
+    "site.sample_limited": "Limited verified sample size ({count} comparable Canadian sales).",
+    "site.sample_sufficient": "Sufficient verified sample size ({count} comparable Canadian sales).",
+    "site.rights_revoked": "Source rights for eBay Canada are revoked or unverified.",
+    "site.stale_notice": "Delayed snapshot; 0 credits charged for approved stale Canadian records.",
+    "site.fx_unavailable": "Verified FX rate evidence unavailable; converted view withheld.",
+    "site.fx_evidence_label": "Indicative converted view ({currency}) via {provider}",
+    "site.legal_imprint": "SoldBench Canada Terms & Source Provenance Disclosure",
+    "site.legal_privacy": "Canadian Privacy Notice & Rights Revocation Policy",
+    "email.verify_subject": "Confirm your SoldBench email address (Canada)",
+    "email.verify_body":
+      "Verify your SoldBench account at {url}. This single-use link expires in {expiresMinutes} minutes.",
+    "email.reset_subject": "Reset your SoldBench password",
+    "email.reset_body":
+      "Reset your SoldBench password at {url}. This single-use link expires in {expiresMinutes} minutes.",
+  },
+  "fr-CA": {
+    "site.heading": "Recherche de ventes régionales (Canada · CAD)",
+    "site.selector_label": "Site cible (sélection explicite)",
+    "site.locale_label": "Langue d'affichage (ne modifie jamais le site)",
+    "site.mode_notice":
+      "Changer de langue ne modifie ni le site canadien, ni la devise CAD, ni le fuseau America/Toronto, ni les crédits.",
+    "site.currency_notice":
+      "Les prix canadiens sont calculés strictement en CAD sans mélanger les USD. La conversion requiert une preuve FX.",
+    "site.shipping_label": "Livraison",
+    "site.tax_disclosure":
+      "Les montants en CAD excluent la TPS/TVH/TVQ sauf mention observée ; la livraison inconnue demeure null.",
+    "site.sample_insufficient": "Moins de 8 ventes vérifiées ({count}) ; la médiane demeure null.",
+    "site.sample_limited": "Échantillon vérifié limité ({count} ventes canadiennes comparables).",
+    "site.sample_sufficient": "Échantillon vérifié suffisant ({count} ventes canadiennes comparables).",
+    "site.rights_revoked": "Les droits de source pour eBay Canada ont été révoqués ou non approuvés.",
+    "site.stale_notice": "Instantané différé ; 0 crédit facturé pour une consultation approuvée.",
+    "site.fx_unavailable": "Preuve de taux FX indisponible ; vue convertie omise.",
+    "site.fx_evidence_label": "Vue indicative convertie ({currency}) via {provider}",
+    "site.legal_imprint": "Conditions d'utilisation et divulgation des sources SoldBench Canada",
+    "site.legal_privacy": "Politique de confidentialité et révocation des droits",
+    "email.verify_subject": "Confirmez votre adresse courriel SoldBench (Canada)",
+    "email.verify_body":
+      "Confirmez votre compte sur {url}. Ce lien unique expire dans {expiresMinutes} minutes.",
+    "email.reset_subject": "Réinitialisez votre mot de passe SoldBench",
+    "email.reset_body":
+      "Réinitialisez votre mot de passe sur {url}. Ce lien unique expire dans {expiresMinutes} minutes.",
+  },
+  "en-AU": {
+    "site.heading": "Regional marketplace research (Australia · AUD)",
+    "site.selector_label": "Target marketplace site (explicit selection)",
+    "site.locale_label": "Display language (never changes marketplace)",
+    "site.mode_notice":
+      "Changing display language never alters eBay Australia, AUD currency, Australia/Sydney timezone, or credits.",
+    "site.currency_notice":
+      "Australian sold prices are evaluated strictly in AUD without mixing USD. Cross-currency conversion needs FX evidence.",
+    "site.shipping_label": "Postage",
+    "site.tax_disclosure":
+      "Australian AUD figures reflect GST-observed listing semantics; unknown postage is never zero-filled.",
+    "site.sample_insufficient": "Fewer than 8 verified sales ({count}); median remains null.",
+    "site.sample_limited": "Limited verified sample size ({count} comparable Australian sales).",
+    "site.sample_sufficient": "Sufficient verified sample size ({count} comparable Australian sales).",
+    "site.rights_revoked": "Source rights for eBay Australia are revoked or unverified.",
+    "site.stale_notice": "Delayed snapshot; 0 credits charged for approved stale Australian records.",
+    "site.fx_unavailable": "Verified FX evidence unavailable; converted comparison withheld.",
+    "site.fx_evidence_label": "Indicative converted view ({currency}) via {provider}",
+    "site.legal_imprint": "SoldBench Australia Terms & Source Provenance Disclosure",
+    "site.legal_privacy": "Australian Privacy Policy & Rights Revocation Notice",
+    "email.verify_subject": "Confirm your SoldBench email address (Australia)",
+    "email.verify_body":
+      "Verify your SoldBench account at {url}. This single-use link expires in {expiresMinutes} minutes.",
+    "email.reset_subject": "Reset your SoldBench password",
+    "email.reset_body":
+      "Reset your SoldBench password at {url}. This single-use link expires in {expiresMinutes} minutes.",
+  },
 };
 
 function placeholders(template: string): string[] {
@@ -153,7 +325,7 @@ export function regionalMessage(
 export function formatRegionalMoney(
   locale: RegionalLocale,
   minorUnits: number,
-  currency: "USD" | "GBP" | "EUR",
+  currency: "USD" | "GBP" | "EUR" | "CAD" | "AUD",
 ): string {
   if (!Number.isSafeInteger(minorUnits) || minorUnits < 0) throw new Error("Invalid minor currency units");
   const whole = BigInt(minorUnits) / 100n;

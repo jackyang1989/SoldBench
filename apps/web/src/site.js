@@ -5435,7 +5435,7 @@ async function showInventoryValuationWorkbench() {
 }
 
 async function showRegionalSitesWorkbench() {
-  const sitesRes = await api("/v1/sites");
+  const sitesRes = await api("/v1/global-sites");
   const sites = sitesRes.data;
 
   const formatMinor = (minor, currency, loc) => {
@@ -5451,12 +5451,18 @@ async function showRegionalSitesWorkbench() {
 
   const overviewCard = element("section", undefined, "card result-card");
   overviewCard.append(
-    element("h2", t("Explicit regional site research (UK / DE)", "显式区域站点研究（英国 / 德国）")),
+    element(
+      "h2",
+      t(
+        "Explicit regional site research (US / UK / DE / FR / IT / ES / CA / AU)",
+        "显式区域站点研究（美 / 英 / 德 / 法 / 意 / 西 / 加 / 澳）",
+      ),
+    ),
     element(
       "p",
       t(
-        "UI language never overrides your selected marketplace site, native currency, timezone, or billing identity. UK/DE previews stay offline-gated until per-site source, localization, legal, and unit economics gates pass.",
-        "界面显示语言绝不会擅自覆盖您选择的目标站点、原生币种、时区或账单口径；英国/德国站点在逐站来源、译文、法务与成本门禁全绿前保持离线受控状态。",
+        "UI language never overrides your selected marketplace site, native currency, timezone, or billing identity. Each country site keeps independent source, translation, legal, and unit economics release gates (never inherited from US/UK/DE).",
+        "界面显示语言绝不会擅自覆盖您选择的目标站点、原生币种、时区或账单口径；每个国家站点均独立审核来源、译文、法务与成本门禁，绝不直接继承 US/UK/DE 许可。",
       ),
       "small",
     ),
@@ -5464,8 +5470,14 @@ async function showRegionalSitesWorkbench() {
 
   const linksRow = element("div", undefined, "actions");
   linksRow.append(
-    link(t("Open UK localized page (en-GB)", "访问英国英语页面 (en-GB)"), "/en-GB/sites"),
-    link(t("Open German localized page (de)", "访问德语本地化页面 (de)"), "/de/sites"),
+    link("en-GB", "/en-GB/sites"),
+    link("de", "/de/sites"),
+    link("fr", "/fr/sites"),
+    link("it", "/it/sites"),
+    link("es", "/es/sites"),
+    link("en-CA", "/en-CA/sites"),
+    link("fr-CA", "/fr-CA/sites"),
+    link("en-AU", "/en-AU/sites"),
   );
   overviewCard.append(linksRow);
 
@@ -5509,6 +5521,8 @@ async function showRegionalSitesWorkbench() {
     ["USD", "USD"],
     ["GBP", "GBP"],
     ["EUR", "EUR"],
+    ["CAD", "CAD"],
+    ["AUD", "AUD"],
   ]) {
     const opt = element("option", lbl);
     opt.value = val;
@@ -5527,7 +5541,7 @@ async function showRegionalSitesWorkbench() {
   output.append(overviewCard, formCard);
 
   async function loadLocalization(siteId) {
-    const res = await api(`/v1/sites/${encodeURIComponent(siteId)}/localization`);
+    const res = await api(`/v1/global-sites/${encodeURIComponent(siteId)}/localization`);
     const d = res.data;
     locBox.textContent = `${d.locale} · ${d.ui_messages["site.tax_disclosure"]} · ${d.sample_formats.money_example} · ${d.sample_formats.day_date_example}`;
   }
@@ -5541,7 +5555,9 @@ async function showRegionalSitesWorkbench() {
       try {
         const params = new URLSearchParams({ q: kwInput.value.trim(), window_days: "90" });
         if (fxSelect.value) params.set("compare_currency", fxSelect.value);
-        const res = await api(`/v1/sites/${encodeURIComponent(siteSelect.value)}/sold-preview?${params}`);
+        const res = await api(
+          `/v1/global-sites/${encodeURIComponent(siteSelect.value)}/sold-preview?${params}`,
+        );
         const d = res.data;
         const st = d.native_stats;
         resultBox.replaceChildren(

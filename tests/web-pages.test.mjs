@@ -1041,17 +1041,32 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByRole("link", { name: "English", exact: true }).click();
     x.clock.value = new Date(Date.parse(x.now()) + 60000).toISOString();
     await page.goto(`${origin}/account/sites`);
-    await page.getByRole("heading", { name: "Explicit regional site research (UK / DE)" }).waitFor();
+    await page
+      .getByRole("heading", {
+        name: "Explicit regional site research (US / UK / DE / FR / IT / ES / CA / AU)",
+      })
+      .waitFor();
     await page.getByText(/ebay_uk · eBay United Kingdom/).waitFor();
     await page.getByText(/ebay_de · eBay Deutschland/).waitFor();
+    await page.getByText(/ebay_fr · eBay France/).waitFor();
+    await page.getByText(/ebay_ca · eBay Canada/).waitFor();
+    await page.getByText(/ebay_au · eBay Australia/).waitFor();
     await page.getByRole("link", { name: "简体中文" }).click();
-    await page.getByRole("heading", { name: "显式区域站点研究（英国 / 德国）" }).waitFor();
+    await page
+      .getByRole("heading", { name: "显式区域站点研究（美 / 英 / 德 / 法 / 意 / 西 / 加 / 澳）" })
+      .waitFor();
     await page.getByRole("link", { name: "English", exact: true }).click();
     await page.goto(`${origin}/en-GB/sites`);
     await page.getByRole("heading", { name: "SoldBench United Kingdom (eBay UK · GBP)" }).waitFor();
     await page.goto(`${origin}/de/sites`);
     await page.getByRole("heading", { name: "SoldBench Deutschland (eBay DE · EUR)" }).waitFor();
     await page.getByText("Versandkosten", { exact: true }).waitFor();
+    await page.goto(`${origin}/fr/sites`);
+    await page.getByRole("heading", { name: "SoldBench France (eBay FR · EUR)" }).waitFor();
+    await page.getByText("Frais de livraison", { exact: true }).waitFor();
+    await page.goto(`${origin}/fr-CA/sites`);
+    await page.getByRole("heading", { name: "SoldBench Canada Français (eBay CA · CAD)" }).waitFor();
+    await page.getByText("Livraison", { exact: true }).waitFor();
     const mercariSource = await provisionFixtureSource(db, x.now(), { retentionDays: 7 });
     await db.query("UPDATE sources SET marketplace='mercari_us' WHERE id=$1", [mercariSource.sourceId]);
     const mercariSvc = new SecondMarketplaceService(x.query);

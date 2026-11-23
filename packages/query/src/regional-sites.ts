@@ -10,6 +10,7 @@ import {
   SITE_SPECS,
   type SiteCurrency,
   SUPPORTED_SITES,
+  V15_SITES,
 } from "@soldbench/core";
 import { transaction } from "@soldbench/db";
 import {
@@ -81,6 +82,10 @@ function isSite(value: string): value is MarketplaceSite {
   return (SUPPORTED_SITES as readonly string[]).includes(value);
 }
 
+function isV15Site(value: string): boolean {
+  return (V15_SITES as readonly string[]).includes(value);
+}
+
 function isRegionalLocale(value: string): value is RegionalLocale {
   return (REGIONAL_LOCALES as readonly string[]).includes(value);
 }
@@ -94,14 +99,15 @@ export class RegionalSiteService {
     assertRegionalCatalogComplete();
   }
 
-  async listSites() {
+  async listSites(includeGlobal = false) {
     const rows = (
       await this.query.db.query<SiteRow>(
         `SELECT site_id,country_code,display_name,default_currency,timezone,required_locales,
                 shipping_tax_semantics,condition_mapping_version,source_gate_passed,
                 translation_gate_passed,legal_gate_passed,economics_gate_passed,status
          FROM marketplace_sites
-         ORDER BY array_position(ARRAY['ebay_us','ebay_uk','ebay_de'], site_id)`,
+         ${includeGlobal ? "" : "WHERE site_id IN ('ebay_us','ebay_uk','ebay_de')"}
+         ORDER BY array_position(ARRAY['ebay_us','ebay_uk','ebay_de','ebay_fr','ebay_it','ebay_es','ebay_ca','ebay_au'], site_id)`,
       )
     ).rows;
     return rows.map((r) => ({
@@ -123,8 +129,10 @@ export class RegionalSiteService {
     }));
   }
 
-  async getSiteLocalization(siteParam: string, requestedLocale?: string) {
-    if (!isSite(siteParam)) fail("invalid_parameter", 400, "Unsupported marketplace site.");
+  async getSiteLocalization(siteParam: string, requestedLocale?: string, v15Only = false) {
+    if (!isSite(siteParam) || (v15Only && !isV15Site(siteParam))) {
+      fail("invalid_parameter", 400, "Unsupported marketplace site.");
+    }
     assertRegionalCatalogComplete();
     const spec = SITE_SPECS[siteParam];
     let locale: RegionalLocale = spec.primaryLocale;
@@ -183,9 +191,12 @@ export class RegionalSiteService {
     };
   }
 
-  async listFxSnapshots(baseCurrency?: SiteCurrency, quoteCurrency?: SiteCurrency) {
+  async listFxSnapshots(baseCurrency?: SiteCurrency, quoteCurrency?: SiteCurrency, v15Only = false) {
     const now = await transaction(this.query.db, (c) => this.query.now(c));
     const clauses = ["expires_at>$1"];
+    if (v15Only) {
+      clauses.push("base_currency IN ('USD','GBP','EUR') AND quote_currency IN ('USD','GBP','EUR')");
+    }
     const params: unknown[] = [now];
     if (baseCurrency) {
       params.push(baseCurrency);
@@ -226,8 +237,11 @@ export class RegionalSiteService {
       condition?: string;
       compare_currency?: SiteCurrency;
     },
+    v15Only = false,
   ) {
-    if (!isSite(input.site)) fail("invalid_parameter", 400, "Unsupported marketplace site.");
+    if (!isSite(input.site) || (v15Only && !isV15Site(input.site))) {
+      fail("invalid_parameter", 400, "Unsupported marketplace site.");
+    }
     const q = input.q.normalize("NFC").trim().replace(/\s+/g, " ");
     if (!q || q.length > 120) fail("invalid_parameter", 400, "Query must contain 1–120 characters.");
 
@@ -240,8 +254,9 @@ export class RegionalSiteService {
       fail("invalid_parameter", 400, "Invalid price_basis.");
 
     const condition = input.condition?.trim() || undefined;
-    if (input.compare_currency && !["USD", "GBP", "EUR"].includes(input.compare_currency)) {
-      fail("invalid_parameter", 400, "compare_currency must be USD, GBP, or EUR.");
+    const allowedCompare = v15Only ? ["USD", "GBP", "EUR"] : ["USD", "GBP", "EUR", "CAD", "AUD"];
+    if (input.compare_currency && !allowedCompare.includes(input.compare_currency)) {
+      fail("invalid_parameter", 400, `compare_currency must be one of ${allowedCompare.join(", ")}.`);
     }
 
     const canonicalQueryHash = createHash("sha256")

@@ -197,7 +197,10 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
     assert.deepEqual(await migrate(db, "0043_cards_grading_vertical.sql"), [
       "0043_cards_grading_vertical.sql",
     ]);
-    assert.deepEqual(await migrate(db), ["0044_auction_sales_vertical.sql"]);
+    assert.deepEqual(await migrate(db, "0044_auction_sales_vertical.sql"), [
+      "0044_auction_sales_vertical.sql",
+    ]);
+    assert.deepEqual(await migrate(db), ["0045_global_ebay_sites.sql"]);
     assert.deepEqual(await migrate(db), []);
     const detailConstraints = await db.query(
       "SELECT conname FROM pg_constraint WHERE conrelid='collector_detail_jobs'::regclass ORDER BY conname",
@@ -298,6 +301,18 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
       auctionConstraints.rows.some((r) => r.conname === "auction_lot_records_buyers_premium_status_check"),
     );
     assert.ok(auctionConstraints.rows.some((r) => r.conname === "auction_lot_records_sale_status_check"));
+    const globalSites = await db.query(
+      "SELECT site_id, default_currency, status, source_gate_passed, translation_gate_passed, legal_gate_passed, economics_gate_passed FROM marketplace_sites ORDER BY site_id",
+    );
+    assert.equal(globalSites.rowCount, 8);
+    for (const siteId of ["ebay_fr", "ebay_it", "ebay_es", "ebay_ca", "ebay_au"]) {
+      const row = globalSites.rows.find((r) => r.site_id === siteId);
+      assert.equal(row?.status, "preview_offline");
+      assert.equal(row?.source_gate_passed, false);
+      assert.equal(row?.translation_gate_passed, false);
+      assert.equal(row?.legal_gate_passed, false);
+      assert.equal(row?.economics_gate_passed, false);
+    }
     const mediaColumns = await db.query(
       "SELECT column_name FROM information_schema.columns WHERE table_name='listing_images'",
     );

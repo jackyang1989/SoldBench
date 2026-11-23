@@ -1,5 +1,9 @@
 # SoldBench engineering changelog
 
+## 2026-11-22 — V2 global eBay regional sites FR/IT/ES/CA/AU expansion (offline)
+
+OpenAPI 1.39.0 adds `/v1/global-sites`, `/v1/global-sites/{site}/localization`, `/v1/global-fx-rates`, and `/v1/global-sites/{site}/sold-preview` (`TASK-055`, 0 extra credits in synthetic offline build) while preserving V1.5 `/v1/sites*` contracts unchanged. Adds `ebay_fr`, `ebay_it`, `ebay_es`, `ebay_ca`, and `ebay_au` alongside `CAD` and `AUD`, full native localization catalogs (`fr`, `it`, `es`, `en-CA`, `fr-CA`, `en-AU`), localized TVA/IVA/GST/HST/QST disclosures, native condition/sold-date parsers and timezones, and strict per-site release-gate & revocation isolation (never inheriting US/UK/DE source clearance).
+
 ## 2026-11-22 — V2 auction sales vertical (`goldin_us`, offline)
 
 OpenAPI 1.38.0 adds `/v1/auctions/houses`, `/v1/auctions/{house}/lots`, and `/v1/auctions/{house}/lots/{lot_id}/image` (`TASK-054`, 0 extra credits in synthetic offline build). Selects `goldin_us` as the first auction vertical while leaving `fanatics_collect`, `pristine_auction`, and `myslabs` explicitly deferred (`422`); stores auction session, lot number, grading cert, currency, hammer price, buyer's premium status/bps/minor, all-in total, and tax inclusion separately; keeps unknown buyer's premiums strictly `null` (never zero-filled); rejects mixed hammer vs all-in statistics; and serves private lot images with independent per-house source revocation.

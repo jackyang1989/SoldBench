@@ -1,18 +1,28 @@
 import { distribution } from "./statistics.ts";
 import { inWindow, type SaleTime } from "./time.ts";
 
-export const SUPPORTED_SITES = ["ebay_us", "ebay_uk", "ebay_de"] as const;
+export const V15_SITES = ["ebay_us", "ebay_uk", "ebay_de"] as const;
+export const SUPPORTED_SITES = [
+  "ebay_us",
+  "ebay_uk",
+  "ebay_de",
+  "ebay_fr",
+  "ebay_it",
+  "ebay_es",
+  "ebay_ca",
+  "ebay_au",
+] as const;
 export type MarketplaceSite = (typeof SUPPORTED_SITES)[number];
-export type SiteCurrency = "USD" | "GBP" | "EUR";
+export type SiteCurrency = "USD" | "GBP" | "EUR" | "CAD" | "AUD";
 
 export const SITE_SPECS: Record<
   MarketplaceSite,
   {
     site: MarketplaceSite;
-    countryCode: "US" | "GB" | "DE";
+    countryCode: "US" | "GB" | "DE" | "FR" | "IT" | "ES" | "CA" | "AU";
     currency: SiteCurrency;
     timeZone: string;
-    primaryLocale: "en" | "en-GB" | "de";
+    primaryLocale: "en" | "en-GB" | "de" | "fr" | "it" | "es" | "en-CA" | "en-AU";
     host: string;
   }
 > = {
@@ -39,6 +49,46 @@ export const SITE_SPECS: Record<
     timeZone: "Europe/Berlin",
     primaryLocale: "de",
     host: "www.ebay.de",
+  },
+  ebay_fr: {
+    site: "ebay_fr",
+    countryCode: "FR",
+    currency: "EUR",
+    timeZone: "Europe/Paris",
+    primaryLocale: "fr",
+    host: "www.ebay.fr",
+  },
+  ebay_it: {
+    site: "ebay_it",
+    countryCode: "IT",
+    currency: "EUR",
+    timeZone: "Europe/Rome",
+    primaryLocale: "it",
+    host: "www.ebay.it",
+  },
+  ebay_es: {
+    site: "ebay_es",
+    countryCode: "ES",
+    currency: "EUR",
+    timeZone: "Europe/Madrid",
+    primaryLocale: "es",
+    host: "www.ebay.es",
+  },
+  ebay_ca: {
+    site: "ebay_ca",
+    countryCode: "CA",
+    currency: "CAD",
+    timeZone: "America/Toronto",
+    primaryLocale: "en-CA",
+    host: "www.ebay.ca",
+  },
+  ebay_au: {
+    site: "ebay_au",
+    countryCode: "AU",
+    currency: "AUD",
+    timeZone: "Australia/Sydney",
+    primaryLocale: "en-AU",
+    host: "www.ebay.com.au",
   },
 };
 
@@ -86,7 +136,38 @@ export function mapRegionalCondition(
     return "unknown";
   }
 
-  // US & UK English variants
+  if (site === "ebay_fr" || (site === "ebay_ca" && norm.includes("occasion"))) {
+    if (["neuf", "neuf avec étiquettes", "neuf avec emballage"].includes(norm)) return "new_with_tags";
+    if (["neuf sans étiquettes", "neuf sans emballage"].includes(norm)) return "new_without_tags";
+    if (norm.startsWith("neuf : autre") || norm.includes("ouvert (jamais utilisé)")) return "like_new";
+    if (["d'occasion", "occasion", "très bon état", "bon état", "reconditionné"].includes(norm))
+      return "good";
+    if (["état correct", "acceptable"].includes(norm)) return "fair";
+    if (norm.includes("pour pièces") || norm.includes("ne fonctionne pas")) return "defective";
+    return "unknown";
+  }
+
+  if (site === "ebay_it") {
+    if (["nuovo", "nuovo con etichette", "nuovo con scatola"].includes(norm)) return "new_with_tags";
+    if (["nuovo senza etichette"].includes(norm)) return "new_without_tags";
+    if (norm.startsWith("altro (vedi dettagli)") || norm.includes("aperto - mai usato")) return "like_new";
+    if (["usato", "ricondizionato"].includes(norm)) return "good";
+    if (["accettabile"].includes(norm)) return "fair";
+    if (norm.includes("parti di ricambio") || norm.includes("non funzionante")) return "defective";
+    return "unknown";
+  }
+
+  if (site === "ebay_es") {
+    if (["nuevo", "nuevo con etiquetas"].includes(norm)) return "new_with_tags";
+    if (["nuevo sin etiquetas"].includes(norm)) return "new_without_tags";
+    if (norm.startsWith("nuevo (otro)") || norm.includes("abierto, sin usar")) return "like_new";
+    if (["usado", "reacondicionado", "en muy buen estado"].includes(norm)) return "good";
+    if (["aceptable"].includes(norm)) return "fair";
+    if (norm.includes("para piezas") || norm.includes("no funciona")) return "defective";
+    return "unknown";
+  }
+
+  // US, UK, CA (English), AU English variants
   if (["brand new", "new with tags", "new with box"].includes(norm)) return "new_with_tags";
   if (["new without tags", "new without box"].includes(norm)) return "new_without_tags";
   if (
@@ -136,6 +217,58 @@ const DE_MONTHS: Record<string, number> = {
   dez: 12,
 };
 
+const FR_MONTHS: Record<string, number> = {
+  janv: 1,
+  jan: 1,
+  févr: 2,
+  fevr: 2,
+  fev: 2,
+  mars: 3,
+  mar: 3,
+  avr: 4,
+  mai: 5,
+  juin: 6,
+  juil: 7,
+  août: 8,
+  aout: 8,
+  sept: 9,
+  sep: 9,
+  oct: 10,
+  nov: 11,
+  déc: 12,
+  dec: 12,
+};
+
+const IT_MONTHS: Record<string, number> = {
+  gen: 1,
+  feb: 2,
+  mar: 3,
+  apr: 4,
+  mag: 5,
+  giu: 6,
+  lug: 7,
+  ago: 8,
+  set: 9,
+  ott: 10,
+  nov: 11,
+  dic: 12,
+};
+
+const ES_MONTHS: Record<string, number> = {
+  ene: 1,
+  feb: 2,
+  mar: 3,
+  abr: 4,
+  may: 5,
+  jun: 6,
+  jul: 7,
+  ago: 8,
+  sep: 9,
+  oct: 10,
+  nov: 11,
+  dic: 12,
+};
+
 function isoDay(year: number, month: number, day: number): string | null {
   if (year < 2000 || year > 2100 || month < 1 || month > 12 || day < 1 || day > 31) return null;
   const d = new Date(Date.UTC(year, month - 1, day));
@@ -163,11 +296,45 @@ export function parseRegionalSoldDate(site: MarketplaceSite, raw: string): SaleT
     return { precision: "unknown" };
   }
 
-  if (site === "ebay_uk") {
+  if (site === "ebay_uk" || site === "ebay_au") {
     const ukText = /(?:sold\s+)?(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})/i.exec(clean);
     if (ukText?.[1] && ukText[2] && ukText[3]) {
       const m = UK_MONTHS[ukText[2].slice(0, 3).toLowerCase()];
       const value = m ? isoDay(Number(ukText[3]), m, Number(ukText[1])) : null;
+      if (value) return { precision: "day", value, timeZone: tz };
+    }
+  }
+
+  if (site === "ebay_fr" || site === "ebay_it" || site === "ebay_es") {
+    const slashNumeric = /(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(clean);
+    if (slashNumeric?.[1] && slashNumeric[2] && slashNumeric[3]) {
+      const value = isoDay(Number(slashNumeric[3]), Number(slashNumeric[2]), Number(slashNumeric[1]));
+      if (value) return { precision: "day", value, timeZone: tz };
+    }
+    const table = site === "ebay_fr" ? FR_MONTHS : site === "ebay_it" ? IT_MONTHS : ES_MONTHS;
+    const romanceText =
+      /(?:vendu\s+le|venduto\s+il|vendido\s+el)?\s*(\d{1,2})\s+(?:de\s+)?([A-Za-zÀ-ÿ]+)\.?\s+(?:de\s+)?(\d{4})/i.exec(
+        clean,
+      );
+    if (romanceText?.[1] && romanceText[2] && romanceText[3]) {
+      const token = romanceText[2].toLowerCase();
+      const m = table[token] ?? table[token.slice(0, 4)] ?? table[token.slice(0, 3)];
+      const value = m ? isoDay(Number(romanceText[3]), m, Number(romanceText[1])) : null;
+      if (value) return { precision: "day", value, timeZone: tz };
+    }
+    return { precision: "unknown" };
+  }
+
+  if (site === "ebay_ca") {
+    const frCa = /(\d{1,2})\s+([A-Za-zÀ-ÿ]+)\.?\s+(\d{4})/.exec(clean);
+    if (frCa?.[1] && frCa[2] && frCa[3]) {
+      const token = frCa[2].toLowerCase();
+      const m =
+        FR_MONTHS[token] ??
+        FR_MONTHS[token.slice(0, 4)] ??
+        FR_MONTHS[token.slice(0, 3)] ??
+        UK_MONTHS[token.slice(0, 3)];
+      const value = m ? isoDay(Number(frCa[3]), m, Number(frCa[1])) : null;
       if (value) return { precision: "day", value, timeZone: tz };
     }
   }
