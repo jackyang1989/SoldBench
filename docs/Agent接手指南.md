@@ -7,10 +7,10 @@
 | 项目 | 接手信息 |
 |---|---|
 | 仓库 | 私有仓库 `jackyang1989/SoldBench`，远端 `https://github.com/jackyang1989/SoldBench.git` |
-| 主分支基线 | `main` 已合入撤权主图清理收尾（§157）、运营读侧（§158）、信封绑定 eBay US 已售 DOM 解析（§159）、真实 eBay 多布局解析加固/HTTP 传输/原始 HTML 摄入链（§160）、商品详情页解析补证/有界 Chrome 传输闭环（§161）、持久详情补证队列/3 通道监督/eBay US 语料守护运行器（§162）、生产隔离部署模板/校验型 PG16 备份恢复脚本（§163）、V1.1 商家批量查价及 CSV 工作台（§164）、获准历史档案与研究 API（§165）、V1.5 Best Offer 后置实价核验与版本快照链（§166）、Hosted MCP OAuth 2.1/PKCE 及 Passkey（§167）、V1.5 收藏监控/费用同意提醒及签名 Webhook（§168）、V1.5 图片/条码识别查价（§169）、V1.5 库存估值工作流（§170）、V1.5 eBay UK/DE 站点扩展及地区本地化（§171）、V2 第二平台 Mercari US 纵向闭环（§172）、V2 卡牌及评级数据纵向（§173）、V2 拍卖成交纵向 Goldin US（§174）、V2 其余 eBay 国家站点 FR/IT/ES/CA/AU（§175）与运费报价/RapidAPI 专项决策包（§176） |
+| 主分支基线 | `main` 已合入撤权主图清理收尾（§157）、运营读侧（§158）、信封绑定 eBay US 已售 DOM 解析（§159）、真实 eBay 多布局解析加固/HTTP 传输/原始 HTML 摄入链（§160）、商品详情页解析补证/有界 Chrome 传输闭环（§161）、持久详情补证队列/3 通道监督/eBay US 语料守护运行器（§162）、生产隔离部署模板/校验型 PG16 备份恢复脚本（§163）、V1.1 商家批量查价及 CSV 工作台（§164）、获准历史档案与研究 API（§165）、V1.5 Best Offer 后置实价核验与版本快照链（§166）、Hosted MCP OAuth 2.1/PKCE 及 Passkey（§167）、V1.5 收藏监控/费用同意提醒及签名 Webhook（§168）、V1.5 图片/条码识别查价（§169）、V1.5 库存估值工作流（§170）、V1.5 eBay UK/DE 站点扩展及地区本地化（§171）、V2 第二平台 Mercari US 纵向闭环（§172）、V2 卡牌及评级数据纵向（§173）、V2 拍卖成交纵向 Goldin US（§174）、V2 其余 eBay 国家站点 FR/IT/ES/CA/AU（§175）、运费报价/RapidAPI 专项决策包（§176）与促销活动/版本化报价/Ask AI 专项（§177） |
 | 当前工作区 | 本机主检出 `/Users/jianouyang/Project/SoldBench`（在 `main` 上推进）；旧隔离工作树 `/Users/jianouyang/.codex/worktrees/soldbench-media-recovery/SoldBench` 保留未改，勿再基于已合入分支继续做合成撤权延伸 |
-| 已完成增量 | TASK-014/015/016/017/019/039/044/045/046/047/048/049/050/051/052/053/054/055/056/061 的 §157–§176 均已完成相应离线工程或专项决策；最新代码候选 `833080b`（OpenAPI 1.39.0、111 张表、`API-69`）通过 44 套 346 项 Node 测试与 299 文件运行包独立恢复演练；§176 已登记 `ADR-15`/`ADR-16` 与 `DEC-16`/`DEC-17`（拒绝/延后实时邮费估算与 RapidAPI 分发，不伪造可用服务）；注：本机出口 IP 直连 `www.ebay.com` 返回边缘 403 并按 Fail-Closed 熔断 |
-| 接下来做什么 | **继续按 `docs/开发排期与任务台账.md` 推进全部待开发功能包（勿回退假数据撤权清理）**：下一步推进 **TASK-062（促销活动、报价版本化与托管 Ask AI 决策，AT-081）** 与 **TASK-042（全量离线最终回归）**，同步保留可用出口网络下 `npm run collector:ebay-daemon` 的 14 日稳定性观测准备 |
+| 已完成增量 | TASK-014/015/016/017/019/039/044/045/046/047/048/049/050/051/052/053/054/055/056/061/062 的 §157–§177 均已完成对应离线工程或专项决策；最新代码候选 `5d8b68b`（OpenAPI 1.40.0、114 张表、46 迁移、`API-70`）通过 45 套 348 项 Node/Chrome 测试与 304 文件运行包独立恢复演练，并登记 `ADR-17` / `DEC-18`；注：本机出口 IP 直连 `www.ebay.com` 返回边缘 403 并按 Fail-Closed 熔断 |
+| 接下来做什么 | 执行 **TASK-042（全量离线最终回归与交接定型 §178）**；此后离线产品工程已完整交付，进入真实外部前置签收阶段（合法来源授权、可用出口网络 14 日真实 eBay US 守护样本观测、Stripe/PayPal 真实商户凭据、服务器/DNS/TLS 部署及创始人 G0–G5 签收） |
 
 接手后先在主检出确认分支与工作区状态：
 
@@ -131,10 +131,14 @@ SoldBench 是直接服务**个人卖家、收藏品交易商、二手商家、�
 
 - **TASK-056，AT-073。** 交付 [ADR-15](adr/ADR-15-shipping-quote-evaluation.md)（`DEC-16`：**暂不采纳/不实施**实时 US ZIP/承运商运费估算，严格隔离历史 `observed_shipping_cents`、记录缺乏重量/尺寸/商业合同与统计防污染依据，未来若立项单列 10 人日及独立契约）与 [ADR-16](adr/ADR-16-rapidapi-distribution-evaluation.md)（`DEC-17`：**首发拒绝/暂不接入** RapidAPI，分析 ~25% 抽成、与 `POST /claim` 及免费复取/`<8`/stale 原语冲突、税费拒付及再分发许可限制，若重启单列 8 人日及渠道授权）。本包严格为 5 人日决策包，未编写实时运费或 RapidAPI 服务。
 
-### 接下来优先执行（2026-11-21 纠偏后路线）
+### 已完成第二十一包：促销活动、报价版本化与托管 Ask AI 决策专项（台账 §177）
+
+- **TASK-062，AT-081。** 新增迁移 [0046_promo_offers.sql](../packages/db/migrations/0046_promo_offers.sql)（库表增至 114 张，新增 `promo_campaigns`/`promo_redemptions`/`pricing_offer_versions`），在 [promo-offers.ts](../packages/billing/src/promo-offers.ts) 与 [promo-offers.ts](../apps/api/src/promo-offers.ts) 实现 100 并发单户仅授 1 笔 `promo` 额度桶、严格最短到期优先/同到期订阅优先扣费序、不可改写历史订单与待商业审批版本台账；交付 OpenAPI `1.40.0` / 166 操作 / 271 schema / `API-70`、双语 `/account/billing` 兑换与版本报价界面及 [ADR-17](adr/ADR-17-managed-ask-ai-evaluation.md)（`DEC-18`，延后托管生成式 Ask AI 另列 12 人日独立估算）；通过 45 套 348 项全绿（含 Chrome 走查）与 304 文件运行包独立恢复演练（46 迁移、SHA-256 `7f64da707c4033d6b01310100152077ad1118e3362ed1a76d2045432f3aee639`）。
+
+### 接下来优先执行（2026-11-24 离线工程收口阶段）
 
 1. **严禁重回合成数据撤权边角：** §157–§158 已永久收口旧批次撤权与运营读侧；后续继续保持零合成撤权额外投入。
-2. **持续推进未完成扩展与研究能力：** 依次按台账推进 **TASK-062（促销与版本报价及托管 AI 决策，AT-081）** 与 **TASK-042（全量离线最终复核）**。
+2. **完成 TASK-042 最终离线收口登记并等待外部真实前置：** 所有计划内离线软件工程包（§157–§177）已全部交付并验证；下一动作执行真实外部源准入、可用出口网络 14 日 `npm run collector:ebay-daemon -- --allow-live-fetch=true` 稳定性观测、Stripe/PayPal 真实商户联调、服务器与 DNS/TLS 部署及创始人 G0–G5 签收。
 3. **用真实抓取样本持续校验并准备 14 日稳定性观测：** 使用 `npm run collector:ebay-intake -- --mode=inspect` 与 `--mode=ingest --details-dir=...` 直接接入真实捕获的 eBay US 搜索页与 `/itm/<id>` 详情页，并在可用出口网络就绪后启动 `npm run collector:ebay-daemon -- --allow-live-fetch=true`。
 
 ## 5. 新 Agent 必读顺序
