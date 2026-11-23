@@ -201,7 +201,8 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
       "0044_auction_sales_vertical.sql",
     ]);
     assert.deepEqual(await migrate(db, "0045_global_ebay_sites.sql"), ["0045_global_ebay_sites.sql"]);
-    assert.deepEqual(await migrate(db), ["0046_promo_offers.sql"]);
+    assert.deepEqual(await migrate(db, "0046_promo_offers.sql"), ["0046_promo_offers.sql"]);
+    assert.deepEqual(await migrate(db), ["0047_mail_delivery_attempts.sql"]);
     assert.deepEqual(await migrate(db), []);
     const detailConstraints = await db.query(
       "SELECT conname FROM pg_constraint WHERE conrelid='collector_detail_jobs'::regclass ORDER BY conname",
@@ -329,6 +330,15 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
       offerVersions.rows.every((r) => r.commercial_approved === false),
       true,
     );
+    const mailAttemptConstraints = await db.query(
+      "SELECT conname FROM pg_constraint WHERE conrelid='auth_mail_delivery_attempts'::regclass ORDER BY conname",
+    );
+    assert.ok(
+      mailAttemptConstraints.rows.some((r) => r.conname === "auth_mail_delivery_attempts_provider_check"),
+    );
+    assert.ok(
+      mailAttemptConstraints.rows.some((r) => r.conname === "auth_mail_delivery_attempts_status_check"),
+    );
     const mediaColumns = await db.query(
       "SELECT column_name FROM information_schema.columns WHERE table_name='listing_images'",
     );
@@ -360,7 +370,7 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
     const tables = await db.query(
       "SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema='public'",
     );
-    assert.equal(tables.rows[0].n, 114);
+    assert.equal(tables.rows[0].n, 115);
     await assert.rejects(
       transaction(db, async (c) => {
         await c.query("INSERT INTO users(email,password_hash) VALUES('rollback@example.test','fixture')");

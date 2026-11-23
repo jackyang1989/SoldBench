@@ -424,6 +424,232 @@ function supplementalResearch(stats) {
   return details;
 }
 
+const SVG_NS = "http://www.w3.org/2000/svg";
+function svgEl(tag, attrs = {}, text) {
+  const el = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v !== undefined && v !== null) el.setAttribute(k, String(v));
+  }
+  if (text !== undefined) el.textContent = String(text);
+  return el;
+}
+
+function renderPriceHistogramSvg(bins, lowNum, binSizeNum, highNum, stats) {
+  const W = 640;
+  const H = 210;
+  const padL = 44;
+  const padR = 16;
+  const padT = 26;
+  const padB = 34;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+  const maxCount = Math.max(1, ...bins);
+  const svg = svgEl("svg", {
+    viewBox: `0 0 ${W} ${H}`,
+    class: "chart-svg",
+    role: "img",
+    "data-chart": "price-histogram",
+    "aria-label": t("Verified price distribution histogram", "已核验价格分布直方图"),
+  });
+
+  const minP = lowNum;
+  const maxP = Math.max(minP + 1, highNum);
+  const xForCents = (c) => padL + ((Math.min(Math.max(c, minP), maxP) - minP) / (maxP - minP)) * plotW;
+
+  if ((stats?.n_price_verified ?? 0) >= 8 && stats?.p25_cents != null && stats?.p75_cents != null) {
+    const x1 = xForCents(stats.p25_cents);
+    const x2 = Math.max(x1 + 2, xForCents(stats.p75_cents));
+    svg.append(
+      svgEl("rect", {
+        x: x1.toFixed(1),
+        y: padT,
+        width: (x2 - x1).toFixed(1),
+        height: plotH,
+        class: "chart-iqr",
+      }),
+    );
+  }
+
+  svg.append(
+    svgEl("line", { x1: padL, y1: padT + plotH, x2: W - padR, y2: padT + plotH, class: "chart-axis" }),
+  );
+  svg.append(svgEl("line", { x1: padL, y1: padT, x2: padL, y2: padT + plotH, class: "chart-axis" }));
+
+  const stepW = plotW / Math.max(1, bins.length);
+  const gap = Math.min(8, stepW * 0.16);
+  bins.forEach((count, i) => {
+    const barW = Math.max(8, stepW - gap);
+    const barH = (count / maxCount) * (plotH - 8);
+    const x = padL + i * stepW + gap / 2;
+    const y = padT + plotH - barH;
+    const fromC = lowNum + i * binSizeNum;
+    const toC = Math.min(highNum, fromC + binSizeNum - 1);
+    const rect = svgEl("rect", {
+      x: x.toFixed(1),
+      y: y.toFixed(1),
+      width: barW.toFixed(1),
+      height: Math.max(count ? 2 : 0, barH).toFixed(1),
+      rx: 4,
+      class: "chart-bar",
+    });
+    rect.append(svgEl("title", {}, `${amount(fromC)} – ${amount(toC)}: ${count}`));
+    svg.append(rect);
+    if (count > 0) {
+      svg.append(
+        svgEl(
+          "text",
+          {
+            x: (x + barW / 2).toFixed(1),
+            y: Math.max(14, y - 5).toFixed(1),
+            "text-anchor": "middle",
+            class: "chart-label",
+          },
+          String(count),
+        ),
+      );
+    }
+  });
+
+  if ((stats?.n_price_verified ?? 0) >= 8 && stats?.median_cents != null) {
+    const mx = xForCents(stats.median_cents);
+    svg.append(
+      svgEl("line", {
+        x1: mx.toFixed(1),
+        y1: padT,
+        x2: mx.toFixed(1),
+        y2: padT + plotH,
+        class: "chart-marker-median",
+      }),
+    );
+    svg.append(
+      svgEl(
+        "text",
+        {
+          x: Math.min(W - padR - 4, Math.max(padL + 4, mx)).toFixed(1),
+          y: 15,
+          "text-anchor": "middle",
+          class: "chart-label",
+        },
+        `${t("Median", "中位")} ${amount(stats.median_cents)}`,
+      ),
+    );
+  }
+  if ((stats?.n_price_verified ?? 0) >= 8 && stats?.trimmed_mean_cents != null) {
+    const tx = xForCents(stats.trimmed_mean_cents);
+    svg.append(
+      svgEl("line", {
+        x1: tx.toFixed(1),
+        y1: padT,
+        x2: tx.toFixed(1),
+        y2: padT + plotH,
+        class: "chart-marker-trim",
+      }),
+    );
+  }
+
+  svg.append(svgEl("text", { x: padL, y: H - 10, class: "chart-label" }, amount(lowNum)));
+  svg.append(
+    svgEl("text", { x: W - padR, y: H - 10, "text-anchor": "end", class: "chart-label" }, amount(highNum)),
+  );
+  return svg;
+}
+
+function renderPriceTrendSvg(buckets) {
+  const W = 640;
+  const H = 190;
+  const padL = 56;
+  const padR = 16;
+  const padT = 20;
+  const padB = 34;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+  const svg = svgEl("svg", {
+    viewBox: `0 0 ${W} ${H}`,
+    class: "chart-svg",
+    role: "img",
+    "data-chart": "price-trend",
+    "aria-label": t("UTC period median trend (breaks across gaps)", "UTC 分期中位价走势（缺口不连线）"),
+  });
+
+  svg.append(
+    svgEl("line", { x1: padL, y1: padT + plotH, x2: W - padR, y2: padT + plotH, class: "chart-axis" }),
+  );
+  svg.append(svgEl("line", { x1: padL, y1: padT, x2: padL, y2: padT + plotH, class: "chart-axis" }));
+
+  const valid = buckets
+    .filter((b) => b.observation_coverage === "complete" && b.median_cents != null)
+    .map((b) => b.median_cents);
+  if (!valid.length) {
+    svg.append(
+      svgEl(
+        "text",
+        { x: W / 2, y: H / 2, "text-anchor": "middle", class: "chart-label" },
+        t(
+          "No complete-coverage period medians to plot (unknown gaps stay blank).",
+          "暂无完整覆盖分期中位价可绘制（数据缺口保持空白）。",
+        ),
+      ),
+    );
+    return svg;
+  }
+
+  const minY = Math.min(...valid);
+  const maxY = Math.max(minY + 100, ...valid);
+  const slotW = plotW / Math.max(1, buckets.length);
+  let segment = [];
+  const flushSegment = () => {
+    if (segment.length >= 2) {
+      svg.append(
+        svgEl("polyline", {
+          points: segment.map((pt) => `${pt.x.toFixed(1)},${pt.y.toFixed(1)}`).join(" "),
+          class: "chart-trend-line",
+        }),
+      );
+    }
+    segment = [];
+  };
+
+  buckets.forEach((b, idx) => {
+    const cx = padL + idx * slotW + slotW / 2;
+    if (b.observation_coverage !== "complete" || b.median_cents == null) {
+      flushSegment();
+      svg.append(
+        svgEl("rect", {
+          x: (padL + idx * slotW + 2).toFixed(1),
+          y: padT,
+          width: Math.max(4, slotW - 4).toFixed(1),
+          height: plotH,
+          class: "chart-gap",
+          "data-gap": "true",
+        }),
+      );
+      return;
+    }
+    const cy = padT + plotH - ((b.median_cents - minY) / (maxY - minY)) * (plotH - 12) - 6;
+    segment.push({ x: cx, y: cy });
+    const dot = svgEl("circle", { cx: cx.toFixed(1), cy: cy.toFixed(1), r: 4, class: "chart-dot" });
+    dot.append(svgEl("title", {}, `${b.start.slice(0, 10)}: ${amount(b.median_cents)} (${b.sample_count})`));
+    svg.append(dot);
+  });
+  flushSegment();
+
+  svg.append(
+    svgEl("text", { x: padL - 6, y: padT + 8, "text-anchor": "end", class: "chart-label" }, amount(maxY)),
+  );
+  svg.append(
+    svgEl("text", { x: padL - 6, y: padT + plotH, "text-anchor": "end", class: "chart-label" }, amount(minY)),
+  );
+  svg.append(svgEl("text", { x: padL, y: H - 10, class: "chart-label" }, buckets[0].start.slice(0, 10)));
+  svg.append(
+    svgEl(
+      "text",
+      { x: W - padR, y: H - 10, "text-anchor": "end", class: "chart-label" },
+      buckets.at(-1).end.slice(0, 10),
+    ),
+  );
+  return svg;
+}
+
 function researchDistribution(result, meta) {
   const id = result.query_id;
   const section = element("details", undefined, "research-distribution");
@@ -463,6 +689,7 @@ function researchDistribution(result, meta) {
       const size = (high - low) / 5n + 1n;
       const bins = Array.from({ length: Number((high - low) / size + 1n) }, () => 0);
       for (const value of cents) bins[Number((BigInt(value) - low) / size)] += 1;
+      body.append(renderPriceHistogramSvg(bins, Number(low), Number(size), Number(high), result.stats));
       const bars = element("ul", undefined, "distribution-bars");
       bins.forEach((count, index) => {
         const from = low + BigInt(index) * size;
@@ -479,6 +706,7 @@ function researchDistribution(result, meta) {
       body.append(bars);
       const periods = result.supplemental_stats?.time_series;
       if (!periods?.buckets.length) return;
+      body.append(renderPriceTrendSvg(periods.buckets));
       const buckets = periods.buckets.map((bucket) => [
         `${bucket.start.slice(0, 10)} – ${bucket.end.slice(0, 10)}`,
         bucket.sample_count || (bucket.observation_coverage === "complete" ? 0 : "—"),

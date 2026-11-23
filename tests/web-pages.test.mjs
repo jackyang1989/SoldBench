@@ -363,6 +363,9 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await breakdown.click();
     await page.getByText("Price distribution and trends", { exact: true }).click();
     await page.getByText("8 prices from the complete permitted snapshot").waitFor();
+    await page.locator('svg[data-chart="price-histogram"]').waitFor();
+    assert.equal((await page.locator('svg[data-chart="price-histogram"] rect.chart-bar').count()) >= 1, true);
+    assert.equal(await page.locator('svg[data-chart="price-trend"]').count(), 1);
     const displayedBars = await page
       .locator(".distribution-bars meter")
       .evaluateAll((meters) => meters.reduce((count, meter) => count + meter.value, 0));

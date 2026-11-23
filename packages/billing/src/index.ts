@@ -424,4 +424,20 @@ export {
   verifyFixture,
 } from "./payment-fixtures.ts";
 export { offerVersion, PaymentLifecycle } from "./payment-lifecycle.ts";
+export {
+  formatUsdCentsForPayPal,
+  type PayPalAdapterConfig,
+  PayPalProviderAdapter,
+  type PayPalTranslatedFact,
+  parsePayPalUsdCents,
+  translatePayPalEventToFact,
+} from "./paypal-adapter.ts";
 export { type PromoActor, PromoOfferService } from "./promo-offers.ts";
+export {
+  type StripeAdapterConfig,
+  type StripeCheckoutInput,
+  StripeProviderAdapter,
+  type StripeTranslatedFact,
+  translateStripeEventToFact,
+  verifyStripeWebhookSignature,
+} from "./stripe-adapter.ts";
