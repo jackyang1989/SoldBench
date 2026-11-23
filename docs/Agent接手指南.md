@@ -9,8 +9,8 @@
 | 仓库 | 私有仓库 `jackyang1989/SoldBench`，远端 `https://github.com/jackyang1989/SoldBench.git` |
 | 主分支基线 | `main` 已合入撤权主图清理收尾（§157）、运营读侧（§158）、信封绑定 eBay US 已售 DOM 解析（§159）、真实 eBay 多布局解析加固/HTTP 传输/原始 HTML 摄入链（§160）、商品详情页解析补证/有界 Chrome 传输闭环（§161）、持久详情补证队列/3 通道监督/eBay US 语料守护运行器（§162）、生产隔离部署模板/校验型 PG16 备份恢复脚本（§163）、V1.1 商家批量查价及 CSV 工作台（§164）、获准历史档案与研究 API（§165）、V1.5 Best Offer 后置实价核验与版本快照链（§166）、Hosted MCP OAuth 2.1/PKCE 及 Passkey（§167）、V1.5 收藏监控/费用同意提醒及签名 Webhook（§168）、V1.5 图片/条码识别查价（§169）、V1.5 库存估值工作流（§170）、V1.5 eBay UK/DE 站点扩展及地区本地化（§171）、V2 第二平台 Mercari US 纵向闭环（§172）、V2 卡牌及评级数据纵向（§173）、V2 拍卖成交纵向 Goldin US（§174）、V2 其余 eBay 国家站点 FR/IT/ES/CA/AU（§175）、运费报价/RapidAPI 专项决策包（§176）与促销活动/版本化报价/Ask AI 专项（§177） |
 | 当前工作区 | 本机主检出 `/Users/jianouyang/Project/SoldBench`（在 `main` 上推进）；旧隔离工作树 `/Users/jianouyang/.codex/worktrees/soldbench-media-recovery/SoldBench` 保留未改，勿再基于已合入分支继续做合成撤权延伸 |
-| 已完成增量 | TASK-014/015/016/017/019/039/044/045/046/047/048/049/050/051/052/053/054/055/056/061/062 的 §157–§177 均已完成对应离线工程或专项决策；最新代码候选 `5d8b68b`（OpenAPI 1.40.0、114 张表、46 迁移、`API-70`）通过 45 套 348 项 Node/Chrome 测试与 304 文件运行包独立恢复演练，并登记 `ADR-17` / `DEC-18`；注：本机出口 IP 直连 `www.ebay.com` 返回边缘 403 并按 Fail-Closed 熔断 |
-| 接下来做什么 | 执行 **TASK-042（全量离线最终回归与交接定型 §178）**；此后离线产品工程已完整交付，进入真实外部前置签收阶段（合法来源授权、可用出口网络 14 日真实 eBay US 守护样本观测、Stripe/PayPal 真实商户凭据、服务器/DNS/TLS 部署及创始人 G0–G5 签收） |
+| 已完成增量 | 全部计划内离线工程与专项决策包（TASK-014/015/016/017/019/039/042/044–056/061/062 的 §157–§178）已全部在 `main` 闭环交付并通过离线全量回归；最终代码提交 `5d8b68b`（46 个 SQL 迁移、114 张 PG16 表、OpenAPI 1.40.0 / 166 操作 / 271 schema / `API-70`、18 项 DEC / ADR-11–17）通过 45 套 348 项 PG16+Chrome 测试、9 项 Python 测试、Step 0 20/20 PASS 与 304 文件运行包独立恢复演练；注：本机出口 IP 直连 `www.ebay.com` 返回边缘 403 并按 Fail-Closed 熔断 |
+| 接下来做什么 | **全部离线软件工程已交付并收口（§178）**；进入真实外部前置落地阶段：取得合法来源及主图许可 → 在可用出口网络下启动 `npm run collector:ebay-daemon -- --allow-live-fetch=true` 完成 14 日真实稳定性观测与盲测 → 完成 Stripe/PayPal 真实商户与单位经济签收 → 购买服务器配置 DNS/TLS/邮件并完成非实现者 G1–G5 独立签署 |
 
 接手后先在主检出确认分支与工作区状态：
 
@@ -135,10 +135,10 @@ SoldBench 是直接服务**个人卖家、收藏品交易商、二手商家、�
 
 - **TASK-062，AT-081。** 新增迁移 [0046_promo_offers.sql](../packages/db/migrations/0046_promo_offers.sql)（库表增至 114 张，新增 `promo_campaigns`/`promo_redemptions`/`pricing_offer_versions`），在 [promo-offers.ts](../packages/billing/src/promo-offers.ts) 与 [promo-offers.ts](../apps/api/src/promo-offers.ts) 实现 100 并发单户仅授 1 笔 `promo` 额度桶、严格最短到期优先/同到期订阅优先扣费序、不可改写历史订单与待商业审批版本台账；交付 OpenAPI `1.40.0` / 166 操作 / 271 schema / `API-70`、双语 `/account/billing` 兑换与版本报价界面及 [ADR-17](adr/ADR-17-managed-ask-ai-evaluation.md)（`DEC-18`，延后托管生成式 Ask AI 另列 12 人日独立估算）；通过 45 套 348 项全绿（含 Chrome 走查）与 304 文件运行包独立恢复演练（46 迁移、SHA-256 `7f64da707c4033d6b01310100152077ad1118e3362ed1a76d2045432f3aee639`）。
 
-### 接下来优先执行（2026-11-24 离线工程收口阶段）
+### 接下来优先执行（2026-11-24 离线工程全部收口）
 
-1. **严禁重回合成数据撤权边角：** §157–§158 已永久收口旧批次撤权与运营读侧；后续继续保持零合成撤权额外投入。
-2. **完成 TASK-042 最终离线收口登记并等待外部真实前置：** 所有计划内离线软件工程包（§157–§177）已全部交付并验证；下一动作执行真实外部源准入、可用出口网络 14 日 `npm run collector:ebay-daemon -- --allow-live-fetch=true` 稳定性观测、Stripe/PayPal 真实商户联调、服务器与 DNS/TLS 部署及创始人 G0–G5 签收。
+1. **离线工程状态（已完成）：** §157–§178 已将原稿、竞品 24 组能力与原型补齐规划的所有离线编码与专项 ADR/DEC 决策包全部实现并完成 45 套 348 项 PG16 + Google Chrome + 运行包恢复复核，工作区洁净无未决离线代码包；继续严格保持零合成撤权额外投入。
+2. **上线前必须完成的真实外部前置：** 取得真实数据源与主图许可，在可用出口网络运行 `npm run collector:ebay-daemon -- --allow-live-fetch=true` 获取 14 日连续线上观测与人工盲测金标，对接真实 Stripe/PayPal 商户与事务邮件，完成服务器购买及 `soldbench.com` / `api.soldbench.com` 的 DNS/TLS 部署，并由独立复核人及创始人签署 G0–G5 阶段门。
 3. **用真实抓取样本持续校验并准备 14 日稳定性观测：** 使用 `npm run collector:ebay-intake -- --mode=inspect` 与 `--mode=ingest --details-dir=...` 直接接入真实捕获的 eBay US 搜索页与 `/itm/<id>` 详情页，并在可用出口网络就绪后启动 `npm run collector:ebay-daemon -- --allow-live-fetch=true`。
 
 ## 5. 新 Agent 必读顺序
