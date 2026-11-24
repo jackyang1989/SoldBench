@@ -34,7 +34,8 @@ REQUIRED = {LEGACY_SCHEMA: set(LEGACY_FILES), SCHEMA: set(FIXED_FILES)}
 OPTIONAL_FILES = ("scripts/billing-audit.mjs", "scripts/payment-replay-export.mjs",
                   "scripts/collector-spool-cleanup.mjs", "scripts/collector-evidence.mjs",
                   "scripts/collector-evidence-file.mjs", "scripts/collector-ebay-intake.mjs",
-                  "scripts/collector-ebay-daemon.mjs")
+                  "scripts/collector-ebay-daemon.mjs", "scripts/collector-provision-source.mjs",
+                  "scripts/runtime-db.mjs")
 
 
 def sha(value):
