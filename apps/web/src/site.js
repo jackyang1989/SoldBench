@@ -652,8 +652,8 @@ function renderPriceTrendSvg(buckets) {
 
 function researchDistribution(result, meta) {
   const id = result.query_id;
-  const section = element("details", undefined, "research-distribution");
-  const body = element("div");
+  const section = element("details", undefined, "research-distribution hist-card");
+  const body = element("div", undefined, "hist-card-body");
   let generation = 0;
   section.append(element("summary", t("Price distribution and trends", "价格分布与趋势")), body);
   section.addEventListener("toggle", async () => {
@@ -751,8 +751,8 @@ function researchDistribution(result, meta) {
 }
 
 function researchDiagnostics(id, expectedHash) {
-  const panel = element("details", undefined, "research-distribution");
-  const body = element("div");
+  const panel = element("details", undefined, "research-distribution hist-card");
+  const body = element("div", undefined, "hist-card-body");
   const reasons = {
     unverified_actual_price: t("Actual sale price unverified", "实际成交价未核验"),
     missing_shipping_evidence: t("Shipping evidence missing", "缺少运费证据"),
@@ -839,8 +839,8 @@ function researchDiagnostics(id, expectedHash) {
 }
 
 function bestOfferVerificationPanel(id) {
-  const panel = element("details", undefined, "research-panel");
-  const body = element("div", undefined, "small");
+  const panel = element("details", undefined, "research-panel hist-card");
+  const body = element("div", undefined, "small hist-card-body");
   let generation = 0;
 
   function renderPanel(data) {
@@ -1196,27 +1196,67 @@ function resultView({ data, meta }, research = { sort: "", excluded: new Set(), 
   }
   const stats = data.stats;
   const card = element("section", undefined, "live-card result-card");
-  card.append(element("h2", t("Sold-price summary", "成交价格摘要"), "live-head"));
-  const summary = element("div", undefined, "result-metrics");
+  const cardHead = element("div", undefined, "live-head");
+  cardHead.append(
+    element("h2", t("Sold-price summary", "成交价格摘要"), "t"),
+    element(
+      "span",
+      data.data_mode === "approved_network"
+        ? t("Approved sample", "合规样本")
+        : t("Offline fixture", "本地合成样本"),
+      "tag-ex",
+    ),
+  );
+  card.append(cardHead);
+
+  const statCard = element("div", undefined, "stat-card");
+  const statGrid = element("div", undefined, "stat-grid");
+  const primaryCol = element("div");
+  const tierLabel =
+    stats.n_price_verified >= 30
+      ? t("Full sample", "充足样本")
+      : stats.n_price_verified >= 8
+        ? t("Limited sample", "有限样本")
+        : t("Below minimum (needs ≥ 8)", "不足最低样本（需 ≥ 8 条）");
+  const basisNote =
+    (data.query?.price_basis ?? data.price_basis) === "item"
+      ? t("Basis: item price", "口径为商品价")
+      : t("Basis: item price and observed shipping", "口径为商品价和已观察运费");
+  primaryCol.append(
+    element("div", t("Median", "中位价"), "lab"),
+    element("div", amount(stats.median_cents), "median-big"),
+    element(
+      "div",
+      stats.p25_cents == null
+        ? `${t("Typical range", "典型区间")} —`
+        : `${t("Typical range", "典型区间")} ${amount(stats.p25_cents)} – ${amount(stats.p75_cents)}`,
+      "stat-range",
+    ),
+    element("div", `${tierLabel} · ${basisNote}`, "small mt-6"),
+  );
+  const miniGrid = element("div", undefined, "stat-mini");
+  const excludedCount =
+    Math.max(0, stats.n_observed - stats.n_comparable) + (stats.n_excluded_unverified_price ?? 0);
   for (const [label, value] of [
-    [t("Median", "中位价"), amount(stats.median_cents)],
-    [
-      t("Typical range", "典型区间"),
-      stats.p25_cents == null ? "—" : `${amount(stats.p25_cents)} – ${amount(stats.p75_cents)}`,
-    ],
-    [t("Verified prices", "已核验价格"), String(stats.n_price_verified)],
     [t("Mean", "平均价"), amount(data.supplemental_stats?.mean_cents)],
     [t("Trimmed mean", "截尾均价"), amount(stats.trimmed_mean_cents)],
     [
       t("Low / high", "最低／最高"),
       `${amount(stats.observed_min_cents)} / ${amount(stats.observed_max_cents)}`,
     ],
+    [t("Verified prices", "已核验价格"), String(stats.n_price_verified)],
+    [t("Observed", "已观察"), String(stats.n_observed)],
+    [t("Comparable", "可比样本"), String(stats.n_comparable)],
+    [t("Excluded / diagnostic", "排除 / 诊断"), String(excludedCount)],
+    [t("Evidence pack", "证据包"), data.query_id ? String(data.query_id).slice(0, 12) : "—"],
   ]) {
     const metric = element("div");
-    metric.append(element("b", label), element("strong", value));
-    summary.append(metric);
+    metric.append(element("div", label, "lab"), element("div", value, "val"));
+    miniGrid.append(metric);
   }
-  card.append(summary);
+  statGrid.append(primaryCol, miniGrid);
+  statCard.append(statGrid);
+  card.append(statCard);
   const supplemental = data.supplemental_stats;
   if (supplemental) {
     const recent = supplemental.recent_30d;
@@ -1396,9 +1436,80 @@ function resultView({ data, meta }, research = { sort: "", excluded: new Set(), 
       evidenceCell.append(detail, exclusion(event));
     }
     viewport.append(table);
+    const galleryHost = element("div", undefined, "gal-grid mt-12");
+    galleryHost.hidden = true;
+    const jsonHost = element("div", undefined, "mt-12");
+    jsonHost.hidden = true;
+    const toolbar = card.querySelector(".result-toolbar");
+    if (toolbar) {
+      const seg = element("fieldset", undefined, "seg");
+      seg.setAttribute("aria-label", t("Result view", "结果视图"));
+      const modes = [
+        ["table", t("Table", "表格")],
+        ["gallery", t("Gallery", "图库")],
+        ["json", "JSON"],
+      ];
+      const setMode = (active) => {
+        for (const btn of seg.querySelectorAll("button")) {
+          btn.classList.toggle("on", btn.dataset.mode === active);
+        }
+        viewport.hidden = active !== "table";
+        galleryHost.hidden = active !== "gallery";
+        jsonHost.hidden = active !== "json";
+        if (active === "gallery") {
+          galleryHost.replaceChildren();
+          for (const comp of data.comps) {
+            const gCard = element(
+              "article",
+              undefined,
+              `gal-card${research.excluded.has(comp.sale_event_id) ? " user-excluded" : ""}`,
+            );
+            const media = element("div", undefined, "gal-media");
+            media.append(comparablePhoto(comp.primary_image));
+            gCard.append(
+              media,
+              element("div", comp.title ?? t("Title unavailable", "标题不可用"), "gal-title"),
+              element("div", amount(comp.item_price_cents), "gal-price"),
+              element(
+                "div",
+                `${conditions[comp.condition_std] ?? "—"} · ${comp.sold_date?.value?.slice(0, 10) ?? "—"}`,
+                "gal-meta small",
+              ),
+            );
+            galleryHost.append(gCard);
+          }
+        } else if (active === "json") {
+          jsonHost.replaceChildren();
+          const codeId = `wbJson_${String(data.query_id)
+            .replace(/[^a-z0-9]/gi, "")
+            .slice(0, 10)}`;
+          const block = element("div", undefined, "codeblock cap");
+          const head = element("div", undefined, "cb-head");
+          const copy = element("button", t("Copy", "复制"), "copy-btn");
+          copy.type = "button";
+          copy.dataset.copy = `#${codeId}`;
+          head.append(element("span", "response.json"), copy);
+          const pre = element("pre");
+          pre.id = codeId;
+          pre.textContent = JSON.stringify({ data, meta }, null, 2);
+          block.append(head, pre);
+          jsonHost.append(block);
+        }
+      };
+      for (const [mode, label] of modes) {
+        const b = element("button", label, mode === "table" ? "on" : undefined);
+        b.type = "button";
+        b.dataset.mode = mode;
+        b.addEventListener("click", () => setMode(mode));
+        seg.append(b);
+      }
+      toolbar.prepend(seg);
+    }
     research.share ??= shareControls(data.query_id);
     card.append(
       viewport,
+      galleryHost,
+      jsonHost,
       researchDistribution(data, meta),
       researchDiagnostics(data.query_id, meta.candidate_set_hash),
       ...(meta.anonymous_remaining === undefined && stats.best_offer_displayed_only_count > 0
@@ -1808,18 +1919,23 @@ if (page === "/categories" || page === "/data-availability") {
     message("");
     for (const row of data) {
       const category = row.id ?? row.category;
+      const stateKey = row.availability ?? row.freshness_state;
+      const badgeCls =
+        stateKey === "fresh"
+          ? "badge badge-green"
+          : stateKey === "stale_acceptable"
+            ? "badge badge-amber"
+            : "badge badge-gray";
       const card = element("section", undefined, "card");
-      card.append(element("h2", labels[category] ?? row.name ?? category));
-      card.append(element("p", freshness[row.availability ?? row.freshness_state]));
+      card.append(
+        element("span", freshness[stateKey] ?? t("Unavailable", "不可用"), badgeCls),
+        element("h2", labels[category] ?? row.name ?? category, "mt-10"),
+      );
       if (row.data_as_of)
         card.append(element("p", `${t("Last observation", "最近有效观测")} · ${row.data_as_of}`, "small"));
       if (row.collector_status === "paused")
         card.append(element("p", t("Collection paused", "采集暂停"), "small"));
-      if (categories)
-        card.append(
-          link(t("Category details", "类目详情"), `${prefix}/categories/${encodeURIComponent(category)}`),
-        );
-      if (categories && row.supported_windows.length) {
+      if (categories && row.supported_windows?.length) {
         card.append(
           element(
             "p",
@@ -1827,9 +1943,23 @@ if (page === "/categories" || page === "/data-availability") {
             "small",
           ),
         );
-        const params = new URLSearchParams({ category });
-        card.append(link(t("Search this category", "查询本类目"), `${prefix}/search?${params}`));
       }
+      const foot = element("div", undefined, "card-foot actions");
+      if (categories) {
+        const det = link(
+          t("Category details", "类目详情"),
+          `${prefix}/categories/${encodeURIComponent(category)}`,
+        );
+        det.className = "btn btn-ghost btn-sm";
+        foot.append(det);
+      }
+      if (categories && row.supported_windows?.length) {
+        const params = new URLSearchParams({ category });
+        const srch = link(t("Search this category", "查询本类目"), `${prefix}/search?${params}`);
+        srch.className = "btn btn-brand btn-sm";
+        foot.append(srch);
+      }
+      if (foot.childElementCount) card.append(foot);
       output.append(card);
     }
   });

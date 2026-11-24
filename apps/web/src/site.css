@@ -1027,6 +1027,10 @@ label.check {
   position: relative;
   width: 100%;
 }
+.live-card > .stat-card {
+  border: 0;
+  border-radius: 0;
+}
 .stat-badges {
   display: flex;
   justify-content: space-between;
@@ -1244,6 +1248,10 @@ th.num {
   width: 100%;
   margin-inline: auto;
 }
+.grid2 .auth-card {
+  max-width: none;
+  margin-inline: 0;
+}
 .center-card {
   width: 100%;
 }
@@ -1304,14 +1312,13 @@ th.num {
   border-radius: var(--r);
   border: 1px solid var(--line);
   background: var(--card);
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 1fr 1fr 0.85fr 0.85fr 0.8fr 1.25fr auto;
   align-items: end;
   gap: 12px;
 }
 .wb-filters label {
   display: grid;
-  flex: 1 1 160px;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -1444,6 +1451,7 @@ th.num {
   top: 85px;
 }
 .docs-sidebar a {
+  display: block;
   color: var(--body);
   padding: 6px 10px;
   border-radius: 8px;
@@ -1576,6 +1584,12 @@ th.num {
 }
 .published-section h2 {
   margin-bottom: 8px;
+}
+.faq-item summary h2 {
+  font-size: 15.5px;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0;
 }
 .saved-comparison {
   display: grid;
@@ -2429,17 +2443,44 @@ progress.acct-prog::-moz-progress-bar {
   background: var(--redbg);
 }
 
-/* Mintlify docs v2 enhancements */
-.docs-layout.docs-v2 {
-  grid-template-columns: 268px minmax(0, 1fr) 236px;
-  gap: 44px;
-  padding: 36px 0 24px;
+.info-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 13px;
+  color: var(--mut);
+  margin-bottom: 20px;
+  font-family: var(--mono);
 }
 .docs-otp {
   position: sticky;
   top: 89px;
   font-size: 13.5px;
   min-width: 0;
+}
+.otp h4 {
+  font-size: 11.5px;
+  letter-spacing: 0.1em;
+  color: var(--faint);
+  text-transform: uppercase;
+  margin: 0 0 10px;
+}
+.otp a,
+.otp-list a {
+  display: block;
+  padding: 4px 0;
+  color: var(--mut);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.otp a:hover,
+.otp-list a:hover {
+  color: var(--brand);
+  text-decoration: none;
 }
 .docs-pager {
   display: grid;
@@ -2448,6 +2489,9 @@ progress.acct-prog::-moz-progress-bar {
   margin-top: 40px;
   padding-top: 24px;
   border-top: 1px solid var(--line);
+}
+.docs-pager.solo {
+  grid-template-columns: minmax(0, 1fr);
 }
 .docs-pager a {
   display: block;
@@ -2459,6 +2503,65 @@ progress.acct-prog::-moz-progress-bar {
 .docs-pager a:hover {
   border-color: var(--brand);
   text-decoration: none;
+}
+.docs-pager .dir {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-bottom: 4px;
+}
+.docs-pager .ttl {
+  display: block;
+  font-weight: 700;
+  font-size: 15.5px;
+  color: var(--ink);
+}
+.docs-layout.docs-v2 {
+  grid-template-columns: 268px minmax(0, 1fr) 236px;
+  gap: 44px;
+  padding: 36px 0 24px;
+}
+.docs-v2 .docs-sidebar {
+  border-inline-start: 0;
+  padding: 0;
+}
+.docs-v2 .docs-sidebar nav {
+  display: block;
+  position: sticky;
+  top: 89px;
+}
+.docs-v2 .docs-nav-group h2 {
+  margin: 0 0 6px;
+  padding: 0 12px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--faint);
+  text-transform: uppercase;
+}
+.docs-v2 .docs-sidebar a {
+  padding: 6px 12px;
+  margin-bottom: 2px;
+}
+.docs-v2 .docs-body h1 {
+  font-family: var(--serif);
+  font-weight: 900;
+  font-size: 38px;
+  margin: 10px 0 14px;
+}
+.docs-v2 .docs-body h2 {
+  font-family: var(--serif);
+  font-weight: 700;
+  font-size: 25px;
+  margin: 34px 0 10px;
+}
+.docs-v2 .docs-body p,
+.docs-v2 .docs-body ul {
+  max-width: 46em;
+  color: var(--body);
 }
 
 /* Responsive container widening matching prototype */
@@ -2504,6 +2607,9 @@ progress.acct-prog::-moz-progress-bar {
   }
   .stat-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .wb-filters {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
@@ -2553,9 +2659,18 @@ progress.acct-prog::-moz-progress-bar {
   .stat-mini {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .docs-sidebar nav {
+  .docs-sidebar nav,
+  .docs-v2 .docs-sidebar nav {
     position: static;
-    grid-template-columns: repeat(auto-fit, minmax(126px, 1fr));
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 6px;
+  }
+}
+
+@media (max-width: 720px) {
+  .wb-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -2576,6 +2691,9 @@ progress.acct-prog::-moz-progress-bar {
 @media (max-width: 560px) {
   .wrap {
     padding: 0 16px;
+  }
+  .wb-filters {
+    grid-template-columns: minmax(0, 1fr);
   }
   section.blk {
     padding: 40px 0;
