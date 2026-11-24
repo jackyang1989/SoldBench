@@ -10,7 +10,7 @@ import {
   type SoldQuery,
 } from "@soldbench/core";
 import { type Transaction, transaction } from "@soldbench/db";
-import { AppError, VERSIONS } from "@soldbench/shared";
+import { AppError, sqlSourceEligibilityClause, VERSIONS } from "@soldbench/shared";
 import type { QueryService } from "./index.ts";
 import { csv, permissions } from "./research.ts";
 
@@ -464,8 +464,7 @@ export class BatchQueryService {
          JOIN sources s ON s.id=w.source_id
          JOIN source_clearances x ON x.id=s.source_clearance_id
          WHERE w.query_hash=$1 AND j.status='completed' AND j.permission_epoch=s.permission_epoch
-           AND s.status='active' AND s.access_method='offline_fixture' AND x.provider='synthetic_fixture'
-           AND x.status IN ('draft','reviewed','active')
+           AND s.status='active' AND ${sqlSourceEligibilityClause(this.query.dataMode)}
            AND (x.effective_at IS NULL OR x.effective_at<=$2)
            AND (x.expires_at IS NULL OR x.expires_at>$2) AND w.data_as_of<=$2
          ORDER BY w.data_as_of DESC, j.id LIMIT 1`,

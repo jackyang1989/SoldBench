@@ -10,7 +10,7 @@ import {
   secondMarketplaceCanonicalHash,
 } from "@soldbench/core";
 import { transaction } from "@soldbench/db";
-import { AppError } from "@soldbench/shared";
+import { AppError, sqlSourceEligibilityClause, sqlSourceKindClause } from "@soldbench/shared";
 import type { QueryService } from "./index.ts";
 
 type CatalogRow = {
@@ -149,8 +149,7 @@ export class SecondMarketplaceService {
            FROM sources s
            JOIN source_clearances x ON x.id=s.source_clearance_id
            WHERE s.id=$1 AND s.marketplace=$2 AND s.status='active'
-             AND s.access_method='offline_fixture' AND x.provider='synthetic_fixture'
-             AND x.status IN ('draft','reviewed','active')
+             AND ${sqlSourceEligibilityClause(this.query.dataMode)}
              AND (x.effective_at IS NULL OR x.effective_at<=$3)
              AND (x.expires_at IS NULL OR x.expires_at>$3)
            FOR SHARE OF s, x`,
@@ -288,10 +287,8 @@ export class SecondMarketplaceService {
            FROM sources s
            JOIN source_clearances x ON x.id=s.source_clearance_id
            WHERE s.marketplace=$1
-             AND s.access_method='offline_fixture'
-             AND x.provider='synthetic_fixture'
+             AND ${sqlSourceEligibilityClause(this.query.dataMode)}
              AND s.status='active'
-             AND x.status IN ('draft','reviewed','active')
              AND (x.effective_at IS NULL OR x.effective_at<=$2)
              AND (x.expires_at IS NULL OR x.expires_at>$2)`,
           [input.marketplace, now],
@@ -420,14 +417,16 @@ export class SecondMarketplaceService {
            JOIN sources s ON s.id=r.source_id
            JOIN source_clearances x ON x.id=s.source_clearance_id
            WHERE r.id=$1 AND r.marketplace_id=$2 AND s.marketplace=$2
-             AND s.access_method='offline_fixture' AND x.provider='synthetic_fixture'`,
+             AND ${sqlSourceKindClause(this.query.dataMode)}`,
           [recordId, marketplace],
         )
       ).rows[0];
       if (!row) fail("not_found", 404, "Record image not found.");
       if (
         row.source_status !== "active" ||
-        !["draft", "reviewed", "active"].includes(row.clearance_status) ||
+        !(this.query.dataMode === "approved_network"
+          ? row.clearance_status === "active"
+          : ["draft", "reviewed", "active"].includes(row.clearance_status)) ||
         BigInt(row.source_epoch) !== BigInt(row.record_epoch) ||
         row.media_rights_status !== "authorized" ||
         !hasPrimaryImagePermission(row.permitted_fields)

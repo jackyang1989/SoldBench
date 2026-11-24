@@ -131,7 +131,9 @@ export function createApp(
   mountOAuth(app, config, services.auth);
   mountPasskeys(app, config, services.auth);
   mountCatalog(app, db, services.query);
-  app.get("/health", (c) => c.json({ status: "ok", data_mode: config.dataMode, collector_enabled: false }));
+  app.get("/health", (c) =>
+    c.json({ status: "ok", data_mode: config.dataMode, collector_enabled: config.collectorEnabled }),
+  );
   app.get("/ready", async (c) => {
     const { rows } = await db.query<{ query_worker: string; query_queue: string }>(
       `SELECT coalesce((SELECT CASE WHEN last_cycle_at >= now() - interval '30 seconds' THEN 'recent'
@@ -212,7 +214,12 @@ export function createApp(
   mountDeveloper(app);
   mountPublicResults(app, config, services.auth, services.query);
   mountOperations(app, config, services.auth, services.query, services.payments);
-  mountPayments(app, config, services.auth, config.paymentFixtures ? services.payments : undefined);
+  mountPayments(
+    app,
+    config,
+    services.auth,
+    config.paymentFixtures || config.paymentsMode !== "offline" ? services.payments : undefined,
+  );
   mountPromoOffers(
     app,
     config,

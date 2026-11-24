@@ -1,4 +1,5 @@
 import type { SoldQuery } from "@soldbench/core";
+import { type ProxySummary, parseProxyUrl } from "@soldbench/shared";
 import { buildEbayUsItemDetailUrl, buildEbayUsSoldSearchUrl, validateEbayUsOrigin } from "./ebay-us.ts";
 import { type FixtureResponse, TransportReadError } from "./fixture.ts";
 
@@ -90,6 +91,7 @@ type PlaywrightModule = {
       executablePath: string;
       headless: boolean;
       args: string[];
+      proxy?: { server: string; username?: string; password?: string };
     }): Promise<PlaywrightBrowser>;
   };
 };
@@ -111,6 +113,8 @@ export class EbayUsBrowserTransport {
   readonly origin: string;
   readonly allowLoopbackTestOrigin: boolean;
   readonly executablePath: string | null;
+  readonly proxySummary: ProxySummary | null;
+  readonly egressMode: "direct" | "explicit_proxy";
   readonly itemsPerPage: 60 | 120 | 240;
   readonly timeoutMs: number;
   readonly maxPageBytes: number;
@@ -118,6 +122,7 @@ export class EbayUsBrowserTransport {
   readonly waitForSelector: string | null;
   readonly userAgent: string | null;
   readonly clock: () => number;
+  readonly #playwrightProxy: { server: string; username?: string; password?: string } | null;
   readonly #sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
   #lastRequestAt: number | null = null;
   blockedRequests = 0;
@@ -127,6 +132,7 @@ export class EbayUsBrowserTransport {
     executablePath?: string;
     origin?: string;
     allowLoopbackTestOrigin?: boolean;
+    proxyUrl?: string | null;
     itemsPerPage?: 60 | 120 | 240;
     timeoutMs?: number;
     maxPageBytes?: number;
@@ -165,6 +171,23 @@ export class EbayUsBrowserTransport {
       throw new Error("invalid_browser_wait_selector");
     if (input.userAgent !== undefined && (!input.userAgent || input.userAgent.length > 256))
       throw new Error("invalid_ebay_user_agent");
+    const parsedProxy =
+      typeof input.proxyUrl === "string"
+        ? parseProxyUrl(input.proxyUrl)
+        : input.proxyUrl
+          ? parseProxyUrl(input.proxyUrl)
+          : null;
+    this.proxySummary = parsedProxy ? Object.freeze({ ...parsedProxy.summary }) : null;
+    this.egressMode = parsedProxy ? "explicit_proxy" : "direct";
+    this.#playwrightProxy = parsedProxy
+      ? {
+          server: `${parsedProxy.url.protocol}//${parsedProxy.url.hostname}${
+            parsedProxy.url.port ? `:${parsedProxy.url.port}` : ""
+          }`,
+          ...(parsedProxy.url.username ? { username: decodeURIComponent(parsedProxy.url.username) } : {}),
+          ...(parsedProxy.url.password ? { password: decodeURIComponent(parsedProxy.url.password) } : {}),
+        }
+      : null;
 
     this.query = structuredClone(input.query);
     this.origin = base.origin;
@@ -232,6 +255,7 @@ export class EbayUsBrowserTransport {
         executablePath: this.executablePath,
         headless: true,
         args: ["--disable-background-networking", "--disable-component-update", "--disable-sync"],
+        ...(this.#playwrightProxy ? { proxy: this.#playwrightProxy } : {}),
       });
       if (aborted) throw new TransportReadError("worker_shutdown", 0);
       context = await browser.newContext({

@@ -22,6 +22,7 @@ import {
   type RegionalLocale,
   regionalMessage,
   regionalMessages,
+  sqlSourceEligibilityClause,
 } from "@soldbench/shared";
 import type { QueryService } from "./index.ts";
 
@@ -291,10 +292,8 @@ export class RegionalSiteService {
            FROM sources s
            JOIN source_clearances x ON x.id=s.source_clearance_id
            WHERE s.marketplace=$1
-             AND s.access_method='offline_fixture'
-             AND x.provider='synthetic_fixture'
+             AND ${sqlSourceEligibilityClause(this.query.dataMode)}
              AND s.status='active'
-             AND x.status IN ('draft','reviewed','active')
              AND (x.effective_at IS NULL OR x.effective_at<=$2)
              AND (x.expires_at IS NULL OR x.expires_at>$2)`,
           [input.site, now],

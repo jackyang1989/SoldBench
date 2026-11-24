@@ -13,7 +13,7 @@ import {
   type TcgGame,
 } from "@soldbench/core";
 import { transaction } from "@soldbench/db";
-import { AppError } from "@soldbench/shared";
+import { AppError, sqlSourceEligibilityClause } from "@soldbench/shared";
 import type { QueryService } from "./index.ts";
 
 type CardProductRow = {
@@ -168,8 +168,7 @@ export class CardsVerticalService {
            FROM sources s
            JOIN source_clearances x ON x.id=s.source_clearance_id
            WHERE s.id=$1 AND s.marketplace='tcgplayer_us' AND s.status='active'
-             AND s.access_method='offline_fixture' AND x.provider='synthetic_fixture'
-             AND x.status IN ('draft','reviewed','active')
+             AND ${sqlSourceEligibilityClause(this.query.dataMode)}
              AND (x.effective_at IS NULL OR x.effective_at<=$2)
              AND (x.expires_at IS NULL OR x.expires_at>$2)`,
           [input.sourceId, now],
@@ -239,8 +238,7 @@ export class CardsVerticalService {
            FROM sources s
            JOIN source_clearances x ON x.id=s.source_clearance_id
            WHERE s.id=$1 AND s.marketplace='psa_registry' AND s.status='active'
-             AND s.access_method='offline_fixture' AND x.provider='synthetic_fixture'
-             AND x.status IN ('draft','reviewed','active')
+             AND ${sqlSourceEligibilityClause(this.query.dataMode)}
              AND (x.effective_at IS NULL OR x.effective_at<=$2)
              AND (x.expires_at IS NULL OR x.expires_at>$2)`,
           [input.sourceId, now],
@@ -364,10 +362,8 @@ export class CardsVerticalService {
            FROM sources s
            JOIN source_clearances x ON x.id=s.source_clearance_id
            WHERE s.marketplace='tcgplayer_us'
-             AND s.access_method='offline_fixture'
-             AND x.provider='synthetic_fixture'
+             AND ${sqlSourceEligibilityClause(this.query.dataMode)}
              AND s.status='active'
-             AND x.status IN ('draft','reviewed','active')
              AND (x.effective_at IS NULL OR x.effective_at<=$1)
              AND (x.expires_at IS NULL OR x.expires_at>$1)`,
           [now],
@@ -428,10 +424,8 @@ export class CardsVerticalService {
            FROM sources s
            JOIN source_clearances x ON x.id=s.source_clearance_id
            WHERE s.marketplace='psa_registry'
-             AND s.access_method='offline_fixture'
-             AND x.provider='synthetic_fixture'
+             AND ${sqlSourceEligibilityClause(this.query.dataMode)}
              AND s.status='active'
-             AND x.status IN ('draft','reviewed','active')
              AND (x.effective_at IS NULL OR x.effective_at<=$1)
              AND (x.expires_at IS NULL OR x.expires_at>$1)`,
           [now],

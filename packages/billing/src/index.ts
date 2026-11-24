@@ -423,7 +423,7 @@ export {
   providers,
   verifyFixture,
 } from "./payment-fixtures.ts";
-export { offerVersion, PaymentLifecycle } from "./payment-lifecycle.ts";
+export { type LivePaymentOptions, offerVersion, PaymentLifecycle } from "./payment-lifecycle.ts";
 export {
   formatUsdCentsForPayPal,
   type PayPalAdapterConfig,

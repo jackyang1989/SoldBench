@@ -12,6 +12,16 @@ import {
   providers,
   verifyFixture,
 } from "./payment-fixtures.ts";
+import type { PayPalProviderAdapter, PayPalTranslatedFact } from "./paypal-adapter.ts";
+import type { StripeProviderAdapter, StripeTranslatedFact } from "./stripe-adapter.ts";
+
+export type LivePaymentOptions = {
+  environment: "sandbox" | "live";
+  stripe?: StripeProviderAdapter;
+  paypal?: PayPalProviderAdapter;
+};
+
+type AnyPaymentFact = PaymentFact | StripeTranslatedFact | PayPalTranslatedFact;
 
 export const offerVersion = "offline-v1";
 const offers = {
@@ -42,6 +52,7 @@ type Intent = {
   user_id: string;
   plan_id: string;
   provider: Provider;
+  environment: "offline_fixture" | "sandbox" | "live";
   merchant_id: string;
   kind: "subscription" | "purchased";
   amount_cents: string;
@@ -89,23 +100,59 @@ export class PaymentLifecycle {
   constructor(
     readonly billing: BillingService,
     readonly origin: string,
-    private readonly keys: FixtureKeys,
+    private readonly keys: Partial<FixtureKeys> = {},
+    readonly liveOptions?: LivePaymentOptions,
   ) {
     const url = new URL(origin);
+    if (liveOptions) {
+      if (
+        url.origin !== origin ||
+        !["http:", "https:"].includes(url.protocol) ||
+        url.username ||
+        url.password
+      )
+        throw new Error("live_payment_origin_required");
+      if (!liveOptions.stripe && !liveOptions.paypal) {
+        throw new Error("live_payment_adapter_required");
+      }
+      return;
+    }
     if (
       url.origin !== origin ||
       url.protocol !== "http:" ||
       !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
     )
       throw new Error("offline_payment_origin_required");
-    if (keys.stripe === keys.paypal || providers.some((p) => !/^[0-9a-f]{64}$/.test(keys[p])))
+    if (
+      !keys.stripe ||
+      !keys.paypal ||
+      keys.stripe === keys.paypal ||
+      providers.some((p) => !/^[0-9a-f]{64}$/.test(keys[p] ?? ""))
+    )
       throw new Error("distinct_payment_fixture_keys_required");
+  }
+  private configuredProviders(): Provider[] {
+    if (!this.liveOptions) return [...providers];
+    const active: Provider[] = [];
+    if (this.liveOptions.stripe) active.push("stripe");
+    if (this.liveOptions.paypal) active.push("paypal");
+    return active;
+  }
+  private merchantIdFor(provider: Provider): string {
+    if (!this.liveOptions) return merchant(provider);
+    if (provider === "stripe" && this.liveOptions.stripe) {
+      return (this.liveOptions.stripe as unknown as { config: { merchantId: string } }).config.merchantId;
+    }
+    if (provider === "paypal" && this.liveOptions.paypal) {
+      return (this.liveOptions.paypal as unknown as { config: { merchantId: string } }).config.merchantId;
+    }
+    return fail("service_unavailable", 503, `Provider ${provider} is not configured.`);
   }
   checkoutOffers() {
     return {
       offer_version: offerVersion,
-      data_mode: "offline_fixture" as const,
-      providers: [...providers],
+      data_mode: this.liveOptions ? this.liveOptions.environment : ("offline_fixture" as const),
+      providers: this.configuredProviders(),
       offers: Object.entries(offers).map(([plan_code, offer]) => ({
         plan_code,
         amount_cents: offer.amount,
@@ -130,16 +177,21 @@ export class PaymentLifecycle {
     input: { plan_code: string; offer_version: string; provider?: string },
     key?: string,
   ) {
-    const provider = input.provider ?? "stripe";
+    const enabled = this.configuredProviders();
+    const provider = (input.provider ?? enabled[0] ?? "stripe") as Provider;
     if (!providers.some((p) => p === provider))
       fail("invalid_parameter", 400, "Unsupported payment provider.");
+    if (!enabled.includes(provider))
+      fail("service_unavailable", 503, `Payment provider ${provider} is not configured.`);
     if (!Object.hasOwn(offers, input.plan_code)) fail("invalid_parameter", 400, "Invalid plan.");
     if (input.offer_version !== offerVersion)
       fail("state_conflict", 409, "Refresh the current offline offer.");
     const offer = offers[input.plan_code as keyof typeof offers],
       keyHash = idempotency(key);
     const requestHash = hash(JSON.stringify([provider, input.plan_code, input.offer_version]));
-    return transaction(this.billing.db, async (c) => {
+    const intentEnv = this.liveOptions ? this.liveOptions.environment : "offline_fixture";
+    const merchantId = this.merchantIdFor(provider);
+    const createdIntent = await transaction(this.billing.db, async (c) => {
       const { userId, now } = await this.owner(c, actor),
         prior = (
           await c.query(
@@ -153,7 +205,7 @@ export class PaymentLifecycle {
         const intent = await this.intent(c, userId, prior.resource_id);
         if (intent?.state !== "pending" || intent.expires_at <= now)
           return fail("state_conflict", 409, "The prior checkout is no longer payable.");
-        return this.checkoutView(intent);
+        return intent;
       }
       if (offer.kind === "subscription") {
         const occupied = (
@@ -179,12 +231,13 @@ export class PaymentLifecycle {
         throw new Error("offline_offer_integrity");
       const intent = (
         await c.query<Intent>(
-          "INSERT INTO payment_checkout_intents(user_id,plan_id,provider,environment,merchant_id,kind,amount_cents,currency,credits,state,expires_at,created_at) VALUES($1,$2,$3,'offline_fixture',$4,$5,$6,'USD',$7,'pending',$8,$9) RETURNING *",
+          "INSERT INTO payment_checkout_intents(user_id,plan_id,provider,environment,merchant_id,kind,amount_cents,currency,credits,state,expires_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,'USD',$8,'pending',$9,$10) RETURNING *",
           [
             userId,
             plan.id,
             provider,
-            merchant(provider as Provider),
+            intentEnv,
+            merchantId,
             offer.kind,
             offer.amount,
             offer.credits,
@@ -199,8 +252,43 @@ export class PaymentLifecycle {
         [userId, keyHash, requestHash, intent.id, at(now, 86400000)],
       );
       await this.audit(c, userId, "payment.checkout", intent.id, { provider, plan_code: input.plan_code });
-      return this.checkoutView(intent);
+      return intent;
     });
+    if (!this.liveOptions) {
+      return this.checkoutView(createdIntent);
+    }
+    if (provider === "stripe" && this.liveOptions.stripe) {
+      const session = await this.liveOptions.stripe.createCheckoutSession({
+        checkoutIntentId: createdIntent.id,
+        userId: createdIntent.user_id,
+        planCode: input.plan_code as "starter" | "pro" | "purchased_1500",
+        amountCents: Number(createdIntent.amount_cents),
+        mode: createdIntent.kind === "subscription" ? "subscription" : "payment",
+        successUrl: `${this.origin}/account/billing?checkout=${createdIntent.id}&result=success`,
+        cancelUrl: `${this.origin}/account/billing?checkout=${createdIntent.id}&result=cancel`,
+        idempotencyKey: keyHash,
+      });
+      return {
+        checkout_url: session.url,
+        provider: createdIntent.provider,
+        expires_at: iso(createdIntent.expires_at),
+      };
+    }
+    if (provider === "paypal" && this.liveOptions.paypal) {
+      const order = await this.liveOptions.paypal.createOrder({
+        checkoutIntentId: createdIntent.id,
+        amountCents: Number(createdIntent.amount_cents),
+        returnUrl: `${this.origin}/account/billing?checkout=${createdIntent.id}&result=success`,
+        cancelUrl: `${this.origin}/account/billing?checkout=${createdIntent.id}&result=cancel`,
+        idempotencyKey: keyHash,
+      });
+      return {
+        checkout_url: order.approveUrl,
+        provider: createdIntent.provider,
+        expires_at: iso(createdIntent.expires_at),
+      };
+    }
+    return fail("service_unavailable", 503, `Payment provider ${provider} is not configured.`);
   }
   private checkoutView(intent: Intent) {
     return {
@@ -226,14 +314,77 @@ export class PaymentLifecycle {
         amount_cents: Number(record.amount_cents),
         currency: "USD",
         expires_at: iso(record.expires_at),
-        data_mode: "offline_fixture",
+        data_mode: this.liveOptions ? this.liveOptions.environment : "offline_fixture",
       };
     });
   }
   async receive(provider: Provider, headers: Headers, raw: Buffer) {
+    if (this.liveOptions) {
+      const sha256 = createHash("sha256").update(raw).digest("hex");
+      const liveNowSec = this.billing.clock
+        ? Math.floor(Date.parse(this.billing.clock()) / 1000)
+        : Math.floor(Date.now() / 1000);
+      let translated: { eventId: string; eventType: string; fact: AnyPaymentFact | null } | undefined;
+      if (provider === "stripe") {
+        if (!this.liveOptions.stripe) {
+          return fail("service_unavailable", 503, "Stripe live webhook adapter is not configured.");
+        }
+        translated = this.liveOptions.stripe.verifyAndTranslateWebhook(
+          raw,
+          headers.get("stripe-signature") ?? undefined,
+          liveNowSec,
+        );
+      } else {
+        if (!this.liveOptions.paypal) {
+          return fail("service_unavailable", 503, "PayPal live webhook adapter is not configured.");
+        }
+        translated = await this.liveOptions.paypal.verifyAndTranslateWebhook(headers, raw);
+      }
+      return transaction(this.billing.db, async (c) => {
+        const now = await this.billing.now(c);
+        const inserted = (
+          await c.query<{ id: string }>(
+            "INSERT INTO payment_events(provider,provider_event_id,event_type,payload_ref,received_at,status) VALUES($1,$2,$3,$4,$5,'processing') ON CONFLICT(provider,provider_event_id) DO NOTHING RETURNING id",
+            [provider, translated.eventId, translated.eventType, sha256, now],
+          )
+        ).rows[0];
+        if (!inserted) {
+          const prior = (
+            await c.query<{ payload_ref: string }>(
+              "SELECT payload_ref FROM payment_events WHERE provider=$1 AND provider_event_id=$2",
+              [provider, translated.eventId],
+            )
+          ).rows[0];
+          if (prior?.payload_ref !== sha256)
+            fail("idempotency_conflict", 409, "This event ID already has different bytes.");
+          return;
+        }
+        if (translated.fact) {
+          await c.query("SAVEPOINT live_payment_apply");
+          try {
+            await this.apply(c, translated.fact, now);
+          } catch (error) {
+            if (!(error instanceof Review)) throw error;
+            await c.query("ROLLBACK TO SAVEPOINT live_payment_apply");
+            if (error.retry) throw new AppError("service_unavailable", 503, error.code);
+            await c.query("UPDATE payment_events SET status='failed',processed_at=$2 WHERE id=$1", [
+              inserted.id,
+              now,
+            ]);
+            return;
+          }
+        }
+        await c.query("UPDATE payment_events SET status='applied',processed_at=$2 WHERE id=$1", [
+          inserted.id,
+          now,
+        ]);
+      });
+    }
+    const offlineKey = this.keys[provider];
+    if (!offlineKey) throw new Error("distinct_payment_fixture_keys_required");
     return transaction(this.billing.db, async (c) => {
       const now = await this.billing.now(c),
-        { envelope, sha256 } = verifyFixture(provider, this.keys[provider], headers, raw, now);
+        { envelope, sha256 } = verifyFixture(provider, offlineKey, headers, raw, now);
       const inserted = await c.query(
         "INSERT INTO payment_events(provider,provider_event_id,event_type,payload_ref,received_at,status,fixture_envelope,fixture_digest,fixture_retry_at) VALUES($1,$2,$3,$4,$5,'received',$6,$4,$5) ON CONFLICT(provider,provider_event_id) DO NOTHING RETURNING id",
         [provider, envelope.id, envelope.type, sha256, now, envelope],
@@ -401,7 +552,7 @@ export class PaymentLifecycle {
       [userId, action, id, randomUUID(), diff],
     );
   }
-  private async apply(c: Transaction, fact: PaymentFact, now: Date) {
+  private async apply(c: Transaction, fact: AnyPaymentFact, now: Date) {
     const found = (
       await c.query("SELECT user_id FROM payment_checkout_intents WHERE id=$1", [fact.checkout_id])
     ).rows[0];
@@ -412,7 +563,12 @@ export class PaymentLifecycle {
       ])
     ).rows[0];
     const intent = await this.intent(c, found.user_id, fact.checkout_id);
-    if (!intent || intent.provider !== fact.provider || intent.merchant_id !== fact.merchant)
+    if (
+      !intent ||
+      intent.provider !== fact.provider ||
+      intent.merchant_id !== fact.merchant ||
+      intent.environment !== fact.environment
+    )
       throw new Review("checkout_scope_mismatch");
     if (fact.kind === "checkout_expired") {
       const checked = new Date(fact.checked_at);
@@ -654,6 +810,19 @@ export class PaymentLifecycle {
         return fail("not_found", 404, "Manageable subscription not found.");
       if (sub.version !== version) fail("state_conflict", 409, "Refresh the subscription before cancelling.");
       if (!sub.cancel_at_period_end) {
+        if (this.liveOptions) {
+          if (sub.provider === "stripe" && this.liveOptions.stripe) {
+            await this.liveOptions.stripe.cancelSubscriptionAtPeriodEnd({
+              providerSubscriptionId: sub.provider_subscription_id,
+              idempotencyKey: hash(`cancel:${sub.id}:${sub.version}`),
+            });
+          } else if (sub.provider === "paypal" && this.liveOptions.paypal) {
+            await this.liveOptions.paypal.cancelSubscription({
+              providerSubscriptionId: sub.provider_subscription_id,
+              reason: "Customer requested cancel at period end",
+            });
+          }
+        }
         await c.query("UPDATE subscriptions SET cancel_at_period_end=true,version=version+1 WHERE id=$1", [
           sub.id,
         ]);
@@ -675,6 +844,13 @@ export class PaymentLifecycle {
         throw new AppError("state_conflict", 409, "Manage this PayPal subscription from billing.", {
           management_url: "/billing/subscription",
         });
+      if (this.liveOptions?.stripe) {
+        const session = await this.liveOptions.stripe.createBillingPortalSession({
+          customerId: sub.provider_subscription_id,
+          returnUrl: `${this.origin}/account/billing`,
+        });
+        return { url: session.url, expires_at: at(now, 300000).toISOString() };
+      }
       return { url: `${this.origin}/billing/subscription`, expires_at: at(now, 300000).toISOString() };
     });
   }

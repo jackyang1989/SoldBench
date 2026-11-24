@@ -4,7 +4,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { parseEbayCorpusCsv, parseEbayCorpusJson, runEbayUsCorpusCycle } from "@soldbench/collector";
 import { assertLocalDatabaseUrl, database, prepareDatabase } from "@soldbench/db";
-import { loadConfig } from "@soldbench/shared";
+import { loadConfig, parseProxyUrl } from "@soldbench/shared";
 import { fixtureJobId } from "./collector-fixture-file.mjs";
 import { localDatabaseUrl } from "./local-db.mjs";
 
@@ -31,6 +31,7 @@ function parseCliArgs(argv) {
     "origin",
     "image-origin-override",
     "allow-loopback-test-origin",
+    "proxy-url",
     "source",
     "config",
     "spool",
@@ -85,6 +86,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const minIntervalMs = options.has("min-interval-ms")
       ? parseBoundedInt(options.get("min-interval-ms"), 0, 0, 60000, "invalid_ebay_interval")
       : undefined;
+    const cliProxyUrl = options.get("proxy-url");
+    if (cliProxyUrl !== undefined) parseProxyUrl(cliProxyUrl);
 
     const fetchImages = (options.get("fetch-images") ?? "true") !== "false";
     const allowLoopback = options.get("allow-loopback-test-origin") === "true";
@@ -106,6 +109,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     if (!targets.length) throw new Error("corpus_targets_empty");
 
     const config = loadConfig(process.env);
+    const proxyUrl = cliProxyUrl ?? config.collectorProxyUrl ?? undefined;
     const url = config.databaseUrl ?? localDatabaseUrl();
     assertLocalDatabaseUrl(url, [
       resolve(".local/postgres/socket"),
@@ -135,6 +139,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
           ? { imageOriginOverride: options.get("image-origin-override") }
           : {}),
         ...(allowLoopback ? { allowLoopbackTestOrigin: true } : {}),
+        ...(proxyUrl ? { proxyUrl } : {}),
         ...(options.has("wait-for-selector") ? { waitForSelector: options.get("wait-for-selector") } : {}),
         ...(minIntervalMs !== undefined ? { minIntervalMs } : {}),
         mediaRoot: config.mediaRoot,

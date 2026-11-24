@@ -1,6 +1,6 @@
 import { availability } from "@soldbench/core";
 import type { Transaction } from "@soldbench/db";
-import { VERSIONS } from "@soldbench/shared";
+import { type DataMode, sqlSourceEligibilityClause, sqlSourceKindClause, VERSIONS } from "@soldbench/shared";
 
 export const telemetryViews = [
   "monitoring",
@@ -25,13 +25,26 @@ export type AlertSettings = {
 };
 const asCell = (value: Cell | Date | undefined): Cell =>
   value instanceof Date ? value.toISOString() : (value ?? null);
-const sourceAvailableAt = (clock: "$1" | "$2") => `s.status='active' AND s.access_method='offline_fixture'
-  AND x.provider='synthetic_fixture' AND x.status IN ('draft','reviewed','active')
+const sourceAvailableAt = (
+  dataMode: DataMode,
+  clock: "$1" | "$2",
+) => `s.status='active' AND ${sqlSourceEligibilityClause(dataMode)}
   AND (x.effective_at IS NULL OR x.effective_at<=${clock})
   AND (x.expires_at IS NULL OR x.expires_at>${clock})`;
-const allowedSource = sourceAvailableAt("$2");
 
-export async function telemetry(c: Transaction, now: Date, view: TelemetryView, input: TelemetryInput) {
+export async function telemetry(
+  c: Transaction,
+  now: Date,
+  view: TelemetryView,
+  input: TelemetryInput,
+  dataMode: DataMode = "offline_fixture",
+) {
+  const allowedSource = sourceAvailableAt(dataMode, "$2");
+  const sourceKind = sqlSourceKindClause(dataMode);
+  const accessFilter =
+    dataMode === "offline_fixture"
+      ? "s.access_method='offline_fixture'"
+      : "s.access_method IN ('approved_http','approved_browser')";
   const from = new Date(now.getTime() - input.days * 86400000);
   const sections: Section[] = [];
   const section = (key: string, columns: string[], rows: Cell[][]) => sections.push({ key, columns, rows });
@@ -72,7 +85,7 @@ export async function telemetry(c: Transaction, now: Date, view: TelemetryView, 
                    JOIN sources s ON s.id::text=o.payload->>'sourceId'
                    JOIN source_clearances x ON x.id=s.source_clearance_id
                  WHERE o.kind='collector.media_cleanup' AND o.processed_at IS NULL AND o.available_at<=$2
-                   AND s.access_method='offline_fixture' AND x.provider='synthetic_fixture') AS media_cleanup_due`,
+                   AND ${sourceKind}) AS media_cleanup_due`,
           [from, now, alertSettings.query_delay_seconds],
         )
       ).rows[0];
@@ -148,7 +161,7 @@ export async function telemetry(c: Transaction, now: Date, view: TelemetryView, 
         ],
         `SELECT r.id run_id,r.source_id,r.started_at,r.completed_at,r.outcome,r.stop_reason,r.request_count requests,
           r.page_count pages,r.bytes_in::text bytes,r.bytes_unconfirmed::text unconfirmed_bytes,r.parser_version
-          FROM collector_runs r JOIN sources s ON s.id=r.source_id WHERE s.access_method='offline_fixture'
+          FROM collector_runs r JOIN sources s ON s.id=r.source_id WHERE ${accessFilter}
             AND r.started_at BETWEEN $1 AND $2 AND ($3::uuid IS NULL OR r.source_id=$3)
           ORDER BY r.started_at DESC,r.id LIMIT $4`,
         scope,
@@ -174,9 +187,9 @@ export async function telemetry(c: Transaction, now: Date, view: TelemetryView, 
           "image_jobs_uninspected",
         ],
         `SELECT s.id source_id,
-           CASE WHEN NOT (${sourceAvailableAt("$1")}) THEN 'stopped' WHEN h.phase IS NULL THEN 'unobserved'
+           CASE WHEN NOT (${sourceAvailableAt(dataMode, "$1")}) THEN 'stopped' WHEN h.phase IS NULL THEN 'unobserved'
                 WHEN h.expected_progress_at<=$1 THEN 'overdue' ELSE h.phase END phase,
-           h.checked_at,CASE WHEN ${sourceAvailableAt("$1")} THEN h.expected_progress_at END AS expected_progress_at,
+           h.checked_at,CASE WHEN ${sourceAvailableAt(dataMode, "$1")} THEN h.expected_progress_at END AS expected_progress_at,
            h.last_cycle_at,h.cycle_summary#>>'{healthReport,status}' health_report_status,
            h.cycle_summary#>>'{healthReport,checkedAt}' health_report_checked_at,
            h.job_id,h.lane,h.cycle_summary->>'spool' spool,
@@ -186,7 +199,7 @@ export async function telemetry(c: Transaction, now: Date, view: TelemetryView, 
            h.cycle_summary#>'{queues,images,uninspected}' image_jobs_uninspected
          FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id
          LEFT JOIN collector_supervisor_state h ON h.source_id=s.id AND h.checked_at<=$1
-         WHERE s.access_method='offline_fixture' AND x.provider='synthetic_fixture' AND ($2::uuid IS NULL OR s.id=$2)
+         WHERE ${sourceKind} AND ($2::uuid IS NULL OR s.id=$2)
          ORDER BY h.checked_at DESC NULLS LAST,s.id LIMIT $3`,
         [now, input.source ?? null, input.limit],
       );
@@ -226,7 +239,7 @@ export async function telemetry(c: Transaction, now: Date, view: TelemetryView, 
            FROM collector_refresh_occurrences o
            WHERE o.source_id=s.id AND o.status IN ('planned','dispatching') AND o.scheduled_for<=$1 AND o.created_at<=$1
          ) slots
-         WHERE s.access_method='offline_fixture' AND x.provider='synthetic_fixture' AND ($2::uuid IS NULL OR s.id=$2)
+         WHERE ${sourceKind} AND ($2::uuid IS NULL OR s.id=$2)
          ORDER BY (plans.due>0 OR slots.pending>0) DESC,plans.next_due_at NULLS LAST,s.id LIMIT $3`,
         [now, input.source ?? null, input.limit],
       );
@@ -246,7 +259,7 @@ export async function telemetry(c: Transaction, now: Date, view: TelemetryView, 
            h.cycle_summary#>'{intake,deferred}' intake_deferred
          FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id
          LEFT JOIN collector_supervisor_state h ON h.source_id=s.id AND h.last_cycle_at<=$1
-         WHERE s.access_method='offline_fixture' AND x.provider='synthetic_fixture' AND ($2::uuid IS NULL OR s.id=$2)
+         WHERE ${sourceKind} AND ($2::uuid IS NULL OR s.id=$2)
          ORDER BY h.last_cycle_at DESC NULLS LAST,s.id LIMIT $3`,
         [now, input.source ?? null, input.limit],
       );
@@ -274,7 +287,7 @@ export async function telemetry(c: Transaction, now: Date, view: TelemetryView, 
            WHERE o.kind='collector.media_cleanup' AND o.processed_at IS NULL AND o.available_at<=$1
              AND o.payload->>'sourceId'=s.id::text
          ) b
-         WHERE s.access_method='offline_fixture' AND x.provider='synthetic_fixture' AND ($2::uuid IS NULL OR s.id=$2)
+         WHERE ${sourceKind} AND ($2::uuid IS NULL OR s.id=$2)
          ORDER BY (b.pending>0) DESC,b.oldest NULLS LAST,s.id LIMIT $3`,
         [now, input.source ?? null, input.limit],
       );
@@ -313,7 +326,7 @@ export async function telemetry(c: Transaction, now: Date, view: TelemetryView, 
            r.metrics#>'{media,primaryImageCoverage,eligibleObservations}' evidence_eligible_primaries
          FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id
          LEFT JOIN recent r ON r.source_id=s.id
-         WHERE s.access_method='offline_fixture' AND x.provider='synthetic_fixture' AND ($3::uuid IS NULL OR s.id=$3)
+         WHERE ${sourceKind} AND ($3::uuid IS NULL OR s.id=$3)
          ORDER BY r.captured_at DESC NULLS LAST,s.id LIMIT $4`,
         scope,
       );
@@ -339,7 +352,7 @@ export async function telemetry(c: Transaction, now: Date, view: TelemetryView, 
            coalesce(sum(q.attempts),0)::int details_attempts
          FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id
          LEFT JOIN collector_detail_jobs q ON q.source_id=s.id AND q.created_at BETWEEN $1 AND $2
-         WHERE s.access_method='offline_fixture' AND x.provider='synthetic_fixture' AND ($3::uuid IS NULL OR s.id=$3)
+         WHERE ${sourceKind} AND ($3::uuid IS NULL OR s.id=$3)
          GROUP BY s.id
          ORDER BY (count(q.id) FILTER (WHERE q.status IN ('queued','retry','running'))>0) DESC,s.id
          LIMIT $4`,
@@ -386,7 +399,7 @@ export async function telemetry(c: Transaction, now: Date, view: TelemetryView, 
         "observed_parsers",
         ["source_id", "parser_version", "runs", "last_seen"],
         `SELECT r.source_id,r.parser_version,count(*)::int runs,max(r.started_at) last_seen FROM collector_runs r
-          JOIN sources s ON s.id=r.source_id WHERE s.access_method='offline_fixture'
+          JOIN sources s ON s.id=r.source_id WHERE ${accessFilter}
             AND r.started_at BETWEEN $1 AND $2 AND ($3::uuid IS NULL OR r.source_id=$3)
           GROUP BY r.source_id,r.parser_version ORDER BY last_seen DESC,r.source_id,r.parser_version LIMIT $4`,
         scope,
@@ -470,7 +483,7 @@ export async function telemetry(c: Transaction, now: Date, view: TelemetryView, 
         ["source_id", "day", "unit", "cap", "used", "reserved"],
         `SELECT b.source_id,b.day::text,b.budget_kind unit,b.cap::text,b.used::text,b.reserved::text
           FROM source_daily_budget b JOIN sources s ON s.id=b.source_id
-          WHERE s.access_method='offline_fixture' AND b.day BETWEEN ($1 AT TIME ZONE 'UTC')::date AND ($2 AT TIME ZONE 'UTC')::date
+          WHERE ${accessFilter} AND b.day BETWEEN ($1 AT TIME ZONE 'UTC')::date AND ($2 AT TIME ZONE 'UTC')::date
             AND ($3::uuid IS NULL OR b.source_id=$3)
           ORDER BY b.day DESC,b.source_id,b.budget_kind LIMIT $4`,
         scope,

@@ -4,7 +4,7 @@ import type { PaymentLifecycle } from "@soldbench/billing";
 import { CollectorStore } from "@soldbench/collector";
 import { type Transaction, transaction } from "@soldbench/db";
 import type { QueryService } from "@soldbench/query";
-import { AppError } from "@soldbench/shared";
+import { AppError, isSourceAllowedForMode, sqlSourceKindClause } from "@soldbench/shared";
 import { type AlertSettings, type TelemetryInput, type TelemetryView, telemetry } from "./ops-telemetry.ts";
 import { publishContentRevision, requiresPolicyRelease, type SiteContentCommand } from "./site-content.ts";
 
@@ -591,9 +591,13 @@ export class OperationsService {
     ).rows[0];
     return {
       service: "available",
-      data_mode: "offline_fixture",
-      collector: row.collector_paused ? "paused" : "offline_only",
-      payments: "offline",
+      data_mode: this.service.dataMode,
+      collector: row.collector_paused
+        ? "paused"
+        : this.service.dataMode === "approved_network"
+          ? "approved_network"
+          : "offline_only",
+      payments: this.payments?.liveOptions ? this.payments.liveOptions.environment : "offline",
     };
   }
   async sources(actor: Identity) {
@@ -602,7 +606,7 @@ export class OperationsService {
       await this.role(c, actor, true, now);
       const rows = (
         await c.query(
-          "SELECT s.id,s.marketplace,s.source_clearance_id,CASE WHEN s.status='revoked' THEN 'revoked' ELSE x.status END status,x.expires_at,s.permission_epoch,s.ops_version,coalesce(k.status,'closed') circuit_status,(SELECT max(j.min_page_as_of) FROM collector_jobs j WHERE j.source_id=s.id AND j.status='completed') last_data_as_of FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id LEFT JOIN collector_circuits k ON k.source_id=s.id AND k.category_key='*' WHERE s.access_method='offline_fixture' AND x.provider='synthetic_fixture' ORDER BY s.id LIMIT 100",
+          `SELECT s.id,s.marketplace,s.source_clearance_id,CASE WHEN s.status='revoked' THEN 'revoked' ELSE x.status END status,x.expires_at,s.permission_epoch,s.ops_version,coalesce(k.status,'closed') circuit_status,(SELECT max(j.min_page_as_of) FROM collector_jobs j WHERE j.source_id=s.id AND j.status='completed') last_data_as_of FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id LEFT JOIN collector_circuits k ON k.source_id=s.id AND k.category_key='*' WHERE ${sqlSourceKindClause(this.service.dataMode)} ORDER BY s.id LIMIT 100`,
         )
       ).rows;
       return rows.map((r) => ({
@@ -642,7 +646,7 @@ export class OperationsService {
       }
       const source = (
         await c.query(
-          "SELECT s.id,s.status,s.ops_version,x.status clearance_status,x.effective_at,x.expires_at FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id WHERE s.id=$1 AND s.access_method='offline_fixture' AND x.provider='synthetic_fixture' FOR UPDATE OF s FOR SHARE OF x",
+          `SELECT s.id,s.status,s.access_method,s.ops_version,x.provider,x.status clearance_status,x.effective_at,x.expires_at FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id WHERE s.id=$1 AND ${sqlSourceKindClause(this.service.dataMode)} FOR UPDATE OF s FOR SHARE OF x`,
           [id],
         )
       ).rows[0];
@@ -653,12 +657,16 @@ export class OperationsService {
       if (input.command === "probe") {
         const allowed =
           source.status === "active" &&
-          ["draft", "reviewed", "active"].includes(source.clearance_status) &&
+          isSourceAllowedForMode(this.service.dataMode, source) &&
           (!source.effective_at || source.effective_at <= now) &&
           (!source.expires_at || source.expires_at > now);
+        const configAccessFilter =
+          this.service.dataMode === "offline_fixture"
+            ? "access_method='offline_fixture'"
+            : "access_method IN ('approved_http','approved_browser')";
         const policy = (
           await c.query(
-            "SELECT EXISTS(SELECT 1 FROM collector_daily_budget_policies p JOIN sources s ON s.id=p.source_id AND s.daily_budget_policy_hash=p.policy_hash WHERE s.id=$1 AND p.valid_from<=$2 AND p.valid_until>$2) AS budget, EXISTS(SELECT 1 FROM collector_configs WHERE source_id=$1 AND enabled AND access_method='offline_fixture') AS configured, EXISTS(SELECT 1 FROM collector_jobs j JOIN source_observations o ON o.collector_run_id=j.collector_run_id WHERE j.source_id=$1 AND j.status='completed' AND o.retention_until>$2) AS evidence",
+            `SELECT EXISTS(SELECT 1 FROM collector_daily_budget_policies p JOIN sources s ON s.id=p.source_id AND s.daily_budget_policy_hash=p.policy_hash WHERE s.id=$1 AND p.valid_from<=$2 AND p.valid_until>$2) AS budget, EXISTS(SELECT 1 FROM collector_configs WHERE source_id=$1 AND enabled AND ${configAccessFilter}) AS configured, EXISTS(SELECT 1 FROM collector_jobs j JOIN source_observations o ON o.collector_run_id=j.collector_run_id WHERE j.source_id=$1 AND j.status='completed' AND o.retention_until>$2) AS evidence`,
             [id, now],
           )
         ).rows[0];
@@ -722,7 +730,7 @@ export class OperationsService {
          SELECT j.id,'query' kind,j.status,qj.source_id,j.error_code,j.attempt_count attempts,j.version,j.updated_at FROM query_jobs j JOIN queries q ON q.id=j.query_id AND q.result_state<>'forbidden' LEFT JOIN collector_jobs qj ON qj.id=q.collector_job_id
           WHERE ($1::timestamptz IS NULL OR (j.updated_at,j.id)<($1::timestamptz,$2::uuid)) ORDER BY j.updated_at DESC,j.id DESC LIMIT $3
         ), collector_page AS (
-         SELECT j.id,'collector' kind,j.status,j.source_id,j.error_code,j.attempts,j.version,coalesce(j.finished_at,j.started_at,j.available_at) updated_at FROM collector_jobs j JOIN sources s ON s.id=j.source_id AND s.access_method='offline_fixture'
+         SELECT j.id,'collector' kind,j.status,j.source_id,j.error_code,j.attempts,j.version,coalesce(j.finished_at,j.started_at,j.available_at) updated_at FROM collector_jobs j JOIN sources s ON s.id=j.source_id AND ${this.service.dataMode === "offline_fixture" ? "s.access_method='offline_fixture'" : "s.access_method IN ('approved_http','approved_browser')"}
           WHERE ($1::timestamptz IS NULL OR (coalesce(j.finished_at,j.started_at,j.available_at),j.id)<($1::timestamptz,$2::uuid)) ORDER BY updated_at DESC,j.id DESC LIMIT $3
         ) SELECT *,${timeSql("updated_at")} FROM (SELECT * FROM query_page UNION ALL SELECT * FROM collector_page) u ORDER BY updated_at DESC,id DESC LIMIT $3`,
           [cursor?.time ?? null, cursor?.id ?? null, paging.size + 1],
@@ -895,7 +903,7 @@ export class OperationsService {
     return transaction(this.service.db, async (c) => {
       const now = await this.service.now(c);
       await this.role(c, actor, true, now);
-      return telemetry(c, now, view, filters);
+      return telemetry(c, now, view, filters, this.service.dataMode);
     });
   }
   async alertSettings(

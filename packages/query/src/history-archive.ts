@@ -11,7 +11,7 @@ import {
   type SoldQuery,
 } from "@soldbench/core";
 import { type Transaction, transaction } from "@soldbench/db";
-import { AppError, VERSIONS } from "@soldbench/shared";
+import { AppError, sqlSourceEligibilityClause, VERSIONS } from "@soldbench/shared";
 import type { QueryService } from "./index.ts";
 import { csv, type ResearchField, researchFields, saleDateEvidence } from "./research.ts";
 
@@ -297,11 +297,9 @@ export class ArchiveHistoryService {
          JOIN source_clearances x ON x.id=s.source_clearance_id
          WHERE acs.query_hash=$1
            AND s.marketplace='ebay_us'
-           AND s.access_method='offline_fixture'
            AND s.status='active'
            AND s.permission_epoch=acs.permission_epoch
-           AND x.provider='synthetic_fixture'
-           AND x.status IN ('draft','reviewed','active')
+           AND ${sqlSourceEligibilityClause(this.query.dataMode)}
            AND (x.effective_at IS NULL OR x.effective_at<=$2)
            AND (x.expires_at IS NULL OR x.expires_at>$2)
            AND acs.retention_until>$2

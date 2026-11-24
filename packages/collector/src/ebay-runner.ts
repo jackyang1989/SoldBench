@@ -11,6 +11,7 @@ import {
 } from "@soldbench/core";
 import type { Database } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
+import { parseProxyUrl } from "@soldbench/shared";
 import { createFixtureArtifact, loadFixtureArtifact } from "./artifact.ts";
 import { EbayUsBrowserTransport } from "./ebay-browser-transport.ts";
 import { hasEbayDetailAccessBlock, parseEbayUsItemDetailHtml } from "./ebay-detail.ts";
@@ -50,6 +51,7 @@ export type EbayCorpusCycleInput = {
   origin?: string;
   imageOriginOverride?: string;
   allowLoopbackTestOrigin?: boolean;
+  proxyUrl?: string | null;
   browserExecutablePath?: string;
   waitForSelector?: string;
   minIntervalMs?: number;
@@ -105,6 +107,8 @@ export type EbayCorpusCycleReport = {
   detailsFailed: number;
   externalRequests: number;
   browserFallbacks: number;
+  egressMode: "direct" | "explicit_proxy";
+  proxyHost: string | null;
   results: EbayCorpusTargetOutcome[];
 };
 
@@ -339,6 +343,12 @@ export async function runEbayUsCorpusCycle(input: EbayCorpusCycleInput): Promise
   let externalRequests = 0;
   let browserFallbacks = 0;
   const overrides = input.profileOverrides ?? {};
+  const parsedProxy =
+    typeof input.proxyUrl === "string"
+      ? parseProxyUrl(input.proxyUrl)
+      : input.proxyUrl
+        ? parseProxyUrl(input.proxyUrl)
+        : null;
 
   for (const target of input.targets) {
     if (circuitTripped) break;
@@ -347,6 +357,7 @@ export async function runEbayUsCorpusCycle(input: EbayCorpusCycleInput): Promise
       ...(input.origin ? { origin: input.origin } : {}),
       ...(input.allowLoopbackTestOrigin ? { allowLoopbackTestOrigin: true } : {}),
       ...(input.imageOriginOverride ? { imageOriginOverride: input.imageOriginOverride } : {}),
+      ...(parsedProxy && input.proxyUrl ? { proxyUrl: input.proxyUrl } : {}),
       ...(input.minIntervalMs !== undefined ? { minIntervalMs: input.minIntervalMs } : {}),
     });
     let browserTransport: EbayUsBrowserTransport | null = null;
@@ -355,6 +366,7 @@ export async function runEbayUsCorpusCycle(input: EbayCorpusCycleInput): Promise
         query: target.query,
         ...(input.origin ? { origin: input.origin } : {}),
         ...(input.allowLoopbackTestOrigin ? { allowLoopbackTestOrigin: true } : {}),
+        ...(parsedProxy && input.proxyUrl ? { proxyUrl: input.proxyUrl } : {}),
         ...(input.browserExecutablePath ? { executablePath: input.browserExecutablePath } : {}),
         ...(input.waitForSelector ? { waitForSelector: input.waitForSelector } : {}),
         ...(input.minIntervalMs !== undefined ? { minIntervalMs: input.minIntervalMs } : {}),
@@ -757,6 +769,8 @@ export async function runEbayUsCorpusCycle(input: EbayCorpusCycleInput): Promise
     detailsFailed,
     externalRequests,
     browserFallbacks,
+    egressMode: parsedProxy ? "explicit_proxy" : "direct",
+    proxyHost: parsedProxy ? parsedProxy.summary.host : null,
     results,
   };
   if (outDir) {

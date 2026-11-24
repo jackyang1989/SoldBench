@@ -1,9 +1,11 @@
-import { request as httpRequest, type IncomingMessage } from "node:http";
+import { type ClientRequest, request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
-import type { Transform } from "node:stream";
+import type { Duplex, Transform } from "node:stream";
+import { connect as tlsConnect } from "node:tls";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import type { SoldQuery } from "@soldbench/core";
 import { approvedImageUrl } from "@soldbench/media";
+import { type ProxySummary, parseProxyUrl } from "@soldbench/shared";
 import { buildEbayUsItemDetailUrl, buildEbayUsSoldSearchUrl, validateEbayUsOrigin } from "./ebay-us.ts";
 import { type FixtureResponse, TransportReadError } from "./fixture.ts";
 
@@ -41,6 +43,8 @@ export class EbayUsHttpTransport {
   readonly allowLoopbackTestOrigin: boolean;
   readonly imageHosts: readonly string[];
   readonly imageOriginOverride: string | null;
+  readonly proxySummary: ProxySummary | null;
+  readonly egressMode: "direct" | "explicit_proxy";
   readonly itemsPerPage: 60 | 120 | 240;
   readonly timeoutMs: number;
   readonly maxPageBytes: number;
@@ -49,6 +53,8 @@ export class EbayUsHttpTransport {
   readonly minIntervalMs: number;
   readonly userAgent: string;
   readonly clock: () => number;
+  readonly #proxyUrl: URL | null;
+  readonly #proxyAuthHeader: string | null;
   readonly #sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
   #lastRequestAt: number | null = null;
 
@@ -58,6 +64,7 @@ export class EbayUsHttpTransport {
     allowLoopbackTestOrigin?: boolean;
     imageHosts?: readonly string[];
     imageOriginOverride?: string;
+    proxyUrl?: string | null;
     itemsPerPage?: 60 | 120 | 240;
     timeoutMs?: number;
     maxPageBytes?: number;
@@ -128,6 +135,21 @@ export class EbayUsHttpTransport {
     if (![60, 120, 240].includes(itemsPerPage)) throw new Error("invalid_ebay_items_per_page");
     if (!userAgent || userAgent.length > 256 || /[\r\n]/.test(userAgent))
       throw new Error("invalid_ebay_user_agent");
+    const parsedProxy =
+      typeof input.proxyUrl === "string"
+        ? parseProxyUrl(input.proxyUrl)
+        : input.proxyUrl
+          ? parseProxyUrl(input.proxyUrl)
+          : null;
+    this.#proxyUrl = parsedProxy ? parsedProxy.url : null;
+    this.#proxyAuthHeader =
+      parsedProxy && (parsedProxy.url.username || parsedProxy.url.password)
+        ? `Basic ${Buffer.from(
+            `${decodeURIComponent(parsedProxy.url.username)}:${decodeURIComponent(parsedProxy.url.password)}`,
+          ).toString("base64")}`
+        : null;
+    this.proxySummary = parsedProxy ? Object.freeze({ ...parsedProxy.summary }) : null;
+    this.egressMode = parsedProxy ? "explicit_proxy" : "direct";
     this.query = structuredClone(input.query);
     this.origin = base.origin;
     this.allowLoopbackTestOrigin = allowLoopback;
@@ -206,6 +228,9 @@ export class EbayUsHttpTransport {
       let resCompleted = false;
       let response: IncomingMessage | undefined;
       let decoder: Transform | undefined;
+      let activeReq: ClientRequest | undefined;
+      let tunnelReq: ClientRequest | undefined;
+      let activeSocket: Duplex | undefined;
       const chunks: Buffer[] = [];
 
       const finish = (
@@ -221,144 +246,241 @@ export class EbayUsHttpTransport {
         if (error) {
           decoder?.destroy();
           response?.destroy();
-          req.destroy();
+          activeReq?.destroy();
+          tunnelReq?.destroy();
+          activeSocket?.destroy();
           reject(error);
         } else if (outcome) {
+          if (outcome.kind === "redirect") activeSocket?.destroy();
           resolve(outcome);
         }
       };
 
       const onAbort = () => finish(new TransportReadError("worker_shutdown", wireBytes));
-      const doRequest = url.protocol === "https:" ? httpsRequest : httpRequest;
-      const req = doRequest(
-        url,
-        {
-          method: "GET",
-          agent: false,
-          headers: {
-            Accept:
-              kind === "page"
-                ? "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-                : "image/avif,image/webp,image/png,image/jpeg,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Accept-Encoding": kind === "page" ? "gzip, deflate, br" : "identity",
-            "Cache-Control": "no-cache",
-            "User-Agent": this.userAgent,
-          },
-        },
-        (res) => {
-          response = res;
-          const status = res.statusCode ?? 0;
-          if (status >= 300 && status < 400) {
-            const location = typeof res.headers.location === "string" ? res.headers.location : "";
-            res.destroy();
-            finish(undefined, { kind: "redirect", status, location, wireBytes });
-            return;
-          }
-          const rawEncoding = (res.headers["content-encoding"] ?? "identity")
-            .split(",")[0]
-            ?.trim()
-            .toLowerCase();
-          if (!["", "identity", "gzip", "x-gzip", "deflate", "br"].includes(rawEncoding ?? "")) {
-            finish(new TransportReadError("http_encoding_rejected", wireBytes));
-            return;
-          }
-          const declared = res.headers["content-length"];
-          if (declared !== undefined && (!/^\d+$/.test(declared) || BigInt(declared) > BigInt(maxBytes))) {
-            finish(new TransportReadError("response_exceeds_budget", wireBytes));
-            return;
-          }
-          const finalizeSuccess = () => {
-            if (!resCompleted) {
-              finish(new TransportReadError("http_response_interrupted", wireBytes));
-              return;
-            }
-            const rawRetry = res.headers["retry-after"];
-            let retryAfterSeconds: number | undefined;
-            if ((status === 429 || status === 503) && typeof rawRetry === "string") {
-              const delay = /^\d+$/.test(rawRetry)
-                ? Number(rawRetry)
-                : Math.ceil((Date.parse(rawRetry) - this.clock()) / 1000);
-              if (Number.isSafeInteger(delay) && delay >= 1 && delay <= 86400) retryAfterSeconds = delay;
-            }
-            finish(undefined, {
-              kind: "response",
-              response: {
-                status,
-                contentType: res.headers["content-type"] ?? "application/octet-stream",
-                bytes: Buffer.concat(chunks, decodedBytes),
-                ...(retryAfterSeconds === undefined ? {} : { retryAfterSeconds }),
-              },
-            });
-          };
-
-          res.on("data", (chunk: Buffer) => {
-            wireBytes += chunk.byteLength;
-            if (wireBytes > maxBytes) {
-              finish(new TransportReadError("response_exceeds_budget", wireBytes));
-              return;
-            }
-            if (!decoder) {
-              decodedBytes += chunk.byteLength;
-              if (decodedBytes > maxBytes) {
-                finish(new TransportReadError("response_exceeds_budget", wireBytes));
-                return;
-              }
-              chunks.push(chunk);
-            }
-          });
-          res.on("aborted", () => finish(new TransportReadError("http_response_interrupted", wireBytes)));
-          res.on("error", () => finish(new TransportReadError("http_response_interrupted", wireBytes)));
-
-          if (
-            rawEncoding === "gzip" ||
-            rawEncoding === "x-gzip" ||
-            rawEncoding === "deflate" ||
-            rawEncoding === "br"
-          ) {
-            decoder =
-              rawEncoding === "br"
-                ? createBrotliDecompress()
-                : rawEncoding === "deflate"
-                  ? createInflate()
-                  : createGunzip();
-            decoder.on("data", (chunk: Buffer) => {
-              decodedBytes += chunk.byteLength;
-              if (decodedBytes > maxBytes) {
-                finish(new TransportReadError("response_exceeds_budget", wireBytes));
-                return;
-              }
-              chunks.push(chunk);
-            });
-            decoder.on("error", () => finish(new TransportReadError("http_decode_failed", wireBytes)));
-            res.on("end", () => {
-              if (!res.complete) {
-                finish(new TransportReadError("http_response_interrupted", wireBytes));
-                return;
-              }
-              resCompleted = true;
-            });
-            decoder.on("end", finalizeSuccess);
-            res.pipe(decoder);
-          } else {
-            res.on("end", () => {
-              if (!res.complete) {
-                finish(new TransportReadError("http_response_interrupted", wireBytes));
-                return;
-              }
-              resCompleted = true;
-              finalizeSuccess();
-            });
-          }
-        },
-      );
       const timer = setTimeout(
         () => finish(new TransportReadError("http_request_timeout", wireBytes)),
         remainingMs,
       );
       signal?.addEventListener("abort", onAbort, { once: true });
-      req.on("error", () => finish(new TransportReadError("http_request_failed", wireBytes)));
-      req.end();
+
+      const requestHeaders: Record<string, string> = {
+        Accept:
+          kind === "page"
+            ? "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+            : "image/avif,image/webp,image/png,image/jpeg,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": kind === "page" ? "gzip, deflate, br" : "identity",
+        "Cache-Control": "no-cache",
+        "User-Agent": this.userAgent,
+      };
+
+      const onResponse = (res: IncomingMessage) => {
+        response = res;
+        const status = res.statusCode ?? 0;
+        if (status >= 300 && status < 400) {
+          const location = typeof res.headers.location === "string" ? res.headers.location : "";
+          res.destroy();
+          finish(undefined, { kind: "redirect", status, location, wireBytes });
+          return;
+        }
+        const rawEncoding = (res.headers["content-encoding"] ?? "identity")
+          .split(",")[0]
+          ?.trim()
+          .toLowerCase();
+        if (!["", "identity", "gzip", "x-gzip", "deflate", "br"].includes(rawEncoding ?? "")) {
+          finish(new TransportReadError("http_encoding_rejected", wireBytes));
+          return;
+        }
+        const declared = res.headers["content-length"];
+        if (declared !== undefined && (!/^\d+$/.test(declared) || BigInt(declared) > BigInt(maxBytes))) {
+          finish(new TransportReadError("response_exceeds_budget", wireBytes));
+          return;
+        }
+        const finalizeSuccess = () => {
+          if (!resCompleted) {
+            finish(new TransportReadError("http_response_interrupted", wireBytes));
+            return;
+          }
+          const rawRetry = res.headers["retry-after"];
+          let retryAfterSeconds: number | undefined;
+          if ((status === 429 || status === 503) && typeof rawRetry === "string") {
+            const delay = /^\d+$/.test(rawRetry)
+              ? Number(rawRetry)
+              : Math.ceil((Date.parse(rawRetry) - this.clock()) / 1000);
+            if (Number.isSafeInteger(delay) && delay >= 1 && delay <= 86400) retryAfterSeconds = delay;
+          }
+          finish(undefined, {
+            kind: "response",
+            response: {
+              status,
+              contentType: res.headers["content-type"] ?? "application/octet-stream",
+              bytes: Buffer.concat(chunks, decodedBytes),
+              ...(retryAfterSeconds === undefined ? {} : { retryAfterSeconds }),
+            },
+          });
+        };
+
+        res.on("data", (chunk: Buffer) => {
+          wireBytes += chunk.byteLength;
+          if (wireBytes > maxBytes) {
+            finish(new TransportReadError("response_exceeds_budget", wireBytes));
+            return;
+          }
+          if (!decoder) {
+            decodedBytes += chunk.byteLength;
+            if (decodedBytes > maxBytes) {
+              finish(new TransportReadError("response_exceeds_budget", wireBytes));
+              return;
+            }
+            chunks.push(chunk);
+          }
+        });
+        res.on("aborted", () => finish(new TransportReadError("http_response_interrupted", wireBytes)));
+        res.on("error", () => finish(new TransportReadError("http_response_interrupted", wireBytes)));
+
+        if (
+          rawEncoding === "gzip" ||
+          rawEncoding === "x-gzip" ||
+          rawEncoding === "deflate" ||
+          rawEncoding === "br"
+        ) {
+          decoder =
+            rawEncoding === "br"
+              ? createBrotliDecompress()
+              : rawEncoding === "deflate"
+                ? createInflate()
+                : createGunzip();
+          decoder.on("data", (chunk: Buffer) => {
+            decodedBytes += chunk.byteLength;
+            if (decodedBytes > maxBytes) {
+              finish(new TransportReadError("response_exceeds_budget", wireBytes));
+              return;
+            }
+            chunks.push(chunk);
+          });
+          decoder.on("error", () => finish(new TransportReadError("http_decode_failed", wireBytes)));
+          res.on("end", () => {
+            if (!res.complete) {
+              finish(new TransportReadError("http_response_interrupted", wireBytes));
+              return;
+            }
+            resCompleted = true;
+          });
+          decoder.on("end", finalizeSuccess);
+          res.pipe(decoder);
+        } else {
+          res.on("end", () => {
+            if (!res.complete) {
+              finish(new TransportReadError("http_response_interrupted", wireBytes));
+              return;
+            }
+            resCompleted = true;
+            finalizeSuccess();
+          });
+        }
+      };
+
+      const proxy = this.#proxyUrl;
+      if (!proxy) {
+        const doRequest = url.protocol === "https:" ? httpsRequest : httpRequest;
+        const req = doRequest(url, { method: "GET", agent: false, headers: requestHeaders }, onResponse);
+        activeReq = req;
+        req.on("error", () => finish(new TransportReadError("http_request_failed", wireBytes)));
+        req.end();
+        return;
+      }
+
+      const proxyHostname = proxy.hostname.replace(/^\[(.*)\]$/, "$1");
+      const proxyPort = proxy.port ? Number(proxy.port) : proxy.protocol === "https:" ? 443 : 80;
+      const proxyRequestFn = proxy.protocol === "https:" ? httpsRequest : httpRequest;
+      const proxyHeaders = this.#proxyAuthHeader ? { "Proxy-Authorization": this.#proxyAuthHeader } : {};
+
+      if (url.protocol === "http:") {
+        const req = proxyRequestFn(
+          {
+            protocol: proxy.protocol,
+            hostname: proxyHostname,
+            port: proxyPort,
+            method: "GET",
+            path: url.href,
+            agent: false,
+            headers: {
+              ...requestHeaders,
+              Host: url.host,
+              ...proxyHeaders,
+            },
+          },
+          (res) => {
+            if ((res.statusCode ?? 0) === 407) {
+              res.destroy();
+              finish(new TransportReadError("proxy_auth_required", wireBytes));
+              return;
+            }
+            onResponse(res);
+          },
+        );
+        activeReq = req;
+        req.on("error", () => finish(new TransportReadError("proxy_connect_failed", wireBytes)));
+        req.end();
+        return;
+      }
+
+      const authority = `${url.hostname}:${url.port || "443"}`;
+      let tunnelConnected = false;
+      const connectReq = proxyRequestFn({
+        protocol: proxy.protocol,
+        hostname: proxyHostname,
+        port: proxyPort,
+        method: "CONNECT",
+        path: authority,
+        agent: false,
+        headers: {
+          Host: authority,
+          ...proxyHeaders,
+        },
+      });
+      tunnelReq = connectReq;
+      connectReq.on("connect", (proxyRes, socket) => {
+        tunnelConnected = true;
+        activeSocket = socket;
+        socket.on("error", () => finish(new TransportReadError("proxy_connect_failed", wireBytes)));
+        const proxyStatus = proxyRes.statusCode ?? 0;
+        if (proxyStatus === 407) {
+          finish(new TransportReadError("proxy_auth_required", wireBytes));
+          return;
+        }
+        if (proxyStatus !== 200) {
+          finish(new TransportReadError("proxy_connect_failed", wireBytes));
+          return;
+        }
+        if (done) {
+          socket.destroy();
+          return;
+        }
+        const innerReq = httpsRequest(
+          url,
+          {
+            method: "GET",
+            agent: false,
+            headers: requestHeaders,
+            createConnection: () =>
+              tlsConnect({
+                socket,
+                servername: url.hostname.replace(/^\[(.*)\]$/, "$1"),
+                rejectUnauthorized: true,
+              }),
+          },
+          onResponse,
+        );
+        activeReq = innerReq;
+        innerReq.on("error", () => finish(new TransportReadError("http_request_failed", wireBytes)));
+        innerReq.end();
+      });
+      connectReq.on("error", () => finish(new TransportReadError("proxy_connect_failed", wireBytes)));
+      connectReq.on("close", () => {
+        if (!tunnelConnected && !done) finish(new TransportReadError("proxy_connect_failed", wireBytes));
+      });
+      connectReq.end();
     });
   }
 

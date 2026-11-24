@@ -1,6 +1,7 @@
 import { instant } from "@soldbench/core";
 import { type Database, type Transaction, transaction } from "@soldbench/db";
 import type { PrivateMediaStore } from "@soldbench/media";
+import { type DataMode, isSourceAllowedForMode, isSourceKindAllowedForMode } from "@soldbench/shared";
 import { COLLECTOR_VERSION, PARSER_VERSION } from "./fixture.ts";
 import { mediaHealth } from "./media-health.ts";
 import { type FrozenSchedule, scheduledRange } from "./run-evidence.ts";
@@ -34,6 +35,7 @@ export async function collectorHealth(
     automatic?: boolean;
     dailyDays?: 7 | 14;
     mediaProbe?: { store: PrivateMediaStore; limit: number };
+    dataMode?: DataMode;
   } = {},
 ) {
   const probeLimit = options.mediaProbe?.limit;
@@ -52,7 +54,8 @@ export async function collectorHealth(
         [sourceId],
       )
     ).rows[0];
-    if (source?.access_method !== "offline_fixture" || source.provider !== "synthetic_fixture")
+    const activeMode: DataMode = options.dataMode ?? "offline_fixture";
+    if (!source || !isSourceKindAllowedForMode(activeMode, source))
       throw new Error("network_collector_not_enabled");
     const now = options.now
         ? new Date(instant(options.now))
@@ -61,7 +64,7 @@ export async function collectorHealth(
     if (from > now || now.getTime() - from.getTime() > 366 * dayMs) throw new Error("invalid_health_window");
     const sourceRights =
       source.status === "active" &&
-      ["draft", "reviewed", "active"].includes(source.clearance_status) &&
+      isSourceAllowedForMode(activeMode, source) &&
       (!source.effective_at || source.effective_at <= now) &&
       (!source.expires_at || source.expires_at > now);
     const media = await mediaHealth(

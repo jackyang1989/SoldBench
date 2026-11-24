@@ -1,7 +1,7 @@
 import { availability, categoryAttributeNames, offlineQueryWindows } from "@soldbench/core";
 import { type Database, transaction } from "@soldbench/db";
 import type { QueryService } from "@soldbench/query";
-import { AppError } from "@soldbench/shared";
+import { AppError, sqlSourceEligibilityClause } from "@soldbench/shared";
 import type { Context, Hono } from "hono";
 import * as z from "zod";
 
@@ -32,8 +32,8 @@ export function readCatalog(db: Database, query?: QueryService) {
              FROM data_availability a JOIN sources s ON s.id=a.source_id
                   JOIN source_clearances x ON x.id=s.source_clearance_id
             WHERE a.category_path=t.category_path AND a.freshness_state<>'forbidden'
-              AND s.marketplace=t.marketplace AND s.access_method='offline_fixture' AND s.status='active'
-              AND x.provider='synthetic_fixture' AND x.status IN ('draft','reviewed','active')
+              AND s.marketplace=t.marketplace AND s.status='active'
+              AND ${sqlSourceEligibilityClause(query?.dataMode ?? "offline_fixture")}
               AND (x.effective_at IS NULL OR x.effective_at<=$1)
               AND (x.expires_at IS NULL OR x.expires_at>$1)
               AND x.permitted_fields->'public_cache' @> '["aggregate"]'::jsonb

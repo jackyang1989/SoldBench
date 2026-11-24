@@ -202,7 +202,10 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
     ]);
     assert.deepEqual(await migrate(db, "0045_global_ebay_sites.sql"), ["0045_global_ebay_sites.sql"]);
     assert.deepEqual(await migrate(db, "0046_promo_offers.sql"), ["0046_promo_offers.sql"]);
-    assert.deepEqual(await migrate(db), ["0047_mail_delivery_attempts.sql"]);
+    assert.deepEqual(await migrate(db, "0047_mail_delivery_attempts.sql"), [
+      "0047_mail_delivery_attempts.sql",
+    ]);
+    assert.deepEqual(await migrate(db), ["0048_live_runtime_modes.sql"]);
     assert.deepEqual(await migrate(db), []);
     const detailConstraints = await db.query(
       "SELECT conname FROM pg_constraint WHERE conrelid='collector_detail_jobs'::regclass ORDER BY conname",
@@ -339,6 +342,12 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
     assert.ok(
       mailAttemptConstraints.rows.some((r) => r.conname === "auth_mail_delivery_attempts_status_check"),
     );
+    const paymentIntentEnvConstraint = await db.query(
+      "SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid='payment_checkout_intents'::regclass AND conname='payment_checkout_intents_environment_check'",
+    );
+    assert.match(paymentIntentEnvConstraint.rows[0].definition, /'sandbox'/);
+    assert.match(paymentIntentEnvConstraint.rows[0].definition, /'live'/);
+    assert.match(paymentIntentEnvConstraint.rows[0].definition, /'offline_fixture'/);
     const mediaColumns = await db.query(
       "SELECT column_name FROM information_schema.columns WHERE table_name='listing_images'",
     );
