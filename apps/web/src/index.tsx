@@ -4,8 +4,10 @@ import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { type DocsView, Documentation } from "./developer.tsx";
 import { Editorial, type EditorialView, editorialUrl } from "./editorial.tsx";
+import { BrandLogo, HomeSections, type HomeShowcase, SiteFooter } from "./home.tsx";
 
 export type { EditorialEntry, EditorialView } from "./editorial.tsx";
+export type { HomeShowcase, HomeShowcaseComp } from "./home.tsx";
 
 export const webCss = readFileSync(new URL("../src/site.css", import.meta.url), "utf8");
 export const webClient = readFileSync(new URL("../src/site.js", import.meta.url), "utf8");
@@ -115,6 +117,7 @@ export function renderPage(
   sections: PublishedSection[] = [],
   blocks: SiteBlock[] = [],
   editorial?: EditorialView,
+  homeShowcase: HomeShowcase | null = null,
 ): string {
   const zh = locale === "zh-CN";
   const t = (en: string, cn: string) => (zh ? cn : en);
@@ -225,15 +228,38 @@ export function renderPage(
     );
   const navigation = browseableLinks("navigation");
   const footer = browseableLinks("footer");
+  const isNavOn = (target: string) =>
+    page === target ||
+    editorial?.path === target ||
+    (target === "/docs" && Boolean(docs)) ||
+    (target === "/account" && page.startsWith("/account"));
   const nav = (
     <>
       {navigation}
-      <a href={link("/search")}>{t("Search", "查价")}</a>
-      <a href={link("/categories")}>{t("Categories", "类目")}</a>
-      <a href={link("/pricing")}>{t("Pricing", "定价")}</a>
-      <a href={zh ? "/docs/zh-CN/quickstart" : "/docs/en/quickstart"}>{t("Docs", "文档")}</a>
-      <a href={link("/agents")}>{t("Agents", "Agent")}</a>
-      <a href={link("/account")}>{t("Dashboard", "账户")}</a>
+      <a className={isNavOn("/search") ? "on" : undefined} href={link("/search")}>
+        {t("Search", "查价")}
+      </a>
+      <a className={isNavOn("/categories") ? "on" : undefined} href={link("/categories")}>
+        {t("Categories", "类目")}
+      </a>
+      <a className={isNavOn("/pricing") ? "on" : undefined} href={link("/pricing")}>
+        {t("Pricing", "定价")}
+      </a>
+      <a
+        className={isNavOn("/docs") ? "on" : undefined}
+        href={zh ? "/docs/zh-CN/quickstart" : "/docs/en/quickstart"}
+      >
+        {t("Docs", "文档")}
+      </a>
+      <a className={isNavOn("/agents") ? "on" : undefined} href={link("/agents")}>
+        {t("Agents", "Agent")}
+      </a>
+      <a className={isNavOn("/alternatives") ? "on" : undefined} href={link("/alternatives")}>
+        {t("Compare", "对比")}
+      </a>
+      <a className={isNavOn("/account") ? "on" : undefined} href={link("/account")}>
+        {t("Dashboard", "账户")}
+      </a>
     </>
   );
   const examples = (
@@ -287,154 +313,17 @@ export function renderPage(
     );
   } else if (page === "/") {
     content = (
-      <>
-        {sections.length > 0 && (
-          <section className="wrap site-announcements" aria-label={t("Announcements", "公告")}>
-            {sections.map((entry) => (
-              <div className="notice" key={entry.slug}>
-                <strong>{entry.title}</strong>
-                <p>{entry.body}</p>
-              </div>
-            ))}
-          </section>
-        )}
-        {blocks
-          .filter((row) => row.kind === "home")
-          .map((row) => (
-            <section className="wrap published-section" key={row.slug}>
-              <h2>{row.title}</h2>
-              <p>{row.body}</p>
-              {isDestination(row.target) && <a href={link(row.target)}>{t("Learn more", "了解更多")}</a>}
-            </section>
-          ))}
-        <section className="hero">
-          <div className="wrap hero-grid">
-            <div>
-              <p className="eyebrow">{t("Comparable sales research", "可比成交研究")}</p>
-              <h1>
-                {t("eBay sold prices, with the ", "eBay 成交价，附")}
-                <span className="kw">{t("evidence", "可核查的证据")}</span>
-                {t(" to back them.", "。")}
-              </h1>
-              <p className="sub">
-                {t(
-                  "Research comparable sales, understand the price range, and inspect the evidence behind each result.",
-                  "查看可比成交、了解价格区间，并核查每个结果背后的证据。",
-                )}
-              </p>
-              <form action={link("/search")} method="get" data-search="">
-                {searchBox}
-              </form>
-              {examples}
-              {market}
-              {status}
-              <div className="actions" data-actions="" />
-            </div>
-            <div>
-              <div data-results="" />
-              <aside className="live-card" data-hero-empty="">
-                <div className="live-head">
-                  <span>{t("Comparable sales", "可比成交")}</span>
-                  <span className="badge">{t("Offline workspace", "离线工作区")}</span>
-                </div>
-                <div className="table-scroll">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>{t("Title", "商品")}</th>
-                        <th className="num">{t("Price", "价格")}</th>
-                        <th>{t("Date", "日期")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td colSpan={3} className="empty">
-                          {t(
-                            "Search to see whether a cached result is available.",
-                            "提交搜索，检查是否有可用的缓存结果。",
-                          )}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-                <div className="median-strip">
-                  <div>
-                    <b>{t("Median", "中位价")}</b>
-                    <strong>—</strong>
-                  </div>
-                  <div>
-                    <b>{t("Typical range", "典型区间")}</b>
-                    <strong>—</strong>
-                  </div>
-                  <div>
-                    <b>{t("Verified sample", "核验样本")}</b>
-                    <strong>—</strong>
-                  </div>
-                </div>
-              </aside>
-            </div>
-          </div>
-        </section>
-        <section className="band">
-          <div className="wrap">
-            <div className="blk-head">
-              <p className="eyebrow">{t("Research workflow", "研究流程")}</p>
-              <h2>{t("Search, review, and verify.", "从查价到核查证据。")}</h2>
-            </div>
-            <div className="grid3">
-              <div className="card">
-                <h3>{t("Price range", "价格区间")}</h3>
-                <p>
-                  {t(
-                    "Review the median and typical range when the verified sample supports them.",
-                    "在核验样本充足时查看中位价和典型区间。",
-                  )}
-                </p>
-              </div>
-              <div className="card">
-                <h3>{t("Sale evidence", "成交证据")}</h3>
-                <p>
-                  {t(
-                    "Inspect the comparable records and images available to your account.",
-                    "核查账户有权读取的成交记录和主图。",
-                  )}
-                </p>
-              </div>
-              <div className="card">
-                <h3>{t("Developer integration", "开发者集成")}</h3>
-                <p>
-                  {t(
-                    "Use the shared result contract in REST and MCP.",
-                    "通过 REST 和 MCP 使用同一结果契约。",
-                  )}
-                </p>
-                <a href={zh ? "/docs/zh-CN/quickstart" : "/docs/en/quickstart"}>
-                  {t("Quickstart", "快速开始")}
-                </a>
-              </div>
-            </div>
-          </div>
-        </section>
-        {blocks.some((row) => row.kind === "blog") && (
-          <section className="wrap workbench">
-            <h2>{t("Latest articles", "最新文章")}</h2>
-            <div className="grid3">
-              {blocks
-                .filter((row) => row.kind === "blog")
-                .slice(0, 3)
-                .map((row) => (
-                  <article className="card" key={row.slug}>
-                    <h3>
-                      <a href={link(`/blog/${row.slug}`)}>{row.title}</a>
-                    </h3>
-                  </article>
-                ))}
-            </div>
-            <a href={link("/blog")}>{t("All articles", "全部文章")}</a>
-          </section>
-        )}
-      </>
+      <HomeSections
+        locale={locale}
+        link={link}
+        searchBox={searchBox}
+        examples={examples}
+        market={market}
+        status={status}
+        sections={sections}
+        blocks={blocks}
+        homeShowcase={homeShowcase}
+      />
     );
   } else if (editorial) {
     content = <Editorial view={editorial} locale={locale} query={draft.get("q") ?? undefined} />;
@@ -1061,72 +950,146 @@ export function renderPage(
     const token = page === "/verify-email" || page === "/reset-password";
     content = (
       <section className="wrap auth-wrap">
-        <div className="card auth-card">
-          <h1>{title}</h1>
-          {page === "/register" && (
-            <p>
-              {t(
-                "Create a local test account. Verification messages go to the local test outbox.",
-                "创建本机测试账户。验证邮件进入本机测试发件箱。",
-              )}
-            </p>
-          )}
-          <form data-auth={page.slice(1)} method="post">
-            {!token && (
-              <label>
-                {t("Email address", "邮箱")}
-                <input name="email" type="email" required autoComplete="email" />
-              </label>
-            )}
-            {token && (
-              <label>
-                {t("One-time code", "一次性验证码")}
-                <input name="token" required autoComplete="one-time-code" maxLength={128} />
-              </label>
-            )}
-            {password && (
-              <label>
-                {t("Password", "密码")}
-                <input
-                  name="password"
-                  type="password"
-                  required
-                  minLength={page === "/login" ? 1 : 12}
-                  maxLength={128}
-                  autoComplete={page === "/login" ? "current-password" : "new-password"}
-                />
-              </label>
-            )}
+        <div className="auth-grid">
+          <div className="card auth-card center-card">
+            <div className="auth-logo">
+              <span className="logo">
+                <BrandLogo size={25} />
+                SoldBench
+              </span>
+            </div>
+            <h1 className="auth-title">{title}</h1>
             {page === "/register" && (
-              <label className="check">
-                <input type="checkbox" name="consent" required />
-                {t("I agree to use this account for local testing only.", "我同意此账户仅用于本机测试。")}
-              </label>
+              <p className="small auth-sub">
+                {t(
+                  "Create a local test account. Verification messages go to the configured mail transport or local outbox.",
+                  "创建测试或本地账户。验证邮件将按运行配置发送或进入本地发件箱。",
+                )}
+              </p>
             )}
-            <button className="btn brand" type="submit">
-              {title}
-            </button>
-          </form>
-          {status}
-          <div className="actions" data-actions="">
-            {page !== "/login" && <a href={resume("/login")}>{t("Sign in", "登录")}</a>}
-            {page === "/login" && (
-              <>
-                <a href={resume("/register")}>{t("Create an account", "创建账户")}</a>
-                <a href={resume("/forgot-password")}>{t("Forgot password?", "忘记密码？")}</a>
-              </>
-            )}
-            {page === "/verify-email" && (
-              <form data-auth="resend" method="post">
+            <form data-auth={page.slice(1)} method="post">
+              {!token && (
                 <label>
-                  {t("Email for a new code", "重新发送验证码的邮箱")}
-                  <input name="email" type="email" required />
+                  {t("Email address", "邮箱")}
+                  <input
+                    name="email"
+                    type="email"
+                    required
+                    autoComplete="email"
+                    placeholder="you@example.com"
+                  />
                 </label>
-                <button className="btn ghost" type="submit">
-                  {t("Request another code", "请求新验证码")}
-                </button>
-              </form>
+              )}
+              {token && (
+                <label>
+                  {t("One-time code", "一次性验证码")}
+                  <input name="token" required autoComplete="one-time-code" maxLength={128} />
+                </label>
+              )}
+              {password && (
+                <label>
+                  {t("Password", "密码")}
+                  <input
+                    name="password"
+                    type="password"
+                    required
+                    minLength={page === "/login" ? 1 : 12}
+                    maxLength={128}
+                    autoComplete={page === "/login" ? "current-password" : "new-password"}
+                    placeholder="••••••••"
+                  />
+                </label>
+              )}
+              {page === "/register" && (
+                <label className="check">
+                  <input type="checkbox" name="consent" required />
+                  <span>
+                    {t("I agree to use this account for local testing only.", "我同意此账户仅用于本机测试。")}
+                  </span>
+                </label>
+              )}
+              <button className="btn btn-brand" type="submit">
+                {title}
+              </button>
+            </form>
+            {status}
+            {page === "/login" && (
+              <details className="faq-item auth-details">
+                <summary>
+                  {t("Two-factor authentication or Passkey enabled?", "已开启双重验证或 Passkey 通行密钥？")}
+                </summary>
+                <div className="faq-body">
+                  {t(
+                    "Enter your 6-digit authenticator code or recovery code after signing in, or manage WebAuthn Passkeys in Security settings.",
+                    "登录后输入 6 位 TOTP 验证码或恢复码即可继续；您也可以在账户安全中心管理 Passkey 通行密钥。",
+                  )}
+                </div>
+              </details>
             )}
+            <div className="actions auth-actions" data-actions="">
+              {page !== "/login" && <a href={resume("/login")}>{t("Sign in", "登录")}</a>}
+              {page === "/login" && (
+                <>
+                  <a href={resume("/register")}>{t("Create an account", "创建账户")}</a>
+                  <a href={resume("/forgot-password")}>{t("Forgot password?", "忘记密码？")}</a>
+                </>
+              )}
+              {page === "/verify-email" && (
+                <form className="auth-resend-form" data-auth="resend" method="post">
+                  <label>
+                    {t("Email for a new code", "重新发送验证码的邮箱")}
+                    <input name="email" type="email" required />
+                  </label>
+                  <button className="btn btn-ghost" type="submit">
+                    {t("Request another code", "请求新验证码")}
+                  </button>
+                </form>
+              )}
+            </div>
+          </div>
+          <div>
+            <div className="card">
+              <h3>{t("What your SoldBench account unlocks", "注册账户后可使用")}</h3>
+              <ul className="auth-benefits">
+                <li>
+                  <b>{t("Evidence-backed sold research", "完整证据链研究查价")}</b>
+                  {t(
+                    " — query ID, candidate-set hash, rule-numbered exclusions, and local adjustments",
+                    "——包含 query_id、候选集哈希、排除原因与本地调整重算",
+                  )}
+                </li>
+                <li>
+                  <b>{t("API keys, Passkeys & Hosted MCP", "API 密钥、通行密钥与托管 MCP")}</b>
+                  {t(
+                    " — connect Claude, Cursor, or custom services under the exact same credit rules",
+                    "——在完全同一份账本与权限下接入 AI Agent 或外部系统",
+                  )}
+                </li>
+                <li>
+                  <b>{t("Batch pricing, saved compare & alerts", "批量查价、快照对照与监控告警")}</b>
+                  {t(
+                    " — CSV batch runs, two-sided variance compare, and signed webhook watchlists",
+                    "——支持 20 项 CSV 批量核价、双侧变体对照与 HMAC 签名告警推送",
+                  )}
+                </li>
+                <li>
+                  <b>{t("Full exports & audit ledger", "CSV / JSON 导出与清晰账本")}</b>
+                  {t(
+                    " — atomic claim settlement, 10-minute free reuse, and immutable credit buckets",
+                    "——异步结果显式领取扣费、10 分钟内复用免费、流水不可篡改",
+                  )}
+                </li>
+              </ul>
+            </div>
+            <div className="card mt-18">
+              <h3>{t("Straight about billing & privacy", "关于计费与隐私承诺")}</h3>
+              <p>
+                {t(
+                  "Failed queries and low-sample (<8 verified sales) results are never charged. Identical searches repeat free within 10 minutes. Session cookies are HttpOnly and CSRF-protected; email verification and reset tokens use single-use hashes.",
+                  "查询失败与不足 8 条的低样本结果永不扣费；10 分钟内同参数复取免费。浏览器会话全程 HttpOnly 与 CSRF 防护，邮件与重置验证码均为单次哈希生效。",
+                )}
+              </p>
+            </div>
           </div>
         </div>
       </section>
@@ -1189,6 +1152,7 @@ export function renderPage(
           <meta charSet="utf-8" />
           <meta name="viewport" content="width=device-width,initial-scale=1" />
           <meta name="robots" content="noindex,nofollow" />
+          <link rel="icon" href="data:," />
           {editorial && editorial.path !== "/404" && (
             <>
               <link rel="canonical" href={editorialUrl(locale, editorial.path)} />
@@ -1209,14 +1173,17 @@ export function renderPage(
             {t("Skip to content", "跳到正文")}
           </a>
           <header className="site">
+            {page === "/" &&
+              sections.slice(0, 1).map((entry) => (
+                <div className="ann-bar" key={entry.slug}>
+                  <strong>{entry.title}</strong> — {entry.body}{" "}
+                  <a href={link("/changelog")}>{t("See changelog", "查看更新记录")}</a>
+                </div>
+              ))}
             <div className="wrap">
               <nav className="nav" aria-label={t("Main navigation", "主导航")}>
                 <a className="logo" href={link("/")}>
-                  <svg width={27} height={27} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2.4" />
-                    <circle cx="12" cy="12" r="3.4" fill="currentColor" />
-                    <path d="M12 1v5M12 18v5M1 12h5M18 12h5" stroke="currentColor" strokeWidth="2.4" />
-                  </svg>
+                  <BrandLogo size={27} />
                   SoldBench
                 </a>
                 <div className="nav-links">{nav}</div>
@@ -1230,6 +1197,27 @@ export function renderPage(
                   <a className="btn brand desktop" data-resume="/register" href={resume("/register")}>
                     {t("Get started", "开始使用")}
                   </a>
+                  <div className="acct-menu" data-acct-menu="" hidden>
+                    <button type="button" className="acct-menu-btn" data-acct-toggle="" aria-expanded="false">
+                      <span className="avatar" data-acct-avatar="">
+                        U
+                      </span>
+                      <span data-acct-label="">{t("Account", "账户")}</span>
+                    </button>
+                    <div className="acct-menu-list" data-acct-list="" hidden>
+                      <a href={link("/account")}>{t("Overview", "账户概览")}</a>
+                      <a href={link("/search")}>{t("Search workbench", "查价工作台")}</a>
+                      <a href={link("/account/keys")}>{t("API keys", "API 密钥")}</a>
+                      <a href={link("/account/usage")}>{t("Usage & ledger", "用量与账本")}</a>
+                      <a href={link("/account/billing")}>{t("Billing", "账单与额度")}</a>
+                      <a href={link("/account/security")}>{t("Security", "账户安全")}</a>
+                      <div className="sep" />
+                      <a href={link("/operations")}>{t("Operations console", "运营控制台")}</a>
+                      <button type="button" data-nav-logout="">
+                        {t("Sign out", "退出登录")}
+                      </button>
+                    </div>
+                  </div>
                   <details className="mobile">
                     <summary className="btn ghost">{t("Menu", "菜单")}</summary>
                     <div>
@@ -1247,24 +1235,19 @@ export function renderPage(
             </div>
           </header>
           <main id="main">{content}</main>
-          <footer className="wrap">
-            <a href={link("/")}>SoldBench</a>
-            <p>{t("Comparable sales research and pricing evidence.", "可比成交研究与价格证据。")}</p>
-            <a href={link("/support")}>{t("Support", "支持")}</a>
-            <a href={link("/data-availability")}>{t("Availability", "数据可用性")}</a>
-            <a href={link("/guides")}>{t("Guides", "指南")}</a>
-            <a href={link("/methodology")}>{t("Methodology", "价格研究方法")}</a>
-            <a href={link("/faq")}>FAQ</a>
-            <a href={link("/blog")}>{t("Blog", "博客")}</a>
-            <a href={link("/worth")}>{t("What is it worth?", "商品值多少钱？")}</a>
-            <a href={link("/alternatives")}>{t("Alternatives", "方案比较")}</a>
-            <a href={link("/changelog")}>{t("Changelog", "更新记录")}</a>
-            <a href={link("/about")}>{t("About", "关于")}</a>
-            <a href={link("/help")}>{t("Help", "帮助")}</a>
-            <a href={link("/terms")}>{t("Terms", "条款")}</a>
-            <a href={link("/privacy")}>{t("Privacy", "隐私")}</a>
-            {footer}
-          </footer>
+          {!page.startsWith("/account") && page !== "/operations" && page !== "/admin/content" && (
+            <SiteFooter
+              locale={locale}
+              link={link}
+              footerBlocks={footer.length > 0 ? <div className="foot-extra">{footer}</div> : null}
+            />
+          )}
+          <div className="modal-bg" data-modal-bg="" hidden>
+            <div className="modal" data-modal-box="" />
+          </div>
+          <div className="udrawer-bg" data-udrawer-bg="" hidden />
+          <aside className="udrawer" data-udrawer="" aria-label={t("User 360 view", "用户全景")} hidden />
+          <div className="toast" data-toast="" role="status" aria-live="polite" />
         </body>
       </html>,
     )

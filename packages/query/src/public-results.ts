@@ -1,9 +1,44 @@
 import type { Identity } from "@soldbench/auth";
-import { availability, compatibleCleaner, queryHash, type SoldQuery } from "@soldbench/core";
+import {
+  availability,
+  type Candidate,
+  compatibleCleaner,
+  isStandardCondition,
+  queryHash,
+  type SoldQuery,
+} from "@soldbench/core";
 import { type Transaction, transaction } from "@soldbench/db";
-import { AppError, VERSIONS } from "@soldbench/shared";
+import { AppError, type DataMode, VERSIONS } from "@soldbench/shared";
 import type { QueryService } from "./index.ts";
 import { publicSummary, type SummaryParts } from "./quality-report.ts";
+import { canPrice, observedShippingCents, permissions, saleDateEvidence } from "./research.ts";
+
+export type HomeShowcaseComp = {
+  sale_event_id: string;
+  title: string | null;
+  condition_std: string | null;
+  sale_format: string;
+  item_price_cents: number | null;
+  observed_shipping_cents: number | null;
+  price_usd_cents: number;
+  sold_date: Candidate["time"];
+  sale_price_status: "verified_actual";
+};
+
+export type HomeShowcase = {
+  query_id: string;
+  query: string;
+  window_days: number;
+  price_basis: string;
+  candidate_set_hash: string;
+  data_as_of: string;
+  engine_version: string;
+  cleaner_version: string;
+  data_mode: DataMode;
+  stats: ReturnType<typeof publicSummary>["stats"];
+  quality: ReturnType<typeof publicSummary>["quality"];
+  comps: HomeShowcaseComp[];
+};
 
 type Purpose = "public_share" | "public_cache";
 type Snapshot = SummaryParts & {
@@ -392,6 +427,93 @@ export class PublicResults {
         remaining: 5 - used - (reused ? 0 : 1),
         reused,
       };
+    });
+  }
+
+  /** Read-only aggregate + permitted sample projection for `/` homepage & interactive preview. */
+  async homeShowcase(): Promise<HomeShowcase | null> {
+    return transaction(this.service.db, async (c) => {
+      const now = await this.service.now(c);
+      const candidates = (
+        await c.query<{ query_id: string; user_id: string }>(
+          "SELECT query_id,user_id FROM anonymous_cache_publications ORDER BY published_at DESC LIMIT 5",
+        )
+      ).rows;
+      for (const pub of candidates) {
+        let q: PublishableSnapshot;
+        try {
+          await this.assertPublisher(c, pub.user_id);
+          q = await this.snapshot(c, pub.user_id, pub.query_id, now, "public_cache");
+        } catch (error) {
+          if (expectedAbsence(error)) continue;
+          throw error;
+        }
+        if (
+          !q.retention_until ||
+          availability({
+            now: now.toISOString(),
+            dataAsOf: q.data_as_of.toISOString(),
+            currentRights: "allowed",
+            snapshotExists: true,
+            allowStale: false,
+            verifiedSamples: q.stats.n_price_verified,
+          }).freshness !== "fresh"
+        )
+          continue;
+        const summary = publicSummary(q, false, q.model_aggregate_allowed);
+        const policy = await permissions(c, q.id);
+        const rows = (
+          await c.query<{
+            source_id: string;
+            sale_event_id: string;
+            price_usd_cents: string | number;
+            candidate: Candidate;
+          }>(
+            `SELECT s.source_id,i.sale_event_id,i.price_usd_cents,s.candidate
+               FROM query_calculation_inputs i JOIN query_snapshot_records s USING (query_id,sale_event_id)
+              WHERE i.query_id=$1
+              ORDER BY i.sold_at DESC NULLS LAST,i.sale_event_id
+              LIMIT 20`,
+            [q.id],
+          )
+        ).rows;
+        const comps: HomeShowcaseComp[] = rows.flatMap((row) => {
+          const allowed = policy.get(row.source_id);
+          if (!allowed || !canPrice(allowed)) return [];
+          const record = row.candidate;
+          const itemCents =
+            record.currency === "USD" ? record.itemCents : (record.usdConversion?.itemCents ?? null);
+          return [
+            {
+              sale_event_id: row.sale_event_id,
+              title: allowed.has("title") && record.title ? record.title : null,
+              condition_std:
+                allowed.has("condition") && isStandardCondition(record.condition) ? record.condition : null,
+              sale_format: record.format,
+              item_price_cents: itemCents,
+              observed_shipping_cents: allowed.has("shipping") ? observedShippingCents(record) : null,
+              price_usd_cents: Number(row.price_usd_cents),
+              sold_date: allowed.has("sold_date") ? saleDateEvidence(record.time) : { precision: "unknown" },
+              sale_price_status: "verified_actual" as const,
+            },
+          ];
+        });
+        return {
+          query_id: q.id,
+          query: q.filters.q,
+          window_days: q.filters.window_days,
+          price_basis: q.filters.price_basis,
+          candidate_set_hash: q.canonical_query_hash,
+          data_as_of: q.data_as_of.toISOString(),
+          engine_version: VERSIONS.engine,
+          cleaner_version: q.cleaner_version,
+          data_mode: this.service.dataMode,
+          stats: summary.stats,
+          quality: summary.quality,
+          comps,
+        };
+      }
+      return null;
     });
   }
 }

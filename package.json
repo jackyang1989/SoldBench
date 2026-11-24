@@ -20,6 +20,7 @@
     "contracts": "python3 docs/contracts/check_contracts.py && python3 -m unittest discover -s docs/contracts -p 'test_compatibility.py'",
     "check": "npm run lint && npm run typecheck && npm test && npm run contracts",
     "dev": "npm run build && node --env-file-if-exists=.env scripts/dev.mjs",
+    "dev:seed": "npm run build && node --env-file-if-exists=.env scripts/dev-seed-demo.mjs",
     "db:start": "node scripts/local-db.mjs start",
     "db:stop": "node scripts/local-db.mjs stop",
     "db:migrate": "npm run build && node scripts/migrate.mjs",

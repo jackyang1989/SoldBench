@@ -13,6 +13,7 @@ import type {
   RegionalSiteService,
   SecondMarketplaceService,
 } from "@soldbench/query";
+import { PublicResults } from "@soldbench/query";
 import { AppError, type Config } from "@soldbench/shared";
 import { operationsPanels, renderPage, webClient, webCss, webPages } from "@soldbench/web";
 import { Hono } from "hono";
@@ -148,6 +149,11 @@ export function createApp(
   app.get("/assets/soldbench.js", (c) =>
     c.body(webClient, 200, { "Content-Type": "text/javascript; charset=utf-8" }),
   );
+  app.get("/web/home-preview", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const showcase = services.query ? await new PublicResults(services.query).homeShowcase() : null;
+    return c.json({ data: showcase, meta: { request_id: c.get("requestId"), credits_charged: 0 } });
+  });
   for (const [locale, prefix] of [
     ["en", ""],
     ["zh-CN", "/zh-CN"],
@@ -157,15 +163,19 @@ export function createApp(
       const path = page === "/" ? prefix || "/" : prefix + page;
       app.get(path, async (c) => {
         const kind = page === "/" ? "announcement" : page === "/faq" ? "faq" : null;
-        const rows =
+        const [rows, homeShowcase] = await Promise.all([
           kind && services.query
-            ? await publishedSiteContent(
+            ? publishedSiteContent(
                 db,
                 page === "/"
                   ? [kind, "home", "navigation", "footer", "blog"]
                   : [kind, "navigation", "footer"],
               )
-            : [];
+            : Promise.resolve([]),
+          page === "/" && services.query
+            ? new PublicResults(services.query).homeShowcase()
+            : Promise.resolve(null),
+        ]);
         const sections = rows
           .filter((row) => row.kind === kind)
           .map((row) => ({ slug: row.slug, ...row.body[locale] }));
@@ -180,6 +190,8 @@ export function createApp(
             undefined,
             sections,
             siteBlocks(rows, locale),
+            undefined,
+            homeShowcase,
           ),
         );
       });

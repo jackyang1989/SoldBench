@@ -1132,7 +1132,7 @@ export { CardsVerticalService } from "./cards-vertical.ts";
 export * from "./history-archive.ts";
 export * from "./inventory.ts";
 export * from "./lookup.ts";
-export { PublicResults } from "./public-results.ts";
+export { type HomeShowcase, type HomeShowcaseComp, PublicResults } from "./public-results.ts";
 export * from "./regional-sites.ts";
 export * from "./request-audit.ts";
 export * from "./research.ts";

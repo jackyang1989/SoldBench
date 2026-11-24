@@ -1186,6 +1186,8 @@ function resultView({ data, meta }, research = { sort: "", excluded: new Set(), 
   output.replaceChildren();
   const placeholder = document.querySelector("[data-hero-empty]");
   if (placeholder) placeholder.hidden = true;
+  const showcaseCard = document.querySelector("[data-hero-showcase]");
+  if (showcaseCard) showcaseCard.hidden = true;
   if (page === "/results" && search && !search.elements.q.value && data.query?.q) {
     for (const field of ["q", "condition", "sale_format", "window_days", "price_basis"]) {
       if (data.query[field] !== undefined && search.elements[field])
@@ -1614,6 +1616,8 @@ if (search) {
       output.replaceChildren();
       const placeholder = document.querySelector("[data-hero-empty]");
       if (placeholder) placeholder.hidden = false;
+      const showcaseCard = document.querySelector("[data-hero-showcase]");
+      if (showcaseCard) showcaseCard.hidden = true;
       actions.replaceChildren();
       message(t("Submitting search…", "正在提交搜索…"));
       const user = await session();
@@ -6409,3 +6413,389 @@ if (page.startsWith("/account"))
     recent.append(entries, more);
     output.append(recent);
   });
+
+function showToast(text) {
+  const toastNode = document.querySelector("[data-toast]");
+  if (!toastNode || !text) return;
+  toastNode.textContent = text;
+  toastNode.classList.add("show");
+  clearTimeout(toastNode._timer);
+  toastNode._timer = setTimeout(() => toastNode.classList.remove("show"), 2200);
+}
+
+document.addEventListener("click", async (event) => {
+  const copyBtn = event.target.closest?.("[data-copy]");
+  if (!copyBtn) return;
+  const target = document.querySelector(copyBtn.dataset.copy);
+  if (!target) return;
+  try {
+    await navigator.clipboard.writeText(target.textContent ?? "");
+    const before = copyBtn.textContent;
+    copyBtn.textContent = t("Copied", "已复制");
+    showToast(t("Copied to clipboard.", "已复制到剪贴板。"));
+    setTimeout(() => {
+      copyBtn.textContent = before;
+    }, 1500);
+  } catch {
+    showToast(t("Copy blocked by browser.", "浏览器阻止了剪贴板复制。"));
+  }
+});
+
+// Header signed-in menu & prototype homepage tabs / live preview
+{
+  const acctMenu = document.querySelector("[data-acct-menu]");
+  if (acctMenu) {
+    const toggle = acctMenu.querySelector("[data-acct-toggle]");
+    const list = acctMenu.querySelector("[data-acct-list]");
+    toggle?.addEventListener("click", () => {
+      const opening = list.hidden;
+      list.hidden = !opening;
+      toggle.setAttribute("aria-expanded", opening ? "true" : "false");
+    });
+    document.addEventListener("click", (event) => {
+      if (!acctMenu.contains(event.target)) {
+        list.hidden = true;
+        toggle?.setAttribute("aria-expanded", "false");
+      }
+    });
+    acctMenu.querySelector("[data-nav-logout]")?.addEventListener("click", () =>
+      run(async () => {
+        await post("/auth/logout", {}, (await session())?.csrf_token);
+        location.assign(`${prefix}/`);
+      }),
+    );
+    session()
+      .then((user) => {
+        if (!user?.email_verified || user.mfa_required) return;
+        const avatar = acctMenu.querySelector("[data-acct-avatar]");
+        const label = acctMenu.querySelector("[data-acct-label]");
+        const email = typeof user.email === "string" ? user.email : "U";
+        if (avatar) avatar.textContent = email.slice(0, 1).toUpperCase();
+        if (label) label.textContent = email.split("@")[0].slice(0, 16);
+        acctMenu.hidden = false;
+        for (const node of document.querySelectorAll(".nav-right .desktop[data-resume]")) {
+          node.hidden = true;
+        }
+      })
+      .catch(() => {});
+  }
+
+  for (const tab of document.querySelectorAll("[data-home-cat-tab]")) {
+    tab.addEventListener("click", () => {
+      const chosen = tab.dataset.homeCatTab;
+      for (const btn of document.querySelectorAll("[data-home-cat-tab]")) {
+        const on = btn.dataset.homeCatTab === chosen;
+        btn.classList.toggle("on", on);
+        btn.setAttribute("aria-selected", on ? "true" : "false");
+      }
+      for (const panel of document.querySelectorAll("[data-home-cat-panel]")) {
+        panel.hidden = panel.dataset.homeCatPanel !== chosen;
+      }
+    });
+  }
+
+  const apiCodeEl = document.querySelector("[data-api-code]");
+  if (apiCodeEl) {
+    const queryText = document.getElementById("homePreviewQ")?.value || "Nintendo Switch OLED";
+    const encodedQ = encodeURIComponent(queryText);
+    const snippets = {
+      curl: `# 1 credit per valid delivered search (up to 200 comps)
+curl -sS -G "https://api.soldbench.com/v1/sold" \\
+  -H "Authorization: Bearer $SOLDBENCH_API_KEY" \\
+  --data-urlencode "q=${queryText}" \\
+  --data-urlencode "window_days=90" \\
+  --data-urlencode "limit=50"
+
+# Headers tell you cost before reading the body:
+#   X-Request-Id:        req_9f42ac71be
+#   X-Credits-Charged:   1
+#   X-Quota-Remaining:   99
+
+# Low-sample (<8), failures, and 10m repeats are free.
+# Wide jobs run async and settle only at explicit claim:
+curl -sS -X POST "https://api.soldbench.com/v1/sold" \\
+  -H "Authorization: Bearer $SOLDBENCH_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"q":"${queryText}","window_days":90,"limit":50}'
+
+curl -sS -X POST "https://api.soldbench.com/v1/jobs/{job_id}/claim" \\
+  -H "Authorization: Bearer $SOLDBENCH_API_KEY"`,
+      python: `import os, requests
+
+# Sync research lookup (max 1 credit when deliverable; <8 samples free)
+resp = requests.get(
+    "https://api.soldbench.com/v1/sold",
+    headers={"Authorization": f"Bearer {os.environ['SOLDBENCH_API_KEY']}"},
+    params={"q": ${JSON.stringify(queryText)}, "window_days": 90, "limit": 50},
+    timeout=30,
+)
+resp.raise_for_status()
+payload = resp.json()["data"]
+print(payload["stats"]["median_cents"], payload["stats"]["n_price_verified"])`,
+      node: `const res = await fetch(
+  "https://api.soldbench.com/v1/sold?q=${encodedQ}&window_days=90&limit=50",
+  { headers: { Authorization: \`Bearer \${process.env.SOLDBENCH_API_KEY}\` } }
+);
+if (!res.ok) throw new Error(\`SoldBench \${res.status}\`);
+const { data } = await res.json();
+console.log(data.stats.median_cents, data.stats.n_price_verified);`,
+      mcp: `{
+  "mcpServers": {
+    "soldbench": {
+      "url": "https://soldbench.com/mcp",
+      "headers": {
+        "Authorization": "Bearer $SOLDBENCH_API_KEY"
+      }
+    }
+  }
+}`,
+    };
+    for (const btn of document.querySelectorAll("[data-api-tab]")) {
+      btn.addEventListener("click", () => {
+        const lang = btn.dataset.apiTab;
+        if (!snippets[lang]) return;
+        for (const tab of document.querySelectorAll("[data-api-tab]")) {
+          tab.classList.toggle("on", tab.dataset.apiTab === lang);
+        }
+        apiCodeEl.textContent = snippets[lang];
+      });
+    }
+  }
+
+  const previewHost = document.querySelector("[data-home-preview]");
+  const statsHost = document.querySelector("[data-home-stats]");
+  if (previewHost && statsHost && page === "/") {
+    let snapshot = null;
+    let viewMode = "table";
+    const condSel = document.querySelector("[data-home-cond]");
+    const formatSel = document.querySelector("[data-home-format]");
+
+    const fmtUsd = (cents) =>
+      cents == null || !Number.isFinite(cents) ? "—" : `$${(cents / 100).toFixed(2)}`;
+    const fmtShipText = (cents) => {
+      if (cents == null || !Number.isFinite(cents)) return t("Unknown", "未知");
+      if (cents === 0) return t("Free", "免运费");
+      return fmtUsd(cents);
+    };
+    const fmtLabel = {
+      fixed_price: [t("Fixed price", "一口价"), "badge badge-green"],
+      auction: [t("Auction", "拍卖"), "badge badge-amber"],
+      best_offer: [t("Best Offer", "议价"), "badge badge-gray"],
+    };
+
+    const quantileCents = (sorted, q) => {
+      if (!sorted.length) return null;
+      const pos = (sorted.length - 1) * q;
+      const lo = Math.floor(pos);
+      const frac = pos - lo;
+      const a = sorted[lo];
+      const b = sorted[Math.min(lo + 1, sorted.length - 1)];
+      return Math.round(a + (b - a) * frac);
+    };
+
+    const computeFilteredStats = (rows) => {
+      const prices = rows
+        .map((r) => r.item_price_cents)
+        .filter((v) => Number.isSafeInteger(v) && v >= 0)
+        .sort((a, b) => a - b);
+      const ships = rows
+        .map((r) => r.observed_shipping_cents)
+        .filter((v) => Number.isSafeInteger(v) && v >= 0);
+      const avgShip = ships.length ? Math.round(ships.reduce((s, v) => s + v, 0) / ships.length) : null;
+      const n = prices.length;
+      if (!n)
+        return {
+          n: 0,
+          median: null,
+          p25: null,
+          p75: null,
+          mean: null,
+          trimmed: null,
+          min: null,
+          max: null,
+          avgShip,
+        };
+      const trim = Math.floor(n * 0.05);
+      const kept = prices.slice(trim, n - trim);
+      const trimmedAvg = kept.length ? Math.round(kept.reduce((s, v) => s + v, 0) / kept.length) : null;
+      const mean = Math.round(prices.reduce((s, v) => s + v, 0) / n);
+      return {
+        n,
+        median: n >= 8 ? quantileCents(prices, 0.5) : null,
+        p25: n >= 8 ? quantileCents(prices, 0.25) : null,
+        p75: n >= 8 ? quantileCents(prices, 0.75) : null,
+        mean: n >= 8 ? mean : null,
+        trimmed: n >= 8 ? trimmedAvg : null,
+        min: prices[0],
+        max: prices[n - 1],
+        avgShip,
+      };
+    };
+
+    const renderPreview = () => {
+      if (!snapshot) return;
+      const cond = condSel?.value ?? "";
+      const fmt = formatSel?.value ?? "";
+      const filtered = snapshot.comps.filter(
+        (c) => (!cond || c.condition_std === cond) && (!fmt || c.sale_format === fmt),
+      );
+      const usesFull = !cond && !fmt;
+      const fullStats = computeFilteredStats(snapshot.comps);
+      const st = usesFull
+        ? {
+            n: snapshot.stats.n_price_verified,
+            median: snapshot.stats.median_cents,
+            p25: snapshot.stats.p25_cents,
+            p75: snapshot.stats.p75_cents,
+            mean: fullStats.mean,
+            trimmed: snapshot.stats.trimmed_mean_cents,
+            min: snapshot.stats.observed_min_cents,
+            max: snapshot.stats.observed_max_cents,
+            avgShip: fullStats.avgShip,
+          }
+        : computeFilteredStats(filtered);
+
+      const bigMedian = statsHost.querySelector(".median-big");
+      const rangeNode = statsHost.querySelector(".stat-range");
+      const sub = statsHost.querySelector(".stat-grid .small");
+      const miniVals = statsHost.querySelectorAll(".stat-mini .val");
+      const exclCount =
+        Math.max(0, snapshot.stats.n_observed - snapshot.stats.n_comparable) +
+        (snapshot.stats.n_excluded_unverified_price ?? 0);
+      if (bigMedian) bigMedian.textContent = fmtUsd(st.median);
+      if (rangeNode) {
+        rangeNode.textContent =
+          st.p25 == null
+            ? `${t("Typical range", "典型区间")} —`
+            : `${t("Typical range", "典型区间")} ${fmtUsd(st.p25)} – ${fmtUsd(st.p75)}`;
+      }
+      if (sub) {
+        const tierText =
+          st.n >= 30
+            ? t("Full sample", "充足样本")
+            : st.n >= 8
+              ? t("Limited sample", "有限样本")
+              : t(`Only ${st.n} verified — needs ≥ 8 for median`, `仅 ${st.n} 条核验 — 至少需 8 条`);
+        sub.textContent = `${tierText} · ${t("Basis: item price", "口径：仅商品价")}`;
+      }
+      if (miniVals[0]) miniVals[0].textContent = fmtUsd(st.mean);
+      if (miniVals[1]) miniVals[1].textContent = fmtUsd(st.trimmed);
+      if (miniVals[2])
+        miniVals[2].textContent = st.min == null ? "—" : `${fmtUsd(st.min)} – ${fmtUsd(st.max)}`;
+      if (miniVals[3]) miniVals[3].textContent = fmtShipText(st.avgShip);
+      if (miniVals[4]) miniVals[4].textContent = String(st.n);
+      if (miniVals[5]) miniVals[5].textContent = String(snapshot.stats.n_observed);
+      if (miniVals[6])
+        miniVals[6].textContent = String(usesFull ? snapshot.stats.n_comparable : filtered.length);
+      if (miniVals[7]) miniVals[7].textContent = String(exclCount);
+
+      if (viewMode === "json") {
+        const block = element("div", undefined, "codeblock cap");
+        const head = element("div", undefined, "cb-head");
+        head.append(element("span", "response.json"));
+        const pre = element("pre");
+        pre.textContent = JSON.stringify(
+          { query: snapshot.query, filtered_count: filtered.length, stats: st, comps: filtered.slice(0, 8) },
+          null,
+          2,
+        );
+        block.append(head, pre);
+        previewHost.replaceChildren(block);
+        return;
+      }
+
+      if (!filtered.length) {
+        previewHost.replaceChildren(
+          element(
+            "div",
+            t("No sample rows match the selected filters.", "当前筛选条件下暂无匹配记录。"),
+            "empty",
+          ),
+        );
+        return;
+      }
+
+      const scroll = element("div", undefined, "table-scroll");
+      const tbl = element("table");
+      const thr = tbl.createTHead().insertRow();
+      for (const h of [
+        t("Listing", "商品标题"),
+        t("Condition", "成色"),
+        t("Format", "方式"),
+        t("Sold", "成交价"),
+        t("Shipping", "运费"),
+        t("Date", "日期"),
+      ]) {
+        const th = element("th", h);
+        if (h === t("Sold", "成交价") || h === t("Shipping", "运费")) th.className = "num";
+        thr.append(th);
+      }
+      const tb = tbl.createTBody();
+      for (const row of filtered.slice(0, 8)) {
+        const tr = tb.insertRow();
+        tr.insertCell().textContent =
+          row.title ?? t("Verified listing (title withheld)", "已核验记录（标题隐藏）");
+        tr.insertCell().textContent = conditions[row.condition_std] ?? "—";
+        const fCell = tr.insertCell();
+        const [fText, fCls] = fmtLabel[row.sale_format] ?? [row.sale_format || "—", "badge badge-gray"];
+        fCell.append(element("span", fText, fCls));
+        const pCell = tr.insertCell();
+        pCell.className = "num price";
+        pCell.textContent = fmtUsd(row.item_price_cents);
+        const sCell = tr.insertCell();
+        sCell.className = "num";
+        sCell.textContent = fmtShipText(row.observed_shipping_cents);
+        const dCell = tr.insertCell();
+        dCell.className = "nw";
+        dCell.textContent = row.sold_date?.value?.slice(0, 10) ?? "—";
+      }
+      scroll.append(tbl);
+      previewHost.replaceChildren(scroll);
+    };
+
+    condSel?.addEventListener("change", renderPreview);
+    formatSel?.addEventListener("change", renderPreview);
+    for (const btn of document.querySelectorAll("[data-home-view]")) {
+      btn.addEventListener("click", () => {
+        viewMode = btn.dataset.homeView;
+        for (const other of document.querySelectorAll("[data-home-view]")) {
+          other.classList.toggle("on", other.dataset.homeView === viewMode);
+        }
+        renderPreview();
+      });
+    }
+    document.querySelector("[data-home-csv]")?.addEventListener("click", () => {
+      if (!snapshot) return showToast(t("No snapshot loaded to export.", "暂无可导出的公共样本。"));
+      const cond = condSel?.value ?? "";
+      const fmt = formatSel?.value ?? "";
+      const rows = snapshot.comps.filter(
+        (c) => (!cond || c.condition_std === cond) && (!fmt || c.sale_format === fmt),
+      );
+      const csvCell = (v) => `"${String(v ?? "").replaceAll('"', '""')}"`;
+      const csvLines = [
+        ["Title", "Condition", "Format", "Sold USD", "Shipping USD", "Date"].join(","),
+        ...rows.map((r) =>
+          [
+            csvCell(r.title ?? ""),
+            csvCell(r.condition_std ?? ""),
+            csvCell(r.sale_format),
+            r.item_price_cents == null ? "" : (r.item_price_cents / 100).toFixed(2),
+            r.observed_shipping_cents == null ? "" : (r.observed_shipping_cents / 100).toFixed(2),
+            csvCell(r.sold_date?.value?.slice(0, 10) ?? ""),
+          ].join(","),
+        ),
+      ].join("\n");
+      download(csvLines, "soldbench-home-preview.csv");
+      showToast(t("CSV exported.", "已导出 CSV。"));
+    });
+
+    api("/web/home-preview")
+      .then((res) => {
+        if (res?.data?.comps) {
+          snapshot = res.data;
+          renderPreview();
+        }
+      })
+      .catch(() => {});
+  }
+}
