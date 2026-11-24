@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { canonicalJson, collectionQueryHash, instant, normalizeQuery } from "@soldbench/core";
 import { type Transaction, transaction } from "@soldbench/db";
+import { isSourceKindAllowedForMode } from "@soldbench/shared";
 import { type ConfigSnapshot, collectorConfigHash, type SourceSnapshot } from "./config-snapshot.ts";
 import { COLLECTOR_VERSION, digest, PARSER_VERSION } from "./fixture.ts";
 import { type CollectorEnqueueInput, type CollectorStore, collectorRequestHash } from "./store.ts";
@@ -34,7 +35,7 @@ export class CollectorRefresh {
         [id],
       )
     ).rows[0];
-    if (s?.access_method !== "offline_fixture" || s.provider !== "synthetic_fixture")
+    if (!s || !isSourceKindAllowedForMode(this.store.dataMode, s))
       throw new Error("network_collector_not_enabled");
     return s;
   }
@@ -90,9 +91,13 @@ export class CollectorRefresh {
           [input.configId, input.sourceId],
         )
       ).rows[0];
+      const allowedConfigMethod =
+        this.store.dataMode === "offline_fixture"
+          ? config?.access_method === "offline_fixture"
+          : config?.access_method === "approved_http" || config?.access_method === "approved_browser";
       if (
         !config?.enabled ||
-        config.access_method !== "offline_fixture" ||
+        !allowedConfigMethod ||
         config.collector_version !== COLLECTOR_VERSION ||
         source.collector_version !== COLLECTOR_VERSION
       )

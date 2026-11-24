@@ -11,7 +11,7 @@ import {
 } from "@soldbench/core";
 import type { Database } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
-import { parseProxyUrl } from "@soldbench/shared";
+import { type DataMode, isSourceAllowedForMode, parseProxyUrl } from "@soldbench/shared";
 import { createFixtureArtifact, loadFixtureArtifact } from "./artifact.ts";
 import { EbayUsBrowserTransport } from "./ebay-browser-transport.ts";
 import { hasEbayDetailAccessBlock, parseEbayUsItemDetailHtml } from "./ebay-detail.ts";
@@ -52,6 +52,7 @@ export type EbayCorpusCycleInput = {
   imageOriginOverride?: string;
   allowLoopbackTestOrigin?: boolean;
   proxyUrl?: string | null;
+  dataMode?: DataMode;
   browserExecutablePath?: string;
   waitForSelector?: string;
   minIntervalMs?: number;
@@ -86,7 +87,7 @@ export type EbayCorpusTargetOutcome = {
 
 export type EbayCorpusCycleReport = {
   schema: "soldbench.ebay-daemon-cycle.v1";
-  mode: "offline_fixture";
+  mode: DataMode;
   onlineVerified: boolean;
   sourceId: string;
   configId: string;
@@ -285,9 +286,53 @@ function isHttpAccessBlockedPage(raw: Uint8Array): boolean {
 async function resolveTargetSource(
   db: Database,
   asOf: string,
+  dataMode: DataMode,
   sourceId?: string,
   configId?: string,
 ): Promise<{ sourceId: string; configId: string }> {
+  if (dataMode === "approved_network") {
+    if (!sourceId) throw new Error("approved_source_id_required");
+    const row = (
+      await db.query<{
+        status: string;
+        access_method: string;
+        provider: string;
+        clearance_status: string;
+        effective_at: Date | null;
+        expires_at: Date | null;
+      }>(
+        "SELECT s.status,s.access_method,x.provider,x.status AS clearance_status,x.effective_at,x.expires_at FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id WHERE s.id=$1",
+        [sourceId],
+      )
+    ).rows[0];
+    const now = new Date(asOf);
+    if (
+      row?.status !== "active" ||
+      !isSourceAllowedForMode("approved_network", row) ||
+      (row.effective_at && row.effective_at > now) ||
+      (row.expires_at && row.expires_at <= now)
+    ) {
+      throw new Error("network_collector_not_enabled");
+    }
+    if (configId) {
+      const explicit = (
+        await db.query<{ id: string }>(
+          "SELECT id FROM collector_configs WHERE id=$1 AND source_id=$2 AND enabled=true AND access_method IN ('approved_http','approved_browser')",
+          [configId, sourceId],
+        )
+      ).rows[0];
+      if (!explicit?.id) throw new Error("collector_config_missing");
+      return { sourceId, configId: explicit.id };
+    }
+    const cfg = (
+      await db.query<{ id: string }>(
+        "SELECT id FROM collector_configs WHERE source_id=$1 AND enabled=true AND access_method IN ('approved_http','approved_browser') ORDER BY updated_at DESC, id DESC LIMIT 1",
+        [sourceId],
+      )
+    ).rows[0];
+    if (!cfg?.id) throw new Error("collector_config_missing");
+    return { sourceId, configId: cfg.id };
+  }
   if (!sourceId) {
     if (configId) throw new Error("invalid_corpus_source_args");
     return await provisionFixtureSource(db, asOf, { searchSummaries: true });
@@ -319,10 +364,17 @@ export async function runEbayUsCorpusCycle(input: EbayCorpusCycleInput): Promise
   if (!Number.isSafeInteger(maxDetails) || maxDetails < 0 || maxDetails > 50)
     throw new Error("invalid_ebay_max_details");
 
+  const dataMode: DataMode = input.dataMode ?? "offline_fixture";
   const startedAt = new Date().toISOString();
   const asOf = input.asOf ?? (await input.db.query("SELECT clock_timestamp() t")).rows[0].t.toISOString();
   const clock = input.clock ?? (() => asOf);
-  const { sourceId, configId } = await resolveTargetSource(input.db, asOf, input.sourceId, input.configId);
+  const { sourceId, configId } = await resolveTargetSource(
+    input.db,
+    asOf,
+    dataMode,
+    input.sourceId,
+    input.configId,
+  );
   const spoolDir = resolve(input.spoolDir);
   mkdirSync(spoolDir, { recursive: true, mode: 0o700 });
   const mediaStore = new PrivateMediaStore(resolve(input.mediaRoot));
@@ -374,7 +426,7 @@ export async function runEbayUsCorpusCycle(input: EbayCorpusCycleInput): Promise
       return browserTransport;
     };
     const tripStop = async (reason: string) => {
-      const guardStore = new CollectorStore(input.db, clock);
+      const guardStore = new CollectorStore(input.db, clock, { dataMode });
       await guardStore.stop(sourceId, reason);
       circuitTripped = true;
       stopReason = reason;
@@ -553,7 +605,7 @@ export async function runEbayUsCorpusCycle(input: EbayCorpusCycleInput): Promise
         continue;
       }
 
-      const store = new CollectorStore(input.db, clock, { htmlProfile: chosenProfile });
+      const store = new CollectorStore(input.db, clock, { htmlProfile: chosenProfile, dataMode });
       const jobId = await store.enqueue({
         sourceId,
         configId,
@@ -748,7 +800,7 @@ export async function runEbayUsCorpusCycle(input: EbayCorpusCycleInput): Promise
   const finishedAt = new Date().toISOString();
   const report: EbayCorpusCycleReport = {
     schema: "soldbench.ebay-daemon-cycle.v1",
-    mode: "offline_fixture",
+    mode: dataMode,
     onlineVerified: !input.allowLoopbackTestOrigin,
     sourceId,
     configId,

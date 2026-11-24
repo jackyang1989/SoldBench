@@ -1,6 +1,7 @@
 import { instant } from "@soldbench/core";
 import { transaction } from "@soldbench/db";
 import { collectPrimaryImage, type PrivateMediaStore } from "@soldbench/media";
+import { isSourceAllowedForMode, isSourceKindAllowedForMode, sqlSourceKindClause } from "@soldbench/shared";
 import { hasEbayDetailAccessBlock, parseEbayUsItemDetailHtml } from "./ebay-detail.ts";
 import {
   type CollectorTransport,
@@ -583,7 +584,7 @@ export class OfflineCollectorWorker {
     if (!identity) return 0;
     const sources = await this.store.db.query(
       `SELECT s.id FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id
-       WHERE s.access_method='offline_fixture' AND x.provider='synthetic_fixture'
+       WHERE ${sqlSourceKindClause(this.store.dataMode)}
          AND s.status='revoked' AND (s.media_store_identity=$1 OR s.media_store_identity IS NULL)
          AND EXISTS(SELECT 1 FROM outbox WHERE kind='collector.media_cleanup' AND processed_at IS NULL AND payload->>'sourceId'=s.id::text)
        ORDER BY s.media_store_identity NULLS LAST,s.id LIMIT 100`,
@@ -601,14 +602,15 @@ export class OfflineCollectorWorker {
         [sourceId],
       )
     ).rows[0];
-    if (state?.access_method !== "offline_fixture") throw new Error("network_collector_not_enabled");
-    if (state.provider !== "synthetic_fixture") throw new Error("network_collector_not_enabled");
+    if (!state || !isSourceKindAllowedForMode(this.store.dataMode, state)) {
+      throw new Error("network_collector_not_enabled");
+    }
     const inspectedNow = this.store.clock
       ? new Date(instant(this.store.clock()))
       : ((await this.store.db.query("SELECT clock_timestamp() t")).rows[0].t as Date);
     if (
       state.status === "active" &&
-      (!["draft", "reviewed", "active"].includes(state.clearance_status) ||
+      (!isSourceAllowedForMode(this.store.dataMode, state) ||
         (state.effective_at && state.effective_at > inspectedNow) ||
         (state.expires_at && state.expires_at <= inspectedNow))
     ) {

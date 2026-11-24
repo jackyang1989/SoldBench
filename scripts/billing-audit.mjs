@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { resolve } from "node:path";
-import { assertLocalDatabaseUrl, database, transaction } from "@soldbench/db";
+import { database, transaction } from "@soldbench/db";
 import { loadConfig } from "@soldbench/shared";
 import { localDatabaseUrl } from "./local-db.mjs";
+import { assertAllowedDatabaseUrl } from "./runtime-db.mjs";
 
 // Every group reads the same database snapshot. Reports exclude customer IDs and amounts.
 const checks = `
@@ -75,10 +75,7 @@ async function run() {
   if (extra.length || (anchor !== undefined && !expected)) throw new Error("usage_billing_audit");
   const config = loadConfig(process.env);
   const url = config.databaseUrl ?? localDatabaseUrl();
-  assertLocalDatabaseUrl(url, [
-    resolve(".local/postgres/socket"),
-    ...(process.env.SOLDBENCH_TEST_SOCKET ? [process.env.SOLDBENCH_TEST_SOCKET] : []),
-  ]);
+  assertAllowedDatabaseUrl(config, url);
   const db = database(url);
   try {
     const { wallets, grants, charges, ledger_entries, financial_sha256, ...differences } = await transaction(

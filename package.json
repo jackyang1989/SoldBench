@@ -33,6 +33,7 @@
     "collector:intake": "npm run build && node --env-file-if-exists=.env scripts/collector-intake.mjs",
     "collector:ebay-intake": "npm run build && node --env-file-if-exists=.env scripts/collector-ebay-intake.mjs",
     "collector:ebay-daemon": "npm run build && node --env-file-if-exists=.env scripts/collector-ebay-daemon.mjs",
+    "collector:provision-source": "npm run build && node --env-file-if-exists=.env scripts/collector-provision-source.mjs",
     "collector:handoff": "npm run build && node --env-file-if-exists=.env scripts/collector-handoff.mjs",
     "collector:supervise": "npm run build && node --env-file-if-exists=.env scripts/collector-supervisor.mjs",
     "query:worker": "npm run build && node --env-file-if-exists=.env scripts/query-worker.mjs",

@@ -12,6 +12,7 @@ export * from "./health.ts";
 export * from "./html.ts";
 export * from "./http-transport.ts";
 export * from "./integrity.ts";
+export * from "./provision-approved.ts";
 export * from "./provision-fixture.ts";
 export * from "./record-evidence.ts";
 export * from "./refresh.ts";

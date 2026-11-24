@@ -8,6 +8,7 @@ import {
 } from "@soldbench/core";
 import { type Database, type Transaction, transaction } from "@soldbench/db";
 import type { PrimaryImage, PrivateMediaStore } from "@soldbench/media";
+import { type DataMode, isSourceAllowedForMode, isSourceKindAllowedForMode } from "@soldbench/shared";
 import { artifactRetentionFields } from "./artifact-retention.ts";
 import { type ConfigSnapshot, collectorConfigHash, type SourceSnapshot } from "./config-snapshot.ts";
 import type { EbayItemDetailEvidence } from "./ebay-detail.ts";
@@ -102,14 +103,24 @@ function missingRow(): never {
 export class CollectorStore {
   readonly htmlProfile?: HtmlProfile;
   readonly profileHash: string | null;
+  readonly dataMode: DataMode;
   constructor(
     readonly db: Database,
     readonly clock?: () => string,
-    options: { htmlProfile?: HtmlProfile } = {},
+    options: { htmlProfile?: HtmlProfile; dataMode?: DataMode } = {},
   ) {
+    this.dataMode = options.dataMode ?? "offline_fixture";
     this.htmlProfile =
       options.htmlProfile === undefined ? undefined : validateHtmlProfile(options.htmlProfile);
     this.profileHash = this.htmlProfile ? digest(canonicalJson(this.htmlProfile)) : null;
+  }
+  private isConfigMethodAllowed(method: string | null | undefined): boolean {
+    return this.dataMode === "offline_fixture"
+      ? method === "offline_fixture"
+      : method === "approved_http" || method === "approved_browser";
+  }
+  private allowedAccessMethods(): string[] {
+    return this.dataMode === "offline_fixture" ? ["offline_fixture"] : ["approved_http", "approved_browser"];
   }
   get pageContentType() {
     return this.htmlProfile ? "text/html" : "application/json";
@@ -129,15 +140,21 @@ export class CollectorStore {
   private async source(c: Transaction, sourceId: string) {
     const source = (await c.query<Source>("SELECT * FROM sources WHERE id=$1 FOR UPDATE", [sourceId]))
       .rows[0];
-    if (source?.access_method !== "offline_fixture") throw new Error("network_collector_not_enabled");
+    if (!source || !this.isConfigMethodAllowed(source.access_method)) {
+      throw new Error("network_collector_not_enabled");
+    }
     if (source.status !== "active") throw new Error("source_inactive");
     const clearance = (
         await c.query("SELECT * FROM source_clearances WHERE id=$1 FOR SHARE", [source.source_clearance_id])
       ).rows[0],
       now = await this.now(c);
     if (
-      clearance?.provider !== "synthetic_fixture" ||
-      !["draft", "reviewed", "active"].includes(clearance.status) ||
+      !clearance ||
+      !isSourceAllowedForMode(this.dataMode, {
+        access_method: source.access_method,
+        provider: clearance.provider,
+        clearance_status: clearance.status,
+      }) ||
       (clearance.expires_at && clearance.expires_at <= now) ||
       (clearance.effective_at && clearance.effective_at > now)
     )
@@ -258,7 +275,7 @@ export class CollectorStore {
         job.source_id,
       ])
     ).rows[0];
-    if (!config?.enabled || config.access_method !== "offline_fixture")
+    if (!config?.enabled || !this.isConfigMethodAllowed(config.access_method))
       throw new Error("collector_config_disabled");
     const run = (
       await c.query(
@@ -318,7 +335,7 @@ export class CollectorStore {
           input.sourceId,
         ])
       ).rows[0];
-      if (!config?.enabled || config.access_method !== "offline_fixture")
+      if (!config?.enabled || !this.isConfigMethodAllowed(config.access_method))
         throw new Error("collector_config_disabled");
       if (source.collector_version !== COLLECTOR_VERSION || config.collector_version !== COLLECTOR_VERSION)
         throw new Error("collector_version_mismatch");
@@ -379,7 +396,7 @@ export class CollectorStore {
         ],
       );
       const result = await c.query<{ id: string }>(
-        "INSERT INTO collector_jobs(source_id,config_id,collector_run_id,run_key,request_hash,query_hash,as_of,permission_epoch,available_at,expires_at,created_at,reason,dedupe_key,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$9,'offline_fixture',$11,'queued') RETURNING id",
+        "INSERT INTO collector_jobs(source_id,config_id,collector_run_id,run_key,request_hash,query_hash,as_of,permission_epoch,available_at,expires_at,created_at,reason,dedupe_key,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$9,$11,$12,'queued') RETURNING id",
         [
           input.sourceId,
           input.configId,
@@ -391,6 +408,7 @@ export class CollectorStore {
           source.permission_epoch,
           now,
           new Date(now.getTime() + ttl * 1000),
+          this.dataMode,
           digest(`${input.sourceId}:${input.runKey}`),
         ],
       );
@@ -406,8 +424,8 @@ export class CollectorStore {
       await this.budgetPolicy(c, source, now);
       if (source.retry_after_until && source.retry_after_until > now) return null;
       const configs = await c.query<Config>(
-        "SELECT * FROM collector_configs WHERE source_id=$1 AND enabled=true AND access_method='offline_fixture' ORDER BY id",
-        [sourceId],
+        "SELECT * FROM collector_configs WHERE source_id=$1 AND enabled=true AND access_method=ANY($2::text[]) ORDER BY id",
+        [sourceId, this.allowedAccessMethods()],
       );
       for (const config of configs.rows) {
         const running = (
@@ -467,7 +485,7 @@ export class CollectorStore {
          WHERE s.id=$1 FOR UPDATE OF s`,
         [sourceId],
       );
-      if (rows[0]?.access_method !== "offline_fixture" || rows[0].provider !== "synthetic_fixture")
+      if (!rows[0] || !isSourceKindAllowedForMode(this.dataMode, rows[0]))
         throw new Error("network_collector_not_enabled");
       const now = await this.now(c);
       const { rows: jobs } = await c.query<Job>(
@@ -1098,14 +1116,28 @@ export class CollectorStore {
     return transaction(this.db, async (c) => {
       const source = (await c.query<Source>("SELECT * FROM sources WHERE id=$1 FOR UPDATE", [sourceId]))
         .rows[0];
-      if (source?.access_method !== "offline_fixture") throw new Error("network_collector_not_enabled");
+      if (!source || !this.isConfigMethodAllowed(source.access_method)) {
+        throw new Error("network_collector_not_enabled");
+      }
       const clearance = (
           await c.query("SELECT * FROM source_clearances WHERE id=$1 FOR SHARE", [source.source_clearance_id])
         ).rows[0],
         now = await this.now(c);
-      if (clearance?.provider !== "synthetic_fixture") throw new Error("network_collector_not_enabled");
+      if (
+        !clearance ||
+        !isSourceKindAllowedForMode(this.dataMode, {
+          access_method: source.access_method,
+          provider: clearance.provider,
+        })
+      ) {
+        throw new Error("network_collector_not_enabled");
+      }
       const invalid =
-        !["draft", "reviewed", "active"].includes(clearance.status) ||
+        !isSourceAllowedForMode(this.dataMode, {
+          access_method: source.access_method,
+          provider: clearance.provider,
+          clearance_status: clearance.status,
+        }) ||
         (clearance.effective_at && clearance.effective_at > now) ||
         (clearance.expires_at && clearance.expires_at <= now);
       if (source.status !== "active" || !invalid) return false;
@@ -1482,7 +1514,7 @@ export class CollectorStore {
         [sourceId],
       )
     ).rows[0];
-    if (source?.access_method !== "offline_fixture" || source.provider !== "synthetic_fixture")
+    if (!source || !isSourceKindAllowedForMode(this.dataMode, source))
       throw new Error("network_collector_not_enabled");
     const identity = await media.storageIdentity(writing && !source.media_store_identity);
     if (!identity) return false;
@@ -1730,7 +1762,7 @@ export class CollectorStore {
           image.permission_epoch === source.permission_epoch &&
           job.permission_epoch === source.permission_epoch &&
           config?.enabled &&
-          config.access_method === "offline_fixture" &&
+          this.isConfigMethodAllowed(config.access_method) &&
           run?.collector_version === COLLECTOR_VERSION &&
           run.parser_version === PARSER_VERSION &&
           run.parser_profile_hash === this.profileHash &&
@@ -1823,7 +1855,7 @@ export class CollectorStore {
       return terminal ? "failed" : "retry";
     });
   }
-  /** Current readable synthetic evidence; circuit stops collection, rights withdrawal stops reads. */
+  /** Current readable evidence; circuit stops collection, rights withdrawal stops reads. */
   async readScope(c: Transaction, sourceId: string) {
     const row = (
         await c.query(
@@ -1833,10 +1865,9 @@ export class CollectorStore {
       ).rows[0],
       now = await this.now(c);
     if (
-      row?.access_method !== "offline_fixture" ||
-      row.provider !== "synthetic_fixture" ||
+      !row ||
+      !isSourceAllowedForMode(this.dataMode, row) ||
       row.status !== "active" ||
-      !["draft", "reviewed", "active"].includes(row.clearance_status) ||
       (row.effective_at && row.effective_at > now) ||
       (row.expires_at && row.expires_at <= now)
     )
@@ -2178,7 +2209,7 @@ export class CollectorStore {
           Boolean(linked) &&
           job.permission_epoch === source.permission_epoch &&
           config?.enabled &&
-          config.access_method === "offline_fixture" &&
+          this.isConfigMethodAllowed(config.access_method) &&
           run?.collector_version === COLLECTOR_VERSION &&
           run.parser_version === PARSER_VERSION &&
           run.parser_profile_hash === this.profileHash &&

@@ -1,9 +1,10 @@
 import { resolve } from "node:path";
 import { CollectorStore, FixtureTransport, OfflineCollectorWorker } from "@soldbench/collector";
-import { assertLocalDatabaseUrl, database, prepareDatabase } from "@soldbench/db";
+import { database, prepareDatabase } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
-import { loadConfig } from "@soldbench/shared";
+import { loadConfig, sqlSourceKindClause } from "@soldbench/shared";
 import { localDatabaseUrl } from "./local-db.mjs";
+import { assertAllowedDatabaseUrl } from "./runtime-db.mjs";
 
 let requireClear = false;
 let sourceId;
@@ -14,15 +15,12 @@ for (const argument of process.argv.slice(2)) {
   else throw new Error("invalid_collector_maintenance_argument");
 }
 const config = loadConfig(process.env);
-const url = process.env.DATABASE_URL ?? localDatabaseUrl();
-assertLocalDatabaseUrl(url, [
-  resolve(".local/postgres/socket"),
-  ...(process.env.SOLDBENCH_TEST_SOCKET ? [process.env.SOLDBENCH_TEST_SOCKET] : []),
-]);
+const url = config.databaseUrl ?? localDatabaseUrl();
+assertAllowedDatabaseUrl(config, url);
 const db = database(url);
 try {
   await prepareDatabase(db, config.databaseStartup);
-  const store = new CollectorStore(db),
+  const store = new CollectorStore(db, undefined, { dataMode: config.dataMode }),
     worker = new OfflineCollectorWorker(
       store,
       new FixtureTransport(new Map()),
@@ -30,7 +28,7 @@ try {
     );
   const sources = await db.query(
     `SELECT s.id FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id
-     WHERE s.access_method='offline_fixture' AND x.provider='synthetic_fixture'
+     WHERE ${sqlSourceKindClause(config.dataMode)}
        AND ($1::uuid IS NULL OR s.id=$1) ORDER BY s.id`,
     [sourceId ?? null],
   );
@@ -71,7 +69,7 @@ try {
   const cleanupPending = pending.rows[0].n;
   console.log(
     JSON.stringify({
-      mode: "offline_fixture",
+      mode: config.dataMode,
       networkRequests: 0,
       ...totals,
       ...(sourceId && { sourceId }),

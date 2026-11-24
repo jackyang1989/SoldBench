@@ -8,13 +8,14 @@ import {
   FixtureTransport,
   OfflineCollectorWorker,
 } from "@soldbench/collector";
-import { assertLocalDatabaseUrl, database, isDatabaseConnectionError, prepareDatabase } from "@soldbench/db";
+import { database, isDatabaseConnectionError, prepareDatabase } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
-import { loadConfig } from "@soldbench/shared";
+import { isSourceKindAllowedForMode, loadConfig } from "@soldbench/shared";
 import { fixtureJobId, readRefreshProfile } from "./collector-fixture-file.mjs";
 import { createFixtureIntakeScanner } from "./collector-intake.mjs";
 import { launchCollector } from "./collector-launcher.mjs";
 import { localDatabaseUrl } from "./local-db.mjs";
+import { assertAllowedDatabaseUrl } from "./runtime-db.mjs";
 
 const lockNamespace = "soldbench.offline-collector-supervisor";
 const candidatesPerLane = 64;
@@ -50,11 +51,12 @@ async function availableArtifact(directory, jobId) {
   return present.length === 1 && present[0].regular ? present[0].path : null;
 }
 
-async function sourceState(db, sourceId) {
+async function sourceState(db, sourceId, dataMode = "offline_fixture") {
   const { rows } = await db.query(
     `SELECT s.status,s.access_method,p.provider,
        CASE WHEN s.status<>'active' THEN 'source_inactive'
-        WHEN p.status NOT IN ('draft','reviewed','active') OR p.effective_at>now() OR p.expires_at<=now()
+        WHEN (CASE WHEN $2='approved_network' THEN p.status<>'active' ELSE p.status NOT IN ('draft','reviewed','active') END)
+          OR p.effective_at>now() OR p.expires_at<=now()
           THEN 'source_clearance_unavailable'
         WHEN EXISTS(SELECT 1 FROM collector_circuits k WHERE k.source_id=s.id AND k.category_key='*' AND k.status<>'closed')
           THEN 'source_circuit_open'
@@ -64,10 +66,10 @@ async function sourceState(db, sourceId) {
           THEN 'source_budget_policy_unavailable'
         ELSE 'ready' END dispatch_state
      FROM sources s JOIN source_clearances p ON p.id=s.source_clearance_id WHERE s.id=$1`,
-    [sourceId],
+    [sourceId, dataMode],
   );
   const source = rows[0];
-  if (source?.access_method !== "offline_fixture" || source.provider !== "synthetic_fixture")
+  if (!source || !isSourceKindAllowedForMode(dataMode, source))
     throw new Error("network_collector_not_enabled");
   return source.dispatch_state;
 }
@@ -113,7 +115,7 @@ async function dueJobs(db, sourceId, cursors) {
   ).rows;
 }
 
-async function refreshHealthReport(lock, db, sourceId, state) {
+async function refreshHealthReport(lock, db, sourceId, state, dataMode = "offline_fixture") {
   if (state === "source_inactive" || state === "source_clearance_unavailable") return "unavailable";
   const {
     rows: [row],
@@ -122,21 +124,21 @@ async function refreshHealthReport(lock, db, sourceId, state) {
        SELECT 1 FROM collector_health_snapshots h JOIN sources s ON s.id=h.source_id
        WHERE h.source_id=$1 AND h.captured_at>now()-interval '15 minutes' AND h.captured_at<=now()
          AND h.metrics->>'schema'='soldbench.collector-health.v1'
-         AND h.metrics->>'mode'='offline_fixture' AND h.metrics->>'clock'='database'
-         AND h.metrics->'onlineVerified'='false'::jsonb
+         AND h.metrics->>'mode'=$2 AND h.metrics->>'clock'='database'
+         AND h.metrics->'onlineVerified'=$3::jsonb
          AND h.metrics->>'permissionEpoch'=s.permission_epoch::text
      ) recent`,
-    [sourceId],
+    [sourceId, dataMode, JSON.stringify(dataMode === "approved_network")],
   );
   if (row.recent) return "recent";
-  await collectorHealth(db, sourceId, { persist: true, automatic: true });
+  await collectorHealth(db, sourceId, { persist: true, automatic: true, dataMode });
   return "recorded";
 }
 
-const envelope = (sourceId) => ({
+const envelope = (sourceId, dataMode = "offline_fixture") => ({
   kind: "collector_supervision_cycle",
-  mode: "offline_fixture",
-  onlineVerified: false,
+  mode: dataMode,
+  onlineVerified: dataMode === "approved_network",
   externalNetworkRequests: 0,
   sourceId,
 });
@@ -239,10 +241,7 @@ async function run(args) {
   const config = loadConfig(process.env),
     url = config.databaseUrl ?? localDatabaseUrl(),
     spool = resolve(options.get("spool") ?? process.env.COLLECTOR_DEMO_DIR ?? ".local");
-  assertLocalDatabaseUrl(url, [
-    resolve(".local/postgres/socket"),
-    ...(process.env.SOLDBENCH_TEST_SOCKET ? [process.env.SOLDBENCH_TEST_SOCKET] : []),
-  ]);
+  assertAllowedDatabaseUrl(config, url);
   if (profilePaths.length + Number(Boolean(refreshJson)) > 8)
     throw new Error("collector_supervisor_profile_limit");
   const profiles = await Promise.all(profilePaths.map(readRefreshProfile));
@@ -256,9 +255,11 @@ async function run(args) {
       if (error.name !== "AbortError") throw error;
     });
   const env = { ...process.env, DATABASE_URL: url, COLLECTOR_DEMO_DIR: spool };
-  const store = new CollectorStore(db);
+  const store = new CollectorStore(db, undefined, { dataMode: config.dataMode });
   const refresh = refreshEnabled ? new CollectorRefresh(store) : null;
-  const profileStores = profiles.map((htmlProfile) => new CollectorStore(db, undefined, { htmlProfile }));
+  const profileStores = profiles.map(
+    (htmlProfile) => new CollectorStore(db, undefined, { htmlProfile, dataMode: config.dataMode }),
+  );
   if (new Set(profileStores.map(({ profileHash }) => profileHash)).size !== profiles.length)
     throw new Error("collector_supervisor_duplicate_profile");
   const profileRefreshers = profileStores.map((profileStore) => new CollectorRefresh(profileStore));
@@ -272,14 +273,14 @@ async function run(args) {
   async function supervise() {
     await prepareDatabase(db, config.databaseStartup);
     if (abort.signal.aborted) return;
-    await sourceState(db, sourceId);
+    await sourceState(db, sourceId, config.dataMode);
     if (abort.signal.aborted) return;
     const lock = await db.connect();
     const ownership = new AbortController();
     const signal = AbortSignal.any([abort.signal, ownership.signal]);
     const onLockError = (error) => ownership.abort(error);
     const onLockEnd = () => ownership.abort(new Error("Connection terminated unexpectedly"));
-    const intakeScanner = createFixtureIntakeScanner(db, spool, sourceId);
+    const intakeScanner = createFixtureIntakeScanner(db, spool, sourceId, 10000, config.dataMode);
     lock.on("error", onLockError);
     lock.on("end", onLockEnd);
     let owned = false;
@@ -289,7 +290,7 @@ async function run(args) {
         sourceId,
       ]);
       if (!bound.rows[0].locked) {
-        console.log(JSON.stringify({ ...envelope(sourceId), state: "already_supervised" }));
+        console.log(JSON.stringify({ ...envelope(sourceId, config.dataMode), state: "already_supervised" }));
         return;
       }
       owned = true;
@@ -317,7 +318,7 @@ async function run(args) {
           const maintenancePending = maintenance?.expirationPending || maintenance?.revocationPending;
           nextMaintenance = Date.now() + (maintenancePending ? 1000 : 60000);
         }
-        let state = await sourceState(db, sourceId);
+        let state = await sourceState(db, sourceId, config.dataMode);
         const scheduled = refresh
           ? {
               ...(await refresh.materialize(sourceId, 200)),
@@ -433,14 +434,14 @@ async function run(args) {
               mediaResults: cycle?.mediaResults ?? [],
               detailResults: cycle?.detailResults ?? [],
             });
-            state = await sourceState(db, sourceId);
+            state = await sourceState(db, sourceId, config.dataMode);
           }
         }
         if (signal.aborted) break;
         let healthReport = null;
         if (watch && performance.now() >= nextHealthCheck) {
           try {
-            healthReport = await refreshHealthReport(lock, db, sourceId, state);
+            healthReport = await refreshHealthReport(lock, db, sourceId, state, config.dataMode);
           } catch (error) {
             if (isDatabaseConnectionError(error)) throw error;
             healthReport = "failed";
@@ -477,7 +478,15 @@ async function run(args) {
           healthReport,
           mediaMaintenance: maintenanceStatus(maintenance),
         });
-        console.log(JSON.stringify({ ...envelope(sourceId), ...summary, maintenance, healthReport, cycles }));
+        console.log(
+          JSON.stringify({
+            ...envelope(sourceId, config.dataMode),
+            ...summary,
+            maintenance,
+            healthReport,
+            cycles,
+          }),
+        );
         if (!watch) break;
         await wait(interval, signal);
       }
@@ -522,6 +531,12 @@ try {
 } catch (error) {
   const reason =
     error instanceof Error && /^[a-z_]+$/.test(error.message) ? error.message : "collector_supervisor_failed";
-  console.error(JSON.stringify({ error: reason, mode: "offline_fixture", onlineVerified: false }));
+  const modeLabel =
+    process.env.SOLDBENCH_LIVE_GATE_ACKNOWLEDGED === "true" && process.env.DATA_MODE === "approved_network"
+      ? "approved_network"
+      : "offline_fixture";
+  console.error(
+    JSON.stringify({ error: reason, mode: modeLabel, onlineVerified: modeLabel === "approved_network" }),
+  );
   process.exitCode = 1;
 }

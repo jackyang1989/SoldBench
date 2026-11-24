@@ -1,9 +1,10 @@
 import { resolve } from "node:path";
 import { collectorHealth } from "@soldbench/collector";
-import { assertLocalDatabaseUrl, database, prepareDatabase } from "@soldbench/db";
+import { database, prepareDatabase } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
 import { loadConfig } from "@soldbench/shared";
 import { localDatabaseUrl } from "./local-db.mjs";
+import { assertAllowedDatabaseUrl } from "./runtime-db.mjs";
 
 const args = new Map();
 for (const raw of process.argv.slice(2)) {
@@ -19,17 +20,15 @@ if (checkMedia !== undefined && !/^(?:[1-9]|1[0-9]|20)$/.test(checkMedia))
   throw new Error("invalid_media_probe_limit");
 if (checkMedia !== undefined && args.has("clock")) throw new Error("media_probe_requires_database_clock");
 const config = loadConfig(process.env);
-const url = process.env.DATABASE_URL ?? localDatabaseUrl();
-assertLocalDatabaseUrl(url, [
-  resolve(".local/postgres/socket"),
-  ...(process.env.SOLDBENCH_TEST_SOCKET ? [process.env.SOLDBENCH_TEST_SOCKET] : []),
-]);
+const url = config.databaseUrl ?? localDatabaseUrl();
+assertAllowedDatabaseUrl(config, url);
 const db = database(url);
 try {
   await prepareDatabase(db, config.databaseStartup);
   console.log(
     JSON.stringify(
       await collectorHealth(db, args.get("source"), {
+        dataMode: config.dataMode,
         from: args.get("from"),
         now: args.get("clock"),
         persist: true,

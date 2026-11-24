@@ -2,10 +2,11 @@ import { lstat, opendir, unlink } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { artifactRetentionFields } from "@soldbench/collector";
-import { assertLocalDatabaseUrl, database, prepareDatabase, transaction } from "@soldbench/db";
+import { database, prepareDatabase, transaction } from "@soldbench/db";
 import { loadConfig } from "@soldbench/shared";
 import { fixtureJobId, readFixtureFile, syncDirectory } from "./collector-fixture-file.mjs";
 import { localDatabaseUrl } from "./local-db.mjs";
+import { assertAllowedDatabaseUrl } from "./runtime-db.mjs";
 
 const pendingName = /^([a-f0-9-]{36})\.([a-f0-9]{64})\.json(?:\.[a-f0-9-]{36}\.tmp)?$/;
 const publicationTemp = /^collector-(?:html-)?fixture-([a-f0-9-]{36})\.json\.[a-f0-9-]{36}\.tmp$/;
@@ -264,10 +265,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       throw new Error("invalid_collector_cleanup_argument");
     const config = loadConfig(process.env);
     const url = config.databaseUrl ?? localDatabaseUrl();
-    assertLocalDatabaseUrl(url, [
-      resolve(".local/postgres/socket"),
-      ...(process.env.SOLDBENCH_TEST_SOCKET ? [process.env.SOLDBENCH_TEST_SOCKET] : []),
-    ]);
+    assertAllowedDatabaseUrl(config, url);
     db = database(url);
     await prepareDatabase(db, auditRetention || pruneExpired ? "verify" : config.databaseStartup);
     const spool = resolve(args.get("spool"));

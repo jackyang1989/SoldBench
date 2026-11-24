@@ -2,11 +2,12 @@ import { lstatSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { CollectorStore, OfflineCollectorWorker } from "@soldbench/collector";
 import { instant } from "@soldbench/core";
-import { assertLocalDatabaseUrl, database, prepareDatabase } from "@soldbench/db";
+import { database, prepareDatabase } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
-import { loadConfig } from "@soldbench/shared";
+import { isSourceKindAllowedForMode, loadConfig } from "@soldbench/shared";
 import { readFixtureFile } from "./collector-fixture-file.mjs";
 import { localDatabaseUrl } from "./local-db.mjs";
+import { assertAllowedDatabaseUrl } from "./runtime-db.mjs";
 
 const args = new Map();
 for (const raw of process.argv.slice(2)) {
@@ -37,11 +38,8 @@ const loaded = await readFixtureFile(path);
 const artifact = loaded.artifact;
 if (args.has("expected-job") && args.get("expected-job") !== artifact.jobId)
   throw new Error("fixture_artifact_expected_job_mismatch");
-const url = process.env.DATABASE_URL ?? localDatabaseUrl();
-assertLocalDatabaseUrl(url, [
-  resolve(".local/postgres/socket"),
-  ...(process.env.SOLDBENCH_TEST_SOCKET ? [process.env.SOLDBENCH_TEST_SOCKET] : []),
-]);
+const url = config.databaseUrl ?? localDatabaseUrl();
+assertAllowedDatabaseUrl(config, url);
 const db = database(url),
   controller = new AbortController();
 const stop = () => controller.abort();
@@ -77,15 +75,20 @@ const writeHeartbeat = (value) => {
 };
 try {
   await prepareDatabase(db, config.databaseStartup);
-  const store = new CollectorStore(db, clock, { htmlProfile: artifact.htmlProfile }),
+  const store = new CollectorStore(db, clock, {
+      htmlProfile: artifact.htmlProfile,
+      dataMode: config.dataMode,
+    }),
     job = await store.view(artifact.jobId);
   const source = (
-    await db.query("SELECT access_method,status,permission_epoch FROM sources WHERE id=$1", [
-      artifact.sourceId,
-    ])
+    await db.query(
+      "SELECT s.access_method,s.status,s.permission_epoch,x.provider FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id WHERE s.id=$1",
+      [artifact.sourceId],
+    )
   ).rows[0];
   if (
-    source?.access_method !== "offline_fixture" ||
+    !source ||
+    !isSourceKindAllowedForMode(config.dataMode, source) ||
     job.source_id !== artifact.sourceId ||
     job.query_hash !== artifact.queryHash ||
     job.as_of.toISOString() !== new Date(artifact.asOf).toISOString()
@@ -98,7 +101,7 @@ try {
     throw new Error("fixture_artifact_changed");
   writeHeartbeat({
     state: "starting",
-    mode: "offline_fixture",
+    mode: config.dataMode,
     pid: process.pid,
     jobId: job.id,
     time: new Date().toISOString(),
@@ -166,8 +169,8 @@ try {
         : "pages",
     heartbeatPath: heartbeat,
     lastSuccessAt: lastSuccess?.toISOString() ?? null,
-    mode: "offline_fixture",
-    onlineVerified: false,
+    mode: config.dataMode,
+    onlineVerified: config.dataMode === "approved_network",
     networkRequests: 0,
     pid: process.pid,
     jobId: job.id,
@@ -210,7 +213,7 @@ try {
 } catch (error) {
   writeHeartbeat({
     state: "failed",
-    mode: "offline_fixture",
+    mode: config.dataMode,
     pid: process.pid,
     jobId: artifact.jobId,
     time: new Date().toISOString(),
@@ -219,7 +222,13 @@ try {
     error instanceof Error && /^[a-z_]+$/.test(error.message)
       ? error.message
       : "local_collector_worker_failed";
-  console.error(JSON.stringify({ error: reason, mode: "offline_fixture", onlineVerified: false }));
+  console.error(
+    JSON.stringify({
+      error: reason,
+      mode: config.dataMode,
+      onlineVerified: config.dataMode === "approved_network",
+    }),
+  );
   process.exitCode = 1;
 } finally {
   process.removeListener("SIGTERM", stop);

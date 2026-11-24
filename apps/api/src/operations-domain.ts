@@ -41,7 +41,7 @@ export class OperationsService {
     readonly service: QueryService,
     readonly payments?: PaymentLifecycle,
   ) {
-    this.collector = new CollectorStore(service.db, service.clock);
+    this.collector = new CollectorStore(service.db, service.clock, { dataMode: service.dataMode });
   }
   private get crypto() {
     return this.service.auth.crypto;

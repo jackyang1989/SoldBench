@@ -1,8 +1,10 @@
 import { resolve } from "node:path";
 import { collectorRunEvidence } from "@soldbench/collector";
-import { assertLocalDatabaseUrl, database, prepareDatabase } from "@soldbench/db";
+import { database, prepareDatabase } from "@soldbench/db";
+import { loadConfig } from "@soldbench/shared";
 import { exportEvidence, verifyEvidence } from "./collector-evidence-file.mjs";
 import { localDatabaseUrl } from "./local-db.mjs";
+import { assertAllowedDatabaseUrl } from "./runtime-db.mjs";
 
 const args = new Map();
 for (const arg of process.argv.slice(2)) {
@@ -26,15 +28,13 @@ if (verify) {
   console.log(JSON.stringify(await verifyEvidence(resolve(verify), expected, { sourceId, from, until })));
 } else {
   if (expected) throw new Error("collector_evidence_digest_requires_verify");
-  const url = process.env.DATABASE_URL ?? localDatabaseUrl();
-  assertLocalDatabaseUrl(url, [
-    resolve(".local/postgres/socket"),
-    ...(process.env.SOLDBENCH_TEST_SOCKET ? [process.env.SOLDBENCH_TEST_SOCKET] : []),
-  ]);
+  const config = loadConfig(process.env);
+  const url = config.databaseUrl ?? localDatabaseUrl();
+  assertAllowedDatabaseUrl(config, url);
   const db = database(url);
   try {
     await prepareDatabase(db, "verify");
-    const document = await collectorRunEvidence(db, sourceId, from, until);
+    const document = await collectorRunEvidence(db, sourceId, from, until, config.dataMode);
     console.log(JSON.stringify(output ? await exportEvidence(resolve(output), document) : document));
   } finally {
     await db.end();

@@ -1,10 +1,11 @@
 import { resolve } from "node:path";
 import { CollectorRefresh, CollectorStore } from "@soldbench/collector";
 import { instant } from "@soldbench/core";
-import { assertLocalDatabaseUrl, database, prepareDatabase } from "@soldbench/db";
+import { database, prepareDatabase } from "@soldbench/db";
 import { loadConfig } from "@soldbench/shared";
 import { readRefreshProfile } from "./collector-fixture-file.mjs";
 import { localDatabaseUrl } from "./local-db.mjs";
+import { assertAllowedDatabaseUrl } from "./runtime-db.mjs";
 
 const args = new Map();
 for (const raw of process.argv.slice(2)) {
@@ -26,16 +27,14 @@ if ([...args.keys()].some((key) => !allowed.has(key))) throw new Error("invalid_
 const config = loadConfig(process.env);
 if (args.has("clock")) instant(args.get("clock"));
 const url = config.databaseUrl ?? localDatabaseUrl();
-assertLocalDatabaseUrl(url, [
-  resolve(".local/postgres/socket"),
-  ...(process.env.SOLDBENCH_TEST_SOCKET ? [process.env.SOLDBENCH_TEST_SOCKET] : []),
-]);
+assertAllowedDatabaseUrl(config, url);
 const profile = args.has("profile") ? await readRefreshProfile(resolve(args.get("profile"))) : undefined;
 const db = database(url);
 try {
   await prepareDatabase(db, config.databaseStartup);
   const store = new CollectorStore(db, args.has("clock") ? () => args.get("clock") : undefined, {
       htmlProfile: profile,
+      dataMode: config.dataMode,
     }),
     refresh = new CollectorRefresh(store);
   let result;
@@ -80,7 +79,7 @@ try {
   }
   console.log(
     JSON.stringify({
-      mode: "offline_fixture",
+      mode: config.dataMode,
       networkRequests: 0,
       onlineVerified: false,
       clock: args.has("clock") ? "explicit_simulation" : "database",

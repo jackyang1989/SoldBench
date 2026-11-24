@@ -3,10 +3,11 @@ import { extname, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { parseEbayCorpusCsv, parseEbayCorpusJson, runEbayUsCorpusCycle } from "@soldbench/collector";
-import { assertLocalDatabaseUrl, database, prepareDatabase } from "@soldbench/db";
+import { database, prepareDatabase } from "@soldbench/db";
 import { loadConfig, parseProxyUrl } from "@soldbench/shared";
 import { fixtureJobId } from "./collector-fixture-file.mjs";
 import { localDatabaseUrl } from "./local-db.mjs";
+import { assertAllowedDatabaseUrl } from "./runtime-db.mjs";
 
 function parseCliArgs(argv) {
   const options = new Map();
@@ -111,10 +112,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const config = loadConfig(process.env);
     const proxyUrl = cliProxyUrl ?? config.collectorProxyUrl ?? undefined;
     const url = config.databaseUrl ?? localDatabaseUrl();
-    assertLocalDatabaseUrl(url, [
-      resolve(".local/postgres/socket"),
-      ...(process.env.SOLDBENCH_TEST_SOCKET ? [process.env.SOLDBENCH_TEST_SOCKET] : []),
-    ]);
+    assertAllowedDatabaseUrl(config, url);
     db = database(url);
     await prepareDatabase(db, config.databaseStartup);
 
@@ -134,6 +132,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         maxPages,
         maxDetails,
         fetchImages,
+        dataMode: config.dataMode,
         ...(options.has("origin") ? { origin: options.get("origin") } : {}),
         ...(options.has("image-origin-override")
           ? { imageOriginOverride: options.get("image-origin-override") }

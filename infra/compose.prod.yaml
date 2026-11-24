@@ -66,6 +66,7 @@ services:
       - ALL
     environment:
       DATABASE_URL: ${MIGRATION_DATABASE_URL:?set MIGRATION_DATABASE_URL}
+      SOLDBENCH_LIVE_GATE_ACKNOWLEDGED: ${SOLDBENCH_LIVE_GATE_ACKNOWLEDGED:-false}
       COLLECTOR_ENABLED: "false"
       DATA_MODE: ${DATA_MODE:-offline_fixture}
       PAYMENTS_MODE: ${PAYMENTS_MODE:-offline}
@@ -114,12 +115,29 @@ services:
       HOST: ${HOST:-127.0.0.1}
       PORT: ${PORT:-3000}
       APP_ORIGIN: ${APP_ORIGIN:-http://127.0.0.1:3000}
+      NODE_ENV: ${NODE_ENV:-development}
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
       DB_STARTUP_MODE: verify
+      SOLDBENCH_LIVE_GATE_ACKNOWLEDGED: ${SOLDBENCH_LIVE_GATE_ACKNOWLEDGED:-false}
       COLLECTOR_ENABLED: ${COLLECTOR_ENABLED:-false}
       DATA_MODE: ${DATA_MODE:-offline_fixture}
       PAYMENTS_MODE: ${PAYMENTS_MODE:-offline}
       PAYMENT_FIXTURES: ${PAYMENT_FIXTURES:-false}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_MERCHANT_ID: ${STRIPE_MERCHANT_ID:-}
+      PAYPAL_CLIENT_ID: ${PAYPAL_CLIENT_ID:-}
+      PAYPAL_CLIENT_SECRET: ${PAYPAL_CLIENT_SECRET:-}
+      PAYPAL_WEBHOOK_ID: ${PAYPAL_WEBHOOK_ID:-}
+      PAYPAL_MERCHANT_ID: ${PAYPAL_MERCHANT_ID:-}
+      MAIL_TRANSPORT: ${MAIL_TRANSPORT:-offline}
+      MAIL_FROM: ${MAIL_FROM:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
       LOCAL_STATE_ROOT: /var/lib/soldbench/state
       MEDIA_ROOT: /var/lib/soldbench/media
       SOURCE_URL_ENCRYPTION_KEY: ${SOURCE_URL_ENCRYPTION_KEY:?set SOURCE_URL_ENCRYPTION_KEY}
@@ -140,6 +158,7 @@ services:
     tmpfs:
       - /tmp:size=64m,noexec,nosuid
     volumes:
+      - soldbench_state:/var/lib/soldbench/state
       - soldbench_media:/var/lib/soldbench/media:ro
     security_opt:
       - no-new-privileges:true
@@ -154,9 +173,20 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
       DB_STARTUP_MODE: verify
+      NODE_ENV: ${NODE_ENV:-development}
+      SOLDBENCH_LIVE_GATE_ACKNOWLEDGED: ${SOLDBENCH_LIVE_GATE_ACKNOWLEDGED:-false}
       COLLECTOR_ENABLED: "false"
       DATA_MODE: ${DATA_MODE:-offline_fixture}
       PAYMENTS_MODE: ${PAYMENTS_MODE:-offline}
+      MAIL_TRANSPORT: ${MAIL_TRANSPORT:-offline}
+      MAIL_FROM: ${MAIL_FROM:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      LOCAL_STATE_ROOT: /var/lib/soldbench/state
       MEDIA_ROOT: /var/lib/soldbench/media
 
   collector-supervisor:
@@ -189,8 +219,10 @@ services:
     environment:
       DATABASE_URL: ${COLLECTOR_DATABASE_URL:?set COLLECTOR_DATABASE_URL}
       DB_STARTUP_MODE: verify
+      SOLDBENCH_LIVE_GATE_ACKNOWLEDGED: ${SOLDBENCH_LIVE_GATE_ACKNOWLEDGED:-false}
       COLLECTOR_ENABLED: ${COLLECTOR_ENABLED:-false}
       DATA_MODE: ${DATA_MODE:-offline_fixture}
+      COLLECTOR_PROXY_URL: ${COLLECTOR_PROXY_URL:-}
       PAYMENTS_MODE: "offline"
       MEDIA_ROOT: /var/lib/soldbench/media
       COLLECTOR_DEMO_DIR: /var/lib/soldbench/spool

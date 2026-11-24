@@ -1,4 +1,5 @@
 import { type Database, transaction } from "@soldbench/db";
+import { type DataMode, sqlSourceKindClause } from "@soldbench/shared";
 
 export type FrozenSchedule = { start_at: Date; interval_seconds: number; retired_at: Date | null };
 export const COLLECTOR_RUN_EVIDENCE_SCHEMA = "soldbench.collector-run-evidence.v1";
@@ -82,6 +83,7 @@ export async function collectorRunEvidence(
   sourceId: string,
   fromDay: string,
   untilDay: string,
+  dataMode: DataMode = "offline_fixture",
 ) {
   const from = utcDay(fromDay);
   const until = utcDay(untilDay);
@@ -95,7 +97,7 @@ export async function collectorRunEvidence(
     if (until > now) throw new Error("collector_evidence_window_not_closed");
     const source = await c.query(
       `SELECT 1 FROM sources s JOIN source_clearances x ON x.id=s.source_clearance_id
-        WHERE s.id=$1 AND s.access_method='offline_fixture' AND x.provider='synthetic_fixture'`,
+        WHERE s.id=$1 AND ${sqlSourceKindClause(dataMode)}`,
       [sourceId],
     );
     if (!source.rowCount) throw new Error("collector_evidence_source_unavailable");
@@ -168,8 +170,8 @@ export async function collectorRunEvidence(
     if (facts.size) throw new Error("collector_evidence_occurrence_outside_frozen_plan");
     return {
       schema: COLLECTOR_RUN_EVIDENCE_SCHEMA,
-      mode: "offline_fixture",
-      onlineVerified: false,
+      mode: dataMode,
+      onlineVerified: dataMode === "approved_network",
       externalNetworkRequests: 0,
       source_id: sourceId,
       captured_at: (now as Date).toISOString(),

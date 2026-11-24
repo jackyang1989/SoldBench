@@ -187,8 +187,8 @@ export async function collectorHealth(
       : undefined;
     const report = {
       schema: "soldbench.collector-health.v1",
-      mode: "offline_fixture",
-      onlineVerified: false,
+      mode: activeMode,
+      onlineVerified: activeMode === "approved_network",
       networkRequests: 0,
       networkRequestsScope: "external_source_access_only",
       collectorVersion: COLLECTOR_VERSION,
