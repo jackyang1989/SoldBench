@@ -831,208 +831,306 @@ export function renderPage(
       </>
     );
   } else if (page === "/operations") {
+    const opsGroups: Array<[string, Array<[string, string]>]> = [
+      [
+        t("Operations", "运营"),
+        [
+          ["overview", t("Overview", "概览")],
+          ["approvals", t("Approvals", "待审批")],
+          ["incidents", t("Incidents", "事件")],
+          ["monitoring", t("Monitoring", "监控")],
+        ],
+      ],
+      [
+        t("Data", "数据"),
+        [
+          ["sources", t("Sources", "数据源")],
+          ["collector", t("Collection runs", "采集运行")],
+          ["jobs", t("Jobs", "作业")],
+          ["quality", t("Quality", "质量")],
+          ["records", t("Sale evidence", "成交证据")],
+          ["rules", t("Rule versions", "规则版本")],
+          ["coverage", t("Coverage", "覆盖")],
+        ],
+      ],
+      [
+        t("Business", "业务"),
+        [
+          ["billing", t("Reconciliation", "对账")],
+          ["recovery", t("Payment recovery", "付款恢复")],
+          ["users", t("Users", "用户")],
+          ["api", t("API metrics", "API 指标")],
+          ["growth", t("Activity", "活动")],
+          ["costs", t("Budget and costs", "预算与成本")],
+        ],
+      ],
+      [
+        t("Support & system", "支持与系统"),
+        [
+          ["support", t("Support queue", "支持工单")],
+          ["audit", t("Audit log", "审计日志")],
+          ["settings", t("Settings", "系统设置")],
+        ],
+      ],
+    ];
     content = (
-      <section className="wrap account-layout">
-        <aside className="docs-sidebar">
-          <nav aria-label={t("Operator navigation", "运营导航")}>
-            <a href={link("/operations")}>{t("Operations", "运营中心")}</a>
-            <a href={zh ? "/admin/content?lang=zh-CN" : "/admin/content"}>
-              {t("Content studio", "内容中心")}
-            </a>
-          </nav>
-        </aside>
-        <div className="account-main">
-          <h1>{title}</h1>
-          {status}
-          <div className="actions" data-ops-tabs="" data-panel={url.pathname.split("/").at(-1)}>
-            {[
-              ["overview", t("Overview", "概览")],
-              ["users", t("Users", "用户")],
-              ["approvals", t("Approvals", "待审批")],
-              ["incidents", t("Incidents", "事件")],
-              ["sources", t("Sources", "数据源")],
-              ["jobs", t("Jobs", "作业")],
-              ["billing", t("Reconciliation", "对账")],
-              ["recovery", t("Payment recovery", "付款恢复")],
-              ["support", t("Support queue", "支持工单")],
-              ["audit", t("Audit log", "审计日志")],
-              ["settings", t("Settings", "系统设置")],
-              ["monitoring", t("Monitoring", "监控")],
-              ["api", t("API metrics", "API 指标")],
-              ["collector", t("Collection runs", "采集运行")],
-              ["records", t("Sale evidence", "成交证据")],
-              ["rules", t("Rule versions", "规则版本")],
-              ["coverage", t("Coverage", "覆盖")],
-              ["quality", t("Quality", "质量")],
-              ["growth", t("Activity", "活动")],
-              ["costs", t("Budget and costs", "预算与成本")],
-            ].map(([view, label]) => (
-              <button
-                key={view}
-                className="btn ghost"
-                data-ops-view={view}
-                type="button"
-                hidden={!["overview", "sources", "jobs", "billing", "support", "audit"].includes(view ?? "")}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <div data-results="" />
+      <>
+        <div className="demo-bar">
+          <strong>{t("Operations Console", "运营控制台")}</strong> ·{" "}
+          <span>
+            {t(
+              "Role-based access, dual-operator approval gates, and full mutation audit trail.",
+              "基于角色的访问控制、双人独立审批门与完整变更审计流水。",
+            )}
+          </span>
         </div>
-      </section>
+        <section className="acct-shell">
+          <aside className="admin-side">
+            <nav
+              className="side-inner"
+              aria-label={t("Operator navigation", "运营导航")}
+              data-ops-tabs=""
+              data-panel={url.pathname.split("/").at(-1)}
+            >
+              {opsGroups.map(([groupLabel, items]) => (
+                <div key={groupLabel}>
+                  <div className="acct-group">{groupLabel}</div>
+                  {items.map(([view, label]) => (
+                    <button
+                      key={view}
+                      className="side-link"
+                      data-ops-view={view}
+                      type="button"
+                      hidden={!["overview", "sources", "jobs", "billing", "support", "audit"].includes(view)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                  {groupLabel === t("Support & system", "支持与系统") && (
+                    <a className="side-link" href={zh ? "/admin/content?lang=zh-CN" : "/admin/content"}>
+                      {t("Content studio", "内容中心")}
+                    </a>
+                  )}
+                </div>
+              ))}
+              <div className="acct-group">{t("Site", "站点")}</div>
+              <a className="side-link" href={link("/")}>
+                {t("← Back to site", "← 返回主站")}
+              </a>
+            </nav>
+          </aside>
+          <div className="acct-main account-main">
+            <div className="acct-head">
+              <h1>{title}</h1>
+            </div>
+            {status}
+            <div data-results="" />
+          </div>
+        </section>
+      </>
     );
   } else if (page === "/admin/content") {
     content = (
-      <section className="wrap workbench">
-        <h1>{title}</h1>
-        <a href={link("/operations")}>{t("Operations", "运营中心")}</a>
-        {status}
-        <div className="card auth-card">
-          <form data-content-draft="" method="post">
-            <h2>{t("Draft content", "编辑草稿")}</h2>
-            <label>
-              {t("Content type", "内容类型")}
-              <select name="kind" required>
-                <option value="announcement">{t("Announcement", "公告")}</option>
-                <option value="faq">FAQ</option>
-                <option value="guide" data-fields="author related">
-                  {t("Guide", "指南")}
-                </option>
-                <option value="blog" data-fields="author related">
-                  {t("Blog article", "博客文章")}
-                </option>
-                <option value="home" data-fields="position target">
-                  {t("Home section", "首页内容")}
-                </option>
-                <option value="navigation" data-fields="position target" data-required="target">
-                  {t("Navigation", "主导航")}
-                </option>
-                <option value="footer" data-fields="position target" data-required="target">
-                  {t("Footer", "页脚")}
-                </option>
-                <option value="pricing_copy" data-fields="position">
-                  {t("Pricing notes", "定价说明")}
-                </option>
-                <option value="billing_copy" data-fields="position">
-                  {t("Billing rules copy", "计费规则文案")}
-                </option>
-                <option value="offer_copy" data-fields="position reference_key" data-required="reference_key">
-                  {t("Offer copy", "方案文案")}
-                </option>
-                <option value="category_copy" data-fields="position">
-                  {t("Category copy", "类目简介")}
-                </option>
-                <option value="comparison" data-fields="position reference" data-required="reference">
-                  {t("Comparison", "对比专题")}
-                </option>
-                <option value="changelog" data-fields="reference">
-                  {t("Changelog", "更新记录")}
-                </option>
-                <option value="status_copy" data-fields="position">
-                  {t("Status notes", "服务状态说明")}
-                </option>
-                <option
-                  value="status_component"
-                  data-fields="position reference_key"
-                  data-required="reference_key"
-                >
-                  {t("Status component", "服务组件说明")}
-                </option>
-                <option value="status_incident" data-fields="reference_key" data-required="reference_key">
-                  {t("Incident copy", "事件说明")}
-                </option>
-                <option value="about">{t("About", "关于")}</option>
-                <option value="terms" data-fields="policy_version reference" data-required="policy_version">
-                  {t("Terms version", "条款版次")}
-                </option>
-                <option value="privacy" data-fields="policy_version reference" data-required="policy_version">
-                  {t("Privacy version", "隐私政策版次")}
-                </option>
-              </select>
-            </label>
-            <label>
-              {t("Slug", "路径标识")}
-              <input name="slug" required maxLength={70} pattern="[a-z0-9]+(-[a-z0-9]+)*" />
-            </label>
-            <label data-content-extra="author" hidden>
-              {t("Author display name", "作者显示名")}
-              <input name="author" maxLength={120} disabled />
-            </label>
-            <label data-content-extra="related" hidden>
-              {t("Related article slugs (comma-separated)", "相关文章路径标识（逗号分隔）")}
-              <input name="related" maxLength={430} disabled />
-            </label>
-            <label data-content-extra="position" hidden>
-              {t("Display order", "显示顺序")}
-              <input name="position" type="number" min={0} max={1000} disabled />
-            </label>
-            <label data-content-extra="target" hidden>
-              {t("Site destination", "站内目标")}
-              <select name="target" disabled>
-                <option value="">{t("Choose a page", "选择页面")}</option>
-                {[
-                  "/",
-                  "/search",
-                  "/research",
-                  "/pricing",
-                  "/categories",
-                  "/guides",
-                  "/blog",
-                  "/faq",
-                  "/methodology",
-                  "/data-availability",
-                  "/support",
-                  "/docs",
-                  "/agents",
-                  "/about",
-                  "/changelog",
-                ].map((destination) => (
-                  <option key={destination} value={destination}>
-                    {destination}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label data-content-extra="reference" hidden>
-              {t("Source URL (HTTPS)", "来源链接（HTTPS）")}
-              <input name="reference" type="url" maxLength={500} disabled />
-            </label>
-            <label data-content-extra="reference_key" hidden>
-              {t("Existing component, incident or offer key", "现有服务组件、事件或报价标识")}
-              <input name="reference_key" maxLength={70} pattern="[a-z0-9]+(-[a-z0-9]+)*" disabled />
-            </label>
-            <label data-content-extra="policy_version" hidden>
-              {t("Policy version", "政策版次")}
-              <input name="policy_version" maxLength={120} disabled />
-            </label>
-            <label>
-              English
-              <input name="en_title" required maxLength={140} />
-            </label>
-            <label>
-              {t("English body", "英文正文")}
-              <textarea name="en_body" required rows={3} maxLength={6000} />
-            </label>
-            <label>
-              简体中文
-              <input name="zh_title" required maxLength={140} />
-            </label>
-            <label>
-              {t("Chinese body", "中文正文")}
-              <textarea name="zh_body" required rows={3} maxLength={6000} />
-            </label>
-            <label>
-              {t("Change reason", "变更原因")}
-              <input name="reason" required maxLength={500} />
-            </label>
-            <button className="btn brand" type="submit">
-              {t("Save draft", "保存草稿")}
-            </button>
-          </form>
+      <>
+        <div className="demo-bar">
+          <strong>{t("Content Studio", "内容发布中心")}</strong> ·{" "}
+          <span>
+            {t(
+              "Draft bilingual copy, submit for dual-review, and publish verified updates.",
+              "编辑双语内容草稿、提交独立审核并发布已核验更新。",
+            )}
+          </span>
         </div>
-        <div data-results="" />
-      </section>
+        <section className="acct-shell">
+          <aside className="admin-side">
+            <nav className="side-inner" aria-label={t("Operator navigation", "运营导航")}>
+              <div className="acct-group">{t("Support & system", "支持与系统")}</div>
+              <a className="side-link" href={link("/operations")}>
+                {t("Operations", "运营中心")}
+              </a>
+              <a
+                className="side-link on"
+                aria-current="page"
+                href={zh ? "/admin/content?lang=zh-CN" : "/admin/content"}
+              >
+                {t("Content studio", "内容中心")}
+              </a>
+              <div className="acct-group">{t("Site", "站点")}</div>
+              <a className="side-link" href={link("/")}>
+                {t("← Back to site", "← 返回主站")}
+              </a>
+            </nav>
+          </aside>
+          <div className="acct-main account-main">
+            <div className="acct-head">
+              <h1>{title}</h1>
+            </div>
+            {status}
+            <div className="grid2">
+              <div className="card auth-card">
+                <form data-content-draft="" method="post">
+                  <h2>{t("Draft content", "编辑草稿")}</h2>
+                  <label>
+                    {t("Content type", "内容类型")}
+                    <select name="kind" required>
+                      <option value="announcement">{t("Announcement", "公告")}</option>
+                      <option value="faq">FAQ</option>
+                      <option value="guide" data-fields="author related">
+                        {t("Guide", "指南")}
+                      </option>
+                      <option value="blog" data-fields="author related">
+                        {t("Blog article", "博客文章")}
+                      </option>
+                      <option value="home" data-fields="position target">
+                        {t("Home section", "首页内容")}
+                      </option>
+                      <option value="navigation" data-fields="position target" data-required="target">
+                        {t("Navigation", "主导航")}
+                      </option>
+                      <option value="footer" data-fields="position target" data-required="target">
+                        {t("Footer", "页脚")}
+                      </option>
+                      <option value="pricing_copy" data-fields="position">
+                        {t("Pricing notes", "定价说明")}
+                      </option>
+                      <option value="billing_copy" data-fields="position">
+                        {t("Billing rules copy", "计费规则文案")}
+                      </option>
+                      <option
+                        value="offer_copy"
+                        data-fields="position reference_key"
+                        data-required="reference_key"
+                      >
+                        {t("Offer copy", "方案文案")}
+                      </option>
+                      <option value="category_copy" data-fields="position">
+                        {t("Category copy", "类目简介")}
+                      </option>
+                      <option value="comparison" data-fields="position reference" data-required="reference">
+                        {t("Comparison", "对比专题")}
+                      </option>
+                      <option value="changelog" data-fields="reference">
+                        {t("Changelog", "更新记录")}
+                      </option>
+                      <option value="status_copy" data-fields="position">
+                        {t("Status notes", "服务状态说明")}
+                      </option>
+                      <option
+                        value="status_component"
+                        data-fields="position reference_key"
+                        data-required="reference_key"
+                      >
+                        {t("Status component", "服务组件说明")}
+                      </option>
+                      <option
+                        value="status_incident"
+                        data-fields="reference_key"
+                        data-required="reference_key"
+                      >
+                        {t("Incident copy", "事件说明")}
+                      </option>
+                      <option value="about">{t("About", "关于")}</option>
+                      <option
+                        value="terms"
+                        data-fields="policy_version reference"
+                        data-required="policy_version"
+                      >
+                        {t("Terms version", "条款版次")}
+                      </option>
+                      <option
+                        value="privacy"
+                        data-fields="policy_version reference"
+                        data-required="policy_version"
+                      >
+                        {t("Privacy version", "隐私政策版次")}
+                      </option>
+                    </select>
+                  </label>
+                  <label>
+                    {t("Slug", "路径标识")}
+                    <input name="slug" required maxLength={70} pattern="[a-z0-9]+(-[a-z0-9]+)*" />
+                  </label>
+                  <label data-content-extra="author" hidden>
+                    {t("Author display name", "作者显示名")}
+                    <input name="author" maxLength={120} disabled />
+                  </label>
+                  <label data-content-extra="related" hidden>
+                    {t("Related article slugs (comma-separated)", "相关文章路径标识（逗号分隔）")}
+                    <input name="related" maxLength={430} disabled />
+                  </label>
+                  <label data-content-extra="position" hidden>
+                    {t("Display order", "显示顺序")}
+                    <input name="position" type="number" min={0} max={1000} disabled />
+                  </label>
+                  <label data-content-extra="target" hidden>
+                    {t("Site destination", "站内目标")}
+                    <select name="target" disabled>
+                      <option value="">{t("Choose a page", "选择页面")}</option>
+                      {[
+                        "/",
+                        "/search",
+                        "/research",
+                        "/pricing",
+                        "/categories",
+                        "/guides",
+                        "/blog",
+                        "/faq",
+                        "/methodology",
+                        "/data-availability",
+                        "/support",
+                        "/docs",
+                        "/agents",
+                        "/about",
+                        "/changelog",
+                      ].map((destination) => (
+                        <option key={destination} value={destination}>
+                          {destination}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label data-content-extra="reference" hidden>
+                    {t("Source URL (HTTPS)", "来源链接（HTTPS）")}
+                    <input name="reference" type="url" maxLength={500} disabled />
+                  </label>
+                  <label data-content-extra="reference_key" hidden>
+                    {t("Existing component, incident or offer key", "现有服务组件、事件或报价标识")}
+                    <input name="reference_key" maxLength={70} pattern="[a-z0-9]+(-[a-z0-9]+)*" disabled />
+                  </label>
+                  <label data-content-extra="policy_version" hidden>
+                    {t("Policy version", "政策版次")}
+                    <input name="policy_version" maxLength={120} disabled />
+                  </label>
+                  <label>
+                    English
+                    <input name="en_title" required maxLength={140} />
+                  </label>
+                  <label>
+                    {t("English body", "英文正文")}
+                    <textarea name="en_body" required rows={3} maxLength={6000} />
+                  </label>
+                  <label>
+                    简体中文
+                    <input name="zh_title" required maxLength={140} />
+                  </label>
+                  <label>
+                    {t("Chinese body", "中文正文")}
+                    <textarea name="zh_body" required rows={3} maxLength={6000} />
+                  </label>
+                  <label>
+                    {t("Change reason", "变更原因")}
+                    <input name="reason" required maxLength={500} />
+                  </label>
+                  <button className="btn brand" type="submit">
+                    {t("Save draft", "保存草稿")}
+                  </button>
+                </form>
+              </div>
+              <div data-results="" />
+            </div>
+          </div>
+        </section>
+      </>
     );
   } else if (page === "/deletion-receipt") {
     content = (
@@ -1771,50 +1869,63 @@ export function renderPage(
       </section>
     );
   } else {
+    const accountGroups: Array<[string, ReadonlyArray<Page>]> = [
+      [
+        t("Overview & Research", "概览与研究"),
+        ["/account", "/account/queries", "/account/saved", "/account/history", "/account/alerts"],
+      ],
+      [
+        t("Workbenches & Verticals", "工作台与垂类"),
+        [
+          "/account/lookup",
+          "/account/batches",
+          "/account/inventory",
+          "/account/sites",
+          "/account/marketplaces",
+          "/account/cards",
+          "/account/auctions",
+        ],
+      ],
+      [t("Usage & API", "用量与接口"), ["/account/usage", "/account/logs", "/account/keys"]],
+      [t("Billing & Security", "账单与安全"), ["/account/billing", "/account/security"]],
+    ];
     content = (
-      <section className="wrap account-layout">
-        <aside className="docs-sidebar">
-          <nav aria-label={t("Account navigation", "账户导航")}>
-            {(
-              [
-                "/account",
-                "/account/queries",
-                "/account/lookup",
-                "/account/saved",
-                "/account/batches",
-                "/account/inventory",
-                "/account/sites",
-                "/account/marketplaces",
-                "/account/cards",
-                "/account/auctions",
-                "/account/history",
-                "/account/alerts",
-                "/account/usage",
-                "/account/logs",
-                "/account/keys",
-                "/account/security",
-                "/account/billing",
-              ] as const
-            ).map((target) => (
-              <a key={target} aria-current={page === target ? "page" : undefined} href={link(target)}>
-                {headings[target]?.[zh ? 1 : 0]}
-              </a>
+      <section className="acct-shell">
+        <aside className="acct-side">
+          <nav className="side-inner" aria-label={t("Account navigation", "账户导航")}>
+            {accountGroups.map(([groupLabel, targets]) => (
+              <div key={groupLabel}>
+                <div className="acct-group">{groupLabel}</div>
+                {targets.map((target) => (
+                  <a key={target} aria-current={page === target ? "page" : undefined} href={link(target)}>
+                    {headings[target]?.[zh ? 1 : 0]}
+                  </a>
+                ))}
+                {groupLabel === t("Usage & API", "用量与接口") && (
+                  <a href={link("/playground")}>{t("API Playground", "API 调试台")}</a>
+                )}
+                {groupLabel === t("Billing & Security", "账单与安全") && (
+                  <a href={link("/support")}>{t("Support", "支持")}</a>
+                )}
+              </div>
             ))}
-            <a href={link("/support")}>{t("Support", "支持")}</a>
-            <a href={link("/playground")}>{t("API Playground", "API 调试台")}</a>
+            <div className="acct-group">{t("Site", "站点")}</div>
+            <a href={link("/")}>{t("← Back to site", "← 返回主站")}</a>
           </nav>
         </aside>
-        <div className="account-main">
-          <h1>{title}</h1>
-          {status}
-          <div className="actions">
-            <a className="btn brand" href={resume("/search")}>
-              {t("New search", "开始查价")}
-            </a>
-            <button className="btn ghost" type="button" data-logout="" hidden>
-              {t("Sign out", "退出登录")}
-            </button>
+        <div className="acct-main account-main">
+          <div className="acct-head">
+            <h1>{title}</h1>
+            <div className="actions">
+              <a className="btn brand" href={resume("/search")}>
+                {t("New search", "开始查价")}
+              </a>
+              <button className="btn ghost" type="button" data-logout="" hidden>
+                {t("Sign out", "退出登录")}
+              </button>
+            </div>
           </div>
+          {status}
           <div data-results="" />
         </div>
       </section>

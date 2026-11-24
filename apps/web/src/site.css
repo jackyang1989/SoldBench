@@ -49,6 +49,7 @@
 }
 html {
   scroll-behavior: auto;
+  scroll-padding-top: 84px;
 }
 body {
   position: relative;
@@ -2342,7 +2343,7 @@ progress.acct-prog::-moz-progress-bar {
 /* Full-bleed Account & Operations shell (Wave 3 ready) */
 .acct-shell {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
+  grid-template-columns: 256px minmax(0, 1fr);
   gap: 0;
   min-height: calc(100vh - 65px);
   width: 100%;
@@ -2380,13 +2381,14 @@ progress.acct-prog::-moz-progress-bar {
   border: 0;
   background: transparent;
   min-height: 38px;
-  padding: 6px 12px;
+  padding: 7px 12px;
   border-radius: 10px;
   color: var(--ink);
   font-weight: 500;
   font-size: 14.5px;
+  line-height: 1.3;
   margin-bottom: 2px;
-  white-space: nowrap;
+  white-space: normal;
 }
 .acct-side a:hover,
 .admin-side a:hover,
@@ -2397,7 +2399,8 @@ progress.acct-prog::-moz-progress-bar {
 .acct-side a.on,
 .acct-side a[aria-current="page"],
 .admin-side a.on,
-.admin-side button.side-link.on {
+.admin-side button.side-link.on,
+.admin-side button.side-link[aria-pressed="true"] {
   background: var(--brand-bg);
   color: var(--brand);
   font-weight: 700;
@@ -2412,6 +2415,79 @@ progress.acct-prog::-moz-progress-bar {
   font-weight: 900;
   font-size: 32px;
   color: var(--ink);
+}
+.acct-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.acct-head h1 {
+  margin: 0;
+}
+.acct-kpi-grid {
+  margin-bottom: 18px;
+}
+.acct-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.card.acct-kpi h2,
+.acct-kpi .kpi-label {
+  font-family: var(--sans);
+  font-size: 12.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--mut);
+  margin: 0;
+}
+.acct-kpi .kpi-val {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.acct-kpi .kpi-sub {
+  font-size: 13.5px;
+  color: var(--mut);
+  margin: 0;
+}
+.card.acct-kpi .actions {
+  margin-top: auto;
+  padding-top: 4px;
+}
+.acct-kpi > a.btn {
+  align-self: flex-start;
+  margin-top: auto;
+}
+.acct-table-card {
+  margin-top: 18px;
+}
+.acct-table-card table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.acct-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+}
+.acct-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 11px 0;
+  border-top: 1px solid var(--line-soft);
+}
+.acct-list li:first-child {
+  border-top: 0;
 }
 .set-sec {
   background: var(--card);
@@ -2645,6 +2721,15 @@ progress.acct-prog::-moz-progress-bar {
     flex: 0 0 100%;
     padding: 8px 4px 2px;
   }
+  .side-inner > div:not(.acct-group) {
+    display: contents;
+  }
+  .side-inner > a,
+  .side-inner > div > a,
+  .side-inner > div > button.side-link {
+    width: auto;
+    flex: 0 0 auto;
+  }
   .acct-side,
   .admin-side {
     border-right: 0;
@@ -2779,4 +2864,9 @@ progress.acct-prog::-moz-progress-bar {
   td {
     padding: 9px 10px;
   }
+}
+
+.admin-side button.side-link[hidden],
+.actions button.btn[data-logout][hidden] {
+  display: none;
 }

@@ -2307,7 +2307,7 @@ if (contentForm) {
 }
 
 function accountTable(heading, columns, rows) {
-  const card = element("section", undefined, "card result-card");
+  const card = element("section", undefined, "card result-card acct-table-card");
   card.append(element("h2", heading));
   if (!rows.length) {
     card.append(element("p", t("No records yet.", "暂无记录。"), "small"));
@@ -3296,6 +3296,18 @@ if (page === "/operations") {
                 ],
               ];
         message(notice);
+        if (view === "overview") {
+          const kpiGrid = element("div", undefined, "grid4 acct-kpi-grid");
+          for (const [label, value] of summary) {
+            const tile = element("section", undefined, "card result-card acct-kpi");
+            tile.append(
+              element("span", label, "kpi-label"),
+              element("strong", String(value ?? 0), "kpi-val"),
+            );
+            kpiGrid.append(tile);
+          }
+          output.append(kpiGrid);
+        }
         output.append(
           accountTable(
             view === "overview" ? t("Operations overview", "运营概览") : t("Effective settings", "生效设置"),
@@ -3376,6 +3388,54 @@ async function showUsage() {
     expire: t("Credits expired", "额度到期"),
     refund: t("Credit refund", "额度退回"),
   };
+  const total = Number(data.total_available ?? 0);
+  const kpiGrid = element("div", undefined, "grid3 eq acct-kpi-grid");
+
+  const balCard = element("section", undefined, "card result-card acct-kpi");
+  const prog = element("progress", undefined, "acct-prog");
+  prog.max = Math.max(100, Number.isFinite(total) ? total : 0);
+  prog.value = Number.isFinite(total) ? total : 0;
+  balCard.append(
+    element("span", t("Total available credits", "当前可用总额度"), "kpi-label"),
+    element("strong", String(data.total_available ?? 0), "kpi-val"),
+    prog,
+    element(
+      "p",
+      t(
+        "Combined across active grant, subscription, and top-up buckets.",
+        "汇总有效赠送、订阅周期与购买充值额度。",
+      ),
+      "kpi-sub",
+    ),
+  );
+
+  const bucketCard = element("section", undefined, "card result-card acct-kpi");
+  bucketCard.append(
+    element("span", t("Active credit buckets", "有效额度桶"), "kpi-label"),
+    element("strong", String(data.wallets.length), "kpi-val"),
+    element(
+      "p",
+      t("Earliest-expiring bucket is consumed first.", "按最短有效期优先顺序自动扣除。"),
+      "kpi-sub",
+    ),
+  );
+
+  const ledgerCard = element("section", undefined, "card result-card acct-kpi");
+  ledgerCard.append(
+    element("span", t("Ledger entries", "额度流水记录"), "kpi-label"),
+    element("strong", String(data.ledger.length), "kpi-val"),
+    element(
+      "p",
+      t(
+        "Append-only audit trail of grants, debits, refunds, and expiries.",
+        "只追加不可篡改的入账、扣费、退回与到期流水。",
+      ),
+      "kpi-sub",
+    ),
+  );
+
+  kpiGrid.append(balCard, bucketCard, ledgerCard);
+  output.append(kpiGrid);
   output.append(
     accountTable(
       t("Credit buckets", "额度桶"),
@@ -6497,21 +6557,71 @@ if (page.startsWith("/account"))
       }
       return;
     }
-    if (page === "/account") {
-      const balance = await api("/v1/usage");
-      const usage = element("section", undefined, "card result-card");
+    const [balance, history] =
+      page === "/account"
+        ? await Promise.all([api("/v1/usage"), api("/v1/queries")])
+        : [null, await api("/v1/queries")];
+    if (balance) {
+      const total = Number(balance.data.total_available ?? 0);
+      const kpiGrid = element("div", undefined, "grid3 eq acct-kpi-grid");
+
+      const usage = element("section", undefined, "card result-card acct-kpi");
       usage.append(element("h2", t("Credit balance", "额度余额")));
-      if (Number.isSafeInteger(balance.data.total_available))
-        usage.append(element("strong", String(balance.data.total_available)));
-      output.append(usage);
+      if (Number.isSafeInteger(balance.data.total_available)) {
+        usage.append(element("strong", String(balance.data.total_available), "kpi-val"));
+      }
+      const prog = element("progress", undefined, "acct-prog");
+      prog.max = Math.max(100, Number.isFinite(total) ? total : 0);
+      prog.value = Number.isFinite(total) ? total : 0;
+      const usageBtn = link(t("Open usage ledger →", "查看用量流水 →"), `${prefix}/account/usage`);
+      usageBtn.className = "btn ghost btn-sm";
+      usage.append(
+        prog,
+        element(
+          "p",
+          `${balance.data.wallets.length} ${t("credit buckets active", "个有效额度桶")}`,
+          "kpi-sub",
+        ),
+        usageBtn,
+      );
+
+      const activity = element("section", undefined, "card result-card acct-kpi");
+      const savedBtn = link(t("Open saved studies →", "查看已保存研究 →"), `${prefix}/account/saved`);
+      savedBtn.className = "btn ghost btn-sm";
+      activity.append(
+        element("h2", t("Research activity", "研究活动")),
+        element("strong", String(history.data.items.length), "kpi-val"),
+        element("p", t("Executed queries in your account history", "账户内已执行研究查询次数"), "kpi-sub"),
+        savedBtn,
+      );
+
+      const devCard = element("section", undefined, "card result-card acct-kpi");
+      const devActions = element("div", undefined, "actions");
+      const keysBtn = link(t("Manage API keys →", "管理 API 密钥 →"), `${prefix}/account/keys`);
+      keysBtn.className = "btn ghost btn-sm";
+      const billingBtn = link(t("Manage billing →", "管理账单 →"), `${prefix}/account/billing`);
+      billingBtn.className = "btn ghost btn-sm";
+      devActions.append(keysBtn, billingBtn);
+      devCard.append(
+        element("h2", t("Developer & billing", "开发者与账单")),
+        element("strong", t("Ready", "就绪"), "kpi-val"),
+        element(
+          "p",
+          t("API keys, request logs, and billing buckets", "API 密钥、请求日志与账单额度管理"),
+          "kpi-sub",
+        ),
+        devActions,
+      );
+
+      kpiGrid.append(usage, activity, devCard);
+      output.append(kpiGrid);
     }
-    const history = await api("/v1/queries");
     const recent = element("section", undefined, "card result-card");
     recent.append(element("h2", t("Recent research", "近期研究")));
     if (!history.data.items.length) {
       recent.append(element("p", t("Your research history is empty.", "暂无研究记录。")));
     }
-    const entries = element("ul");
+    const entries = element("ul", undefined, "acct-list");
     const more = button(t("Load more", "加载更多"), () => {
       more.disabled = true;
       run(async () => {
