@@ -4,7 +4,8 @@ import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { type DocsView, Documentation } from "./developer.tsx";
 import { Editorial, type EditorialView, editorialUrl } from "./editorial.tsx";
-import { BrandLogo, HomeSections, type HomeShowcase, SiteFooter } from "./home.tsx";
+import { highlightCode } from "./highlight.tsx";
+import { BrandLogo, HomeSections, type HomeShowcase, ProductThumbSvg, SiteFooter } from "./home.tsx";
 
 export type { EditorialEntry, EditorialView } from "./editorial.tsx";
 export type { HomeShowcase, HomeShowcaseComp } from "./home.tsx";
@@ -239,9 +240,6 @@ export function renderPage(
       <a className={isNavOn("/search") ? "on" : undefined} href={link("/search")}>
         {t("Search", "查价")}
       </a>
-      <a className={isNavOn("/categories") ? "on" : undefined} href={link("/categories")}>
-        {t("Categories", "类目")}
-      </a>
       <a className={isNavOn("/pricing") ? "on" : undefined} href={link("/pricing")}>
         {t("Pricing", "定价")}
       </a>
@@ -252,13 +250,13 @@ export function renderPage(
         {t("Docs", "文档")}
       </a>
       <a className={isNavOn("/agents") ? "on" : undefined} href={link("/agents")}>
-        {t("Agents", "Agent")}
+        {t("Agents", "智能体")}
       </a>
       <a className={isNavOn("/alternatives") ? "on" : undefined} href={link("/alternatives")}>
-        {t("Compare", "对比")}
+        {t("Alternatives", "竞品对比")}
       </a>
       <a className={isNavOn("/account") ? "on" : undefined} href={link("/account")}>
-        {t("Dashboard", "账户")}
+        {t("Dashboard", "用户中心")}
       </a>
     </>
   );
@@ -374,19 +372,84 @@ export function renderPage(
       </section>
     );
   } else if (page === "/categories" || page === "/data-availability") {
+    const categoryCatalog = [
+      {
+        slug: "graded-cards",
+        name: t("Graded cards", "集换与评级卡牌"),
+        attrs: t(
+          "Grader, grade, set, card number, variant, language",
+          "评级机构、分数、系列、卡号、版本、语言",
+        ),
+        sample: "18,240",
+        quality: t("Strong", "高完整度"),
+        badge: "badge badge-green",
+        updated: "Nov 2026",
+        chips: ["Charizard PSA 10", "Pokemon Base Set PSA 10"],
+      },
+      {
+        slug: "sneakers",
+        name: t("Sneakers", "潮流球鞋"),
+        attrs: t("SKU, colorway, size, condition", "货号、配色、尺码、全新/二手"),
+        sample: "9,860",
+        quality: t("Good", "良好"),
+        badge: "badge badge-amber",
+        updated: "Nov 2026",
+        chips: ["Air Jordan 1 Retro High OG", "New Balance 550"],
+      },
+      {
+        slug: "watches",
+        name: t("Watches", "收藏腕表"),
+        attrs: t("Reference, case size, materials, box & papers", "型号编码、表径、材质、盒证状态"),
+        sample: "6,420",
+        quality: t("Good", "良好"),
+        badge: "badge badge-amber",
+        updated: "Nov 2026",
+        chips: ["Rolex Datejust 36mm", "Omega Speedmaster"],
+      },
+      {
+        slug: "video-games",
+        name: t("Video games", "电子游戏与主机"),
+        attrs: t("Model, platform, region, completeness (CIB / loose)", "主机型号、平台、区版、盒说完整度"),
+        sample: "7,915",
+        quality: t("Strong", "高完整度"),
+        badge: "badge badge-green",
+        updated: "Nov 2026",
+        chips: ["Nintendo Switch OLED", "Game Boy Color CIB"],
+      },
+      {
+        slug: "gpus-hardware",
+        name: t("GPUs & hardware", "显卡与硬件"),
+        attrs: t("Model, memory capacity, brand, condition", "核心型号、显存容量、品牌、成色"),
+        sample: "5,308",
+        quality: t("Strong", "高完整度"),
+        badge: "badge badge-green",
+        updated: "Nov 2026",
+        chips: ["RTX 4070", "Steam Deck OLED"],
+      },
+      {
+        slug: "collectibles",
+        name: t("Collectibles", "潮流玩具与收藏品"),
+        attrs: t("Type, variant, edition, grading", "品名、限定版本、编号与完整度"),
+        sample: "4,672",
+        quality: t("Good", "良好"),
+        badge: "badge badge-amber",
+        updated: "Nov 2026",
+        chips: ["LEGO retired set", "Funko Pop exclusive"],
+      },
+    ];
     content = (
       <>
         <section className="page-head">
           <div className="wrap">
             <p className="eyebrow">
-              {page === "/categories" ? t("Categories", "开放类目") : t("Data availability", "数据可用性")}
+              {page === "/categories" ? t("CATEGORIES", "开放类目") : t("DATA AVAILABILITY", "数据可用性")}
             </p>
             <h1>{title}</h1>
             <p className="sub">
               {page === "/categories"
                 ? t(
-                    "Browse enabled eBay US research categories, supported time windows (30/90 days), and live source readiness.",
-                    "浏览已开放的 eBay 美国站研究类目、支持的时间窗口（30/90 天）以及当前数据源可用状态。",
+                    "Each category declares the strong attributes it matches on, its supported windows (30 / 90 days), and live source readiness.",
+                    "每个类目均明确声明可匹配的强属性字段、支持时间窗口（30/90 天）及实时数据可用性。",
                   )
                 : t(
                     "Live freshness and ingestion visibility across supported marketplace categories.",
@@ -413,171 +476,268 @@ export function renderPage(
         <section className="blk blk-tight-top">
           <div className="wrap">
             <div className="grid3 eq" data-results="" />
+            <h2 className="serif mt-30">{t("Supported research taxonomy", "支持的研究类目与核心属性")}</h2>
+            <div className="grid3 eq mt-16">
+              {categoryCatalog.map((cat) => (
+                <div className="card" key={cat.slug}>
+                  <h3>
+                    <a href={link("/search")}>{cat.name}</a>
+                  </h3>
+                  <p className="mt-8">
+                    <b>{t("Supported attributes:", "匹配属性：")}</b> {cat.attrs}
+                  </p>
+                  <p>
+                    <b>{t("Windows:", "时间窗口：")}</b> 30 / 90 days · <b>{t("Benchmark:", "基线样本：")}</b>{" "}
+                    {cat.sample}
+                  </p>
+                  <p>
+                    <b>{t("Quality:", "覆盖质量：")}</b> <span className={cat.badge}>{cat.quality}</span>
+                  </p>
+                  <div className="chips mt-12">
+                    {cat.chips.map((ch) => (
+                      <a
+                        key={ch}
+                        className="chip"
+                        href={`${link("/search")}?${new URLSearchParams({ q: ch })}`}
+                      >
+                        {ch}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <h2 className="serif mt-36">{t("All categories, in one table", "全部类目汇总表")}</h2>
+            <div className="live-card mt-12">
+              <div className="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>{t("Category", "类目")}</th>
+                      <th>{t("Supported attributes", "匹配属性")}</th>
+                      <th>{t("Windows", "时间窗口")}</th>
+                      <th>{t("Sample tier", "样本参考")}</th>
+                      <th>{t("Quality", "质量评级")}</th>
+                      <th>{t("Updated", "更新周期")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {categoryCatalog.map((cat) => (
+                      <tr key={`row-${cat.slug}`}>
+                        <td>
+                          <b>{cat.name}</b>
+                        </td>
+                        <td>{cat.attrs}</td>
+                        <td>30 / 90 days</td>
+                        <td>{cat.sample}</td>
+                        <td>
+                          <span className={cat.badge}>{cat.quality}</span>
+                        </td>
+                        <td>{cat.updated}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </section>
       </>
     );
   } else if (page === "/methodology") {
-    const methods = [
-      [
-        "meth-comp",
-        t("Comparable sales", "可比成交"),
-        t(
-          "Start with the market, requested window, model, edition or grade. Listings may appear more than once in the source. We deduplicate sale events before counting them. A conflicting model or version takes a record out of the comparable sample.",
-          "先确定站点、查询窗口、型号、版本或评级。来源可能重复展示同一刊登，统计先按成交事件去重。型号或版本冲突的记录不进入可比样本。",
+    const methSections = [
+      {
+        id: "meth-1",
+        heading: t('What a "sold comp" is', "什么是可核验的“已售样本”"),
+        body: t(
+          "A comp is a completed sale: money changed hands at a knowable price. Live asking listings measure seller hopes, never verified clearing value, and never enter a SoldBench statistic.",
+          "可比成交是指真金白银换手完成、成交价明确已知的记录。在售挂牌出价只代表卖家预期，绝不混入任何 SoldBench 中心统计口径。",
         ),
-      ],
-      [
-        "meth-price",
-        t("Verified price", "核验价格"),
-        t(
-          "An accepted Best Offer needs evidence of the actual paid price. If you select item plus observed shipping, the shipping amount must also be known. Unconfirmed prices and unknown shipping stay out of the corresponding price calculation.",
-          "Best Offer 需有实际接受金额的证据。选择商品价加已观察运费时，所需运费也必须已知。未经核验的金额和未知的所需运费不会进入对应价格统计。",
+      },
+      {
+        id: "meth-2",
+        heading: t("How the median is computed", "中位价、四分位与截尾均价算法"),
+        body: t(
+          "We start from the full qualified candidate snapshot stored in integer USD cents. The headline number is the Type 7 median, paired with the P25–P75 typical range and 5% trimmed mean (removing floor(5% × n) values from each tail). Fewer than 8 verified sales return null rather than publishing a misleading estimate.",
+          "统计始终基于完整合格快照并采用整数美元分计算。主指标使用 Type 7 分位数中位价，配合 P25–P75 典型区间以及两端各切除 floor(5% × n) 条的 5% 截尾均价；有效核验成交少于 8 条时强制置空，绝不给出误导估计。",
         ),
-      ],
-      [
-        "meth-median",
-        t("Median and typical range", "中位价与典型区间"),
-        t(
-          "We use the complete qualified snapshot and integer cents. The typical range uses the 25th and 75th percentiles with Type 7 interpolation. The trimmed mean removes floor(5% × n) values from each end. A sample with fewer than eight verified prices has no central estimate.",
-          "使用完整合格快照与整数分。典型区间为 Type 7 插值的第 25 与第 75 百分位。截尾均价从两端各去掉 floor(5% × n) 条。核验价格不足 8 条时不计算中心估计。",
+      },
+      {
+        id: "meth-4",
+        heading: t("The five quality dimensions", "五维可核验质量结构"),
+        body: t(
+          "Every result reports structured signals for attribute match, price verifiability share, sample tier (insufficient <8, limited 8–29, sufficient ≥30), comparable coverage ratio, and data recency. quality.total_score stays intentionally null so variation is never hidden behind a synthetic letter grade.",
+          "所有结果均拆解展示强属性匹配率、核验实价占比、样本充分性档位（<8 不足、8–29 有限、≥30 充足）、可比覆盖率以及时效性。质量总分字段始终保持为 null，绝不用单一合成分遮掩样本风险。",
         ),
-      ],
-      [
-        "meth-cov",
-        t("Coverage and exclusions", "覆盖与排除"),
-        t(
-          "The results show how many sales we observed, how many are comparable, and how many have a verified price for the selected basis. Use the date of the snapshot when citing results. The original and adjusted views are both available to export when your account has access.",
-          "结果显示已观察、可比及符合所选口径的核验价格数量。引用时请附快照日期。有权访问完整样本的账户可导出原快照或调整视图。",
+      },
+      {
+        id: "meth-6",
+        heading: t("Coverage & freshness limits", "窗口边界与时效降级规则"),
+        body: t(
+          "Delivered research represents qualifying completed transactions observed in the 30-day or 90-day window on eBay US (USD), not full marketplace volume. Records outside the window, missing required shipping under a total-cost basis, or revoked by permission epoch are automatically excluded.",
+          "结果体现指定窗口内符合条件的 eBay 美国站（USD）实际观测样本，而非平台全市场总销量。超出时间窗口、总价口径缺运费或所属数据源权限撤销的记录均会被即时阻断与剥离。",
         ),
-      ],
+      },
     ];
     content = (
       <>
         <section className="page-head">
           <div className="wrap">
-            <p className="eyebrow">{t("Methodology", "方法论规范")}</p>
-            <h1>{title}</h1>
-            <div className="inshort mt-18">
+            <p className="eyebrow">{t("METHODOLOGY", "方法论规范")}</p>
+            <h1>
+              {t("How SoldBench prices are ", "价格研究方法：")}
+              <span className="kw">{t("made", "成交统计与核验规则")}</span>
+            </h1>
+            <div className="inshort mt-20">
               <b>{t("In short:", "核心摘要：")}</b>{" "}
               {t(
-                "a SoldBench median comes only from verified, comparable completed sales in integer USD cents using Type 7 quantiles. Fewer than 8 verified sales never produce a center estimate.",
-                "SoldBench 中位价仅基于核验且可比的实际成交记录（整数美元分），采用 Type 7 插值计算；不足 8 条有效成交绝不强行给出中心估计。",
+                "a SoldBench price is the median of verified, comparable, completed eBay US sales — computed in integer USD cents with Type 7 quantiles, with every exclusion rule exposed. Below 8 verified sales, no median is published.",
+                "SoldBench 价格采用整数美元分与 Type 7 插值计算，并仅纳入可比且核验实价的 eBay US 已完成成交记录；核验样本少于 8 条时一律不发布中位价。",
               )}
             </div>
           </div>
         </section>
         <section className="blk blk-tight-top">
           <div className="wrap">
-            <div className="docs-layout">
-              <div className="otp">
-                <h4>{t("On this page", "本页内容")}</h4>
-                {methods.map(([id, heading], idx) => (
-                  <a key={id} href={`#${id}`}>{`${idx + 1}. ${heading}`}</a>
-                ))}
-                <a href="#meth-layers">{`5. ${t("Price status layers", "价格可信度分层")}`}</a>
-                <a href="#meth-rules">{`6. ${t("Exclusion rules", "清洗排除规则")}`}</a>
-              </div>
+            <div className="meth-layout">
               <article className="docs-body">
-                {methods.map(([id, heading, copy]) => (
-                  <section className="card mt-16 published-section" id={id} key={id}>
-                    <h2>{heading}</h2>
-                    <p>{copy}</p>
-                  </section>
-                ))}
-                <section className="card mt-16" id="meth-layers">
-                  <h2>{t("Price status layers", "价格可信度分层")}</h2>
-                  <div className="dtable mt-12">
-                    <div className="dt-h">
-                      <span className="dt-c">{t("Layer", "价格层级")}</span>
-                      <span className="dt-c">{t("Meaning", "含义")}</span>
-                      <span className="dt-c">{t("In statistics?", "计入默认统计？")}</span>
-                    </div>
-                    <div className="dt-r">
-                      <span className="dt-c">
-                        <code>verified_actual</code>
-                      </span>
-                      <span className="dt-c">{t("Actual paid amount is known", "实际成交实付价已知")}</span>
-                      <span className="dt-c">
-                        <span className="badge badge-green">{t("Yes", "是")}</span>
-                      </span>
-                    </div>
-                    <div className="dt-r">
-                      <span className="dt-c">
-                        <code>unknown_best_offer</code>
-                      </span>
-                      <span className="dt-c">
-                        {t("Best Offer accepted; actual amount undisclosed", "议价成交但实际金额未公开")}
-                      </span>
-                      <span className="dt-c">
-                        <span className="badge badge-gray">{t("Diagnostics only", "仅限诊断")}</span>
-                      </span>
-                    </div>
-                    <div className="dt-r">
-                      <span className="dt-c">
-                        <code>listing_only</code>
-                      </span>
-                      <span className="dt-c">{t("Display / asking price only", "仅展示挂牌出价")}</span>
-                      <span className="dt-c">
-                        <span className="badge badge-gray">{t("Never", "永不计入")}</span>
-                      </span>
-                    </div>
+                <h2 id={methSections[0]?.id}>{methSections[0]?.heading}</h2>
+                <p>{methSections[0]?.body}</p>
+
+                <h2 id={methSections[1]?.id}>{methSections[1]?.heading}</h2>
+                <p>{methSections[1]?.body}</p>
+                <p>
+                  {t(
+                    "Worked example: five verified prices ($49.99, $54.50, $61.00, $68.00, $72.00) have a raw midpoint of $61.00 — yet at n = 5 SoldBench withholds the center statistic entirely, shows the observed min–max honestly, and charges 0 credits.",
+                    "示例说明：5 条核验记录（$49.99 / $54.50 / $61.00 / $68.00 / $72.00）虽有 $61.00 数值中点，但因 n = 5 < 8，系统拒绝输出中心统计，仅展示实际观察起止区间且不扣费。",
+                  )}
+                </p>
+
+                <h2 id="meth-3">{t("Price status layers", "价格可信度分层")}</h2>
+                <div className="dtable">
+                  <div className="dt-h">
+                    <span className="dt-c">{t("Layer", "层级")}</span>
+                    <span className="dt-c">{t("Meaning", "语义定义")}</span>
+                    <span className="dt-c">{t("In statistics?", "纳入默认统计？")}</span>
                   </div>
-                </section>
-                <section className="card mt-16" id="meth-rules">
-                  <h2>{t("Exclusion rules", "清洗排除规则")}</h2>
-                  <div className="dtable cols-2 mt-12">
-                    <div className="dt-h">
-                      <span className="dt-c">{t("Reason", "规则与原因")}</span>
-                      <span className="dt-c">{t("Handling", "处理方式")}</span>
-                    </div>
-                    {[
-                      [
-                        t(
-                          "Hard attribute mismatch (grade, capacity, model, edition)",
-                          "商品强属性冲突（评级、容量、型号、版本不匹配）",
-                        ),
-                        t("Excluded from comparable set", "移出可比样本集"),
-                      ],
-                      [
-                        t(
-                          "Multi-item lot, parts-only, or accessory listing",
-                          "多件捆绑套装、仅零件或配件刊登",
-                        ),
-                        t("Excluded from comparable set", "移出可比样本集"),
-                      ],
-                      [
-                        t("Duplicate observation of the same sale event", "同一成交事件重复观测"),
-                        t("Deduplicated before statistics", "统计前自动归并去重"),
-                      ],
-                      [
-                        t(
-                          "Unknown Best Offer price or missing required shipping",
-                          "议价实价未披露或缺少所需运费",
-                        ),
-                        t("Kept in diagnostics; never zero-filled", "留存诊断面板；绝不补零"),
-                      ],
-                    ].map(([rule, act]) => (
-                      <div className="dt-r" key={rule}>
-                        <span className="dt-c">{rule}</span>
-                        <span className="dt-c">{act}</span>
-                      </div>
-                    ))}
+                  <div className="dt-r">
+                    <span className="dt-c">
+                      <code>verified_actual</code>
+                    </span>
+                    <span className="dt-c">{t("Actual paid amount verified", "实付成交价已核验明确")}</span>
+                    <span className="dt-c">
+                      <span className="badge badge-green">{t("Yes", "纳入")}</span>
+                    </span>
                   </div>
-                </section>
-                <div className="actions mt-20">
-                  <a className="btn brand" href={link("/search")}>
+                  <div className="dt-r">
+                    <span className="dt-c">
+                      <code>unknown_best_offer</code>
+                    </span>
+                    <span className="dt-c">
+                      {t("Best Offer accepted; amount undisclosed", "议价成立但真实成交价未公开")}
+                    </span>
+                    <span className="dt-c">
+                      <span className="badge badge-gray">{t("Diagnostics only", "仅诊断")}</span>
+                    </span>
+                  </div>
+                  <div className="dt-r">
+                    <span className="dt-c">
+                      <code>listing_only</code>
+                    </span>
+                    <span className="dt-c">{t("Display or asking price only", "仅标价或活跃在售价格")}</span>
+                    <span className="dt-c">
+                      <span className="badge badge-gray">{t("Never", "绝不纳入")}</span>
+                    </span>
+                  </div>
+                </div>
+
+                <h2 id={methSections[2]?.id}>{methSections[2]?.heading}</h2>
+                <p>{methSections[2]?.body}</p>
+
+                <h2 id="meth-5">{t("What we exclude, and why", "清洗剔除规则说明")}</h2>
+                <div className="dtable cols-2">
+                  <div className="dt-h">
+                    <span className="dt-c">{t("Rule & Exclusion", "规则编号与排除对象")}</span>
+                    <span className="dt-c">{t("Handling", "处理策略")}</span>
+                  </div>
+                  {[
+                    [
+                      t(
+                        "R-01 Attribute mismatch (grade, model, capacity, size)",
+                        "R-01 核心强属性冲突（评级分数、型号、容量或版本不符）",
+                      ),
+                      t("Excluded from comparable set", "移出可比样本集"),
+                    ],
+                    [
+                      t(
+                        "R-02 Multi-item lots, parts-only, or accessory listings",
+                        "R-02 多件捆绑包、故障零件件或单卖配件",
+                      ),
+                      t("Excluded from comparable set", "移出可比样本集"),
+                    ],
+                    [
+                      t(
+                        "R-03 Duplicate observation of the same sale event",
+                        "R-03 同一笔实际成交事件的多次重复采集观测",
+                      ),
+                      t("Deduplicated before statistics", "按成交事件去重合并"),
+                    ],
+                    [
+                      t(
+                        "R-04 Undisclosed Best Offer or missing required shipping",
+                        "R-04 未公开实际接受价或总价口径缺必要运费",
+                      ),
+                      t("Isolated in diagnostics; never zero-filled", "隔离展示；绝不补零计算"),
+                    ],
+                    [
+                      t(
+                        "R-05 Statistical outlier beyond IQR bounds or out of window",
+                        "R-05 超过 IQR 围栏离群记录或超出时间窗口",
+                      ),
+                      t("Flagged / trimmed with rule explanation", "保留解释或按 5% 截尾剔除"),
+                    ],
+                  ].map(([rule, act]) => (
+                    <div className="dt-r" key={rule}>
+                      <span className="dt-c">{rule}</span>
+                      <span className="dt-c">{act}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <h2 id={methSections[3]?.id}>{methSections[3]?.heading}</h2>
+                <p>{methSections[3]?.body}</p>
+
+                <h2 id="meth-7">{t("Corrections & data takedown", "异常纠偏与权利申诉")}</h2>
+                <p>
+                  {t(
+                    "Found a comp that fails attribute parity or requires rights verification? Every inquiry is reviewed against immutable permission epochs and rule versions.",
+                    "发现不应纳入样本的记录或需核实来源权限时，可通过工单提交对应 query_id 与记录编号进行逐条核查。",
+                  )}
+                </p>
+                <div className="actions mt-16">
+                  <a className="btn btn-brand" href={link("/search")}>
                     {t("Search sold prices", "查询成交价")}
                   </a>
-                  <a className="btn ghost" href={link("/support")}>
+                  <a className="btn btn-ghost" href={link("/support")}>
                     {t("Report a data issue", "报告数据问题")}
                   </a>
                 </div>
               </article>
-              <aside className="docs-otp">
-                <div className="card">
+
+              <aside className="otp">
+                <h4>{t("ON THIS PAGE", "本页目录")}</h4>
+                <div className="otp-list">
+                  <a href="#meth-1">{`1. ${t("What a sold comp is", "什么是已售样本")}`}</a>
+                  <a href="#meth-2">{`2. ${t("Median & typical range", "中位价与典型区间")}`}</a>
+                  <a href="#meth-3">{`3. ${t("Price status layers", "价格可信度分层")}`}</a>
+                  <a href="#meth-4">{`4. ${t("Five quality dimensions", "五维质量结构")}`}</a>
+                  <a href="#meth-5">{`5. ${t("Exclusion rules", "清洗排除规则")}`}</a>
+                  <a href="#meth-6">{`6. ${t("Coverage & limits", "窗口与覆盖边界")}`}</a>
+                  <a href="#meth-7">{`7. ${t("Corrections & takedown", "纠偏与反馈")}`}</a>
+                </div>
+                <div className="card mt-20">
                   <h3>{t("Try the workbench", "试用研究工作台")}</h3>
-                  <p className="small mt-8">
+                  <p>
                     {t(
                       "Filter conditions, inspect exclusions, and recompute adjusted statistics locally.",
                       "现场调整成色过滤、查阅排除明细并重算本地排除均值。",
@@ -596,62 +756,96 @@ export function renderPage(
       </>
     );
   } else if (page === "/agents") {
+    const clientSetupMap: Array<[string, string, string]> = [
+      [
+        "claude",
+        "Claude Code",
+        `# Add SoldBench Hosted MCP server\nclaude mcp add --transport http soldbench https://soldbench.com/mcp \\\n  --header "Authorization: Bearer $SOLDBENCH_API_KEY"`,
+      ],
+      [
+        "chatgpt",
+        "ChatGPT",
+        `# ChatGPT -> Settings -> Connectors -> Add custom connector\nName: SoldBench\nURL:  https://soldbench.com/mcp\nAuth: Bearer $SOLDBENCH_API_KEY`,
+      ],
+      [
+        "cursor",
+        "Cursor",
+        `// ~/.cursor/mcp.json\n{\n  "mcpServers": {\n    "soldbench": {\n      "url": "https://soldbench.com/mcp",\n      "headers": { "Authorization": "Bearer $SOLDBENCH_API_KEY" }\n    }\n  }\n}`,
+      ],
+      [
+        "vscode",
+        "VS Code",
+        `// .vscode/mcp.json\n{\n  "servers": {\n    "soldbench": {\n      "type": "http",\n      "url": "https://soldbench.com/mcp",\n      "headers": { "Authorization": "Bearer $SOLDBENCH_API_KEY" }\n    }\n  }\n}`,
+      ],
+      [
+        "windsurf",
+        "Windsurf",
+        `// ~/.codeium/windsurf/mcp_config.json\n{\n  "mcpServers": {\n    "soldbench": {\n      "serverUrl": "https://soldbench.com/mcp",\n      "headers": { "Authorization": "Bearer $SOLDBENCH_API_KEY" }\n    }\n  }\n}`,
+      ],
+    ];
+    const heroSnippet = `// ${t("Example MCP call", "MCP 调用示例")}\n{\n  "tool": "sold_search",\n  "arguments": {\n    "q": "Nintendo Switch OLED",\n    "window_days": 90,\n    "limit": 50\n  }\n}\n\n# ${t("Verifiable response invariants", "严格不变式保证")}\nn_observed: 12\nn_comparable: 10\nn_price_verified: 8\ncoverage_status: "observed_sample"\nsource_price_status: "verified_only"`;
+    const playbookRules = [
+      t(
+        "Quote the median and P25–P75 range alongside sample size (n_price_verified).",
+        "始终附带净中位价、P25–P75 区间及有效核验样本数量。",
+      ),
+      t(
+        "Below 8 verified sales, report insufficient data honestly — never fabricate a median.",
+        "少于 8 条有效核验价格时如实告知样本不足，严禁凭空编造价格。",
+      ),
+      t(
+        "Never convert undisclosed Best Offer amounts or unknown shipping into zero.",
+        "未公开实价的议价与未知运费绝不补零混入统计。",
+      ),
+      t(
+        "Cite query_id and data_as_of in every price summary for full auditability.",
+        "回答时附带 query_id 与 data_as_of 以便核验溯源。",
+      ),
+      t(
+        "Stop cleanly on 402 quota errors and respect Retry-After on 429/503 responses.",
+        "遇到 402 额度不足立即停止，遇到 429/503 遵守 Retry-After 重试退避。",
+      ),
+    ];
+
     content = (
       <>
         <section className="page-head">
           <div className="wrap">
             <div className="agents-hero-grid">
               <div>
-                <p className="eyebrow">{t("AI & Agents", "AI 与 Agent 集成")}</p>
-                <h1>{title}</h1>
-                <p className="sub">
-                  {zh ? (
-                    <>
-                      通过托管 MCP（OAuth 2.1/PKCE 或 API Key）或 REST API{" "}
-                      <span className="mono">/v1/sold</span> 接入 Claude、Cursor
-                      及自定义智能体工作流。完全复用同一规则、账本与计费约束。
-                    </>
-                  ) : (
-                    <>
-                      Connect Claude, Cursor, ChatGPT, or custom LLM workflows over Hosted MCP (
-                      <span className="mono">/mcp</span> with OAuth 2.1/PKCE or API key) or REST (
-                      <span className="mono">/v1/sold</span>). One rule set, one ledger, max 1 credit per
-                      valid delivered search.
-                    </>
+                <p className="eyebrow">{t("AI & AGENTS", "AI 与智能体集成")}</p>
+                <h1>
+                  {t("eBay sold comps for ", "面向 AI 智能体的 ")}
+                  <span className="kw">{t("AI agents", "可验证成交依据")}</span>
+                </h1>
+                <p className="agents-hero-sub">
+                  {t(
+                    "Connect Claude, Cursor, ChatGPT, or custom workflows over Hosted MCP (/mcp with OAuth 2.1/PKCE or API key) or REST (/v1/sold). Shared rules, shared ledger, max 1 credit per valid delivered search.",
+                    "通过托管 MCP 服务（OAuth 2.1/PKCE 或 API Key）或 REST API (/v1/sold) 接入主流智能体工作流。统一清洗口径，单次有效交付最多消耗 1 额度。",
                   )}
                 </p>
-                <div className="actions mt-24">
+                <div className="agents-hero-actions">
                   <a className="btn btn-brand" href={zh ? "/docs/zh-CN/mcp" : "/docs/en/mcp"}>
                     {t("Explore MCP documentation →", "查阅 MCP 接入指南 →")}
                   </a>
                   <a className="btn btn-ghost" href={link("/playground")}>
-                    {t("Open Playground", "打开调试台")}
-                  </a>
-                  <a className="btn btn-ghost" href="/.well-known/skills/soldbench/SKILL.md">
-                    {t("Agent Skill (SKILL.md)", "Agent Skill 规范")}
+                    {t("Open API Playground", "打开调试台")}
                   </a>
                 </div>
+                <p className="agents-hero-note">
+                  {t("Machine-readable specifications:", "机器可读接口与规范文件：")}{" "}
+                  <a href="/.well-known/skills/soldbench/SKILL.md">Agent Skill</a> ·{" "}
+                  <a href="/openapi.json">OpenAPI 3.1</a> · <a href="/llms.txt">llms.txt</a>
+                </p>
               </div>
-              <div className="codeblock cap">
+              <div className="codeblock cbwrap">
                 <div className="cb-head">
-                  <span>{t("MCP · sold_search example", "MCP · sold_search 示例调用")}</span>
+                  <span>{t("sold_search — example request", "sold_search — 调用示例")}</span>
                   <button type="button" className="copy-btn" data-copy="#agentHeroCode">
                     {t("Copy", "复制")}
                   </button>
                 </div>
-                <pre id="agentHeroCode">{`{
-  "tool": "sold_search",
-  "arguments": {
-    "q": "Nintendo Switch OLED",
-    "window_days": 90,
-    "limit": 50
-  }
-}
-
-# Verified response invariants:
-# - median_cents = null if n_price_verified < 8
-# - quality.total_score = null (no fake composite)
-# - query_id & candidate_set_hash included`}</pre>
+                <pre id="agentHeroCode">{highlightCode(heroSnippet, "json")}</pre>
               </div>
             </div>
           </div>
@@ -659,53 +853,11 @@ export function renderPage(
 
         <section className="blk blk-tight-top">
           <div className="wrap ag-stack">
-            <div className="grid3 eq">
-              <article className="card">
-                <p className="eyebrow">{t("Integration guide", "集成指令")}</p>
-                <h2 className="mt-8">Agent Skill</h2>
-                <p>
-                  {t(
-                    "Use the integration guide to generate a server-side client and handle async results and claims.",
-                    "使用集成指南生成服务端客户端，并处理异步结果和显式领取。",
-                  )}
-                </p>
-                <p className="card-foot">
-                  <a href="/.well-known/skills/soldbench/SKILL.md">SKILL.md</a>
-                </p>
-              </article>
-              <article className="card">
-                <p className="eyebrow">{t("Model Context Protocol", "托管工具协议")}</p>
-                <h2 className="mt-8">MCP</h2>
-                <p>
-                  {t(
-                    "Connect a host to the local tool server. Query and read approved snapshots with the same account permissions and billing rules.",
-                    "将宿主连接至本机工具服务。查询与读取获准快照时，沿用同一账户权限及计费规则。",
-                  )}
-                </p>
-                <p className="card-foot">
-                  <a href={zh ? "/docs/zh-CN/mcp" : "/docs/en/mcp"}>{t("Connect MCP", "接入 MCP")}</a>
-                </p>
-              </article>
-              <article className="card">
-                <p className="eyebrow">{t("Interactive testing", "在线调试")}</p>
-                <h2 className="mt-8">REST API</h2>
-                <p>
-                  {t(
-                    "Run the first synthetic query through the API Playground. Inspect actual status codes, response headers and request IDs.",
-                    "通过 API 调试台运行首次合成查询，核对实际状态码、响应头和请求编号。",
-                  )}
-                </p>
-                <p className="card-foot">
-                  <a href={link("/playground")}>{t("Open Playground", "打开调试台")}</a>
-                </p>
-              </article>
-            </div>
-
-            <div className="card">
-              <h2>{t("Ways to connect", "接入方式对照")}</h2>
-              <div className="dtable mt-12">
+            <div className="card ag-card">
+              <h2 className="serif ag-title">{t("Ways to connect", "接入方式对照")}</h2>
+              <div className="dtable">
                 <div className="dt-h">
-                  <span className="dt-c">{t("Method", "方式")}</span>
+                  <span className="dt-c">{t("Method", "接入方式")}</span>
                   <span className="dt-c">{t("Best for", "适用场景")}</span>
                   <span className="dt-c">{t("Auth & billing", "认证与计费")}</span>
                 </div>
@@ -714,12 +866,12 @@ export function renderPage(
                     <b>{t("Hosted MCP Server", "托管 MCP 服务")}</b>
                   </span>
                   <span className="dt-c">
-                    {t("Claude, Cursor & MCP hosts", "Claude / Cursor 等桌面客户端")}
+                    {t("Claude, Cursor, ChatGPT & MCP hosts", "Claude / Cursor / ChatGPT 等客户端")}
                   </span>
                   <span className="dt-c">
                     {t(
                       "OAuth 2.1 / PKCE or Bearer key · 1 credit / search",
-                      "OAuth 2.1/PKCE 或 API Key · 同口径扣费",
+                      "OAuth 2.1/PKCE 或 API Key · 同口径计费",
                     )}
                   </span>
                 </div>
@@ -728,48 +880,219 @@ export function renderPage(
                     <b>{t("REST API v1", "REST API v1")}</b>
                   </span>
                   <span className="dt-c">
-                    {t("Custom backend tools & pipelines", "自研后端服务与批量工作流")}
+                    {t("Custom backend tools & pipelines", "自研后端系统与自动化管线")}
                   </span>
                   <span className="dt-c">
-                    {t("Bearer API key · async claim at 0 extra cost", "Bearer API Key · 支持显式领取")}
+                    {t("Bearer API key · explicit claim at 0 extra cost", "Bearer API Key · 支持显式领取")}
                   </span>
                 </div>
                 <div className="dt-r">
                   <span className="dt-c">
-                    <b>{t("Machine-readable docs", "机器可读规范")}</b>
+                    <b>{t("Agent Skill & OpenAPI", "Agent Skill 与规范")}</b>
                   </span>
-                  <span className="dt-c">OpenAPI, SKILL.md, llms.txt</span>
-                  <span className="dt-c">{t("Public read-only specifications", "公开只读规范文档")}</span>
+                  <span className="dt-c">SKILL.md, OpenAPI 3.1, llms.txt</span>
+                  <span className="dt-c">{t("Public read-only machine specs", "公开只读规范文件")}</span>
                 </div>
               </div>
             </div>
 
-            <div className="grid2 eq">
-              <div className="card">
-                <p className="eyebrow">{t("Reference answer", "规范回答示例")}</p>
-                <h3 className="mt-8">{t("Paste-in system instruction", "系统提示词模板")}</h3>
-                <div className="codeblock cbwrap mt-12">
-                  <div className="cb-head">
-                    <span>{t("Agent instructions", "Agent 指令模板")}</span>
-                    <button type="button" className="copy-btn" data-copy="#agentPromptCode">
-                      {t("Copy", "复制")}
-                    </button>
+            <div>
+              <h2 className="serif ag-sec">
+                {t("Two tools. One price definition.", "核心工具，严格共享同一口径")}
+              </h2>
+              <div className="grid2 eq">
+                <div className="card">
+                  <p className="eyebrow eyebrow-brand">TOOL 01</p>
+                  <h3 className="mt-8">sold_search</h3>
+                  <p>
+                    {t(
+                      "Submit and retrieve comparable sold statistics (median, P25–P75, trimmed mean) with rule-numbered exclusions.",
+                      "执行可比成交研究并获取带规则排除理由的中位价、区间及截尾均价。",
+                    )}
+                  </p>
+                  <div className="codeblock cbwrap mt-14">
+                    <div className="cb-head">
+                      <span>{t("sold_search — arguments", "参数示例")}</span>
+                      <button type="button" className="copy-btn" data-copy="#agToolSearch">
+                        {t("Copy", "复制")}
+                      </button>
+                    </div>
+                    <pre id="agToolSearch">
+                      {highlightCode(
+                        '{\n  "q": "Nintendo Switch OLED",\n  "window_days": 90,\n  "limit": 50\n}',
+                        "json",
+                      )}
+                    </pre>
                   </div>
-                  <pre id="agentPromptCode">{`When pricing an item, query SoldBench before answering:
-1. Call sold_search (or GET /v1/sold) with exact model/grade keywords.
-2. Quote the clean median, P25–P75 range, and n_price_verified count.
-3. If median_cents is null (n < 8), report insufficient verified sample honestly.
-4. Cite query_id and data_as_of from meta.`}</pre>
+                  <p className="card-foot">
+                    <a href={zh ? "/docs/zh-CN/mcp" : "/docs/en/mcp"}>{t("Connect MCP", "接入 MCP")}</a>
+                  </p>
+                </div>
+                <div className="card">
+                  <p className="eyebrow eyebrow-brand">TOOL 02</p>
+                  <h3 className="mt-8">sold_stats</h3>
+                  <p>
+                    {t(
+                      "Re-read summary statistics from snapshots you already claimed or accessed — never starts a billable run.",
+                      "复读已领取或可访问快照的统计摘要，永不触发新一次计费查询。",
+                    )}
+                  </p>
+                  <div className="codeblock cbwrap mt-14">
+                    <div className="cb-head">
+                      <span>{t("sold_stats — arguments", "参数示例")}</span>
+                      <button type="button" className="copy-btn" data-copy="#agToolStats">
+                        {t("Copy", "复制")}
+                      </button>
+                    </div>
+                    <pre id="agToolStats">
+                      {highlightCode(
+                        '{\n  "query_id": "q_demo_oled",\n  "fields": ["median_cents", "p25_cents", "p75_cents", "n_price_verified"]\n}',
+                        "json",
+                      )}
+                    </pre>
+                  </div>
+                  <p className="card-foot">
+                    <a href={link("/playground")}>{t("Test in API Playground →", "前往调试台实测 →")}</a>
+                  </p>
                 </div>
               </div>
+            </div>
+
+            <div className="card ag-card">
+              <h2 className="serif ag-title">{t("Set up your client", "选择您的 AI 客户端配置")}</h2>
+              <div className="tabs" role="tablist" aria-label={t("MCP clients", "MCP 客户端")}>
+                {clientSetupMap.map(([key, label], idx) => (
+                  <button
+                    key={key}
+                    type="button"
+                    data-agent-client={key}
+                    className={idx === 0 ? "on" : undefined}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="codeblock mt-12">
+                <div className="cb-head">
+                  <span data-agent-client-title="">Claude Code setup</span>
+                  <button type="button" className="copy-btn" data-copy="#agentClientCode">
+                    {t("Copy", "复制")}
+                  </button>
+                </div>
+                <pre id="agentClientCode" data-agent-client-code="">
+                  {highlightCode(clientSetupMap[0]?.[2] ?? "", "bash")}
+                </pre>
+              </div>
+            </div>
+
+            <div className="card ag-card">
+              <h2 className="serif ag-title">
+                {t("Paste-in instructions (CLAUDE.md / AGENTS.md)", "系统提示词模板")}
+              </h2>
+              <div className="codeblock cbwrap">
+                <div className="cb-head">
+                  <span>{t("Setup prompt", "提示词内容")}</span>
+                  <button type="button" className="copy-btn" data-copy="#agentPromptCode">
+                    {t("Copy", "复制")}
+                  </button>
+                </div>
+                <pre id="agentPromptCode">{`When pricing anything, use SoldBench.
+1. Call GET /v1/sold (or sold_search MCP tool) with exact model/grade keywords.
+2. Report median, typical range (P25-P75), and n_price_verified count.
+3. If median_cents is null (n < 8), report insufficient verified sample honestly.
+4. Always cite query_id and candidate_set_hash from meta.`}</pre>
+              </div>
+            </div>
+
+            <div className="card ag-card">
+              <h2 className="serif ag-title">{t("Agent playbook", "Agent 集成最佳实践准则")}</h2>
+              <ol className="ag-list">
+                {playbookRules.map((rule) => (
+                  <li key={rule}>{rule}</li>
+                ))}
+              </ol>
+            </div>
+
+            <div className="grid2 eq">
               <div className="card">
-                <p className="eyebrow">{t("Good behavior", "输出质量示例")}</p>
-                <h3 className="mt-8">{t("Verified answer format", "符合规范的回答示例")}</h3>
+                <p className="eyebrow eyebrow-brand">{t("REFERENCE BEHAVIOUR", "输出规范示例")}</p>
+                <h3 className="mt-8">{t("Good agent answer", "合规回答示例")}</h3>
                 <div className="ag-answer">
                   {t(
-                    "Across 8 verified eBay US completed sales in the snapshot, the clean median is $274.00 with a typical range of $272.25–$275.75 (5% trimmed mean $274.00). Conflicting bundles and undisclosed Best Offer amounts were isolated. Reference: query_id & candidate_set_hash attached.",
-                    "基于该快照中 8 条已核验 eBay 美国站实际成交记录，净中位价为 $274.00，典型区间 $272.25–$275.75（5% 截尾均价 $274.00）。未核实议价与非同类样本已排除，附 query_id 与候选集哈希可供追溯。",
+                    "Across 8 verified eBay US completed sales in the snapshot, the clean median is $274.00 (P25–P75: $272.25–$275.75; 5% trimmed mean: $274.00). Non-comparable lots and undisclosed Best Offer entries were excluded cleanly. Query ID & hash attached.",
+                    "基于快照中 8 条已核验 eBay 美国站实际成交记录，净中位价为 $274.00（P25–P75：$272.25–$275.75；5% 截尾均价 $274.00）。未披露实价议价与不匹配项均已排除，附 query_id 与候选集哈希。",
                   )}
+                </div>
+                <p className="card-foot">
+                  <a href={link("/methodology")}>{t("How the evidence pack works →", "查看方法论详情 →")}</a>
+                </p>
+              </div>
+              <div className="card">
+                <p className="eyebrow eyebrow-brand">{t("OPERATIONAL CONTRACT", "工程约束护栏")}</p>
+                <h3 className="mt-8">{t("Required safeguards", "必须遵循的数据约束")}</h3>
+                <ul className="ag-safe">
+                  {[
+                    t(
+                      "Reject unsupported historical windows rather than silently widening dates.",
+                      "拒绝不合法窗口参数，不擅自更改过滤语义。",
+                    ),
+                    t(
+                      "Never fabricate a Best Offer price or fill unknown shipping as zero.",
+                      "严禁编造议价金额，未知运费绝不按零填充。",
+                    ),
+                    t(
+                      "When n_price_verified < 8, report insufficient sample with no median.",
+                      "有效样本低于 8 条时不报中位价且零扣费。",
+                    ),
+                    t(
+                      "Same key, same quota, and identical rules across MCP and REST.",
+                      "MCP 与 REST API 完全共享同账号密钥与账本。",
+                    ),
+                  ].map((item) => (
+                    <li key={item}>
+                      <span className="tick">✓</span>
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            <div className="card ag-card">
+              <h2 className="serif ag-title">{t("Trial & limits", "试用配额与速率说明")}</h2>
+              <div className="kv kv-even">
+                <div>
+                  <b>{t("OAuth 2.1 / PKCE", "OAuth 2.1 / PKCE")}</b>
+                  <span>
+                    {t(
+                      "Supported in MCP host security settings",
+                      "支持托管 MCP 授权并支持随时在账户安全页撤销",
+                    )}
+                  </span>
+                </div>
+                <div>
+                  <b>{t("With your API key", "使用个人 API 密钥")}</b>
+                  <span>
+                    {t(
+                      "Plan quota & per-minute rate limit enforced uniformly",
+                      "严格执行账户所处档位的额度与限流",
+                    )}
+                  </span>
+                </div>
+                <div>
+                  <b>{t("Cost", "计费单位")}</b>
+                  <span>
+                    {t("Max 1 credit per valid delivered search", "每次有效交付查价最多消耗 1 额度")}
+                  </span>
+                </div>
+                <div>
+                  <b>{t("Statistics scope", "统计覆盖范围")}</b>
+                  <span>
+                    {t(
+                      "Computed on full comparable snapshot (up to 200)",
+                      "统计永远基于至多 200 条完整可比快照计算",
+                    )}
+                  </span>
                 </div>
               </div>
             </div>
@@ -1151,79 +1474,88 @@ export function renderPage(
       </section>
     );
   } else if (page === "/pricing") {
-    const illustrativePlans = [
+    const subPlans = [
       {
+        key: "free",
         name: t("Free", "免费体验"),
-        price: "$0",
-        per: t("/ mo", "/ 月"),
+        priceMo: "$0",
+        priceYr: "$0",
+        noteMo: t("Free forever", "永久免费"),
+        noteYr: t("Free forever", "永久免费"),
         credits: t("100 credits / mo", "每月 100 额度"),
         rate: "30 req/min",
         feats: [
           t("Up to 200 comps per search", "每次最多返回 200 条可比成交"),
-          t("Full evidence pack included", "全部结果随附完整证据包"),
-          t("Web workbench + API + MCP", "覆盖网页端、API 与 MCP"),
+          t("Evidence pack on every result", "所有结果随附完整证据包"),
+          t("Dashboard search + API access", "网页工作台与 API / MCP 共用规则"),
+          t("No credit card required", "无需绑定信用卡即可体验"),
         ],
         pop: false,
       },
       {
+        key: "starter",
         name: "Starter",
-        price: "$9",
-        per: t("/ mo", "/ 月"),
+        priceMo: "$9",
+        priceYr: "$7.50",
+        noteMo: t("per month", "按月计费"),
+        noteYr: t("$90 billed annually · 2 months free", "年付 $90 · 省 2 个月费用"),
         credits: t("2,000 credits / mo", "每月 2,000 额度"),
         rate: "60 req/min",
         feats: [
-          t("10-minute identical reuse free", "10 分钟内同参数复用免费"),
-          t("Full CSV & JSON exports", "支持权威/调整双视图导出"),
-          t("Saved snapshots & compare", "支持保存快照与双侧对比"),
+          t("Everything in Free", "包含免费版全部功能"),
+          t("Usage dashboard & immutable ledger", "用量分析与不可篡改额度流水"),
+          t("10-minute repeat reuse free", "10 分钟内同参数复用免费"),
+          t("Full CSV & JSON exports", "权威/调整双视图完整导出"),
         ],
         pop: false,
       },
       {
+        key: "pro",
         name: "Pro",
-        price: "$29",
-        per: t("/ mo", "/ 月"),
+        priceMo: "$29",
+        priceYr: "$24",
+        noteMo: t("per month", "按月计费"),
+        noteYr: t("$290 billed annually · 2 months free", "年付 $290 · 省 2 个月费用"),
         credits: t("10,000 credits / mo", "每月 10,000 额度"),
         rate: "300 req/min",
         feats: [
-          t("Priority async queue & claim", "优先异步队列与显式领取"),
+          t("Everything in Starter", "包含 Starter 全部功能"),
+          t("Priority async queue & explicit claim", "高吞吐异步队列与显式领取"),
           t("Batch pricing & webhook alerts", "支持批量查价与 Webhook 告警"),
-          t("Email & ticket priority SLA", "工单优先支持响应"),
+          t("Priority email support", "工单优先处理响应"),
         ],
         pop: true,
-      },
-      {
-        name: t("Top-up", "永久加量包"),
-        price: "$10",
-        per: t("one-time", "一次性"),
-        credits: t("1,500 credits", "1,500 额度"),
-        rate: t("Never expires", "永久有效"),
-        feats: [
-          t("Stacks on any active tier", "可叠加至任意活跃套餐"),
-          t("Drawn after subscription bucket", "在订阅与活动桶之后扣除"),
-          t("Refunds return to same bucket", "退款原路径退回所属额度桶"),
-        ],
-        pop: false,
       },
     ];
     content = (
       <>
         <section className="page-head">
           <div className="wrap">
-            <p className="eyebrow">{t("Pricing", "定价与额度")}</p>
+            <p className="eyebrow">{t("PRICING", "定价与额度")}</p>
             <h1>{title}</h1>
             <p className="sub">
               {t(
-                "One valid delivered search costs at most one credit — whether returning 1 or 200 comps.",
-                "符合条件的标准查价，在领取交付结果时最多扣除 1 个额度（每次最多返回 200 条）。",
+                "One request = one keyword search = up to 200 sold listings. Whether it returns 10 or 200, you pay for one search.",
+                "一次标准查询最多返回 200 条核验记录——无论返回 10 条还是 200 条，最多只计 1 额度。",
               )}
             </p>
             {status}
             <div className="inshort mt-20">
-              <b>{t("In short:", "计费规则速览：")}</b>{" "}
+              <b>{t("In short:", "核心计费原则：")}</b>{" "}
               {t(
-                "waiting in an async queue, failed lookups, low-sample (<8 verified sales) results, and duplicate re-fetches within 10 minutes are all free. Credits settle atomically only when a deliverable result is claimed.",
-                "异步等待、失败、不足 8 条的低样本结果以及 10 分钟内同参数复取均不扣费；异步任务仅在显式领取可交付结果时原子扣除 1 额度。",
+                "1 credit = 1 successful search, whether it returns 1 or 200 comps. Failed searches, low-sample (<8 verified sales) results, async queueing, and identical repeats within 10 minutes are all free. You settle atomically at claim time.",
+                "1 额度 = 1 次成功交付查询；查询失败、不足 8 条的低样本、异步队列等待以及 10 分钟内同参数复取均免费，异步结果仅在显式领取时原子扣费。",
               )}
+            </div>
+            <div className="actions mt-24">
+              <div className="toggle">
+                <button type="button" className="on" data-billing-cycle="monthly">
+                  {t("Monthly", "按月付费")}
+                </button>
+                <button type="button" data-billing-cycle="annual">
+                  {t("Annual · 2 months free", "按年付费 · 省 2 个月")}
+                </button>
+              </div>
             </div>
           </div>
         </section>
@@ -1248,18 +1580,24 @@ export function renderPage(
               <p className="eyebrow">
                 {t(
                   "Illustrative schedule (pending final commercial approval)",
-                  "参考档位概览（待最终商业审批发布）",
+                  "参考档位概览（待最终商业审批生效）",
                 )}
               </p>
-              <div className="grid4 eq mt-16">
-                {illustrativePlans.map((plan) => (
-                  <div className={`card price-card${plan.pop ? " pop" : ""}`} key={plan.name}>
+              <div className="grid3 eq mt-16" data-pricing-grid="">
+                {subPlans.map((plan) => (
+                  <div className={`card price-card${plan.pop ? " pop" : ""}`} key={plan.key}>
                     {plan.pop && <span className="pop-tag">{t("MOST POPULAR", "最受欢迎")}</span>}
                     <p className={`eyebrow${plan.pop ? " eyebrow-brand" : ""}`}>{plan.name}</p>
                     <div className="price-amt-row">
-                      <span className="amt">{plan.price}</span> <span className="small">{plan.per}</span>
+                      <span className="amt" data-price-mo={plan.priceMo} data-price-yr={plan.priceYr}>
+                        {plan.priceMo}
+                      </span>{" "}
+                      <span className="small">/ {t("mo", "月")}</span>
                     </div>
-                    <p>
+                    <p data-note-mo={plan.noteMo} data-note-yr={plan.noteYr}>
+                      {plan.noteMo}
+                    </p>
+                    <p className="mt-10">
                       <b>{plan.credits}</b> · {plan.rate}
                     </p>
                     <ul>
@@ -1268,23 +1606,38 @@ export function renderPage(
                       ))}
                     </ul>
                     <a className={plan.pop ? "btn btn-brand" : "btn btn-ghost"} href={link("/register")}>
-                      {t("Create account", "创建账户")}
+                      {t("Create free account", "免费注册账户")}
                     </a>
                   </div>
                 ))}
               </div>
+
+              <div className="card pricing-bar mt-20">
+                <div>
+                  <h3>{t("Top-up credits — $10 / 1,500 credits", "永久加量包 — $10 / 1,500 额度")}</h3>
+                  <p>
+                    {t(
+                      "Never expire. Purchased credits sit in their own bucket and are drawn only after subscription credits.",
+                      "购买加量包永久有效，仅在周期订阅与优惠桶用尽后扣除。",
+                    )}
+                  </p>
+                </div>
+                <a className="btn btn-brand" href={link("/account/billing")}>
+                  {t("Open account billing", "前往账户账单")}
+                </a>
+              </div>
             </div>
 
-            <h2 className="mt-36">{t("Plans side by side", "档位详细对照")}</h2>
+            <h2 className="serif mt-36">{t("Plans side by side", "档位详细对照")}</h2>
             <div className="live-card mt-12">
               <div className="table-scroll">
-                <table className="mini-table">
+                <table>
                   <thead>
                     <tr>
-                      <th>{t("Tier", "套餐")}</th>
-                      <th className="num">{t("Indicative rate", "参考价格")}</th>
+                      <th>{t("Plan", "套餐")}</th>
+                      <th className="num">{t("Price", "价格")}</th>
                       <th className="num">{t("Credits", "包含额度")}</th>
-                      <th className="num">{t("Per 1,000 searches", "每千次参考单价")}</th>
+                      <th className="num">{t("Cost per 1,000", "千次查询成本")}</th>
                       <th>{t("Rate limit", "速率限制")}</th>
                     </tr>
                   </thead>
@@ -1317,14 +1670,47 @@ export function renderPage(
                       <td className="num">$10</td>
                       <td className="num">1,500</td>
                       <td className="num">$6.67</td>
-                      <td>{t("Never expires", "永不过期")}</td>
+                      <td>{t("Uses active plan limit", "沿用当前档位限流")}</td>
                     </tr>
                   </tbody>
                 </table>
               </div>
             </div>
 
-            <h2 className="mt-36">{t("What costs a credit?", "扣费明细与额度桶消耗顺序")}</h2>
+            <h2 className="serif mt-36">{t("High-volume plans", "大用量扩展方案（待商业审批）")}</h2>
+            <div className="live-card mt-12">
+              <div className="dtable cols-4">
+                <div className="dt-h">
+                  <span className="dt-c">{t("Requests / mo", "每月请求量")}</span>
+                  <span className="dt-c">{t("Rate limit", "速率限制")}</span>
+                  <span className="dt-c num">{t("Price / mo", "月费参考")}</span>
+                  <span className="dt-c num">{t("Per 1,000", "每千次参考")}</span>
+                </div>
+                {[
+                  ["100K", "300 / min", "$129", "$1.29"],
+                  ["250K", "300 / min", "$299", "$1.20"],
+                  ["500K", "600 / min", "$549", "$1.10"],
+                  ["1M", "600 / min", "$699", "$0.70"],
+                ].map(([req, rate, price, per]) => (
+                  <div className="dt-r" key={req}>
+                    <span className="dt-c">{req}</span>
+                    <span className="dt-c">{rate}</span>
+                    <span className="dt-c num price">{price}</span>
+                    <span className="dt-c num">{per}</span>
+                  </div>
+                ))}
+                <div className="dt-r">
+                  <span className="dt-c">{t("More than 1M", "超过 100 万次")}</span>
+                  <span className="dt-c">{t("Custom", "定制配置")}</span>
+                  <span className="dt-c num">—</span>
+                  <span className="dt-c num">
+                    <a href="mailto:support@soldbench.com">{t("Contact us", "联系我们")}</a>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <h2 className="serif mt-36">{t("What costs a credit?", "扣费明细与额度桶消耗顺序")}</h2>
             <div className="grid2 eq mt-16">
               <div className="card">
                 <h3>{t("The billing rules", "动作与扣费对应关系")}</h3>
@@ -1374,76 +1760,87 @@ export function renderPage(
                     "购买的额度包长期有效，且订阅期末取消后购买桶依然可用。",
                   )}
                 </p>
-                <p className="mt-10">
-                  {t(
-                    "Credit ledger rows are append-only and immutable; eligible refunds return directly to the bucket originally charged.",
-                    "流水只增不改；合规退款按原始扣费比例退回对应额度桶。",
-                  )}
-                </p>
+                <div className="dtable mt-14">
+                  <div className="dt-r">
+                    <span className="dt-c">{t("Subscription / promo", "订阅 / 活动额度")}</span>
+                    <span className="dt-c">{t("Expires at period end", "周期结束过期")}</span>
+                    <span className="dt-c num">
+                      <b>{t("Drawn 1st", "优先消耗")}</b>
+                    </span>
+                  </div>
+                  <div className="dt-r">
+                    <span className="dt-c">{t("Purchased top-up", "购买永久加量包")}</span>
+                    <span className="dt-c">{t("Never expires", "永不过期")}</span>
+                    <span className="dt-c num">
+                      <b>{t("Drawn 2nd", "其次消耗")}</b>
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="card mt-20">
-              <h3>
-                {t(
-                  "One search, one credit — even for 200 comps",
-                  "每次查价最多 1 额度——绝不按返回行数翻倍计费",
-                )}
-              </h3>
-              <p>
-                {t(
-                  "Per-row billing turns every busy market into an unpredictable bill. SoldBench counts the search, not each individual comparable row inside the 200-item snapshot.",
-                  "按行计费会让繁忙品类的账单成倍暴涨；SoldBench 只按次交付计费，单个合格快照内无论包含 10 条还是 200 条记录均只算 1 额度。",
-                )}
-              </p>
-            </div>
-
-            <section className="pricing-questions mt-30" aria-labelledby="pricing-questions-title">
-              <h2 id="pricing-questions-title">{t("How credits work", "额度如何使用")}</h2>
-              <dl>
-                <div>
-                  <dt>{t("What can I do for free?", "哪些操作免费？")}</dt>
-                  <dd>
-                    {t(
-                      "Waiting for a result, failed searches, low-sample results, and eligible older results are free. Reopening or exporting an authorized result adds no charge.",
-                      "等待、失败、低样本结果和获准查看的陈旧结果均免费。复取或导出获准的已交付结果不会再次扣费。",
-                    )}
-                  </dd>
-                </div>
-                <div>
-                  <dt>{t("Where can I verify a charge?", "在哪里核对扣费？")}</dt>
-                  <dd>
-                    {t(
-                      "Usage lists your credit buckets, expiry dates, and ledger entries. Billing shows the current order and payment status.",
-                      "用量页列出额度桶、到期时间与流水。账单页可查看当前订单和付款状态。",
-                    )}
-                  </dd>
-                </div>
-                <div>
-                  <dt>{t("What happens when I stop a subscription?", "取消续订后会怎样？")}</dt>
-                  <dd>
-                    {t(
-                      "Period-end cancellation stops the next renewal. The current subscription remains available until the end of its period.",
-                      "在期末取消将停止下次续费，本期权益可使用至当前周期结束。",
-                    )}
-                  </dd>
-                </div>
-              </dl>
+            <section className="faq-open mt-36" aria-labelledby="pricing-questions-title">
+              <div>
+                <p className="eyebrow">FAQ</p>
+                <h2 className="serif mt-8" id="pricing-questions-title">
+                  {t("Pricing FAQ", "计费常见问题")}
+                </h2>
+              </div>
+              <div>
+                {[
+                  [
+                    t(
+                      "Do failed searches or low-sample results cost anything?",
+                      "查询失败或不足 8 条结果会扣费吗？",
+                    ),
+                    t(
+                      "No. Errors, timeouts, queued jobs that expire unclaimed, and results with fewer than 8 verified prices never charge a credit.",
+                      "不会。服务报错、超时、超时未领取的异步任务以及不足 8 条核验样本的结果均不扣费。",
+                    ),
+                  ],
+                  [
+                    t("When exactly is 1 credit charged?", "究竟在哪个时间点扣费？"),
+                    t(
+                      "Synchronous delivered lookups charge on delivery. Async searches charge only when you explicitly claim a deliverable result.",
+                      "同步合格交付时扣费；异步任务仅当账户主体显式领取可交付结果时原子扣除 1 额度。",
+                    ),
+                  ],
+                  [
+                    t("Do top-up credits really never expire?", "购买加量包真的永不过期吗？"),
+                    t(
+                      "Yes. Purchased credits stay in the purchased bucket, draw after subscription and promo credits, and survive subscription cancellation.",
+                      "是的。购买额度留存在购买桶中，在订阅与活动桶用尽后扣除，订阅取消也不受影响。",
+                    ),
+                  ],
+                  [
+                    t("What payment methods are supported?", "支持哪些支付渠道？"),
+                    t(
+                      "Stripe is primary and PayPal is supplementary checkout — currently running in offline/sandbox verification until commercial sign-off.",
+                      "接入方案为 Stripe 主通道与 PayPal 补充通道，当前按沙盒/离线验证状态受门禁控制。",
+                    ),
+                  ],
+                ].map(([q, a]) => (
+                  <div className="faq-open-item" key={q}>
+                    <h3>{q}</h3>
+                    <p>{a}</p>
+                  </div>
+                ))}
+              </div>
             </section>
 
-            <div className="card cta-card mt-30">
+            <div className="card cta-card mt-36">
               <h2 className="serif cta-title">
-                {t("Start testing in sandbox & offline mode", "在本地或沙盒环境开始测试")}
+                {t("Start with 100 free searches.", "注册即享每月 100 次免费研究查价。")}
               </h2>
               <p className="small cta-sub">
                 {t(
-                  "Stripe primary payments, PayPal supplementary checkout, and immutable ledger accounting built into one flow.",
-                  "内置 Stripe 主通道与 PayPal 补充通道校验、显式领取结算与不可变账本流水。",
+                  "Payments via Stripe (primary) and PayPal (supplementary). Prices in USD.",
+                  "Stripe 主接入，PayPal 补充，全部接口及计价采用美元计数。",
                 )}
               </p>
               <div className="cta-actions">
                 <a className="btn btn-brand" href={link("/register")}>
-                  {t("Create account", "创建账户")}
+                  {t("Create free account", "免费注册账户")}
                 </a>
                 <a className="btn btn-ghost" href={link("/search")}>
                   {t("Open research workbench", "打开查价工作台")}
@@ -1473,45 +1870,87 @@ export function renderPage(
         <section className="blk blk-tight-top">
           <div className="wrap">
             <div className="grid3 eq">
-              <div className="card">
-                <p className="eyebrow">{t("Direct contact", "邮件支持")}</p>
-                <h3 className="mt-8">{t("Email support", "客服邮箱")}</h3>
+              <div className="card sup-card">
+                <span className="sup-ico" aria-hidden="true">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="1.8" />
+                    <path
+                      d="M4 7l8 6 8-6"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </span>
+                <h3>{t("Email support", "邮件联系")}</h3>
                 <p>
                   {t(
-                    "Contact support@soldbench.com with your request ID for billing or data investigations.",
-                    "发送邮件至 support@soldbench.com 并附上请求编号以核查账单或数据记录。",
+                    "Include the affected endpoint, the approximate time, and a request ID when you have one. Never send your full API key or password.",
+                    "发送邮件至 support@soldbench.com 并附上请求编号与时间以核查账单或数据记录。",
                   )}
                 </p>
-                <p className="card-foot">
+                <p className="sup-act">
                   <a href="mailto:support@soldbench.com">support@soldbench.com →</a>
                 </p>
               </div>
-              <div className="card">
-                <p className="eyebrow">{t("Self-service", "开发文档")}</p>
-                <h3 className="mt-8">{t("Documentation", "接口与方法说明")}</h3>
+              <div className="card sup-card">
+                <span className="sup-ico" aria-hidden="true">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path
+                      d="M8 4c-2 1.2-3 2.6-3 4.2C5 10 6 11.4 8 12.6 6 13.8 5 15.2 5 16.8 5 18.4 6 19.8 8 21M16 4c2 1.2 3 2.6 3 4.2 0 1.8-1 3.2-3 4.4 2 1.2 3 2.6 3 4.4 0 1.6-1 3-3 4.2"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </span>
+                <h3>{t("Documentation", "开发文档与方法说明")}</h3>
                 <p>
                   {t(
-                    "Check error codes, Retry-After headers, async job states, and Best Offer verification docs.",
-                    "查阅错误码说明、Retry-After 限流规则、异步任务状态机与议价核验说明。",
+                    "Review authentication, filters, retry behavior, quota errors, response fields, MCP setup, and copyable examples.",
+                    "查阅错误码说明、Retry-After 限流规则、异步任务状态机与议价核验文档。",
                   )}
                 </p>
-                <p className="card-foot">
-                  <a href={zh ? "/docs/zh-CN/quickstart" : "/docs/en/quickstart"}>
+                <p className="sup-act">
+                  <a
+                    className="btn btn-ghost btn-sm"
+                    href={zh ? "/docs/zh-CN/quickstart" : "/docs/en/quickstart"}
+                  >
                     {t("Read the docs →", "阅读文档 →")}
                   </a>
                 </p>
               </div>
-              <div className="card">
-                <p className="eyebrow">{t("Privacy", "数据删除回执")}</p>
-                <h3 className="mt-8">{t("Deletion status", "删除回执核验")}</h3>
+              <div className="card sup-card">
+                <span className="sup-ico" aria-hidden="true">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path
+                      d="M12 3l7 3v5c0 4.6-3 8.4-7 10-4-1.6-7-5.4-7-10V6l7-3z"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinejoin="round"
+                    />
+                    <path
+                      d="M9 12l2.2 2.2L15.5 10"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </span>
+                <h3>{t("Deletion status & availability", "删除回执与数据可用性")}</h3>
                 <p>
                   {t(
-                    "Verify the current state of an account or data deletion request with your private receipt.",
-                    "凭借私密删除回执令牌随时核对账户与数据清理进度。",
+                    "Verify an account deletion receipt or inspect category availability before troubleshooting an integration.",
+                    "凭借私密删除回执随时核对账户清理进度，并可检查系统数据源可用状态。",
                   )}
                 </p>
-                <p className="card-foot">
-                  <a href={link("/deletion-receipt")}>{t("Check a deletion receipt", "查询删除回执")}</a>
+                <p className="sup-act">
+                  <a className="btn btn-ghost btn-sm" href={link("/deletion-receipt")}>
+                    {t("Check a deletion receipt", "查询删除回执")}
+                  </a>
                 </p>
               </div>
             </div>
@@ -1591,6 +2030,14 @@ export function renderPage(
       </>
     );
   } else if (research) {
+    const ssrShowcase =
+      page === "/search" &&
+      !resultId &&
+      !draft.get("job") &&
+      homeShowcase &&
+      draft.get("q")?.trim().toLowerCase() === homeShowcase.query.toLowerCase()
+        ? homeShowcase
+        : null;
     content = (
       <>
         <section className="page-head">
@@ -1605,8 +2052,8 @@ export function renderPage(
             {page === "/playground" && (
               <p className="sub">
                 {t(
-                  "Try the research API with your account session. Inspect the response and copy a server-side example.",
-                  "使用当前账户会话调试研究接口，查看响应并复制服务端调用示例。",
+                  "Test the research API directly against your session. Inspect JSON output, response headers, and live server-side code snippets.",
+                  "使用当前账户会话调试研究接口，检查 JSON 输出、响应头并复制动态生成的多语言示例代码。",
                 )}
               </p>
             )}
@@ -1614,104 +2061,286 @@ export function renderPage(
         </section>
         <section className="blk blk-tight-top">
           <div className="wrap">
-            <form action={link("/search")} method="get" data-search="">
-              {searchBox}
-              {draft.get("category") && (
-                <input type="hidden" name="category" value={draft.get("category") ?? ""} />
-              )}
-              <div className="wb-filters">
-                <label>
-                  {t("Condition", "成色")}
-                  <select name="condition" defaultValue={draft.get("condition") ?? ""}>
-                    <option value="">{t("Any condition", "不限成色")}</option>
-                    <option value="like_new">{t("Like new", "近新")}</option>
-                    <option value="good">{t("Good", "良好")}</option>
-                    <option value="fair">{t("Fair", "一般")}</option>
-                    <option value="defective">{t("For parts", "故障或零件")}</option>
-                  </select>
-                </label>
-                <label>
-                  {t("Format", "成交方式")}
-                  <select name="sale_format" defaultValue={draft.get("sale_format") ?? ""}>
-                    <option value="">{t("Any format", "不限方式")}</option>
-                    <option value="fixed_price">{t("Fixed price", "一口价")}</option>
-                    <option value="auction">{t("Auction", "拍卖")}</option>
-                    <option value="best_offer">{t("Best Offer", "议价")}</option>
-                  </select>
-                </label>
-                <label>
-                  {t("Min price (USD)", "最低价格（美元）")}
-                  <input
-                    name="min_price"
-                    inputMode="decimal"
-                    maxLength={17}
-                    pattern="[0-9]+([.][0-9]{1,2})?"
-                    defaultValue={priceDraft("min_price_cents")}
-                  />
-                </label>
-                <label>
-                  {t("Max price (USD)", "最高价格（美元）")}
-                  <input
-                    name="max_price"
-                    inputMode="decimal"
-                    maxLength={17}
-                    pattern="[0-9]+([.][0-9]{1,2})?"
-                    defaultValue={priceDraft("max_price_cents")}
-                  />
-                </label>
-                <label>
-                  {t("Window", "时间范围")}
-                  <select name="window_days" defaultValue={draft.get("window_days") ?? "90"}>
-                    <option value="90">{t("90 days", "90 天")}</option>
-                    <option value="30">{t("30 days", "30 天")}</option>
-                  </select>
-                </label>
-                <label>
-                  {t("Price basis", "价格口径")}
-                  <select
-                    name="price_basis"
-                    defaultValue={draft.get("price_basis") ?? "item_plus_observed_shipping"}
-                  >
-                    <option value="item_plus_observed_shipping">
-                      {t("Item + observed shipping", "商品价＋已观察运费")}
-                    </option>
-                    <option value="item">{t("Item only", "仅商品价")}</option>
-                  </select>
-                </label>
-                <label className="check">
-                  <input
-                    type="checkbox"
-                    name="allow_stale"
-                    defaultChecked={draft.get("allow_stale") === "true"}
-                  />
-                  {t("Allow older cached data", "允许使用较旧缓存")}
-                </label>
+            {page === "/playground" ? (
+              <div className="grid2">
+                <div className="card auth-card">
+                  <form action={link("/search")} method="get" data-search="">
+                    <label>
+                      {t("q — search terms", "q — 查询关键词")}
+                      <input
+                        name="q"
+                        maxLength={120}
+                        required
+                        defaultValue={draft.get("q") ?? "Nintendo Switch OLED"}
+                        placeholder={t("e.g. Nintendo Switch OLED", "例如 Nintendo Switch OLED")}
+                      />
+                    </label>
+                    <div className="pg-form-row">
+                      <label>
+                        {t("Condition", "成色")}
+                        <select name="condition" defaultValue={draft.get("condition") ?? ""}>
+                          <option value="">{t("Any", "不限")}</option>
+                          <option value="like_new">{t("Like new", "近新")}</option>
+                          <option value="good">{t("Good", "良好")}</option>
+                          <option value="fair">{t("Fair", "一般")}</option>
+                          <option value="defective">{t("For parts", "故障/零件")}</option>
+                        </select>
+                      </label>
+                      <label>
+                        {t("Format", "成交方式")}
+                        <select name="sale_format" defaultValue={draft.get("sale_format") ?? ""}>
+                          <option value="">{t("Any", "不限")}</option>
+                          <option value="fixed_price">{t("Fixed price", "一口价")}</option>
+                          <option value="auction">{t("Auction", "拍卖")}</option>
+                          <option value="best_offer">{t("Best Offer", "议价")}</option>
+                        </select>
+                      </label>
+                      <label>
+                        {t("Window", "时间窗口")}
+                        <select name="window_days" defaultValue={draft.get("window_days") ?? "90"}>
+                          <option value="90">{t("90 days", "90 天")}</option>
+                          <option value="30">{t("30 days", "30 天")}</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div className="pg-form-row">
+                      <label>
+                        {t("Min price ($)", "最低价格")}
+                        <input
+                          name="min_price"
+                          inputMode="decimal"
+                          maxLength={17}
+                          pattern="[0-9]+([.][0-9]{1,2})?"
+                          defaultValue={priceDraft("min_price_cents")}
+                          placeholder="—"
+                        />
+                      </label>
+                      <label>
+                        {t("Max price ($)", "最高价格")}
+                        <input
+                          name="max_price"
+                          inputMode="decimal"
+                          maxLength={17}
+                          pattern="[0-9]+([.][0-9]{1,2})?"
+                          defaultValue={priceDraft("max_price_cents")}
+                          placeholder="—"
+                        />
+                      </label>
+                      <label>
+                        {t("Price basis", "价格口径")}
+                        <select
+                          name="price_basis"
+                          defaultValue={draft.get("price_basis") ?? "item_plus_observed_shipping"}
+                        >
+                          <option value="item_plus_observed_shipping">
+                            {t("Item + ship", "商品＋运费")}
+                          </option>
+                          <option value="item">{t("Item only", "仅商品价")}</option>
+                        </select>
+                      </label>
+                    </div>
+                    <label className="check">
+                      <input
+                        type="checkbox"
+                        name="allow_stale"
+                        defaultChecked={draft.get("allow_stale") === "true"}
+                      />
+                      <span>{t("Allow older cached data", "允许使用较旧缓存")}</span>
+                    </label>
+                    <button className="btn brand pg-submit" type="submit">
+                      {t("Search", "查询")}
+                    </button>
+                  </form>
+                  {examples}
+                  {status}
+                  <div className="actions" data-actions="" />
+                </div>
+
+                <section className="card" data-api-trace="">
+                  <h2>{t("Requests and responses", "请求与响应")}</h2>
+                  <div className="actions" data-trace-list="" />
+                  <details open className="mt-12">
+                    <summary>{t("Response", "响应")}</summary>
+                    <pre data-trace-body="">
+                      {t("Run a search to inspect its response.", "提交查询后查看响应。")}
+                    </pre>
+                  </details>
+                  <details className="mt-8">
+                    <summary>{t("Headers", "响应头")}</summary>
+                    <pre data-trace-headers="" />
+                  </details>
+                  <details className="mt-8">
+                    <summary>{t("Server-side cURL example", "服务端 cURL 示例")}</summary>
+                    <pre data-trace-code="" />
+                  </details>
+                </section>
               </div>
-            </form>
-            {examples}
-            {status}
-            <div className="actions" data-actions="" />
-            {page === "/playground" && (
-              <section className="card result-card" data-api-trace="">
-                <h2>{t("Requests and responses", "请求与响应")}</h2>
-                <div className="actions" data-trace-list="" />
-                <details open className="mt-12">
-                  <summary>{t("Response", "响应")}</summary>
-                  <pre data-trace-body="">
-                    {t("Run a search to inspect its response.", "提交查询后查看响应。")}
-                  </pre>
-                </details>
-                <details className="mt-8">
-                  <summary>{t("Headers", "响应头")}</summary>
-                  <pre data-trace-headers="" />
-                </details>
-                <details className="mt-8">
-                  <summary>{t("Server-side cURL example", "服务端 cURL 示例")}</summary>
-                  <pre data-trace-code="" />
-                </details>
-              </section>
+            ) : (
+              <>
+                <form action={link("/search")} method="get" data-search="">
+                  {searchBox}
+                  {examples}
+                  {draft.get("category") && (
+                    <input type="hidden" name="category" value={draft.get("category") ?? ""} />
+                  )}
+                  <div className="wb-filters">
+                    <label>
+                      {t("Condition", "成色")}
+                      <select name="condition" defaultValue={draft.get("condition") ?? ""}>
+                        <option value="">{t("Any condition", "不限成色")}</option>
+                        <option value="like_new">{t("Like new", "近新")}</option>
+                        <option value="good">{t("Good", "良好")}</option>
+                        <option value="fair">{t("Fair", "一般")}</option>
+                        <option value="defective">{t("For parts", "故障或零件")}</option>
+                      </select>
+                    </label>
+                    <label>
+                      {t("Format", "成交方式")}
+                      <select name="sale_format" defaultValue={draft.get("sale_format") ?? ""}>
+                        <option value="">{t("Any format", "不限方式")}</option>
+                        <option value="fixed_price">{t("Fixed price", "一口价")}</option>
+                        <option value="auction">{t("Auction", "拍卖")}</option>
+                        <option value="best_offer">{t("Best Offer", "议价")}</option>
+                      </select>
+                    </label>
+                    <label>
+                      {t("Min price (USD)", "最低价格（美元）")}
+                      <input
+                        name="min_price"
+                        inputMode="decimal"
+                        maxLength={17}
+                        pattern="[0-9]+([.][0-9]{1,2})?"
+                        defaultValue={priceDraft("min_price_cents")}
+                      />
+                    </label>
+                    <label>
+                      {t("Max price (USD)", "最高价格（美元）")}
+                      <input
+                        name="max_price"
+                        inputMode="decimal"
+                        maxLength={17}
+                        pattern="[0-9]+([.][0-9]{1,2})?"
+                        defaultValue={priceDraft("max_price_cents")}
+                      />
+                    </label>
+                    <label>
+                      {t("Window", "时间范围")}
+                      <select name="window_days" defaultValue={draft.get("window_days") ?? "90"}>
+                        <option value="90">{t("90 days", "90 天")}</option>
+                        <option value="30">{t("30 days", "30 天")}</option>
+                      </select>
+                    </label>
+                    <label>
+                      {t("Price basis", "价格口径")}
+                      <select
+                        name="price_basis"
+                        defaultValue={draft.get("price_basis") ?? "item_plus_observed_shipping"}
+                      >
+                        <option value="item_plus_observed_shipping">
+                          {t("Item + observed shipping", "商品价＋已观察运费")}
+                        </option>
+                        <option value="item">{t("Item only", "仅商品价")}</option>
+                      </select>
+                    </label>
+                    <label className="wb-check-label">
+                      <input
+                        type="checkbox"
+                        name="allow_stale"
+                        defaultChecked={draft.get("allow_stale") === "true"}
+                      />
+                      <span>{t("Allow older cache", "允许陈旧缓存")}</span>
+                    </label>
+                  </div>
+                </form>
+                {status}
+                <div className="actions" data-actions="" />
+              </>
             )}
-            <div data-results="" className="mt-16" />
+
+            <div data-results="" className="mt-16">
+              {ssrShowcase && (
+                <>
+                  <div className="stat-card">
+                    <div className="stat-badges">
+                      <span className="badge badge-green">{t("Cached public snapshot", "公共演示快照")}</span>
+                      <span className="tag-ex">
+                        {ssrShowcase.data_mode === "approved_network"
+                          ? t("Approved sample", "合规样本")
+                          : t("Offline fixture", "本地合成样本")}
+                      </span>
+                    </div>
+                    <div className="stat-grid">
+                      <div>
+                        <div className="lab">{t("Median sold price", "中位成交价")}</div>
+                        <div className="median-big">
+                          {ssrShowcase.stats.median_cents != null
+                            ? `$${(ssrShowcase.stats.median_cents / 100).toFixed(2)}`
+                            : "—"}
+                        </div>
+                        <div className="stat-range">
+                          {ssrShowcase.stats.p25_cents != null && ssrShowcase.stats.p75_cents != null
+                            ? `${t("Typical range", "典型区间")} $${(ssrShowcase.stats.p25_cents / 100).toFixed(2)} – $${(ssrShowcase.stats.p75_cents / 100).toFixed(2)}`
+                            : "—"}
+                        </div>
+                      </div>
+                      <div className="stat-mini">
+                        <div>
+                          <div className="lab">{t("Trimmed mean", "5% 截尾均价")}</div>
+                          <div className="val">
+                            {ssrShowcase.stats.trimmed_mean_cents != null
+                              ? `$${(ssrShowcase.stats.trimmed_mean_cents / 100).toFixed(2)}`
+                              : "—"}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="lab">{t("Sample (verified)", "核验样本")}</div>
+                          <div className="val">{ssrShowcase.stats.n_price_verified}</div>
+                        </div>
+                        <div>
+                          <div className="lab">{t("Observed", "已观察")}</div>
+                          <div className="val">{ssrShowcase.stats.n_observed}</div>
+                        </div>
+                        <div>
+                          <div className="lab">{t("Comparable", "可比样本")}</div>
+                          <div className="val">{ssrShowcase.stats.n_comparable}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="live-card mt-14">
+                    <div className="table-scroll">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>{t("Listing", "商品标题")}</th>
+                            <th>{t("Format", "方式")}</th>
+                            <th className="num">{t("Sold", "成交价")}</th>
+                            <th>{t("Date", "日期")}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {ssrShowcase.comps.slice(0, 8).map((c, idx) => (
+                            <tr key={c.sale_event_id}>
+                              <td>
+                                <div className="thumb-title">
+                                  <span className="thumb">
+                                    <ProductThumbSvg index={idx} />
+                                  </span>
+                                  <span>{c.title ?? t("Verified listing", "已核验记录")}</span>
+                                </div>
+                              </td>
+                              <td>{c.sale_format}</td>
+                              <td className="num price">{`$${(c.item_price_cents != null ? c.item_price_cents / 100 : c.price_usd_cents / 100).toFixed(2)}`}</td>
+                              <td className="nw">{c.sold_date.value?.slice(0, 10) ?? "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
             <noscript>
               {t("Enable JavaScript to submit a search.", "请启用 JavaScript 后提交搜索。")}
             </noscript>
@@ -1959,76 +2588,89 @@ export function renderPage(
           <a className="skip" href="#main">
             {t("Skip to content", "跳到正文")}
           </a>
-          <header className="site">
-            {page === "/" &&
-              sections.slice(0, 1).map((entry) => (
-                <div className="ann-bar" key={entry.slug}>
-                  <strong>{entry.title}</strong> — {entry.body}{" "}
-                  <a href={link("/changelog")}>{t("See changelog", "查看更新记录")}</a>
-                </div>
-              ))}
-            <div className="wrap">
-              <nav className="nav" aria-label={t("Main navigation", "主导航")}>
-                <a className="logo" href={link("/")}>
-                  <BrandLogo size={27} />
-                  SoldBench
-                </a>
-                <div className="nav-links">{nav}</div>
-                <div className="nav-right">
-                  <a className="btn ghost" data-language="" href={other} hrefLang={zh ? "en" : "zh-CN"}>
-                    {t("简体中文", "English")}
+          {page !== "/docs" &&
+            !page.startsWith("/account") &&
+            page !== "/operations" &&
+            page !== "/admin/content" &&
+            sections.slice(0, 1).map((entry) => (
+              <div className="ann-bar" key={entry.slug}>
+                <strong>{entry.title}</strong> — {entry.body}{" "}
+                <a href={link("/changelog")}>{t("See changelog", "查看更新记录")}</a>
+              </div>
+            ))}
+          {page !== "/docs" && (
+            <header className="site">
+              <div className="wrap">
+                <nav className="nav" aria-label={t("Main navigation", "主导航")}>
+                  <a className="logo" href={link("/")}>
+                    <BrandLogo size={27} />
+                    SoldBench
                   </a>
-                  <a className="btn ghost desktop" data-resume="/login" href={resume("/login")}>
-                    {t("Sign in", "登录")}
-                  </a>
-                  <a className="btn brand desktop" data-resume="/register" href={resume("/register")}>
-                    {t("Get started", "开始使用")}
-                  </a>
-                  <div className="acct-menu" data-acct-menu="" hidden>
-                    <button type="button" className="acct-menu-btn" data-acct-toggle="" aria-expanded="false">
-                      <span className="avatar" data-acct-avatar="">
-                        U
-                      </span>
-                      <span data-acct-label="">{t("Account", "账户")}</span>
-                    </button>
-                    <div className="acct-menu-list" data-acct-list="" hidden>
-                      <a href={link("/account")}>{t("Overview", "账户概览")}</a>
-                      <a href={link("/search")}>{t("Search workbench", "查价工作台")}</a>
-                      <a href={link("/account/keys")}>{t("API keys", "API 密钥")}</a>
-                      <a href={link("/account/usage")}>{t("Usage & ledger", "用量与账本")}</a>
-                      <a href={link("/account/billing")}>{t("Billing", "账单与额度")}</a>
-                      <a href={link("/account/security")}>{t("Security", "账户安全")}</a>
-                      <div className="sep" />
-                      <a href={link("/operations")}>{t("Operations console", "运营控制台")}</a>
-                      <button type="button" data-nav-logout="">
-                        {t("Sign out", "退出登录")}
+                  <div className="nav-links">{nav}</div>
+                  <div className="nav-right">
+                    <a className="btn ghost" data-language="" href={other} hrefLang={zh ? "en" : "zh-CN"}>
+                      {t("简体中文", "English")}
+                    </a>
+                    <a className="btn ghost desktop" data-resume="/login" href={resume("/login")}>
+                      {t("Sign in", "登录")}
+                    </a>
+                    <a className="btn brand desktop" data-resume="/register" href={resume("/register")}>
+                      {t("Get started", "开始使用")}
+                    </a>
+                    <div className="acct-menu" data-acct-menu="" hidden>
+                      <button
+                        type="button"
+                        className="acct-menu-btn"
+                        data-acct-toggle=""
+                        aria-expanded="false"
+                      >
+                        <span className="avatar" data-acct-avatar="">
+                          U
+                        </span>
+                        <span data-acct-label="">{t("Account", "账户")}</span>
                       </button>
+                      <div className="acct-menu-list" data-acct-list="" hidden>
+                        <a href={link("/account")}>{t("Overview", "账户概览")}</a>
+                        <a href={link("/search")}>{t("Search workbench", "查价工作台")}</a>
+                        <a href={link("/account/keys")}>{t("API keys", "API 密钥")}</a>
+                        <a href={link("/account/usage")}>{t("Usage & ledger", "用量与账本")}</a>
+                        <a href={link("/account/billing")}>{t("Billing", "账单与额度")}</a>
+                        <a href={link("/account/security")}>{t("Security", "账户安全")}</a>
+                        <div className="sep" />
+                        <a href={link("/operations")}>{t("Operations console", "运营控制台")}</a>
+                        <button type="button" data-nav-logout="">
+                          {t("Sign out", "退出登录")}
+                        </button>
+                      </div>
                     </div>
+                    <details className="mobile">
+                      <summary className="btn ghost">{t("Menu", "菜单")}</summary>
+                      <div>
+                        {nav}
+                        <a data-resume="/login" href={resume("/login")}>
+                          {t("Sign in", "登录")}
+                        </a>
+                        <a data-resume="/register" href={resume("/register")}>
+                          {t("Create account", "创建账户")}
+                        </a>
+                      </div>
+                    </details>
                   </div>
-                  <details className="mobile">
-                    <summary className="btn ghost">{t("Menu", "菜单")}</summary>
-                    <div>
-                      {nav}
-                      <a data-resume="/login" href={resume("/login")}>
-                        {t("Sign in", "登录")}
-                      </a>
-                      <a data-resume="/register" href={resume("/register")}>
-                        {t("Create account", "创建账户")}
-                      </a>
-                    </div>
-                  </details>
-                </div>
-              </nav>
-            </div>
-          </header>
-          <main id="main">{content}</main>
-          {!page.startsWith("/account") && page !== "/operations" && page !== "/admin/content" && (
-            <SiteFooter
-              locale={locale}
-              link={link}
-              footerBlocks={footer.length > 0 ? <div className="foot-extra">{footer}</div> : null}
-            />
+                </nav>
+              </div>
+            </header>
           )}
+          <main id="main">{content}</main>
+          {page !== "/docs" &&
+            !page.startsWith("/account") &&
+            page !== "/operations" &&
+            page !== "/admin/content" && (
+              <SiteFooter
+                locale={locale}
+                link={link}
+                footerBlocks={footer.length > 0 ? <div className="foot-extra">{footer}</div> : null}
+              />
+            )}
           <div className="modal-bg" data-modal-bg="" hidden>
             <div className="modal" data-modal-box="" />
           </div>

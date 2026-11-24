@@ -172,7 +172,7 @@ export function createApp(
                   : [kind, "navigation", "footer"],
               )
             : Promise.resolve([]),
-          page === "/" && services.query
+          (page === "/" || page === "/search") && services.query
             ? new PublicResults(services.query).homeShowcase()
             : Promise.resolve(null),
         ]);

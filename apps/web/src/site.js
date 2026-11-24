@@ -114,8 +114,11 @@ function showTrace(path, response, body) {
   list.append(control);
   if (list.childElementCount > 12) list.firstElementChild.remove();
   const params = queryDraft(search);
-  trace.querySelector("[data-trace-code]").textContent =
-    `curl -H "Authorization: Bearer $SOLDBENCH_API_KEY" '${location.origin}/v1/sold?${params}'`;
+  renderHighlightedCode(
+    trace.querySelector("[data-trace-code]"),
+    `curl -H "Authorization: Bearer $SOLDBENCH_API_KEY" '${location.origin}/v1/sold?${params}'`,
+    "bash",
+  );
   display();
 }
 
@@ -199,6 +202,75 @@ function element(tag, text, className) {
   if (text !== undefined) node.textContent = text;
   if (className) node.className = className;
   return node;
+}
+
+const HIGHLIGHT_KEYWORDS = new Set([
+  "import",
+  "from",
+  "const",
+  "let",
+  "var",
+  "await",
+  "async",
+  "if",
+  "else",
+  "return",
+  "new",
+  "throw",
+  "print",
+  "true",
+  "false",
+  "null",
+  "None",
+  "True",
+  "False",
+  "curl",
+  "function",
+]);
+
+function renderHighlightedCode(targetEl, code, lang = "json") {
+  if (!targetEl) return;
+  if (lang === "text") {
+    targetEl.textContent = code;
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  const tokenRe = /("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b[A-Za-z_][A-Za-z0-9_]*\b|\b\d+(?:\.\d+)?\b)/g;
+  const lines = String(code ?? "").split("\n");
+  lines.forEach((line, lineIdx) => {
+    const commentIdx =
+      lang === "bash" || lang === "python"
+        ? line.indexOf("#")
+        : lang === "ts" || lang === "json"
+          ? line.indexOf("//")
+          : -1;
+    let head = line;
+    let tail = "";
+    if (commentIdx >= 0 && (commentIdx === 0 || /\s/.test(line[commentIdx - 1] ?? ""))) {
+      head = line.slice(0, commentIdx);
+      tail = line.slice(commentIdx);
+    }
+    let last = 0;
+    for (const match of head.matchAll(tokenRe)) {
+      const start = match.index ?? 0;
+      const raw = match[0];
+      if (start > last) frag.append(document.createTextNode(head.slice(last, start)));
+      if (raw.startsWith('"') || raw.startsWith("'")) {
+        frag.append(element("span", raw, "tok-s"));
+      } else if (/^\d/.test(raw)) {
+        frag.append(element("span", raw, "tok-n"));
+      } else if (HIGHLIGHT_KEYWORDS.has(raw)) {
+        frag.append(element("span", raw, "tok-k"));
+      } else {
+        frag.append(document.createTextNode(raw));
+      }
+      last = start + raw.length;
+    }
+    if (last < head.length) frag.append(document.createTextNode(head.slice(last)));
+    if (tail) frag.append(element("span", tail, "tok-c"));
+    if (lineIdx < lines.length - 1) frag.append(document.createTextNode("\n"));
+  });
+  targetEl.replaceChildren(frag);
 }
 const usd = new Intl.NumberFormat(document.documentElement.lang, {
   style: "currency",
@@ -1995,6 +2067,81 @@ if (docsSearch) {
       submit.disabled = false;
     }
   });
+}
+
+// Docs Cmd/Ctrl+K shortcut, mobile sidebar toggle, Quickstart tabs & scrollspy
+{
+  const docsInput = document.getElementById("docs-query");
+  if (docsInput) {
+    document.addEventListener("keydown", (event) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        docsInput.focus();
+        docsInput.select?.();
+      }
+    });
+  }
+
+  const docsMenuBtn = document.querySelector("[data-docs-menu-btn]");
+  const docsSide = document.querySelector(".docs-side");
+  if (docsMenuBtn && docsSide) {
+    docsMenuBtn.addEventListener("click", () => {
+      const opening = !docsSide.classList.contains("open");
+      docsSide.classList.toggle("open", opening);
+      docsMenuBtn.setAttribute("aria-expanded", opening ? "true" : "false");
+    });
+  }
+
+  for (const btn of document.querySelectorAll("[data-doc-lang]")) {
+    btn.addEventListener("click", () => {
+      const wrap = btn.closest(".doc-code");
+      if (!wrap) return;
+      const chosen = btn.dataset.docLang;
+      for (const sibling of wrap.querySelectorAll("[data-doc-lang]")) {
+        sibling.classList.toggle("on", sibling.dataset.docLang === chosen);
+      }
+      for (const pre of wrap.querySelectorAll("[data-doc-code]")) {
+        pre.hidden = pre.dataset.docCode !== chosen;
+      }
+    });
+  }
+
+  for (const copyBtn of document.querySelectorAll("[data-doc-copy]")) {
+    copyBtn.addEventListener("click", async () => {
+      const wrap = copyBtn.closest(".doc-code");
+      const activePre = wrap?.querySelector("[data-doc-code]:not([hidden])");
+      if (!activePre) return;
+      try {
+        await navigator.clipboard.writeText(activePre.textContent ?? "");
+        const prev = copyBtn.textContent;
+        copyBtn.textContent = t("Copied", "已复制");
+        showToast(t("Copied to clipboard.", "已复制到剪贴板。"));
+        setTimeout(() => {
+          copyBtn.textContent = prev;
+        }, 1500);
+      } catch {
+        showToast(t("Copy blocked by browser.", "浏览器阻止了剪贴板复制。"));
+      }
+    });
+  }
+
+  const otpLinks = [...document.querySelectorAll(".otp-list a[data-otp-target]")];
+  if (otpLinks.length) {
+    const syncOtp = () => {
+      let currentId = otpLinks[0].dataset.otpTarget;
+      for (const item of otpLinks) {
+        const heading = document.getElementById(item.dataset.otpTarget);
+        if (heading && heading.getBoundingClientRect().top <= 135) {
+          currentId = item.dataset.otpTarget;
+        }
+      }
+      for (const item of otpLinks) {
+        item.classList.toggle("on", item.dataset.otpTarget === currentId);
+      }
+    };
+    window.addEventListener("scroll", syncOtp, { passive: true });
+    syncOtp();
+  }
 }
 
 function privateReceipt() {
@@ -6797,7 +6944,9 @@ console.log(data.stats.median_cents, data.stats.n_price_verified);`,
         for (const tab of document.querySelectorAll("[data-api-tab]")) {
           tab.classList.toggle("on", tab.dataset.apiTab === lang);
         }
-        apiCodeEl.textContent = snippets[lang];
+        const hlLang =
+          lang === "curl" ? "bash" : lang === "python" ? "python" : lang === "node" ? "ts" : "json";
+        renderHighlightedCode(apiCodeEl, snippets[lang], hlLang);
       });
     }
   }
@@ -6934,10 +7083,19 @@ console.log(data.stats.median_cents, data.stats.n_price_verified);`,
         const head = element("div", undefined, "cb-head");
         head.append(element("span", "response.json"));
         const pre = element("pre");
-        pre.textContent = JSON.stringify(
-          { query: snapshot.query, filtered_count: filtered.length, stats: st, comps: filtered.slice(0, 8) },
-          null,
-          2,
+        renderHighlightedCode(
+          pre,
+          JSON.stringify(
+            {
+              query: snapshot.query,
+              filtered_count: filtered.length,
+              stats: st,
+              comps: filtered.slice(0, 8),
+            },
+            null,
+            2,
+          ),
+          "json",
         );
         block.append(head, pre);
         previewHost.replaceChildren(block);
@@ -6955,26 +7113,76 @@ console.log(data.stats.median_cents, data.stats.n_price_verified);`,
         return;
       }
 
+      const makeThumbSvg = (index) => {
+        const ns = "http://www.w3.org/2000/svg";
+        const svg = document.createElementNS(ns, "svg");
+        svg.setAttribute("viewBox", "0 0 64 64");
+        svg.setAttribute("aria-hidden", "true");
+        const palette = [
+          ["#e0f2fe", "#0284c7", "#ef4444"],
+          ["#f1f5f9", "#1e293b", "#475569"],
+          ["#fef2f2", "#dc2626", "#991b1b"],
+          ["#eef2ff", "#4f46e5", "#0ea5e9"],
+        ][index % 4];
+        const add = (tag, attrs) => {
+          const el = document.createElementNS(ns, tag);
+          for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+          svg.append(el);
+        };
+        add("rect", { width: "64", height: "64", rx: "10", fill: palette[0] });
+        add("rect", { x: "6", y: "20", width: "9", height: "24", rx: "4", fill: palette[1] });
+        add("rect", { x: "49", y: "20", width: "9", height: "24", rx: "4", fill: palette[2] });
+        add("rect", { x: "15", y: "19", width: "34", height: "26", rx: "2", fill: "#1e293b" });
+        add("rect", {
+          x: "18",
+          y: "22",
+          width: "28",
+          height: "20",
+          rx: "1",
+          fill: "#38bdf8",
+          opacity: "0.7",
+        });
+        add("circle", { cx: "10.5", cy: "27", r: "2", fill: "#ffffff", opacity: "0.8" });
+        add("circle", { cx: "53.5", cy: "33", r: "2", fill: "#ffffff", opacity: "0.8" });
+        return svg;
+      };
+
       const scroll = element("div", undefined, "table-scroll");
       const tbl = element("table");
       const thr = tbl.createTHead().insertRow();
       for (const h of [
-        t("Listing", "商品标题"),
+        t("Title", "商品标题"),
         t("Condition", "成色"),
         t("Format", "方式"),
         t("Sold", "成交价"),
         t("Shipping", "运费"),
+        t("Total", "总价"),
         t("Date", "日期"),
+        t("Details", "详情"),
       ]) {
         const th = element("th", h);
-        if (h === t("Sold", "成交价") || h === t("Shipping", "运费")) th.className = "num";
+        if (h === t("Sold", "成交价") || h === t("Shipping", "运费") || h === t("Total", "总价")) {
+          th.className = "num";
+        }
         thr.append(th);
       }
       const tb = tbl.createTBody();
-      for (const row of filtered.slice(0, 8)) {
+      filtered.slice(0, 8).forEach((row, idx) => {
         const tr = tb.insertRow();
-        tr.insertCell().textContent =
-          row.title ?? t("Verified listing (title withheld)", "已核验记录（标题隐藏）");
+        const tCell = tr.insertCell();
+        const wrap = element("div", undefined, "thumb-title");
+        const thumb = element("span", undefined, "thumb");
+        thumb.append(makeThumbSvg(idx));
+        const ttl = element("span", undefined, "ttl-demo");
+        ttl.append(
+          document.createTextNode(
+            row.title ?? t("Verified listing (title withheld)", "已核验记录（标题隐藏）"),
+          ),
+          element("span", t("Fixture", "示例"), "demo-tag"),
+        );
+        wrap.append(thumb, ttl);
+        tCell.append(wrap);
+
         tr.insertCell().textContent = conditions[row.condition_std] ?? "—";
         const fCell = tr.insertCell();
         const [fText, fCls] = fmtLabel[row.sale_format] ?? [row.sale_format || "—", "badge badge-gray"];
@@ -6985,13 +7193,98 @@ console.log(data.stats.median_cents, data.stats.n_price_verified);`,
         const sCell = tr.insertCell();
         sCell.className = "num";
         sCell.textContent = fmtShipText(row.observed_shipping_cents);
+        const totCents =
+          row.item_price_cents != null && row.observed_shipping_cents != null
+            ? row.item_price_cents + row.observed_shipping_cents
+            : null;
+        const totCell = tr.insertCell();
+        totCell.className = "num";
+        totCell.textContent = fmtUsd(totCents);
         const dCell = tr.insertCell();
         dCell.className = "nw";
         dCell.textContent = row.sold_date?.value?.slice(0, 10) ?? "—";
-      }
+        const actCell = tr.insertCell();
+        const expBtn = element("button", undefined, "row-exp");
+        expBtn.type = "button";
+        expBtn.dataset.homeRowexp = row.sale_event_id ?? String(idx);
+        expBtn.setAttribute("aria-expanded", "false");
+        expBtn.append(document.createTextNode(`${t("Details", "详情")} `), element("span", "▾", "chev"));
+        actCell.append(expBtn);
+      });
       scroll.append(tbl);
       previewHost.replaceChildren(scroll);
     };
+
+    const appendDetailRow = (btn) => {
+      const tr = btn.closest("tr");
+      if (!tr) return;
+      const next = tr.nextElementSibling;
+      if (next?.classList.contains("row-detail")) {
+        next.remove();
+        btn.classList.remove("open");
+        btn.setAttribute("aria-expanded", "false");
+        return;
+      }
+      const id = btn.dataset.homeRowexp;
+      const comp = snapshot?.comps?.find((c) => c.sale_event_id === id);
+      const cells = tr.querySelectorAll("td");
+      const titleText =
+        comp?.title ??
+        cells[0]?.textContent?.replace(/Fixture|示例/g, "").trim() ??
+        t("Verified listing", "已核验记录");
+      const condText = comp ? (conditions[comp.condition_std] ?? "—") : (cells[1]?.textContent ?? "—");
+      const fmtText = comp
+        ? (fmtLabel[comp.sale_format]?.[0] ?? comp.sale_format ?? "—")
+        : (cells[2]?.textContent ?? "—");
+      const soldText = comp ? fmtUsd(comp.item_price_cents) : (cells[3]?.textContent ?? "—");
+      const shipText = comp ? fmtShipText(comp.observed_shipping_cents) : (cells[4]?.textContent ?? "—");
+      const dateText = comp ? (comp.sold_date?.value?.slice(0, 10) ?? "—") : (cells[6]?.textContent ?? "—");
+
+      const detailTr = document.createElement("tr");
+      detailTr.className = "row-detail";
+      const td = document.createElement("td");
+      td.colSpan = 8;
+      const wrap = element("div", undefined, "row-detail-wrap");
+
+      const media = element("div", undefined, "row-detail-media");
+      const bigThumb = element("span", undefined, "thumb thumb-lg");
+      const srcSvg = tr.querySelector(".thumb svg");
+      if (srcSvg) bigThumb.append(srcSvg.cloneNode(true));
+      media.append(bigThumb, element("div", t("Evidence thumbnail", "样本证据缩略图"), "small mt-6"));
+
+      const kvBox = element("div", undefined, "row-detail-kv");
+      const kv = element("div", undefined, "kv");
+      const pairs = [
+        [t("Listing", "商品标题"), titleText],
+        [
+          t("Price status", "价格状态"),
+          comp?.price_verified === false
+            ? t("Excluded (unverified)", "未核验已排除")
+            : t("Verified item price", "已核验成交价"),
+        ],
+        [t("Sold price", "成交净价"), soldText],
+        [t("Shipping", "运费口径"), shipText],
+        [t("Format", "交易方式"), fmtText],
+        [t("Condition", "商品成色"), condText],
+        [t("Sold at", "成交日期"), dateText],
+        [t("Record ID", "记录标识"), id || "—"],
+      ];
+      for (const [k, v] of pairs) {
+        kv.append(element("div", k, "k"), element("div", v));
+      }
+      kvBox.append(kv);
+      wrap.append(media, kvBox);
+      td.append(wrap);
+      detailTr.append(td);
+      tr.after(detailTr);
+      btn.classList.add("open");
+      btn.setAttribute("aria-expanded", "true");
+    };
+
+    previewHost.addEventListener("click", (event) => {
+      const btn = event.target.closest?.("[data-home-rowexp]");
+      if (btn) appendDetailRow(btn);
+    });
 
     condSel?.addEventListener("change", renderPreview);
     formatSel?.addEventListener("change", renderPreview);
@@ -7025,7 +7318,7 @@ console.log(data.stats.median_cents, data.stats.n_price_verified);`,
           ].join(","),
         ),
       ].join("\n");
-      download(csvLines, "soldbench-home-preview.csv");
+      download(new Blob([csvLines], { type: "text/csv;charset=utf-8" }), "soldbench-home-preview.csv");
       showToast(t("CSV exported.", "已导出 CSV。"));
     });
 
@@ -7037,5 +7330,170 @@ console.log(data.stats.median_cents, data.stats.n_price_verified);`,
         }
       })
       .catch(() => {});
+  }
+
+  // Pricing Monthly / Annual illustrative toggle
+  {
+    const cycleBtns = document.querySelectorAll("[data-billing-cycle]");
+    if (cycleBtns.length) {
+      for (const btn of cycleBtns) {
+        btn.addEventListener("click", () => {
+          const annual = btn.dataset.billingCycle === "annual";
+          for (const other of cycleBtns) {
+            other.classList.toggle("on", other.dataset.billingCycle === btn.dataset.billingCycle);
+          }
+          for (const el of document.querySelectorAll("[data-price-mo][data-price-yr]")) {
+            el.textContent = annual ? el.dataset.priceYr : el.dataset.priceMo;
+          }
+          for (const el of document.querySelectorAll("[data-note-mo][data-note-yr]")) {
+            el.textContent = annual ? el.dataset.noteYr : el.dataset.noteMo;
+          }
+        });
+      }
+    }
+  }
+
+  // Agents 5-client setup tab switcher
+  {
+    const clientBtns = document.querySelectorAll("[data-agent-client]");
+    const titleEl = document.querySelector("[data-agent-client-title]");
+    const codeEl = document.querySelector("[data-agent-client-code]");
+    if (clientBtns.length && codeEl) {
+      const clientConfigs = {
+        claude: [
+          t("Claude Code setup", "Claude Code 接入命令"),
+          "bash",
+          '# Add SoldBench Hosted MCP server\nclaude mcp add --transport http soldbench https://soldbench.com/mcp \\\n  --header "Authorization: Bearer $SOLDBENCH_API_KEY"',
+        ],
+        chatgpt: [
+          t("ChatGPT connector setup", "ChatGPT 自定义连接器"),
+          "bash",
+          "# ChatGPT -> Settings -> Connectors -> Add custom connector\nName: SoldBench\nURL:  https://soldbench.com/mcp\nAuth: Bearer $SOLDBENCH_API_KEY",
+        ],
+        cursor: [
+          t("Cursor MCP config", "Cursor 配置文件"),
+          "json",
+          '// ~/.cursor/mcp.json\n{\n  "mcpServers": {\n    "soldbench": {\n      "url": "https://soldbench.com/mcp",\n      "headers": { "Authorization": "Bearer $SOLDBENCH_API_KEY" }\n    }\n  }\n}',
+        ],
+        vscode: [
+          t("VS Code MCP config", "VS Code 配置文件"),
+          "json",
+          '// .vscode/mcp.json\n{\n  "servers": {\n    "soldbench": {\n      "type": "http",\n      "url": "https://soldbench.com/mcp",\n      "headers": { "Authorization": "Bearer $SOLDBENCH_API_KEY" }\n    }\n  }\n}',
+        ],
+        windsurf: [
+          t("Windsurf MCP config", "Windsurf 配置文件"),
+          "json",
+          '// ~/.codeium/windsurf/mcp_config.json\n{\n  "mcpServers": {\n    "soldbench": {\n      "serverUrl": "https://soldbench.com/mcp",\n      "headers": { "Authorization": "Bearer $SOLDBENCH_API_KEY" }\n    }\n  }\n}',
+        ],
+      };
+      for (const btn of clientBtns) {
+        btn.addEventListener("click", () => {
+          const key = btn.dataset.agentClient;
+          const entry = clientConfigs[key];
+          if (!entry) return;
+          for (const other of clientBtns) {
+            other.classList.toggle("on", other.dataset.agentClient === key);
+          }
+          if (titleEl) titleEl.textContent = entry[0];
+          renderHighlightedCode(codeEl, entry[2], entry[1]);
+        });
+      }
+    }
+  }
+
+  // Alternatives & Compare provider filter + monthly cost slider
+  {
+    const altBtns = document.querySelectorAll("[data-altfilter]");
+    const altNote = document.querySelector("[data-altfilter-note]");
+    const altRows = document.querySelectorAll("#altGlance .dt-r[data-cat]");
+    if (altBtns.length && altRows.length) {
+      for (const btn of altBtns) {
+        btn.addEventListener("click", () => {
+          const cat = btn.dataset.altfilter;
+          let shown = 0;
+          for (const row of altRows) {
+            const keep = cat === "all" || row.classList.contains("pin-row") || row.dataset.cat === cat;
+            row.hidden = !keep;
+            if (keep) shown += 1;
+          }
+          for (const other of altBtns) {
+            other.classList.toggle("on", other.dataset.altfilter === cat);
+          }
+          if (altNote) {
+            altNote.textContent = t(
+              `Showing ${shown} of ${altRows.length} providers — SoldBench stays pinned in every view.`,
+              `当前显示 ${shown} / ${altRows.length} 项对照（SoldBench 始终置顶）。`,
+            );
+          }
+        });
+      }
+    }
+
+    const slider = document.querySelector("[data-calc-slider]");
+    if (slider) {
+      const nVal = document.getElementById("calcNVal");
+      const sbEl = document.getElementById("calcSB");
+      const csEl = document.getElementById("calcCS");
+      const ioEl = document.getElementById("calcIO");
+      const noteEl = document.getElementById("calcNote");
+      const updateCalc = () => {
+        const n = Number.parseInt(slider.value || "2000", 10);
+        if (nVal) {
+          nVal.textContent = t(`${n.toLocaleString()} searches / month`, `每月 ${n.toLocaleString()} 次查价`);
+        }
+        const per = (total) => (total === 0 ? "$0.000" : `$${(total / n).toFixed(3)}`);
+        const sb = n <= 100 ? 0 : n <= 2000 ? 9 : n <= 10000 ? 29 : 29 + Math.ceil((n - 10000) / 1500) * 10;
+        const cs = n <= 100 ? 0 : n <= 2000 ? 9 : n <= 10000 ? 29 : 79;
+        const cr = n * 70;
+        const io = cr <= 50000 ? 5 : cr <= 300000 ? 29 : Math.ceil(cr / 850000) * 79;
+        const renderPlan = (el, total) => {
+          if (!el) return;
+          el.replaceChildren(
+            element("b", `$${total}`),
+            document.createTextNode(t(` / mo · ${per(total)} per search`, ` / 月 · 单次 ${per(total)}`)),
+          );
+        };
+        renderPlan(sbEl, sb);
+        renderPlan(csEl, cs);
+        renderPlan(ioEl, io);
+        if (noteEl) {
+          noteEl.textContent = t(
+            `At ${n.toLocaleString()} searches a month, per-row pricing costs $${io - sb} more than SoldBench — and the gap grows with every extra row returned.`,
+            `按每月 ${n.toLocaleString()} 次计算，按行计费每月将多支出 $${io - sb}，且返回样本越多差距越大。`,
+          );
+        }
+      };
+      slider.addEventListener("input", updateCalc);
+      updateCalc();
+    }
+  }
+
+  // Changelog type filter
+  {
+    const clfBtns = document.querySelectorAll("[data-clf]");
+    const entries = document.querySelectorAll(".chg-entry[data-cltag]");
+    const chgCount = document.querySelector("[data-chg-count]");
+    if (clfBtns.length && entries.length) {
+      for (const btn of clfBtns) {
+        btn.addEventListener("click", () => {
+          const chosen = btn.dataset.clf;
+          let shown = 0;
+          for (const entry of entries) {
+            const keep = chosen === "ALL" || entry.dataset.cltag === chosen;
+            entry.hidden = !keep;
+            if (keep) shown += 1;
+          }
+          for (const other of clfBtns) {
+            other.classList.toggle("on", other.dataset.clf === chosen);
+          }
+          if (chgCount) {
+            chgCount.textContent = t(
+              `Showing ${shown} of ${entries.length} entries · newest first`,
+              `当前显示 ${shown} / ${entries.length} 条记录 · 按发布时间倒序`,
+            );
+          }
+        });
+      }
+    }
   }
 }

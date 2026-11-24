@@ -1,5 +1,6 @@
 import type { DataMode, Locale } from "@soldbench/shared";
 import type { ReactNode } from "react";
+import { highlightCode } from "./highlight.js";
 
 export type HomeShowcaseComp = {
   sale_event_id: string;
@@ -107,6 +108,34 @@ function fmtFormatClass(fmt: string): string {
     default:
       return "badge badge-green";
   }
+}
+
+export function ProductThumbSvg({ index = 0 }: { index?: number }) {
+  const tints = ["#FBF3E2", "#F7EDD9", "#FCF6EA"] as const;
+  const rots = ["rotate(-3 24 24)", "rotate(0 24 24)", "rotate(3 24 24)"] as const;
+  const bg = tints[index % 3] ?? "#FBF3E2";
+  const tf = rots[index % 3] ?? "rotate(0 24 24)";
+  return (
+    <svg viewBox="0 0 48 48" role="img" aria-label="Product illustration">
+      <rect width="48" height="48" fill={bg} />
+      <g transform={tf}>
+        <rect x="8" y="13" width="32" height="22" rx="4" fill="#FFFDF7" stroke="#8A8172" strokeWidth="1.4" />
+        <rect x="15" y="15.5" width="18" height="17" rx="1.5" fill="#495360" />
+        <circle cx="11.5" cy="21" r="1.7" fill="#C2461E" />
+        <path d="M10.2 26.5h2.6M11.5 25.2v2.6" stroke="#4A4238" strokeWidth="1.4" strokeLinecap="round" />
+        <circle cx="36.5" cy="26.5" r="1.7" fill="#C2461E" />
+        <path d="M35.2 21h2.6M36.5 19.7v2.6" stroke="#4A4238" strokeWidth="1.4" strokeLinecap="round" />
+        <polyline
+          points="18,26 21.5,22 24.5,24.5 29.5,19"
+          fill="none"
+          stroke="#86EFAC"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </g>
+    </svg>
+  );
 }
 
 export function BrandLogo({ size = 27 }: { size?: number }) {
@@ -462,7 +491,10 @@ export function HomeSections({
                     {heroRows.map((comp) => (
                       <tr key={comp.sale_event_id}>
                         <td>
-                          {comp.title ?? t("Verified listing (title withheld)", "已核验样本（标题隐藏）")}
+                          <span className="ttl-demo">
+                            {comp.title ?? t("Verified listing (title withheld)", "已核验样本（标题隐藏）")}
+                            <span className="demo-tag">{t("Fixture", "示例")}</span>
+                          </span>
                         </td>
                         <td className="num price">{fmtMoney(comp.item_price_cents, locale)}</td>
                         <td className="nw">{fmtSoldDate(comp.sold_date, zh)}</td>
@@ -624,10 +656,9 @@ export function HomeSections({
                   {t("Copy", "复制")}
                 </button>
               </div>
-              <pre
-                id="homeApiCode"
-                data-api-code="curl"
-              >{`# 1 credit per valid delivered search (up to 200 comps)
+              <pre id="homeApiCode" data-api-code="curl">
+                {highlightCode(
+                  `# 1 credit per valid delivered search (up to 200 comps)
 curl -sS -G "https://api.soldbench.com/v1/sold" \\
   -H "Authorization: Bearer $SOLDBENCH_API_KEY" \\
   --data-urlencode "q=${apiSampleQuery}" \\
@@ -647,7 +678,10 @@ curl -sS -X POST "https://api.soldbench.com/v1/sold" \\
   -d '{"q":"${apiSampleQuery}","window_days":90,"limit":50}'
 
 curl -sS -X POST "https://api.soldbench.com/v1/jobs/{job_id}/claim" \\
-  -H "Authorization: Bearer $SOLDBENCH_API_KEY"`}</pre>
+  -H "Authorization: Bearer $SOLDBENCH_API_KEY"`,
+                  "bash",
+                )}
+              </pre>
             </div>
             <div className="codeblock cap">
               <div className="cb-head">
@@ -656,7 +690,7 @@ curl -sS -X POST "https://api.soldbench.com/v1/jobs/{job_id}/claim" \\
                   {t("Copy", "复制")}
                 </button>
               </div>
-              <pre id="homeApiResp">{apiJsonPreview}</pre>
+              <pre id="homeApiResp">{highlightCode(apiJsonPreview, "json")}</pre>
             </div>
           </div>
           <div className="grid4 eq mt-20">
@@ -825,31 +859,62 @@ curl -sS -X POST "https://api.soldbench.com/v1/jobs/{job_id}/claim" \\
                 <table>
                   <thead>
                     <tr>
-                      <th>{t("Listing", "商品标题")}</th>
+                      <th>{t("Title", "商品标题")}</th>
                       <th>{t("Condition", "成色")}</th>
                       <th>{t("Format", "方式")}</th>
                       <th className="num">{t("Sold", "成交价")}</th>
                       <th className="num">{t("Shipping", "运费")}</th>
+                      <th className="num">{t("Total", "总价")}</th>
                       <th>{t("Date", "日期")}</th>
+                      <th>{t("Details", "详情")}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {homeShowcase.comps.slice(0, 8).map((comp) => (
-                      <tr key={comp.sale_event_id}>
-                        <td>
-                          {comp.title ?? t("Verified listing (title withheld)", "已核验记录（标题隐藏）")}
-                        </td>
-                        <td>{fmtCondition(comp.condition_std, zh)}</td>
-                        <td>
-                          <span className={fmtFormatClass(comp.sale_format)}>
-                            {fmtFormat(comp.sale_format, zh)}
-                          </span>
-                        </td>
-                        <td className="num price">{fmtMoney(comp.item_price_cents, locale)}</td>
-                        <td className="num">{fmtShipping(comp.observed_shipping_cents, locale, zh)}</td>
-                        <td className="nw">{fmtSoldDate(comp.sold_date, zh)}</td>
-                      </tr>
-                    ))}
+                    {homeShowcase.comps.slice(0, 8).map((comp, idx) => {
+                      const totalCents =
+                        comp.item_price_cents != null && comp.observed_shipping_cents != null
+                          ? comp.item_price_cents + comp.observed_shipping_cents
+                          : null;
+                      return (
+                        <tr key={comp.sale_event_id}>
+                          <td>
+                            <div className="thumb-title">
+                              <span className="thumb">
+                                <ProductThumbSvg index={idx} />
+                              </span>
+                              <span className="ttl-demo">
+                                {comp.title ??
+                                  t("Verified listing (title withheld)", "已核验记录（标题隐藏）")}
+                                <span className="demo-tag">{t("Fixture", "示例")}</span>
+                              </span>
+                            </div>
+                          </td>
+                          <td>{fmtCondition(comp.condition_std, zh)}</td>
+                          <td>
+                            <span className={fmtFormatClass(comp.sale_format)}>
+                              {fmtFormat(comp.sale_format, zh)}
+                            </span>
+                          </td>
+                          <td className="num price">{fmtMoney(comp.item_price_cents, locale)}</td>
+                          <td className="num">{fmtShipping(comp.observed_shipping_cents, locale, zh)}</td>
+                          <td className="num">{fmtMoney(totalCents, locale)}</td>
+                          <td className="nw">{fmtSoldDate(comp.sold_date, zh)}</td>
+                          <td>
+                            <button
+                              type="button"
+                              className="row-exp"
+                              data-home-rowexp={comp.sale_event_id}
+                              aria-expanded="false"
+                            >
+                              {t("Details", "详情")}{" "}
+                              <span className="chev" aria-hidden="true">
+                                ▾
+                              </span>
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1072,12 +1137,12 @@ curl -sS -X POST "https://api.soldbench.com/v1/jobs/{job_id}/claim" \\
         <div className="wrap">
           <div className="card cta-card">
             <h2 className="serif cta-title">
-              {t("Ready for evidence-backed sold prices?", "准备好使用可追溯的成交价格研究了吗？")}
+              {t("Your next pricing decision, backed by evidence.", "让每一次定价决策，都有可核查成交依据。")}
             </h2>
             <p className="small cta-sub">
               {t(
-                "Create a local test account, inspect the Playground, or connect Claude/Cursor over MCP.",
-                "立即创建账户、在调试台实测接口，或通过 MCP 接入您的 AI 工作流。",
+                "Start free with 100 monthly credits, test the Playground, or connect Claude/Cursor over MCP.",
+                "注册即享每月 100 免费额度，立即前往工作台、调试台或接入 MCP。",
               )}
             </p>
             <div className="cta-actions">
@@ -1088,7 +1153,7 @@ curl -sS -X POST "https://api.soldbench.com/v1/jobs/{job_id}/claim" \\
                 {t("Read the docs", "阅读开发文档")}
               </a>
               <a className="btn btn-ghost" href={link("/agents")}>
-                {t("Connect to Claude", "接入 Claude / Cursor")}
+                {t("Connect to Claude", "接入 Claude")}
               </a>
             </div>
           </div>
@@ -1115,12 +1180,14 @@ export function SiteFooter({
     {
       heading: t("PRODUCT", "产品功能"),
       links: [
-        [t("Search workbench", "查价工作台"), link("/search")],
         [t("Pricing", "定价方案"), link("/pricing")],
-        [t("API Playground", "API 调试台"), link("/playground")],
+        [t("Documentation", "开发文档"), docsSlug("quickstart")],
+        [t("Search workbench", "查价工作台"), link("/search")],
+        [t("Playground", "API 调试台"), link("/playground")],
+        [t("Agents", "AI 与智能体"), link("/agents")],
         [t("Support", "帮助与工单"), link("/support")],
         [t("Changelog", "更新记录"), link("/changelog")],
-        [t("Service status", "服务状态"), "/status"],
+        [t("Status", "服务状态"), "/status"],
       ],
     },
     {
@@ -1131,25 +1198,26 @@ export function SiteFooter({
         [t("Blog", "博客专栏"), link("/blog")],
         [t("Categories", "开放类目"), link("/categories")],
         [t("Data availability", "数据可用性"), link("/data-availability")],
-        [t("What's it worth?", "商品值多少钱"), link("/worth")],
+        [t("What's it worth", "商品值多少钱"), link("/worth")],
       ],
     },
     {
       heading: t("COMPARE", "方案对比"),
       links: [
         [t("Alternatives overview", "替代方案总览"), link("/alternatives")],
+        ["vs CompSniper", link("/compare/compsniper")],
+        ["vs SoldComps.io", link("/compare/soldcomps-io")],
+        ["vs sold-comps.com", link("/compare/sold-comps-com")],
+        ["vs WatchCount", link("/compare/watchcount")],
         [t("Compare tools", "竞品工具对比"), link("/compare")],
-        [t("FAQ", "常见问题"), link("/faq")],
-        [t("Help center", "帮助中心"), link("/help")],
       ],
     },
     {
       heading: t("DEVELOPERS", "开发者"),
       links: [
-        [t("Quickstart", "快速开始"), docsSlug("quickstart")],
         [t("API reference", "API 接口参考"), docsSlug("api-reference")],
-        [t("MCP & Agents", "MCP 与 Agent"), link("/agents")],
-        [t("Agent Skill", "Agent Skill"), "/.well-known/skills/soldbench/SKILL.md"],
+        [t("MCP server", "MCP 服务端"), docsSlug("mcp")],
+        [t("Agent skill", "Agent Skill"), "/.well-known/skills/soldbench/SKILL.md"],
         ["OpenAPI", "/openapi.json"],
         ["llms.txt", "/llms.txt"],
       ],
@@ -1157,22 +1225,22 @@ export function SiteFooter({
     {
       heading: t("ACCOUNT", "账户中心"),
       links: [
-        [t("Overview", "账户概览"), link("/account")],
+        [t("Dashboard", "账户概览"), link("/account")],
         [t("Sign in", "登录"), link("/login")],
-        [t("Create account", "注册账户"), link("/register")],
-        [t("Usage & ledger", "用量与账本"), link("/account/usage")],
+        [t("Register", "注册账户"), link("/register")],
+        [t("Usage", "用量与账本"), link("/account/usage")],
         [t("API keys", "API 密钥"), link("/account/keys")],
         [t("Billing", "账单与套餐"), link("/account/billing")],
       ],
     },
     {
-      heading: t("LEGAL & OPS", "合规与运营"),
+      heading: t("LEGAL", "合规与运营"),
       links: [
         [t("About", "关于 SoldBench"), link("/about")],
-        [t("Privacy policy", "隐私政策"), link("/privacy")],
-        [t("Terms of service", "服务条款"), link("/terms")],
+        [t("Privacy", "隐私政策"), link("/privacy")],
+        [t("Terms", "服务条款"), link("/terms")],
         [t("Deletion receipt", "删除回执查询"), link("/deletion-receipt")],
-        [t("Operations console", "运营控制台"), link("/operations")],
+        [t("Operations", "运营控制台"), link("/operations")],
       ],
     },
   ];
