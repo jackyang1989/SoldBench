@@ -163,17 +163,25 @@ export function createApp(
       const path = page === "/" ? prefix || "/" : prefix + page;
       app.get(path, async (c) => {
         const kind = page === "/" ? "announcement" : page === "/faq" ? "faq" : null;
+        const chromeKinds =
+          page === "/"
+            ? (["announcement", "home", "navigation", "footer", "blog"] as const)
+            : page === "/faq"
+              ? (["announcement", "faq", "navigation", "footer"] as const)
+              : (["announcement", "navigation", "footer"] as const);
+        const queryService = services.query;
         const [rows, homeShowcase] = await Promise.all([
-          kind && services.query
-            ? publishedSiteContent(
-                db,
-                page === "/"
-                  ? [kind, "home", "navigation", "footer", "blog"]
-                  : [kind, "navigation", "footer"],
-              )
+          queryService && !page.startsWith("/account") && page !== "/operations"
+            ? publishedSiteContent(db, chromeKinds).catch((err) => {
+                if (isDatabaseConnectionError(err) && page !== "/pricing") throw err;
+                return [];
+              })
             : Promise.resolve([]),
-          (page === "/" || page === "/search") && services.query
-            ? new PublicResults(services.query).homeShowcase()
+          (page === "/" || page === "/search") && queryService
+            ? new PublicResults(queryService).homeShowcase().catch((err) => {
+                if (isDatabaseConnectionError(err)) throw err;
+                return null;
+              })
             : Promise.resolve(null),
         ]);
         const sections = rows

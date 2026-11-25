@@ -76,48 +76,54 @@ export function Editorial({ view, locale, query }: { view: EditorialView; locale
       <>
         <section className="page-head">
           <div className="wrap">
-            <p className="eyebrow">{t("Free public price check", "免费公共查价")}</p>
-            <h1>
-              {t("What's it ", "这件商品")}
-              <span className="kw">{t("worth", "实际值多少钱")}</span>
-              {t("?", "？")}
-            </h1>
-            <p className="sub">
-              {t(
-                "Check cached eBay US sold prices without creating an account (up to 5 free cached lookups per day).",
-                "无需登录注册，即可查询公开缓存的 eBay 美国站已核验成交价（每日最多免费 5 次公共缓存）。",
-              )}
-            </p>
-            <form className="searchbox mt-22" action={href("/search")} method="get" data-search="">
-              <label className="sr-only" htmlFor="worth-product">
-                {t("Product", "商品")}
-              </label>
-              <input
-                id="worth-product"
-                name="q"
-                maxLength={120}
-                required
-                defaultValue={query}
-                placeholder={t(
-                  "Enter a brand and model, e.g. Nintendo Switch",
-                  "输入品牌和型号，例如 Nintendo Switch",
+            <div className="worth-hero-wrap">
+              <p className="eyebrow">{t("Free public price check", "免费公共查价")}</p>
+              <h1>
+                {t("What's it ", "这件商品")}
+                <span className="kw">{t("worth", "实际值多少钱")}</span>
+                {t("?", "？")}
+              </h1>
+              <p className="sub">
+                {t(
+                  "Check cached eBay US sold prices without creating an account (up to 5 free cached lookups per day).",
+                  "无需登录注册，即可查询公开缓存的 eBay 美国站已核验成交价（每日最多免费 5 次公共缓存）。",
                 )}
-              />
-              <button type="submit" className="btn brand">
-                {t("Check sold prices", "查成交价")}
-              </button>
-            </form>
-            <div className="chips">
-              <span className="lbl">{t("POPULAR", "常见查询")}</span>
-              {popular.map((term) => (
-                <a key={term} className="chip" href={`${href("/worth")}?${new URLSearchParams({ q: term })}`}>
-                  {term}
-                </a>
-              ))}
+              </p>
+              <form className="searchbox mt-22" action={href("/search")} method="get" data-search="">
+                <label className="sr-only" htmlFor="worth-product">
+                  {t("Product", "商品")}
+                </label>
+                <input
+                  id="worth-product"
+                  name="q"
+                  maxLength={120}
+                  required
+                  defaultValue={query}
+                  placeholder={t(
+                    "Enter a brand and model, e.g. Nintendo Switch",
+                    "输入品牌和型号，例如 Nintendo Switch",
+                  )}
+                />
+                <button type="submit" className="btn brand">
+                  {t("Check sold prices", "查成交价")}
+                </button>
+              </form>
+              <div className="chips">
+                <span className="lbl">{t("POPULAR", "常见查询")}</span>
+                {popular.map((term) => (
+                  <a
+                    key={term}
+                    className="chip"
+                    href={`${href("/worth")}?${new URLSearchParams({ q: term })}`}
+                  >
+                    {term}
+                  </a>
+                ))}
+              </div>
+              <p className="small mt-12">
+                {t("eBay US · USD · Synthetic demo", "eBay 美国站 · 美元 · 合成演示")}
+              </p>
             </div>
-            <p className="small mt-12">
-              {t("eBay US · USD · Synthetic demo", "eBay 美国站 · 美元 · 合成演示")}
-            </p>
             <p className="notice" data-status="" aria-live="polite" hidden />
             <div data-actions="" className="actions" />
             <div data-results="" className="mt-16" />
@@ -197,6 +203,55 @@ export function Editorial({ view, locale, query }: { view: EditorialView; locale
                 <div className="card" key={heading}>
                   <h3>{heading}</h3>
                   <p>{desc}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="blk blk-tight-top">
+          <div className="wrap">
+            <div className="blk-head">
+              <h2>{t("Browse values by category", "按品类浏览历史成交参考")}</h2>
+            </div>
+            <div className="grid3 eq mt-22">
+              {[
+                [
+                  t("Graded cards", "评级卡牌"),
+                  [
+                    "Charizard PSA 10",
+                    "Pokémon Base Set PSA 10",
+                    "Graded Charizard 4/102",
+                    "Blastoise PSA 10",
+                  ],
+                ],
+                [
+                  t("Sneakers", "潮流球鞋"),
+                  ["Air Jordan 1 Retro High OG", "Nike Dunk Low", "New Balance 550", "Adidas Samba OG"],
+                ],
+                [
+                  t("Watches", "经典腕表"),
+                  ["Rolex Datejust", "Omega Speedmaster", "Seiko SKX007", "Tudor Black Bay 58"],
+                ],
+                [
+                  t("Video games", "电子游戏与主机"),
+                  ["Nintendo Switch OLED", "Game Boy Color CIB", "Pokémon Emerald GBA", "Super Mario 64 CIB"],
+                ],
+                [t("GPUs & hardware", "显卡与硬件"), ["RTX 4070", "RTX 3080 10GB", "RX 7800 XT", "RTX 4090"]],
+                [
+                  t("Collectibles", "潮流玩具与收藏"),
+                  ["Funko Pop exclusive", "LEGO retired set", "First edition books", "Vintage Star Wars"],
+                ],
+              ].map(([catName, catQueries]) => (
+                <div className="card" key={String(catName)}>
+                  <h3>{catName}</h3>
+                  <div className="worth-cats-links mt-10">
+                    {(catQueries as string[]).map((qItem) => (
+                      <a key={qItem} href={`${href("/worth")}?${new URLSearchParams({ q: qItem })}`}>
+                        {qItem} →
+                      </a>
+                    ))}
+                  </div>
                 </div>
               ))}
             </div>
@@ -529,7 +584,88 @@ export function Editorial({ view, locale, query }: { view: EditorialView; locale
 
         <section className="blk blk-tight-top" id="altMatrix">
           <div className="wrap">
-            <p className="eyebrow">{t("SIDE BY SIDE", "横向一览")}</p>
+            <p className="eyebrow">{t("COMPARISON MATRIX", "核心能力横评表")}</p>
+            <h2 className="serif mt-10">{t("Feature-by-feature breakdown", "重点方案功能逐项对比")}</h2>
+            <div className="live-card mt-14">
+              <div className="table-scroll">
+                <table className="cmp-table tbl-fixed tbl-cmp">
+                  <colgroup>
+                    <col className="col-cmp-k" />
+                    <col className="col-cmp-v" />
+                    <col className="col-cmp-v" />
+                    <col className="col-cmp-v" />
+                    <col className="col-cmp-v" />
+                    <col className="col-cmp-e" />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th />
+                      <th className="sb">
+                        SoldBench <span className="you-pill">{t("You are here", "当前产品")}</span>
+                      </th>
+                      <th>CompSniper</th>
+                      <th>SoldComps.io</th>
+                      <th>sold-comps.com</th>
+                      <th>WatchCount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>
+                        <b>{t("Pricing unit", "计费单位")}</b>
+                      </td>
+                      <td className="sb">{t("1 credit / search (up to 200)", "按次计费封顶 200 条")}</td>
+                      <td>{t("Per search tier", "按月按次分档")}</td>
+                      <td>{t("20 credits + 1 / row", "基础 20 ＋每条 1 额度")}</td>
+                      <td>{t("Per search", "按次计费")}</td>
+                      <td>{t("Free (ad-supported)", "免费展示")}</td>
+                    </tr>
+                    <tr>
+                      <td>
+                        <b>{t("Best Offer handling", "议价实价规则")}</b>
+                      </td>
+                      <td className="sb">{t("Unknown actuals excluded", "未公开实价绝不补零混入")}</td>
+                      <td>{t("Falls back to list price", "混入标价估测")}</td>
+                      <td>{t("Hidden excluded", "隐藏实价排除")}</td>
+                      <td>{t("Extra paid lookup", "需额外请求")}</td>
+                      <td>{t("Listing display only", "仅页面显示")}</td>
+                    </tr>
+                    <tr>
+                      <td>
+                        <b>{t("Sample < 8 rule", "低样本护栏")}</b>
+                      </td>
+                      <td className="sb">{t("Null median · 0 credits", "强制置空且免费")}</td>
+                      <td>{t("Returns raw median", "照常计算")}</td>
+                      <td>{t("Returns raw median", "照常计算")}</td>
+                      <td>{t("No threshold", "无阈值拦截")}</td>
+                      <td>{t("No stats", "无统计")}</td>
+                    </tr>
+                    <tr>
+                      <td>
+                        <b>{t("AI / MCP support", "AI 智能体接入")}</b>
+                      </td>
+                      <td className="sb">{t("Hosted MCP + OAuth / Key", "Hosted MCP + Skill")}</td>
+                      <td>{t("REST only", "仅 REST API")}</td>
+                      <td>{t("REST only", "仅 REST API")}</td>
+                      <td>{t("REST + dashboard", "REST + 网页")}</td>
+                      <td>{t("Web only", "仅网页")}</td>
+                    </tr>
+                    <tr>
+                      <td>
+                        <b>{t("Audit evidence pack", "可核查证据链")}</b>
+                      </td>
+                      <td className="sb">{t("Hash + rule IDs per row", "候选哈希＋逐条排除码")}</td>
+                      <td>{t("Basic JSON list", "普通列表")}</td>
+                      <td>{t("Basic JSON list", "普通列表")}</td>
+                      <td>{t("Summary only", "仅摘要")}</td>
+                      <td>{t("None", "无")}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <p className="eyebrow mt-36">{t("SIDE BY SIDE", "横向一览")}</p>
             <h2 className="serif mt-10">{t("Every option at a glance", "主流方案逐项对照表")}</h2>
             <p className="small mt-10">
               {t(

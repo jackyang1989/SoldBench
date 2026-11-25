@@ -5,7 +5,19 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { type DocsView, Documentation } from "./developer.tsx";
 import { Editorial, type EditorialView, editorialUrl } from "./editorial.tsx";
 import { highlightCode } from "./highlight.tsx";
-import { BrandLogo, HomeSections, type HomeShowcase, ProductThumbSvg, SiteFooter } from "./home.tsx";
+import {
+  BrandLogo,
+  fmtCondition,
+  fmtFormat,
+  fmtFormatClass,
+  fmtMoney,
+  fmtShipping,
+  fmtSoldDate,
+  HomeSections,
+  type HomeShowcase,
+  ProductThumbSvg,
+  SiteFooter,
+} from "./home.tsx";
 
 export type { EditorialEntry, EditorialView } from "./editorial.tsx";
 export type { HomeShowcase, HomeShowcaseComp } from "./home.tsx";
@@ -1484,6 +1496,7 @@ export function renderPage(
         noteYr: t("Free forever", "永久免费"),
         credits: t("100 credits / mo", "每月 100 额度"),
         rate: "30 req/min",
+        cta: t("Create free account", "免费注册账户"),
         feats: [
           t("Up to 200 comps per search", "每次最多返回 200 条可比成交"),
           t("Evidence pack on every result", "所有结果随附完整证据包"),
@@ -1501,11 +1514,12 @@ export function renderPage(
         noteYr: t("$90 billed annually · 2 months free", "年付 $90 · 省 2 个月费用"),
         credits: t("2,000 credits / mo", "每月 2,000 额度"),
         rate: "60 req/min",
+        cta: t("Choose Starter", "选择 Starter"),
         feats: [
           t("Everything in Free", "包含免费版全部功能"),
           t("Usage dashboard & immutable ledger", "用量分析与不可篡改额度流水"),
           t("10-minute repeat reuse free", "10 分钟内同参数复用免费"),
-          t("Full CSV & JSON exports", "权威/调整双视图完整导出"),
+          t("Email support", "邮件技术支持"),
         ],
         pop: false,
       },
@@ -1518,11 +1532,12 @@ export function renderPage(
         noteYr: t("$290 billed annually · 2 months free", "年付 $290 · 省 2 个月费用"),
         credits: t("10,000 credits / mo", "每月 10,000 额度"),
         rate: "300 req/min",
+        cta: t("Start with Pro", "开通 Pro 方案"),
         feats: [
           t("Everything in Starter", "包含 Starter 全部功能"),
-          t("Priority async queue & explicit claim", "高吞吐异步队列与显式领取"),
-          t("Batch pricing & webhook alerts", "支持批量查价与 Webhook 告警"),
-          t("Priority email support", "工单优先处理响应"),
+          t("Priority queue", "高优先级异步队列"),
+          t("Priority support", "工单优先处理响应"),
+          t("Async jobs & claims API", "异步任务与显式领取 API"),
         ],
         pop: true,
       },
@@ -1532,22 +1547,29 @@ export function renderPage(
         <section className="page-head">
           <div className="wrap">
             <p className="eyebrow">{t("PRICING", "定价与额度")}</p>
-            <h1>{title}</h1>
+            <p className="page-head-title">
+              {t("Pay per search, ", "按次计费，")}
+              <span className="kw">{t("not per result", "不按条数收费")}</span>
+              {t(".", "。")}
+            </p>
             <p className="sub">
               {t(
                 "One request = one keyword search = up to 200 sold listings. Whether it returns 10 or 200, you pay for one search.",
-                "一次标准查询最多返回 200 条核验记录——无论返回 10 条还是 200 条，最多只计 1 额度。",
+                "一次标准查询最多返回 200 条核验记录——无论返回 10 条还是 200 条，只计 1 额度。",
               )}
+            </p>
+            <p className="small mt-8" data-pricing-state="">
+              {t("Commercial pricing is pending approval.", "正式定价有待审批。")}
             </p>
             {status}
             <div className="inshort mt-20">
               <b>{t("In short:", "核心计费原则：")}</b>{" "}
               {t(
-                "1 credit = 1 successful search, whether it returns 1 or 200 comps. Failed searches, low-sample (<8 verified sales) results, async queueing, and identical repeats within 10 minutes are all free. You settle atomically at claim time.",
-                "1 额度 = 1 次成功交付查询；查询失败、不足 8 条的低样本、异步队列等待以及 10 分钟内同参数复取均免费，异步结果仅在显式领取时原子扣费。",
+                "1 credit = 1 successful search, whether it returns 1 or 200 comps. Failed searches, low-sample results, and repeat fetches are free. The same search repeated within 10 minutes is reused for free; async waiting never bills; you are charged at claim time, not request time.",
+                "1 额度 = 1 次成功交付查询，最多返回 200 条样本；查询失败、不足 8 条的低样本、异步排队以及 10 分钟内同参数复取均免费，异步结果仅在显式领取时原子扣费。",
               )}
             </div>
-            <div className="actions mt-24">
+            <div className="toggle-center mt-24">
               <div className="toggle">
                 <button type="button" className="on" data-billing-cycle="monthly">
                   {t("Monthly", "按月付费")}
@@ -1562,82 +1584,70 @@ export function renderPage(
 
         <section className="blk blk-tight-top pricing-page">
           <div className="wrap">
-            <h2 id="pricing-offer-title">{t("Plans and credit packs", "套餐与额度包")}</h2>
-            <p className="mt-8" data-pricing-state="">
-              {t("Commercial pricing is pending approval.", "正式定价有待审批。")}
-            </p>
-            <div className="grid3 mt-16" data-pricing-offers="" />
-            <div className="actions mt-16" data-pricing-actions="">
-              <a className="btn brand" href={link("/search")}>
-                {t("Try a lookup", "试用查价")}
-              </a>
-              <a className="btn ghost" href={link("/login")}>
-                {t("Sign in to view account billing", "登录查看账单")}
-              </a>
-            </div>
-
-            <div className="mt-30">
-              <p className="eyebrow">
-                {t(
-                  "Illustrative schedule (pending final commercial approval)",
-                  "参考档位概览（待最终商业审批生效）",
-                )}
-              </p>
-              <div className="grid3 eq mt-16" data-pricing-grid="">
-                {subPlans.map((plan) => (
-                  <div className={`card price-card${plan.pop ? " pop" : ""}`} key={plan.key}>
-                    {plan.pop && <span className="pop-tag">{t("MOST POPULAR", "最受欢迎")}</span>}
-                    <p className={`eyebrow${plan.pop ? " eyebrow-brand" : ""}`}>{plan.name}</p>
-                    <div className="price-amt-row">
-                      <span className="amt" data-price-mo={plan.priceMo} data-price-yr={plan.priceYr}>
-                        {plan.priceMo}
-                      </span>{" "}
-                      <span className="small">/ {t("mo", "月")}</span>
-                    </div>
-                    <p data-note-mo={plan.noteMo} data-note-yr={plan.noteYr}>
-                      {plan.noteMo}
-                    </p>
-                    <p className="mt-10">
-                      <b>{plan.credits}</b> · {plan.rate}
-                    </p>
-                    <ul>
-                      {plan.feats.map((feat) => (
-                        <li key={feat}>{feat}</li>
-                      ))}
-                    </ul>
-                    <a className={plan.pop ? "btn btn-brand" : "btn btn-ghost"} href={link("/register")}>
-                      {t("Create free account", "免费注册账户")}
-                    </a>
+            <div className="grid3 eq" data-pricing-grid="">
+              {subPlans.map((plan) => (
+                <div className={`card price-card${plan.pop ? " pop" : ""}`} key={plan.key}>
+                  {plan.pop && <span className="pop-tag">{t("MOST POPULAR", "最受欢迎")}</span>}
+                  <p className={`eyebrow${plan.pop ? " eyebrow-brand" : ""}`}>{plan.name}</p>
+                  <div className="price-amt-row">
+                    <span className="amt" data-price-mo={plan.priceMo} data-price-yr={plan.priceYr}>
+                      {plan.priceMo}
+                    </span>{" "}
+                    <span className="small">/ {t("mo", "月")}</span>
                   </div>
-                ))}
-              </div>
-
-              <div className="card pricing-bar mt-20">
-                <div>
-                  <h3>{t("Top-up credits — $10 / 1,500 credits", "永久加量包 — $10 / 1,500 额度")}</h3>
-                  <p>
-                    {t(
-                      "Never expire. Purchased credits sit in their own bucket and are drawn only after subscription credits.",
-                      "购买加量包永久有效，仅在周期订阅与优惠桶用尽后扣除。",
-                    )}
+                  <p data-note-mo={plan.noteMo} data-note-yr={plan.noteYr}>
+                    {plan.noteMo}
                   </p>
+                  <p className="mt-10">
+                    <b>{plan.credits}</b>
+                  </p>
+                  <p>{plan.rate}</p>
+                  <ul>
+                    {plan.feats.map((feat) => (
+                      <li key={feat}>{feat}</li>
+                    ))}
+                  </ul>
+                  <a className={plan.pop ? "btn btn-brand" : "btn btn-ghost"} href={link("/register")}>
+                    {plan.cta}
+                  </a>
                 </div>
-                <a className="btn btn-brand" href={link("/account/billing")}>
-                  {t("Open account billing", "前往账户账单")}
-                </a>
-              </div>
+              ))}
             </div>
 
-            <h2 className="serif mt-36">{t("Plans side by side", "档位详细对照")}</h2>
+            <div className="card pricing-bar mt-20">
+              <div>
+                <h3>{t("Top-up credits — $10 / 1,500 credits", "永久加量包 — $10 / 1,500 额度")}</h3>
+                <p>
+                  {t(
+                    "Never expire. Purchased credits live in their own bucket and are only drawn after subscription credits, so a plan change never eats them. Buy as many packs as you like, any time.",
+                    "永不过期。购买加量包独立存放且在订阅与活动桶用尽后扣除，更换套餐不影响已购余额。",
+                  )}
+                </p>
+              </div>
+              <a className="btn btn-brand" href={link("/account/billing")}>
+                {t("Buy top-up", "购买加量包")}
+              </a>
+            </div>
+
+            <h2 className="serif section-h2 mt-36">{t("Plans side by side", "档位详细对照")}</h2>
             <div className="live-card mt-12">
               <div className="table-scroll">
-                <table>
+                <table className="tbl-fixed tbl-plans">
+                  <colgroup>
+                    <col className="col-pl1" />
+                    <col className="col-pl2" />
+                    <col className="col-pl3" />
+                    <col className="col-pl4" />
+                    <col className="col-pl5" />
+                    <col className="col-pl6" />
+                  </colgroup>
                   <thead>
                     <tr>
                       <th>{t("Plan", "套餐")}</th>
                       <th className="num">{t("Price", "价格")}</th>
                       <th className="num">{t("Credits", "包含额度")}</th>
-                      <th className="num">{t("Cost per 1,000", "千次查询成本")}</th>
+                      <th className="num">{t("≈ Searches", "≈ 查询次数")}</th>
+                      <th className="num">{t("Cost per 1,000 searches", "每千次查询成本")}</th>
                       <th>{t("Rate limit", "速率限制")}</th>
                     </tr>
                   </thead>
@@ -1646,100 +1656,113 @@ export function renderPage(
                       <td>Free</td>
                       <td className="num">$0</td>
                       <td className="num">100</td>
-                      <td className="num">$0.00</td>
+                      <td className="num">100</td>
+                      <td className="num">$0</td>
                       <td>30 req/min</td>
                     </tr>
                     <tr>
                       <td>Starter</td>
-                      <td className="num">$9</td>
+                      <td className="num" data-price-mo="$9" data-price-yr="$7.50">
+                        $9
+                      </td>
                       <td className="num">2,000</td>
-                      <td className="num">$4.50</td>
+                      <td className="num">2,000</td>
+                      <td className="num" data-price-mo="$4.50" data-price-yr="$3.75">
+                        $4.50
+                      </td>
                       <td>60 req/min</td>
                     </tr>
                     <tr>
                       <td>
                         <b>Pro</b>
                       </td>
-                      <td className="num">$29</td>
+                      <td className="num" data-price-mo="$29" data-price-yr="$24">
+                        $29
+                      </td>
                       <td className="num">10,000</td>
-                      <td className="num">$2.90</td>
+                      <td className="num">10,000</td>
+                      <td className="num" data-price-mo="$2.90" data-price-yr="$2.40">
+                        $2.90
+                      </td>
                       <td>300 req/min</td>
                     </tr>
                     <tr>
-                      <td>{t("Top-up pack", "加量包")}</td>
+                      <td>{t("Top-up", "加量包")}</td>
                       <td className="num">$10</td>
                       <td className="num">1,500</td>
+                      <td className="num">1,500</td>
                       <td className="num">$6.67</td>
-                      <td>{t("Uses active plan limit", "沿用当前档位限流")}</td>
+                      <td>{t("Uses plan's rate limit", "沿用当前档位限流")}</td>
                     </tr>
                   </tbody>
                 </table>
               </div>
             </div>
 
-            <h2 className="serif mt-36">{t("High-volume plans", "大用量扩展方案（待商业审批）")}</h2>
+            <h2 className="serif section-h2 mt-36">{t("High-volume plans", "大用量扩展方案")}</h2>
             <div className="live-card mt-12">
-              <div className="dtable cols-4">
-                <div className="dt-h">
-                  <span className="dt-c">{t("Requests / mo", "每月请求量")}</span>
-                  <span className="dt-c">{t("Rate limit", "速率限制")}</span>
-                  <span className="dt-c num">{t("Price / mo", "月费参考")}</span>
-                  <span className="dt-c num">{t("Per 1,000", "每千次参考")}</span>
-                </div>
-                {[
-                  ["100K", "300 / min", "$129", "$1.29"],
-                  ["250K", "300 / min", "$299", "$1.20"],
-                  ["500K", "600 / min", "$549", "$1.10"],
-                  ["1M", "600 / min", "$699", "$0.70"],
-                ].map(([req, rate, price, per]) => (
-                  <div className="dt-r" key={req}>
-                    <span className="dt-c">{req}</span>
-                    <span className="dt-c">{rate}</span>
-                    <span className="dt-c num price">{price}</span>
-                    <span className="dt-c num">{per}</span>
+              <div className="table-scroll">
+                <div className="dtable cols-4">
+                  <div className="dt-h">
+                    <span className="dt-c">{t("Requests / mo", "每月请求量")}</span>
+                    <span className="dt-c">{t("Rate limit", "速率限制")}</span>
+                    <span className="dt-c num">{t("Price / mo", "月费参考")}</span>
+                    <span className="dt-c num">{t("Per 1,000", "每千次参考")}</span>
                   </div>
-                ))}
-                <div className="dt-r">
-                  <span className="dt-c">{t("More than 1M", "超过 100 万次")}</span>
-                  <span className="dt-c">{t("Custom", "定制配置")}</span>
-                  <span className="dt-c num">—</span>
-                  <span className="dt-c num">
-                    <a href="mailto:support@soldbench.com">{t("Contact us", "联系我们")}</a>
-                  </span>
+                  {[
+                    ["100K", "300 / min", "$129", "$1.29"],
+                    ["250K", "300 / min", "$299", "$1.20"],
+                    ["500K", "600 / min", "$549", "$1.10"],
+                    ["1M", "600 / min", "$699", "$0.70"],
+                  ].map(([req, rate, price, per]) => (
+                    <div className="dt-r" key={req}>
+                      <span className="dt-c">{req}</span>
+                      <span className="dt-c">{rate}</span>
+                      <span className="dt-c num price">{price}</span>
+                      <span className="dt-c num">{per}</span>
+                    </div>
+                  ))}
+                  <div className="dt-r">
+                    <span className="dt-c">{t("More than 1M", "超过 100 万次")}</span>
+                    <span className="dt-c">{t("Custom", "定制配置")}</span>
+                    <span className="dt-c num">—</span>
+                    <span className="dt-c num">
+                      <a href="mailto:support@soldbench.com">{t("Contact us", "联系我们")}</a>
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
+            <p className="small mt-8">
+              {t(
+                "Annual billing on high-volume plans includes 2 months free.",
+                "大用量企业方案按年付费同样赠送 2 个月额度。",
+              )}
+            </p>
 
-            <h2 className="serif mt-36">{t("What costs a credit?", "扣费明细与额度桶消耗顺序")}</h2>
+            <h2 className="serif section-h2 mt-36">
+              {t("What costs a credit?", "扣费明细与额度桶消耗顺序")}
+            </h2>
             <div className="grid2 eq mt-16">
               <div className="card">
                 <h3>{t("The billing rules", "动作与扣费对应关系")}</h3>
                 <div className="dtable cols-2 mt-12">
                   {[
                     [
-                      t("Valid delivered search (1–200 comps)", "有效交付查价（最多 200 条）"),
+                      t("Successful search (1–200 comps)", "成功交付查价（1–200 条）"),
                       t("1 credit", "1 额度"),
                     ],
-                    [
-                      t("Low-sample result (<8 verified prices)", "不足 8 条核验样本的低样本结果"),
-                      t("0 credits", "0 额度（免费）"),
-                    ],
-                    [
-                      t("Identical repeat within 10 minutes", "10 分钟内同 owner 同规范参数复取"),
-                      t("0 credits", "0 额度（免费）"),
-                    ],
-                    [
-                      t("Async job queueing, polling & expiry", "异步排队、轮询与未领取过期"),
-                      t("0 credits", "0 额度（免费）"),
-                    ],
-                    [
-                      t("Best Offer verification & stale consent", "Best Offer 后置核验与获准陈旧缓存"),
-                      t("0 extra credits", "0 额外额度"),
-                    ],
+                    [t("Failed search (4xx/5xx)", "查询报错（4xx/5xx）"), "0"],
+                    [t("Low-sample result (n < 8)", "低样本结果（n < 8）"), "0"],
+                    [t("Async waiting time", "异步队列等待时间"), "0"],
+                    [t("Re-fetching a claimed result", "复取已领取结果"), "0"],
+                    [t("Same search within 10 minutes", "10 分钟内同参数复用"), "0"],
                   ].map(([action, cost]) => (
                     <div className="dt-r" key={action}>
                       <span className="dt-c">{action}</span>
-                      <span className="dt-c num">{cost}</span>
+                      <span className="dt-c num">
+                        <b>{cost}</b>
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -1747,36 +1770,75 @@ export function renderPage(
               <div className="card">
                 <h3>{t("Balance buckets, in draw order", "多额度桶消耗优先级")}</h3>
                 <p>
-                  <b>{t("1 · Expiring buckets first", "1 · 有限期桶最早到期优先")}</b> —{" "}
+                  <b>{t("1 · Promo / subscription", "1 · 活动与订阅额度")}</b> —{" "}
                   {t(
-                    "Promo and subscription credits draw in earliest-expiry order; on an identical expiry timestamp, subscription draws before promo.",
-                    "促销桶与订阅桶均按最快到期优先扣除；若到期时间相同，优先消耗订阅额度。",
+                    "earliest expiry first; on a tie, subscription credits draw before promo. Subscription credits expire at period end.",
+                    "最早到期优先；到期时间相同时优先消耗订阅额度，订阅额度在周期结束时清零。",
                   )}
                 </p>
                 <p className="mt-10">
-                  <b>{t("2 · Purchased credits last", "2 · 购买加量包最后消耗")}</b> —{" "}
+                  <b>{t("2 · Purchased", "2 · 购买永久加量包")}</b> —{" "}
                   {t(
-                    "Purchased credit packs never expire and survive subscription period-end cancellation.",
-                    "购买的额度包长期有效，且订阅期末取消后购买桶依然可用。",
+                    "top-up credits. They never expire and survive plan changes. Refunds return to the bucket they came from.",
+                    "永不过期，且变更或取消订阅后依然留存；退款退回原来源桶。",
                   )}
                 </p>
-                <div className="dtable mt-14">
-                  <div className="dt-r">
-                    <span className="dt-c">{t("Subscription / promo", "订阅 / 活动额度")}</span>
-                    <span className="dt-c">{t("Expires at period end", "周期结束过期")}</span>
-                    <span className="dt-c num">
-                      <b>{t("Drawn 1st", "优先消耗")}</b>
-                    </span>
-                  </div>
-                  <div className="dt-r">
-                    <span className="dt-c">{t("Purchased top-up", "购买永久加量包")}</span>
-                    <span className="dt-c">{t("Never expires", "永不过期")}</span>
-                    <span className="dt-c num">
-                      <b>{t("Drawn 2nd", "其次消耗")}</b>
-                    </span>
+                <p className="mt-10">
+                  {t(
+                    "Charged at claim time for async jobs — if you never claim a ready result within 24 hours, it expires uncharged.",
+                    "异步任务仅在显式领取时扣费；24 小时内未领取会自动过期且不扣费。",
+                  )}
+                </p>
+                <div className="table-scroll mt-14">
+                  <div className="dtable">
+                    <div className="dt-r">
+                      <span className="dt-c">{t("Subscription / promo", "订阅 / 活动额度")}</span>
+                      <span className="dt-c">{t("Expires at period end", "周期结束过期")}</span>
+                      <span className="dt-c num">
+                        <b>{t("Drawn 1st", "优先消耗")}</b>
+                      </span>
+                    </div>
+                    <div className="dt-r">
+                      <span className="dt-c">{t("Purchased top-up", "购买永久加量包")}</span>
+                      <span className="dt-c">{t("Never expires", "永不过期")}</span>
+                      <span className="dt-c num">
+                        <b>{t("Drawn 2nd", "其次消耗")}</b>
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
+            </div>
+
+            <div className="card mt-20">
+              <h3>
+                {t("One search, one credit — even for 200 comps", "一次查价只扣 1 额度——哪怕返回 200 条成交")}
+              </h3>
+              <p>
+                {t(
+                  "Per-result pricing makes your bill a lottery: the same query can cost 10× more because the market was busy. Per-search pricing makes it a constant. If a competitor charges per returned row, a 200-comp search at even $0.01/row costs $2.00; here it costs 1 credit — $0.0029 on Pro.",
+                  "按条计费会让同一次查询因市场成交活跃而账单翻十倍；按次计费则始终恒定。按每条 $0.01 计算返回 200 条即需 $2.00，而在 Pro 方案下 1 额度折合仅 $0.0029。",
+                )}
+              </p>
+            </div>
+
+            <div className="pricing-offer-head mt-36" id="pricing-offer-title">
+              <h1>{t("Pricing and credits", "定价与额度")}</h1>
+            </div>
+            <p className="small mt-8">
+              {t(
+                "Sandbox checkout offers load automatically for signed-in verified accounts.",
+                "已验证登录账户将在此加载当前环境激活的沙盒测试订阅与加量包。",
+              )}
+            </p>
+            <div className="grid3 mt-14" data-pricing-offers="" />
+            <div className="actions mt-12" data-pricing-actions="">
+              <a className="btn brand" href={link("/search")}>
+                {t("Try a lookup", "试用查价")}
+              </a>
+              <a className="btn ghost" href={link("/login")}>
+                {t("Sign in to view account billing", "登录查看账单")}
+              </a>
             </div>
 
             <section className="faq-open mt-36" aria-labelledby="pricing-questions-title">
@@ -1859,9 +1921,11 @@ export function renderPage(
             <p className="eyebrow">{t("Support", "帮助与支持")}</p>
             <h1>{title}</h1>
             <p className="sub">
+              {t("We aim to reply within ", "我们力争在 ")}
+              <b>{t("one business day", "1 个工作日")}</b>
               {t(
-                "Share the relevant request ID if you have it. Keep passwords, card numbers and API keys private.",
-                "如有请求编号，请随工单附上。请妥善保管密码、银行卡号和 API 密钥。",
+                ". Share your request ID if you have it, and keep passwords, card numbers, and API keys private.",
+                " 内回复。如有请求编号，请随工单附上；请妥善保管密码、银行卡号和 API 密钥。",
               )}
             </p>
           </div>
@@ -2062,119 +2126,152 @@ export function renderPage(
         <section className="blk blk-tight-top">
           <div className="wrap">
             {page === "/playground" ? (
-              <div className="grid2">
-                <div className="card auth-card">
-                  <form action={link("/search")} method="get" data-search="">
-                    <label>
-                      {t("q — search terms", "q — 查询关键词")}
-                      <input
-                        name="q"
-                        maxLength={120}
-                        required
-                        defaultValue={draft.get("q") ?? "Nintendo Switch OLED"}
-                        placeholder={t("e.g. Nintendo Switch OLED", "例如 Nintendo Switch OLED")}
-                      />
-                    </label>
-                    <div className="pg-form-row">
-                      <label>
-                        {t("Condition", "成色")}
-                        <select name="condition" defaultValue={draft.get("condition") ?? ""}>
-                          <option value="">{t("Any", "不限")}</option>
-                          <option value="like_new">{t("Like new", "近新")}</option>
-                          <option value="good">{t("Good", "良好")}</option>
-                          <option value="fair">{t("Fair", "一般")}</option>
-                          <option value="defective">{t("For parts", "故障/零件")}</option>
-                        </select>
-                      </label>
-                      <label>
-                        {t("Format", "成交方式")}
-                        <select name="sale_format" defaultValue={draft.get("sale_format") ?? ""}>
-                          <option value="">{t("Any", "不限")}</option>
-                          <option value="fixed_price">{t("Fixed price", "一口价")}</option>
-                          <option value="auction">{t("Auction", "拍卖")}</option>
-                          <option value="best_offer">{t("Best Offer", "议价")}</option>
-                        </select>
-                      </label>
-                      <label>
-                        {t("Window", "时间窗口")}
-                        <select name="window_days" defaultValue={draft.get("window_days") ?? "90"}>
-                          <option value="90">{t("90 days", "90 天")}</option>
-                          <option value="30">{t("30 days", "30 天")}</option>
-                        </select>
-                      </label>
-                    </div>
-                    <div className="pg-form-row">
-                      <label>
-                        {t("Min price ($)", "最低价格")}
-                        <input
-                          name="min_price"
-                          inputMode="decimal"
-                          maxLength={17}
-                          pattern="[0-9]+([.][0-9]{1,2})?"
-                          defaultValue={priceDraft("min_price_cents")}
-                          placeholder="—"
-                        />
-                      </label>
-                      <label>
-                        {t("Max price ($)", "最高价格")}
-                        <input
-                          name="max_price"
-                          inputMode="decimal"
-                          maxLength={17}
-                          pattern="[0-9]+([.][0-9]{1,2})?"
-                          defaultValue={priceDraft("max_price_cents")}
-                          placeholder="—"
-                        />
-                      </label>
-                      <label>
-                        {t("Price basis", "价格口径")}
-                        <select
-                          name="price_basis"
-                          defaultValue={draft.get("price_basis") ?? "item_plus_observed_shipping"}
-                        >
-                          <option value="item_plus_observed_shipping">
-                            {t("Item + ship", "商品＋运费")}
-                          </option>
-                          <option value="item">{t("Item only", "仅商品价")}</option>
-                        </select>
-                      </label>
-                    </div>
-                    <label className="check">
-                      <input
-                        type="checkbox"
-                        name="allow_stale"
-                        defaultChecked={draft.get("allow_stale") === "true"}
-                      />
-                      <span>{t("Allow older cached data", "允许使用较旧缓存")}</span>
-                    </label>
-                    <button className="btn brand pg-submit" type="submit">
-                      {t("Search", "查询")}
-                    </button>
-                  </form>
-                  {examples}
-                  {status}
-                  <div className="actions" data-actions="" />
+              <>
+                <div className="notice mt-0 mb-16" data-kind="warning">
+                  {t(
+                    "Live API mode — requests run against your signed-in session. Failed queries, low-sample (<8) results, and identical repeats within 10 minutes are free; broad searches return 202 and charge only on explicit claim.",
+                    "实时调试模式 — 请求直接使用当前登录会话执行。失败查询、低样本（<8）结果与 10 分钟内同参数复用均免费；宽泛查询返回 202，仅在显式领用结果时计费。",
+                  )}
                 </div>
+                <div className="grid2">
+                  <div className="card auth-card">
+                    <form action={link("/search")} method="get" data-search="">
+                      <label>
+                        {t("q — search terms", "q — 查询关键词")}
+                        <input
+                          name="q"
+                          maxLength={120}
+                          required
+                          defaultValue={draft.get("q") ?? "Nintendo Switch OLED"}
+                          placeholder={t("e.g. Nintendo Switch OLED", "例如 Nintendo Switch OLED")}
+                        />
+                      </label>
+                      <div className="pg-form-row">
+                        <label>
+                          {t("Condition", "成色")}
+                          <select name="condition" defaultValue={draft.get("condition") ?? ""}>
+                            <option value="">{t("Any", "不限")}</option>
+                            <option value="like_new">{t("Like new", "近新")}</option>
+                            <option value="good">{t("Good", "良好")}</option>
+                            <option value="fair">{t("Fair", "一般")}</option>
+                            <option value="defective">{t("For parts", "故障/零件")}</option>
+                          </select>
+                        </label>
+                        <label>
+                          {t("Format", "成交方式")}
+                          <select name="sale_format" defaultValue={draft.get("sale_format") ?? ""}>
+                            <option value="">{t("Any", "不限")}</option>
+                            <option value="fixed_price">{t("Fixed price", "一口价")}</option>
+                            <option value="auction">{t("Auction", "拍卖")}</option>
+                            <option value="best_offer">{t("Best Offer", "议价")}</option>
+                          </select>
+                        </label>
+                        <label>
+                          {t("Window", "时间窗口")}
+                          <select name="window_days" defaultValue={draft.get("window_days") ?? "90"}>
+                            <option value="90">{t("90 days", "90 天")}</option>
+                            <option value="30">{t("30 days", "30 天")}</option>
+                          </select>
+                        </label>
+                      </div>
+                      <div className="pg-form-row">
+                        <label>
+                          {t("Min price ($)", "最低价格")}
+                          <input
+                            name="min_price"
+                            inputMode="decimal"
+                            maxLength={17}
+                            pattern="[0-9]+([.][0-9]{1,2})?"
+                            defaultValue={priceDraft("min_price_cents")}
+                            placeholder="—"
+                          />
+                        </label>
+                        <label>
+                          {t("Max price ($)", "最高价格")}
+                          <input
+                            name="max_price"
+                            inputMode="decimal"
+                            maxLength={17}
+                            pattern="[0-9]+([.][0-9]{1,2})?"
+                            defaultValue={priceDraft("max_price_cents")}
+                            placeholder="—"
+                          />
+                        </label>
+                        <label>
+                          {t("Price basis", "价格口径")}
+                          <select
+                            name="price_basis"
+                            defaultValue={draft.get("price_basis") ?? "item_plus_observed_shipping"}
+                          >
+                            <option value="item_plus_observed_shipping">
+                              {t("Item + ship", "商品＋运费")}
+                            </option>
+                            <option value="item">{t("Item only", "仅商品价")}</option>
+                          </select>
+                        </label>
+                      </div>
+                      <label className="check">
+                        <input
+                          type="checkbox"
+                          name="allow_stale"
+                          defaultChecked={draft.get("allow_stale") === "true"}
+                        />
+                        <span>{t("Allow older cached data", "允许使用较旧缓存")}</span>
+                      </label>
+                      <button className="btn brand pg-submit" type="submit">
+                        {t("Search", "查询")}
+                      </button>
+                      <p className="small mt-10">
+                        {t(
+                          "Sync results deliver immediately; broad queries return 202 and charge only when you claim.",
+                          "同步查价直接交付结果；宽泛查询先返回 202，显式领用时再结算额度。",
+                        )}
+                      </p>
+                    </form>
+                    {examples}
+                    {status}
+                    <div className="actions" data-actions="" />
+                  </div>
 
-                <section className="card" data-api-trace="">
-                  <h2>{t("Requests and responses", "请求与响应")}</h2>
-                  <div className="actions" data-trace-list="" />
-                  <details open className="mt-12">
-                    <summary>{t("Response", "响应")}</summary>
-                    <pre data-trace-body="">
-                      {t("Run a search to inspect its response.", "提交查询后查看响应。")}
-                    </pre>
-                  </details>
-                  <details className="mt-8">
-                    <summary>{t("Headers", "响应头")}</summary>
-                    <pre data-trace-headers="" />
-                  </details>
-                  <details className="mt-8">
-                    <summary>{t("Server-side cURL example", "服务端 cURL 示例")}</summary>
-                    <pre data-trace-code="" />
-                  </details>
-                </section>
-              </div>
+                  <section className="card" data-api-trace="">
+                    <h2>{t("Requests and responses", "请求与响应")}</h2>
+                    <div className="actions" data-trace-list="" />
+                    <details open className="mt-12">
+                      <summary>{t("Response", "响应")}</summary>
+                      <pre data-trace-body="">
+                        {`{
+  "data": {
+    "query": "Nintendo Switch OLED",
+    "stats": {
+      "median_cents": 28150,
+      "p25_cents": 26500,
+      "p75_cents": 29175,
+      "trimmed_mean_cents": 27867,
+      "n_price_verified": 8
+    },
+    "quality": {
+      "sample_tier": "limited",
+      "total_score": null
+    }
+  },
+  "meta": {
+    "query_id": "q_demo_oled",
+    "credits_charged": 1
+  }
+}`}
+                      </pre>
+                    </details>
+                    <details className="mt-8">
+                      <summary>{t("Headers", "响应头")}</summary>
+                      <pre data-trace-headers="" />
+                    </details>
+                    <details className="mt-8">
+                      <summary>{t("Server-side cURL example", "服务端 cURL 示例")}</summary>
+                      <pre data-trace-code="" />
+                    </details>
+                  </section>
+                </div>
+              </>
             ) : (
               <>
                 <form action={link("/search")} method="get" data-search="">
@@ -2258,88 +2355,222 @@ export function renderPage(
             )}
 
             <div data-results="" className="mt-16">
-              {ssrShowcase && (
-                <>
-                  <div className="stat-card">
-                    <div className="stat-badges">
-                      <span className="badge badge-green">{t("Cached public snapshot", "公共演示快照")}</span>
-                      <span className="tag-ex">
-                        {ssrShowcase.data_mode === "approved_network"
-                          ? t("Approved sample", "合规样本")
-                          : t("Offline fixture", "本地合成样本")}
-                      </span>
-                    </div>
-                    <div className="stat-grid">
-                      <div>
-                        <div className="lab">{t("Median sold price", "中位成交价")}</div>
-                        <div className="median-big">
-                          {ssrShowcase.stats.median_cents != null
-                            ? `$${(ssrShowcase.stats.median_cents / 100).toFixed(2)}`
-                            : "—"}
-                        </div>
-                        <div className="stat-range">
-                          {ssrShowcase.stats.p25_cents != null && ssrShowcase.stats.p75_cents != null
-                            ? `${t("Typical range", "典型区间")} $${(ssrShowcase.stats.p25_cents / 100).toFixed(2)} – $${(ssrShowcase.stats.p75_cents / 100).toFixed(2)}`
-                            : "—"}
-                        </div>
-                      </div>
-                      <div className="stat-mini">
-                        <div>
-                          <div className="lab">{t("Trimmed mean", "5% 截尾均价")}</div>
-                          <div className="val">
-                            {ssrShowcase.stats.trimmed_mean_cents != null
-                              ? `$${(ssrShowcase.stats.trimmed_mean_cents / 100).toFixed(2)}`
-                              : "—"}
+              {ssrShowcase &&
+                (() => {
+                  const verifiedPrices = ssrShowcase.comps
+                    .map((c) => c.item_price_cents)
+                    .filter((v): v is number => v !== null && v !== undefined);
+                  const meanCents = verifiedPrices.length
+                    ? Math.round(verifiedPrices.reduce((acc, v) => acc + v, 0) / verifiedPrices.length)
+                    : null;
+                  const shipValues = ssrShowcase.comps
+                    .map((c) => c.observed_shipping_cents)
+                    .filter((v): v is number => v !== null && v !== undefined);
+                  const avgShipCents = shipValues.length
+                    ? Math.round(shipValues.reduce((acc, v) => acc + v, 0) / shipValues.length)
+                    : null;
+                  const excludedCount =
+                    Math.max(0, ssrShowcase.stats.n_observed - ssrShowcase.stats.n_comparable) +
+                    ssrShowcase.stats.n_excluded_unverified_price;
+                  const sampleTierLabel =
+                    ssrShowcase.stats.n_price_verified >= 30
+                      ? t("Full sample", "充足样本")
+                      : ssrShowcase.stats.n_price_verified >= 8
+                        ? t("Limited sample", "有限样本")
+                        : t("Low sample (n < 8)", "样本不足 (n < 8)");
+                  const sourceBadgeLabel =
+                    ssrShowcase.data_mode === "approved_network"
+                      ? t("Approved sample", "合规样本")
+                      : t("Offline fixture", "本地合成样本");
+                  const basisNote =
+                    ssrShowcase.price_basis === "item"
+                      ? t("Basis: item price", "口径：仅商品价")
+                      : t("Basis: item + shipping", "口径：商品＋运费");
+
+                  return (
+                    <>
+                      <p className="summary-note">
+                        <b>{t("Free lookup · Cached public snapshot", "免费查价 · 公共缓存快照")}</b>
+                        {" · "}
+                        {t(
+                          "Fresh within 24h · Observed sample · Verified prices only",
+                          "24 小时内新鲜样本 · 已观察样本 · 仅计入已核验价格",
+                        )}
+                      </p>
+                      <section className="live-card result-card mt-10">
+                        <div className="stat-card">
+                          <div className="stat-badges">
+                            <span className="badge badge-green">
+                              {t("Cached public snapshot", "公共演示快照")}
+                            </span>
+                            <span className="tag-ex">{sourceBadgeLabel}</span>
+                          </div>
+                          <div className="stat-grid">
+                            <div>
+                              <div className="lab">{t("Median sold price", "中位成交价")}</div>
+                              <div className="median-big">
+                                {fmtMoney(ssrShowcase.stats.median_cents, locale)}
+                              </div>
+                              <div className="stat-range">
+                                {ssrShowcase.stats.p25_cents != null && ssrShowcase.stats.p75_cents != null
+                                  ? `${t("Typical range", "典型区间")} ${fmtMoney(ssrShowcase.stats.p25_cents, locale)} – ${fmtMoney(ssrShowcase.stats.p75_cents, locale)}`
+                                  : `${t("Typical range", "典型区间")} —`}
+                              </div>
+                              <div className="small mt-6">{`${sampleTierLabel} · ${basisNote}`}</div>
+                            </div>
+                            <div className="stat-mini">
+                              <div>
+                                <div className="lab">{t("Average", "均值")}</div>
+                                <div className="val">{fmtMoney(meanCents, locale)}</div>
+                              </div>
+                              <div>
+                                <div className="lab">{t("Trimmed mean", "5% 截尾均价")}</div>
+                                <div className="val">
+                                  {fmtMoney(ssrShowcase.stats.trimmed_mean_cents, locale)}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="lab">{t("Low – High", "最低 – 最高")}</div>
+                                <div className="val">
+                                  {ssrShowcase.stats.observed_min_cents != null
+                                    ? `${fmtMoney(ssrShowcase.stats.observed_min_cents, locale)} – ${fmtMoney(ssrShowcase.stats.observed_max_cents, locale)}`
+                                    : "—"}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="lab">{t("Avg shipping", "平均运费")}</div>
+                                <div className="val">{fmtShipping(avgShipCents, locale, zh)}</div>
+                              </div>
+                              <div>
+                                <div className="lab">{t("Sample (verified)", "核验样本")}</div>
+                                <div className="val">{ssrShowcase.stats.n_price_verified}</div>
+                              </div>
+                              <div>
+                                <div className="lab">{t("Observed", "已观察")}</div>
+                                <div className="val">{ssrShowcase.stats.n_observed}</div>
+                              </div>
+                              <div>
+                                <div className="lab">{t("Comparable", "可比样本")}</div>
+                                <div className="val">{ssrShowcase.stats.n_comparable}</div>
+                              </div>
+                              <div>
+                                <div className="lab">{t("Excluded / diagnostic", "排除 / 诊断")}</div>
+                                <div className="val">{excludedCount}</div>
+                              </div>
+                            </div>
                           </div>
                         </div>
-                        <div>
-                          <div className="lab">{t("Sample (verified)", "核验样本")}</div>
-                          <div className="val">{ssrShowcase.stats.n_price_verified}</div>
-                        </div>
-                        <div>
-                          <div className="lab">{t("Observed", "已观察")}</div>
-                          <div className="val">{ssrShowcase.stats.n_observed}</div>
-                        </div>
-                        <div>
-                          <div className="lab">{t("Comparable", "可比样本")}</div>
-                          <div className="val">{ssrShowcase.stats.n_comparable}</div>
+                      </section>
+
+                      <div className="live-card mt-14">
+                        <div className="table-scroll">
+                          <table className="tbl-fixed tbl-preview">
+                            <colgroup>
+                              <col className="col-p1" />
+                              <col className="col-p2" />
+                              <col className="col-p3" />
+                              <col className="col-p4" />
+                              <col className="col-p5" />
+                              <col className="col-p6" />
+                              <col className="col-p7" />
+                              <col className="col-p8" />
+                            </colgroup>
+                            <thead>
+                              <tr>
+                                <th>{t("Title", "商品标题")}</th>
+                                <th>{t("Condition", "成色")}</th>
+                                <th>{t("Format", "方式")}</th>
+                                <th className="num">{t("Sold", "成交价")}</th>
+                                <th className="num">{t("Shipping", "运费")}</th>
+                                <th className="num">{t("Total", "总价")}</th>
+                                <th>{t("Date", "日期")}</th>
+                                <th>{t("Details", "详情")}</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {ssrShowcase.comps.slice(0, 12).map((c, idx) => {
+                                const totalCents =
+                                  c.item_price_cents != null && c.observed_shipping_cents != null
+                                    ? c.item_price_cents + c.observed_shipping_cents
+                                    : null;
+                                return (
+                                  <tr key={c.sale_event_id}>
+                                    <td>
+                                      <div className="thumb-title">
+                                        <span className="thumb">
+                                          <ProductThumbSvg index={idx} />
+                                        </span>
+                                        <span className="ttl-demo">
+                                          {c.title ??
+                                            t("Verified listing (title withheld)", "已核验记录（标题隐藏）")}
+                                          <span className="demo-tag">{t("Fixture", "示例")}</span>
+                                        </span>
+                                      </div>
+                                    </td>
+                                    <td>{fmtCondition(c.condition_std, zh)}</td>
+                                    <td>
+                                      <span className={fmtFormatClass(c.sale_format)}>
+                                        {fmtFormat(c.sale_format, zh)}
+                                      </span>
+                                    </td>
+                                    <td className="num price">{fmtMoney(c.item_price_cents, locale)}</td>
+                                    <td className="num">
+                                      {fmtShipping(c.observed_shipping_cents, locale, zh)}
+                                    </td>
+                                    <td className="num">{fmtMoney(totalCents, locale)}</td>
+                                    <td className="nw">{fmtSoldDate(c.sold_date, zh)}</td>
+                                    <td>
+                                      <button
+                                        type="button"
+                                        className="row-exp"
+                                        data-search-rowexp={c.sale_event_id}
+                                        aria-expanded="false"
+                                      >
+                                        {t("Details", "详情")} <span className="chev">▾</span>
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
                         </div>
                       </div>
-                    </div>
-                  </div>
-                  <div className="live-card mt-14">
-                    <div className="table-scroll">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>{t("Listing", "商品标题")}</th>
-                            <th>{t("Format", "方式")}</th>
-                            <th className="num">{t("Sold", "成交价")}</th>
-                            <th>{t("Date", "日期")}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {ssrShowcase.comps.slice(0, 8).map((c, idx) => (
-                            <tr key={c.sale_event_id}>
-                              <td>
-                                <div className="thumb-title">
-                                  <span className="thumb">
-                                    <ProductThumbSvg index={idx} />
-                                  </span>
-                                  <span>{c.title ?? t("Verified listing", "已核验记录")}</span>
-                                </div>
-                              </td>
-                              <td>{c.sale_format}</td>
-                              <td className="num price">{`$${(c.item_price_cents != null ? c.item_price_cents / 100 : c.price_usd_cents / 100).toFixed(2)}`}</td>
-                              <td className="nw">{c.sold_date.value?.slice(0, 10) ?? "—"}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </>
-              )}
+
+                      <section className="card mt-16">
+                        <h3>{t("Evidence pack", "证据包")}</h3>
+                        <p className="small">
+                          {t(
+                            "Every delivered search includes the query snapshot identifier, candidate set hash, and rule versions behind these numbers.",
+                            "每次交付结果均附带查询快照编号、候选集哈希以及用于计算上述统计数据的清洗与统计规则版本。",
+                          )}
+                        </p>
+                        <div className="kv mt-12">
+                          <div>
+                            <b>{t("Query ID", "查询编号")}</b>
+                            <span>
+                              <code>{ssrShowcase.query_id}</code>
+                            </span>
+                          </div>
+                          <div>
+                            <b>{t("Candidate hash", "候选集哈希")}</b>
+                            <span>
+                              <code>{ssrShowcase.candidate_set_hash.slice(0, 18)}…</code>
+                            </span>
+                          </div>
+                          <div>
+                            <b>{t("Rule versions", "规则版本")}</b>
+                            <span>{`engine ${ssrShowcase.engine_version} · cleaner ${ssrShowcase.cleaner_version}`}</span>
+                          </div>
+                          <div>
+                            <b>{t("Sample status", "样本状态")}</b>
+                            <span>{`${sampleTierLabel} (${ssrShowcase.stats.n_price_verified}/${ssrShowcase.stats.n_observed})`}</span>
+                          </div>
+                        </div>
+                      </section>
+                    </>
+                  );
+                })()}
             </div>
             <noscript>
               {t("Enable JavaScript to submit a search.", "请启用 JavaScript 后提交搜索。")}
@@ -2560,6 +2791,8 @@ export function renderPage(
       </section>
     );
   }
+  const announcements = blocks.filter((b) => b.kind === "announcement");
+  const headerAnn = announcements.length > 0 ? announcements : page === "/" ? sections.slice(0, 1) : [];
   return (
     "<!doctype html>" +
     renderToStaticMarkup(
@@ -2592,10 +2825,10 @@ export function renderPage(
             !page.startsWith("/account") &&
             page !== "/operations" &&
             page !== "/admin/content" &&
-            sections.slice(0, 1).map((entry) => (
+            headerAnn.slice(0, 1).map((entry) => (
               <div className="ann-bar" key={entry.slug}>
                 <strong>{entry.title}</strong> — {entry.body}{" "}
-                <a href={link("/changelog")}>{t("See changelog", "查看更新记录")}</a>
+                <a href={link("/changelog")}>{t("See the changelog", "查看更新记录")}</a>
               </div>
             ))}
           {page !== "/docs" && (
@@ -2615,7 +2848,7 @@ export function renderPage(
                       {t("Sign in", "登录")}
                     </a>
                     <a className="btn brand desktop" data-resume="/register" href={resume("/register")}>
-                      {t("Get started", "开始使用")}
+                      {t("Get started free", "免费开始")}
                     </a>
                     <div className="acct-menu" data-acct-menu="" hidden>
                       <button

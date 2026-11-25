@@ -279,12 +279,13 @@ const usd = new Intl.NumberFormat(document.documentElement.lang, {
 });
 const amount = (cents) => (Number.isSafeInteger(cents) ? usd.format(cents / 100) : "—");
 const conditions = {
-  new_with_tags: t("New with tags", "全新带标签"),
-  new_without_tags: t("New without tags", "全新无标签"),
+  new: t("New", "全新"),
+  new_with_tags: t("New", "全新带标签"),
+  new_without_tags: t("Open box", "仅拆封"),
   like_new: t("Like new", "近新"),
   good: t("Good", "良好"),
   fair: t("Fair", "一般"),
-  defective: t("For parts", "故障或零件"),
+  defective: t("For parts", "故障/零件"),
 };
 
 async function exportResult(id, format, excluded) {
@@ -6884,58 +6885,61 @@ document.addEventListener("click", async (event) => {
   const apiCodeEl = document.querySelector("[data-api-code]");
   if (apiCodeEl) {
     const queryText = document.getElementById("homePreviewQ")?.value || "Nintendo Switch OLED";
-    const encodedQ = encodeURIComponent(queryText);
     const snippets = {
-      curl: `# 1 credit per valid delivered search (up to 200 comps)
+      curl: `# One search = 1 credit, up to 200 comps.
 curl -sS -G "https://api.soldbench.com/v1/sold" \\
   -H "Authorization: Bearer $SOLDBENCH_API_KEY" \\
   --data-urlencode "q=${queryText}" \\
   --data-urlencode "window_days=90" \\
-  --data-urlencode "limit=50"
+  --data-urlencode "limit=200"
 
 # Headers tell you cost before reading the body:
 #   X-Request-Id:        req_9f42ac71be
 #   X-Credits-Charged:   1
 #   X-Quota-Remaining:   99
 
-# Low-sample (<8), failures, and 10m repeats are free.
-# Wide jobs run async and settle only at explicit claim:
+# Failures, low-sample (<8), and 10m repeats are free.
+# Wide jobs run async — POST returns 202 with a job_id:
 curl -sS -X POST "https://api.soldbench.com/v1/sold" \\
   -H "Authorization: Bearer $SOLDBENCH_API_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{"q":"${queryText}","window_days":90,"limit":50}'
+  -d '{"q":"${queryText}","window_days":90}'
 
-curl -sS -X POST "https://api.soldbench.com/v1/jobs/{job_id}/claim" \\
+# Claim the finished result (settles 1 credit atomically):
+curl -sS -X POST "https://api.soldbench.com/v1/jobs/{id}/claim" \\
   -H "Authorization: Bearer $SOLDBENCH_API_KEY"`,
-      python: `import os, requests
+      python: `import os
+import requests
 
-# Sync research lookup (max 1 credit when deliverable; <8 samples free)
-resp = requests.get(
-    "https://api.soldbench.com/v1/sold",
-    headers={"Authorization": f"Bearer {os.environ['SOLDBENCH_API_KEY']}"},
-    params={"q": ${JSON.stringify(queryText)}, "window_days": 90, "limit": 50},
+API = "https://api.soldbench.com/v1"
+HEADERS = {
+    "Authorization": f"Bearer {os.environ['SOLDBENCH_API_KEY']}"
+}
+
+r = requests.get(
+    f"{API}/sold",
+    params={"q": ${JSON.stringify(queryText)}, "window_days": 90, "limit": 200},
+    headers=HEADERS,
     timeout=30,
 )
-resp.raise_for_status()
-payload = resp.json()["data"]
-print(payload["stats"]["median_cents"], payload["stats"]["n_price_verified"])`,
-      node: `const res = await fetch(
-  "https://api.soldbench.com/v1/sold?q=${encodedQ}&window_days=90&limit=50",
-  { headers: { Authorization: \`Bearer \${process.env.SOLDBENCH_API_KEY}\` } }
-);
+r.raise_for_status()
+stats = r.json()["data"]["stats"]
+if stats["median_cents"] is None:
+    print("Not enough verified prices", stats)
+else:
+    print(stats["median_cents"], stats["n_price_verified"])`,
+      ts: `const API = "https://api.soldbench.com/v1";
+const params = new URLSearchParams({
+  q: ${JSON.stringify(queryText)},
+  window_days: "90",
+  limit: "200",
+});
+
+const res = await fetch(\`\${API}/sold?\${params}\`, {
+  headers: { Authorization: \`Bearer \${process.env.SOLDBENCH_API_KEY}\` },
+});
 if (!res.ok) throw new Error(\`SoldBench \${res.status}\`);
 const { data } = await res.json();
 console.log(data.stats.median_cents, data.stats.n_price_verified);`,
-      mcp: `{
-  "mcpServers": {
-    "soldbench": {
-      "url": "https://soldbench.com/mcp",
-      "headers": {
-        "Authorization": "Bearer $SOLDBENCH_API_KEY"
-      }
-    }
-  }
-}`,
     };
     for (const btn of document.querySelectorAll("[data-api-tab]")) {
       btn.addEventListener("click", () => {
@@ -6944,12 +6948,49 @@ console.log(data.stats.median_cents, data.stats.n_price_verified);`,
         for (const tab of document.querySelectorAll("[data-api-tab]")) {
           tab.classList.toggle("on", tab.dataset.apiTab === lang);
         }
-        const hlLang =
-          lang === "curl" ? "bash" : lang === "python" ? "python" : lang === "node" ? "ts" : "json";
+        const hlLang = lang === "curl" ? "bash" : lang === "python" ? "python" : "ts";
         renderHighlightedCode(apiCodeEl, snippets[lang], hlLang);
       });
     }
   }
+
+  const toggleTableDetailRow = (btn, fields) => {
+    const tr = btn.closest("tr");
+    if (!tr) return;
+    const next = tr.nextElementSibling;
+    if (next?.classList.contains("row-detail")) {
+      next.remove();
+      btn.classList.remove("open");
+      btn.setAttribute("aria-expanded", "false");
+      btn.replaceChildren(document.createTextNode(`${t("Details", "详情")} `), element("span", "▾", "chev"));
+      return;
+    }
+    const detailTr = document.createElement("tr");
+    detailTr.className = "row-detail";
+    const td = document.createElement("td");
+    td.colSpan = 8;
+    const wrap = element("div", undefined, "row-detail-wrap");
+
+    const media = element("div", undefined, "row-detail-media");
+    const bigThumb = element("span", undefined, "thumb thumb-lg");
+    const srcSvg = tr.querySelector(".thumb svg");
+    if (srcSvg) bigThumb.append(srcSvg.cloneNode(true));
+    media.append(bigThumb, element("div", t("Evidence thumbnail", "样本证据缩略图"), "small mt-6"));
+
+    const kvBox = element("div", undefined, "row-detail-kv");
+    const kv = element("div", undefined, "kv");
+    for (const [k, v] of fields) {
+      kv.append(element("div", k, "k"), element("div", v));
+    }
+    kvBox.append(kv);
+    wrap.append(media, kvBox);
+    td.append(wrap);
+    detailTr.append(td);
+    tr.after(detailTr);
+    btn.classList.add("open");
+    btn.setAttribute("aria-expanded", "true");
+    btn.replaceChildren(document.createTextNode(`${t("Hide", "收起")} `), element("span", "▾", "chev"));
+  };
 
   const previewHost = document.querySelector("[data-home-preview]");
   const statsHost = document.querySelector("[data-home-stats]");
@@ -6967,9 +7008,22 @@ console.log(data.stats.median_cents, data.stats.n_price_verified);`,
       return fmtUsd(cents);
     };
     const fmtLabel = {
-      fixed_price: [t("Fixed price", "一口价"), "badge badge-green"],
+      fixed_price: [t("Sold", "一口价"), "badge badge-green"],
       auction: [t("Auction", "拍卖"), "badge badge-amber"],
       best_offer: [t("Best Offer", "议价"), "badge badge-gray"],
+    };
+    const fmtSoldDateText = (sd) => {
+      const raw = sd?.value?.slice(0, 10);
+      if (!raw) return "—";
+      if (zh) return raw;
+      const d = new Date(`${raw}T00:00:00Z`);
+      if (Number.isNaN(d.getTime())) return raw;
+      return new Intl.DateTimeFormat("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        timeZone: "UTC",
+      }).format(d);
     };
 
     const quantileCents = (sorted, q) => {
@@ -7148,7 +7202,14 @@ console.log(data.stats.median_cents, data.stats.n_price_verified);`,
       };
 
       const scroll = element("div", undefined, "table-scroll");
-      const tbl = element("table");
+      const tbl = element("table", undefined, "tbl-fixed tbl-preview");
+      const cg = document.createElement("colgroup");
+      for (let i = 1; i <= 8; i++) {
+        const col = document.createElement("col");
+        col.className = `col-p${i}`;
+        cg.append(col);
+      }
+      tbl.append(cg);
       const thr = tbl.createTHead().insertRow();
       for (const h of [
         t("Title", "商品标题"),
@@ -7202,7 +7263,7 @@ console.log(data.stats.median_cents, data.stats.n_price_verified);`,
         totCell.textContent = fmtUsd(totCents);
         const dCell = tr.insertCell();
         dCell.className = "nw";
-        dCell.textContent = row.sold_date?.value?.slice(0, 10) ?? "—";
+        dCell.textContent = fmtSoldDateText(row.sold_date);
         const actCell = tr.insertCell();
         const expBtn = element("button", undefined, "row-exp");
         expBtn.type = "button";
@@ -7215,46 +7276,23 @@ console.log(data.stats.median_cents, data.stats.n_price_verified);`,
       previewHost.replaceChildren(scroll);
     };
 
-    const appendDetailRow = (btn) => {
+    const appendDetailRow = (btn, comp, recordId) => {
       const tr = btn.closest("tr");
       if (!tr) return;
-      const next = tr.nextElementSibling;
-      if (next?.classList.contains("row-detail")) {
-        next.remove();
-        btn.classList.remove("open");
-        btn.setAttribute("aria-expanded", "false");
-        return;
-      }
-      const id = btn.dataset.homeRowexp;
-      const comp = snapshot?.comps?.find((c) => c.sale_event_id === id);
+      const id = recordId ?? btn.dataset.homeRowexp ?? btn.dataset.searchRowexp;
       const cells = tr.querySelectorAll("td");
-      const titleText =
-        comp?.title ??
-        cells[0]?.textContent?.replace(/Fixture|示例/g, "").trim() ??
-        t("Verified listing", "已核验记录");
+      const rawCellTitle =
+        cells[0]?.querySelector(".ttl-demo")?.firstChild?.textContent?.trim() ??
+        cells[0]?.textContent?.replace(/Fixture|示例/g, "").trim();
+      const titleText = comp?.title ?? (rawCellTitle || t("Verified listing", "已核验记录"));
       const condText = comp ? (conditions[comp.condition_std] ?? "—") : (cells[1]?.textContent ?? "—");
       const fmtText = comp
         ? (fmtLabel[comp.sale_format]?.[0] ?? comp.sale_format ?? "—")
-        : (cells[2]?.textContent ?? "—");
+        : (cells[2]?.textContent?.trim() ?? "—");
       const soldText = comp ? fmtUsd(comp.item_price_cents) : (cells[3]?.textContent ?? "—");
       const shipText = comp ? fmtShipText(comp.observed_shipping_cents) : (cells[4]?.textContent ?? "—");
-      const dateText = comp ? (comp.sold_date?.value?.slice(0, 10) ?? "—") : (cells[6]?.textContent ?? "—");
-
-      const detailTr = document.createElement("tr");
-      detailTr.className = "row-detail";
-      const td = document.createElement("td");
-      td.colSpan = 8;
-      const wrap = element("div", undefined, "row-detail-wrap");
-
-      const media = element("div", undefined, "row-detail-media");
-      const bigThumb = element("span", undefined, "thumb thumb-lg");
-      const srcSvg = tr.querySelector(".thumb svg");
-      if (srcSvg) bigThumb.append(srcSvg.cloneNode(true));
-      media.append(bigThumb, element("div", t("Evidence thumbnail", "样本证据缩略图"), "small mt-6"));
-
-      const kvBox = element("div", undefined, "row-detail-kv");
-      const kv = element("div", undefined, "kv");
-      const pairs = [
+      const dateText = comp ? fmtSoldDateText(comp.sold_date) : (cells[6]?.textContent ?? "—");
+      toggleTableDetailRow(btn, [
         [t("Listing", "商品标题"), titleText],
         [
           t("Price status", "价格状态"),
@@ -7268,22 +7306,15 @@ console.log(data.stats.median_cents, data.stats.n_price_verified);`,
         [t("Condition", "商品成色"), condText],
         [t("Sold at", "成交日期"), dateText],
         [t("Record ID", "记录标识"), id || "—"],
-      ];
-      for (const [k, v] of pairs) {
-        kv.append(element("div", k, "k"), element("div", v));
-      }
-      kvBox.append(kv);
-      wrap.append(media, kvBox);
-      td.append(wrap);
-      detailTr.append(td);
-      tr.after(detailTr);
-      btn.classList.add("open");
-      btn.setAttribute("aria-expanded", "true");
+      ]);
     };
 
     previewHost.addEventListener("click", (event) => {
       const btn = event.target.closest?.("[data-home-rowexp]");
-      if (btn) appendDetailRow(btn);
+      if (!btn) return;
+      const id = btn.dataset.homeRowexp;
+      const comp = snapshot?.comps?.find((c) => c.sale_event_id === id);
+      appendDetailRow(btn, comp, id);
     });
 
     condSel?.addEventListener("change", renderPreview);
@@ -7330,6 +7361,29 @@ console.log(data.stats.median_cents, data.stats.n_price_verified);`,
         }
       })
       .catch(() => {});
+  }
+
+  if (output && page === "/search") {
+    output.addEventListener("click", (event) => {
+      const btn = event.target.closest?.("[data-search-rowexp]");
+      if (!btn) return;
+      const tr = btn.closest("tr");
+      if (!tr) return;
+      const cells = tr.querySelectorAll("td");
+      const rawTitle =
+        cells[0]?.querySelector(".ttl-demo")?.firstChild?.textContent?.trim() ??
+        cells[0]?.textContent?.replace(/Fixture|示例/g, "").trim();
+      toggleTableDetailRow(btn, [
+        [t("Listing", "商品标题"), rawTitle || t("Verified listing", "已核验记录")],
+        [t("Price status", "价格状态"), t("Verified item price", "已核验成交价")],
+        [t("Sold price", "成交净价"), cells[3]?.textContent ?? "—"],
+        [t("Shipping", "运费口径"), cells[4]?.textContent ?? "—"],
+        [t("Format", "交易方式"), cells[2]?.textContent?.trim() ?? "—"],
+        [t("Condition", "商品成色"), cells[1]?.textContent ?? "—"],
+        [t("Sold at", "成交日期"), cells[6]?.textContent ?? "—"],
+        [t("Record ID", "记录标识"), btn.dataset.searchRowexp || "—"],
+      ]);
+    });
   }
 
   // Pricing Monthly / Annual illustrative toggle

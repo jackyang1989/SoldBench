@@ -72,7 +72,14 @@ export function mountAuth(app: Hono<Env>, config: Config, provided?: AuthService
         secure: config.origin.startsWith("https:"),
         sameSite: "Lax",
         path: "/",
-        expires: new Date(result.view.expires_at),
+        maxAge: Math.max(
+          0,
+          Math.floor(
+            (Date.parse(result.view.expires_at) -
+              Date.parse(service().clock?.() ?? new Date().toISOString())) /
+              1000,
+          ),
+        ),
       }),
     secured = async (c: C) => {
       const token = sessionToken(c);

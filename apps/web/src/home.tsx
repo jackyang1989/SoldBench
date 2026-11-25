@@ -47,7 +47,7 @@ export type HomeShowcase = {
 type SiteBlock = { slug: string; title: string; body: string; kind: string; target?: string };
 type PublishedSection = { slug: string; title: string; body: string };
 
-function fmtMoney(cents: number | null | undefined, locale: Locale): string {
+export function fmtMoney(cents: number | null | undefined, locale: Locale): string {
   if (cents === null || cents === undefined || !Number.isFinite(cents)) return "—";
   return new Intl.NumberFormat(locale === "zh-CN" ? "en-US" : "en-US", {
     style: "currency",
@@ -57,16 +57,32 @@ function fmtMoney(cents: number | null | undefined, locale: Locale): string {
   }).format(cents / 100);
 }
 
-function fmtSoldDate(soldDate: HomeShowcaseComp["sold_date"], zh: boolean): string {
-  if (soldDate.precision === "day" && soldDate.value) return soldDate.value;
-  if (soldDate.precision === "instant" && soldDate.value) return soldDate.value.slice(0, 10);
-  return zh ? "未知" : "Unknown";
+export function fmtSoldDate(soldDate: HomeShowcaseComp["sold_date"], zh: boolean): string {
+  const raw =
+    soldDate.precision === "day" && soldDate.value
+      ? soldDate.value
+      : soldDate.precision === "instant" && soldDate.value
+        ? soldDate.value.slice(0, 10)
+        : null;
+  if (!raw) return zh ? "未知" : "Unknown";
+  if (zh) return raw;
+  const parsed = new Date(`${raw}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return raw;
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(parsed);
 }
 
-function fmtCondition(std: string | null, zh: boolean): string {
+export function fmtCondition(std: string | null, zh: boolean): string {
   switch (std) {
     case "new":
+    case "new_with_tags":
       return zh ? "全新" : "New";
+    case "new_without_tags":
+      return zh ? "仅拆封" : "Open box";
     case "like_new":
       return zh ? "近新" : "Like new";
     case "good":
@@ -80,16 +96,16 @@ function fmtCondition(std: string | null, zh: boolean): string {
   }
 }
 
-function fmtShipping(cents: number | null | undefined, locale: Locale, zh: boolean): string {
+export function fmtShipping(cents: number | null | undefined, locale: Locale, zh: boolean): string {
   if (cents === null || cents === undefined || !Number.isFinite(cents)) return zh ? "未知" : "Unknown";
   if (cents === 0) return zh ? "免运费" : "Free";
   return fmtMoney(cents, locale);
 }
 
-function fmtFormat(fmt: string, zh: boolean): string {
+export function fmtFormat(fmt: string, zh: boolean): string {
   switch (fmt) {
     case "fixed_price":
-      return zh ? "一口价" : "Fixed price";
+      return zh ? "一口价" : "Sold";
     case "auction":
       return zh ? "拍卖" : "Auction";
     case "best_offer":
@@ -99,7 +115,7 @@ function fmtFormat(fmt: string, zh: boolean): string {
   }
 }
 
-function fmtFormatClass(fmt: string): string {
+export function fmtFormatClass(fmt: string): string {
   switch (fmt) {
     case "auction":
       return "badge badge-amber";
@@ -251,44 +267,47 @@ export function HomeSections({
         quality_status: "insufficient_sample",
         total_score: null,
       };
+  const showcaseMean =
+    homeShowcase && homeShowcase.comps.length > 0
+      ? Math.round(
+          homeShowcase.comps.reduce((acc, c) => acc + (c.item_price_cents ?? 0), 0) /
+            homeShowcase.comps.length,
+        )
+      : null;
+  const usdDecimal = (c: number | null | undefined) => (c == null ? null : Math.round(c) / 100);
   const apiJsonPreview = JSON.stringify(
     homeShowcase
       ? {
           query: homeShowcase.query,
           stats: {
-            median_cents: homeShowcase.stats.median_cents,
-            p25_cents: homeShowcase.stats.p25_cents,
-            p75_cents: homeShowcase.stats.p75_cents,
-            trimmed_mean_cents: homeShowcase.stats.trimmed_mean_cents,
-            observed_min_cents: homeShowcase.stats.observed_min_cents,
-            observed_max_cents: homeShowcase.stats.observed_max_cents,
+            median: usdDecimal(homeShowcase.stats.median_cents),
+            p25: usdDecimal(homeShowcase.stats.p25_cents),
+            p75: usdDecimal(homeShowcase.stats.p75_cents),
+            mean: usdDecimal(showcaseMean),
+            min: usdDecimal(homeShowcase.stats.observed_min_cents),
+            max: usdDecimal(homeShowcase.stats.observed_max_cents),
             n_price_verified: homeShowcase.stats.n_price_verified,
           },
           quality: conciseQuality,
           meta: {
-            query_id: homeShowcase.query_id,
-            candidate_set_hash: homeShowcase.candidate_set_hash,
+            query_id: `q_${homeShowcase.query_id.slice(0, 8)}`,
+            candidate_set_hash: `cset_${homeShowcase.candidate_set_hash.slice(0, 12)}`,
             engine_version: homeShowcase.engine_version,
             cleaner_version: homeShowcase.cleaner_version,
-            data_mode: homeShowcase.data_mode,
             credits_charged: 1,
           },
         }
       : {
           query: apiSampleQuery,
           stats: {
-            median_cents: null,
-            p25_cents: null,
-            p75_cents: null,
+            median: null,
+            p25: null,
+            p75: null,
             n_price_verified: 0,
-            n_comparable: 0,
           },
           quality: conciseQuality,
           meta: {
-            note: t(
-              "No public snapshot cached yet — run dev:seed or submit an authenticated query.",
-              "暂未发布公共示例快照——运行 dev:seed 或登录后提交查价即可生成实测响应。",
-            ),
+            status: t("offline_fixture_idle", "未装载示例快照"),
           },
         },
     null,
@@ -434,7 +453,9 @@ export function HomeSections({
       <section className="hero">
         <div className="wrap hero-grid">
           <div>
-            <p className="eyebrow">{t("Comparable sales research", "可比成交研究")}</p>
+            <p className="eyebrow">
+              {t("100 FREE SEARCHES · NO CREDIT CARD", "每月 100 次免费查价 · 无需信用卡")}
+            </p>
             <h1>
               {t("eBay sold prices, with the ", "eBay 成交价，附")}
               <span className="kw">{t("evidence", "可核查的证据")}</span>
@@ -442,8 +463,8 @@ export function HomeSections({
             </h1>
             <p className="sub">
               {t(
-                "Research comparable sales, understand the price range, and inspect the evidence behind each result.",
-                "查看可比成交、了解价格区间，并核查每个结果背后的证据与排除规则。",
+                "Completed sales from eBay US — median, range, and every comp behind the number. One credit per search, whether it returns 1 or 200 sales.",
+                "来自 eBay 美国站的已成交真实记录——中位价、四分位区间及每笔交易证据链。单次查询最多 200 条样本，始终仅计 1 额度。",
               )}
             </p>
             <form action={link("/search")} method="get" data-search="">
@@ -453,8 +474,8 @@ export function HomeSections({
             <p className="hero-worth-link">
               <a href={link("/worth")}>
                 {t(
-                  "Quick anonymous check on What's it worth? (5 free cached lookups / day) →",
-                  "先逛「商品值多少钱」？匿名游客每日可免费试用 5 次公共缓存 →",
+                  "Just looking? Try a free price check without an account →",
+                  "只是先看看？无需登录即可免费试查公共缓存 →",
                 )}
               </a>
             </p>
@@ -637,18 +658,12 @@ export function HomeSections({
             </p>
           </div>
           <div className="grid2 api-grid">
-            <div className="codeblock cap">
+            <div className="codeblock">
               <div className="cb-head">
                 <div className="api-tabs" role="tablist" aria-label={t("API language", "示例代码语言")}>
-                  {(["curl", "python", "node", "mcp"] as const).map((lang, idx) => (
+                  {(["curl", "python", "ts"] as const).map((lang, idx) => (
                     <button key={lang} type="button" className={idx === 0 ? "on" : ""} data-api-tab={lang}>
-                      {lang === "curl"
-                        ? "cURL"
-                        : lang === "python"
-                          ? "Python"
-                          : lang === "node"
-                            ? "Node"
-                            : "MCP"}
+                      {lang === "curl" ? "cURL" : lang === "python" ? "Python" : "TypeScript"}
                     </button>
                   ))}
                 </div>
@@ -658,34 +673,34 @@ export function HomeSections({
               </div>
               <pre id="homeApiCode" data-api-code="curl">
                 {highlightCode(
-                  `# 1 credit per valid delivered search (up to 200 comps)
+                  `# One search = 1 credit, up to 200 comps.
 curl -sS -G "https://api.soldbench.com/v1/sold" \\
   -H "Authorization: Bearer $SOLDBENCH_API_KEY" \\
   --data-urlencode "q=${apiSampleQuery}" \\
   --data-urlencode "window_days=90" \\
-  --data-urlencode "limit=50"
+  --data-urlencode "limit=200"
 
 # Headers tell you cost before reading the body:
 #   X-Request-Id:        req_9f42ac71be
 #   X-Credits-Charged:   1
 #   X-Quota-Remaining:   99
 
-# Low-sample (<8), failures, and 10m repeats are free.
-# Wide jobs run async and settle only at explicit claim:
+# Failures, low-sample (<8), and 10m repeats are free.
+# Wide jobs run async — POST returns 202 with a job_id:
 curl -sS -X POST "https://api.soldbench.com/v1/sold" \\
   -H "Authorization: Bearer $SOLDBENCH_API_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{"q":"${apiSampleQuery}","window_days":90,"limit":50}'
+  -d '{"q":"${apiSampleQuery}","window_days":90}'
 
-curl -sS -X POST "https://api.soldbench.com/v1/jobs/{job_id}/claim" \\
+# Claim the finished result (settles 1 credit atomically):
+curl -sS -X POST "https://api.soldbench.com/v1/jobs/{id}/claim" \\
   -H "Authorization: Bearer $SOLDBENCH_API_KEY"`,
                   "bash",
                 )}
               </pre>
             </div>
-            <div className="codeblock cap">
+            <div className="codeblock">
               <div className="cb-head">
-                <span>{t("Response · Evidence attached", "响应体 · 附带证据元数据")}</span>
+                <span>{t("Response", "响应示例")}</span>
                 <button type="button" className="copy-btn" data-copy="#homeApiResp">
                   {t("Copy", "复制")}
                 </button>
@@ -758,7 +773,7 @@ curl -sS -X POST "https://api.soldbench.com/v1/jobs/{job_id}/claim" \\
               <label htmlFor="homePreviewCond">{t("Condition", "成色")}</label>
               <select id="homePreviewCond" data-home-cond="">
                 <option value="">{t("Any", "不限")}</option>
-                <option value="new">{t("New", "全新")}</option>
+                <option value="new_without_tags">{t("Open box", "仅拆封")}</option>
                 <option value="like_new">{t("Like new", "近新")}</option>
                 <option value="good">{t("Good", "良好")}</option>
                 <option value="fair">{t("Fair", "一般")}</option>
@@ -856,7 +871,17 @@ curl -sS -X POST "https://api.soldbench.com/v1/jobs/{job_id}/claim" \\
           <div className="live-card mt-14" data-home-preview="">
             {homeShowcase && homeShowcase.comps.length > 0 ? (
               <div className="table-scroll">
-                <table>
+                <table className="tbl-fixed tbl-preview">
+                  <colgroup>
+                    <col className="col-p1" />
+                    <col className="col-p2" />
+                    <col className="col-p3" />
+                    <col className="col-p4" />
+                    <col className="col-p5" />
+                    <col className="col-p6" />
+                    <col className="col-p7" />
+                    <col className="col-p8" />
+                  </colgroup>
                   <thead>
                     <tr>
                       <th>{t("Title", "商品标题")}</th>

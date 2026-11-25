@@ -1,14 +1,27 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { mkdirSync, readFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
 import { AuthService, localAuthSecrets } from "@soldbench/auth";
 import { BillingService } from "@soldbench/billing";
-import { normalizeQuery } from "@soldbench/core";
+import {
+  CollectorStore,
+  createFixtureArtifact,
+  LoopbackHttpTransport,
+  loadFixtureArtifact,
+  OfflineCollectorWorker,
+  provisionFixtureSource,
+} from "@soldbench/collector";
+import { collectionQueryHash, normalizeQuery } from "@soldbench/core";
 import { assertLocalDatabaseUrl, database, migrate, transaction } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
 import { PublicResults, QueryService } from "@soldbench/query";
 import { loadConfig } from "@soldbench/shared";
+import { load } from "cheerio/slim";
+import sharp from "sharp";
+import { intakeFixture } from "./collector-intake.mjs";
 import { localDatabaseUrl } from "./local-db.mjs";
 
 if (process.env.NODE_ENV === "production") {
@@ -202,18 +215,231 @@ async function ensureFixtureUser(c, email, auth, now) {
   return inserted.id;
 }
 
+const OLED_SHOWCASE_SAMPLES = [
+  {
+    title: "Nintendo Switch OLED Model 64GB White — Complete in Box",
+    cents: 27950,
+    conditionStd: "like_new",
+    conditionText: "Like New",
+    format: "auction",
+    shippingCents: 0,
+  },
+  {
+    title: "Nintendo Switch OLED 64GB Neon Blue/Red — Dock & Joy-Cons",
+    cents: 27200,
+    conditionStd: "good",
+    conditionText: "Pre-Owned",
+    format: "fixed_price",
+    shippingCents: 1200,
+  },
+  {
+    title: "Nintendo Switch OLED 64GB White Handheld + Original Charger",
+    cents: 26800,
+    conditionStd: "good",
+    conditionText: "Pre-Owned",
+    format: "auction",
+    shippingCents: 0,
+  },
+  {
+    title: "Nintendo Switch OLED Zelda Tears of the Kingdom Edition CIB",
+    cents: 28900,
+    conditionStd: "like_new",
+    conditionText: "Like New",
+    format: "fixed_price",
+    shippingCents: 1500,
+  },
+  {
+    title: "Nintendo Switch OLED 64GB White Console — Mint Screen w/ Case",
+    cents: 27400,
+    conditionStd: "like_new",
+    conditionText: "Like New",
+    format: "auction",
+    shippingCents: 0,
+  },
+  {
+    title: "Nintendo Switch OLED Splatoon 3 Special Edition — Docked Set",
+    cents: 28250,
+    conditionStd: "new_without_tags",
+    conditionText: "Open Box",
+    format: "fixed_price",
+    shippingCents: 995,
+  },
+  {
+    title: "Nintendo Switch OLED 64GB Neon Red/Blue — Verified Working",
+    cents: 26450,
+    conditionStd: "good",
+    conditionText: "Pre-Owned",
+    format: "auction",
+    shippingCents: 0,
+  },
+  {
+    title: "Nintendo Switch OLED 64GB White — Console, Dock, HDMI & Grip",
+    cents: 27500,
+    conditionStd: "like_new",
+    conditionText: "Like New",
+    format: "fixed_price",
+    shippingCents: 850,
+  },
+];
+
+async function seedRichOledSource() {
+  const directory = resolve(process.env.COLLECTOR_DEMO_DIR ?? ".local");
+  const now = (await db.query("SELECT clock_timestamp() t")).rows[0].t.toISOString();
+  const source = await provisionFixtureSource(db, now, {
+    publicAggregates: true,
+    searchSummaries: true,
+  });
+  const profile = JSON.parse(
+    readFileSync(new URL("../tests/fixtures/html/profile.json", import.meta.url), "utf8"),
+  );
+  const template = readFileSync(new URL("../tests/fixtures/html/search.html", import.meta.url), "utf8");
+  const configuredProfile = {
+    ...profile,
+    revision: 2,
+    allowSyntheticSeller: true,
+    shippingContexts: ["fixture-domestic", "fixture-regional"],
+    fields: {
+      ...profile.fields,
+      conditionStandard: { selector: "span.condition", attribute: "data-standard" },
+      shippingContextRef: { selector: "span.shipping", attribute: "data-context-ref" },
+    },
+  };
+  const store = new CollectorStore(db, undefined, { htmlProfile: configuredProfile });
+  const queryHash = collectionQueryHash(normalizeQuery(new URLSearchParams({ q: "Nintendo Switch OLED" })));
+  const jobId = await store.enqueue({ ...source, queryHash, runKey: "dev-seed-rich-oled", asOf: now });
+  const frames = new Map();
+  for (let page = 0; page < 2; page++) {
+    const $ = load(template);
+    const root = $(profile.root);
+    const prototype = root.find("article.record[data-kind=sold-record]").first().clone();
+    root.empty().attr({
+      "data-source-id": source.sourceId,
+      "data-query-hash": queryHash,
+      "data-cursor": page ? "second" : "start",
+      "data-next-cursor": page ? "" : "second",
+      "data-as-of": now,
+    });
+    for (let i = page * 4; i < (page + 1) * 4; i++) {
+      const spec = OLED_SHOWCASE_SAMPLES[i];
+      const row = prototype.clone();
+      const listing = `oled-rich-listing-${i}`;
+      const event = `oled-rich-event-${i}`;
+      const imageUrl = `https://images.example.test/oled-rich-${i}.png`;
+      row.find("span.identity").attr({ "data-listing-id": listing, "data-event-key": event });
+      row.find("h2.title").text(spec.title);
+      row.find("span.attribute[data-name='model']").text("OLED");
+      row.find("span.format").text(spec.format);
+      row
+        .find("span.price")
+        .text(`US $${Math.floor(spec.cents / 100)}.${String(spec.cents % 100).padStart(2, "0")}`);
+      row.find("span.condition").attr("data-standard", spec.conditionStd).text(spec.conditionText);
+      const shipEl = row.find("span.shipping").attr("data-context-ref", "fixture-domestic");
+      if (spec.shippingCents > 0) {
+        shipEl.attr("data-evidence", "observed").text(`$${(spec.shippingCents / 100).toFixed(2)}`);
+      } else {
+        shipEl.attr("data-evidence", "verified_free_shipping").text("Free shipping");
+      }
+      row
+        .find("time.sold-date")
+        .attr("datetime", new Date(Date.parse(now) - (i + 1) * 86400_000).toISOString());
+      row.find("a.listing-link").attr("href", `https://market.example.test/item/${listing}`);
+      row
+        .find("img.primary")
+        .removeAttr("srcset")
+        .attr({ "data-listing-id": listing, "data-event-key": event, "data-src": imageUrl });
+      root.append(row);
+      const bytes = await sharp({
+        create: {
+          width: 12,
+          height: 12,
+          channels: 3,
+          background: { r: 24 + i * 20, g: 85, b: 165 },
+        },
+      })
+        .png()
+        .toBuffer();
+      frames.set(`image:${imageUrl}`, [{ status: 200, contentType: "image/png", bytes }]);
+    }
+    frames.set(`page:${page ? "second" : "start"}`, [
+      { status: 200, contentType: "text/html; charset=utf-8", bytes: Buffer.from($.html()) },
+    ]);
+  }
+  const artifact = createFixtureArtifact(
+    { sourceId: source.sourceId, jobId, queryHash, asOf: now, htmlProfile: configuredProfile },
+    frames,
+  );
+  const loaded = loadFixtureArtifact(Buffer.from(JSON.stringify(artifact)));
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  await intakeFixture(db, directory, source.sourceId, loaded);
+  const responses = new Map();
+  const routes = [];
+  for (const [key, values] of frames) {
+    const path = `/fixture/${routes.length}`;
+    responses.set(path, values[0]);
+    routes.push({ key, path });
+  }
+  const server = createServer((req, res) => {
+    const response = responses.get(req.url);
+    if (!response) {
+      res.writeHead(404);
+      res.end();
+      return;
+    }
+    res.writeHead(response.status, {
+      "content-type": response.contentType,
+      "content-length": response.bytes.byteLength,
+    });
+    res.end(response.bytes);
+  });
+  try {
+    await new Promise((resolveDone, rejectDone) => {
+      server.once("error", rejectDone);
+      server.listen(0, "127.0.0.1", resolveDone);
+    });
+    const transport = new LoopbackHttpTransport({
+      origin: `http://127.0.0.1:${server.address().port}`,
+      routes,
+    });
+    await new OfflineCollectorWorker(
+      store,
+      transport,
+      new PrivateMediaStore(resolve(config.mediaRoot)),
+    ).runOne(source.sourceId, { jobId });
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+  return source;
+}
+
 try {
   await migrate(db);
 
-  // 1. Seed two local HTML demo sources (Nintendo Switch OLED + Nintendo Switch research set)
-  const oledReport = await runCollectorDemo();
+  // Clear older demo-publisher showcase sources so the freshly seeded showcase drives /
+  await db.query(
+    "DELETE FROM anonymous_cache_publications WHERE user_id IN (SELECT id FROM users WHERE email='demo-publisher@soldbench.local')",
+  );
+  await db.query(
+    "UPDATE collector_configs SET enabled=false WHERE source_id IN (SELECT id FROM sources WHERE access_method='offline_fixture' AND entrypoint_id='in-memory-fixture')",
+  );
+  await db.query(
+    "UPDATE sources SET status='disabled' WHERE access_method='offline_fixture' AND entrypoint_id='in-memory-fixture'",
+  );
+
+  // 1. Seed rich showcase (Nintendo Switch OLED) + research set (Nintendo Switch)
+  const oledSource = await seedRichOledSource();
   const researchReport = await runCollectorDemo(["--research"]);
 
   await db.query(
     `UPDATE source_clearances
         SET permitted_fields=permitted_fields || '{"public_cache":["aggregate"],"public_share":["aggregate"]}'::jsonb
       WHERE id IN (SELECT source_clearance_id FROM sources WHERE id=ANY($1::uuid[]))`,
-    [[oledReport.sourceId, researchReport.sourceId]],
+    [[oledSource.sourceId, researchReport.sourceId]],
+  );
+
+  // Expire prior 10-minute reuse window for demo publisher so new seed evaluates fresh sources
+  await db.query(
+    "UPDATE queries SET created_at = created_at - interval '1 hour' WHERE user_id IN (SELECT id FROM users WHERE email='demo-publisher@soldbench.local')",
   );
 
   // 2. Submit & claim public cache snapshot for Nintendo Switch OLED

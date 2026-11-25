@@ -7,7 +7,7 @@ import { readCatalog } from "./catalog.ts";
 import { type PublishedSiteContent, publishedSiteContent } from "./site-content.ts";
 
 type Env = { Variables: { requestId: string } };
-const chrome = ["navigation", "footer"] as const;
+const chrome = ["announcement", "navigation", "footer"] as const;
 const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const chineseCategories: Record<string, string> = {
   cards_graded: "评级卡牌",
@@ -27,7 +27,7 @@ const localized = (row: PublishedSiteContent, locale: Locale): EditorialEntry =>
 
 export function siteBlocks(rows: PublishedSiteContent[], locale: Locale) {
   return rows
-    .filter((row) => ["home", "navigation", "footer", "blog"].includes(row.kind))
+    .filter((row) => ["announcement", "home", "navigation", "footer", "blog"].includes(row.kind))
     .map((row) => ({ kind: row.kind, slug: row.slug, target: row.metadata.target, ...row.body[locale] }));
 }
 

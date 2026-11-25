@@ -85,10 +85,11 @@ export function Documentation({ view, locale }: { view: DocsView; locale: Locale
     .split(/\n\s*\n/)
     .slice(1);
 
+  const isQuickstart = view.current.path.endsWith("/quickstart");
   const headings: Array<{ id: string; text: string }> = [];
   let headingIdx = 0;
   let codeIdx = 0;
-  let ledeUsed = false;
+  let ledeUsed = isQuickstart;
 
   const renderedBlocks = rawBlocks.map((block) => {
     if (block.startsWith("```") && block.endsWith("```")) {
@@ -141,12 +142,6 @@ export function Documentation({ view, locale }: { view: DocsView; locale: Locale
     );
   });
 
-  const isQuickstart = view.current.path.endsWith("/quickstart");
-  const quickstartExamples = {
-    curl: `curl -sS -G "https://api.soldbench.com/v1/sold" \\\n  -H "Authorization: Bearer $SOLDBENCH_API_KEY" \\\n  --data-urlencode "q=Nintendo Switch OLED" \\\n  --data-urlencode "window_days=90" \\\n  --data-urlencode "limit=50"`,
-    python: `import os\nimport requests\n\nresp = requests.get(\n    "https://api.soldbench.com/v1/sold",\n    headers={"Authorization": f"Bearer {os.environ['SOLDBENCH_API_KEY']}"},\n    params={"q": "Nintendo Switch OLED", "window_days": 90, "limit": 50},\n    timeout=30,\n)\nresp.raise_for_status()\nstats = resp.json()["data"]["stats"]\nprint(stats["median_cents"], stats["n_price_verified"])  # None when < 8`,
-    ts: `const res = await fetch(\n  "https://api.soldbench.com/v1/sold?q=Nintendo+Switch+OLED&window_days=90&limit=50",\n  { headers: { Authorization: \`Bearer \${process.env.SOLDBENCH_API_KEY}\` } }\n);\nif (!res.ok) throw new Error(\`SoldBench \${res.status}\`);\nconst { data } = await res.json();\nconsole.log(data.stats.median_cents, data.stats.n_price_verified);`,
-  };
   const quickstartResponseJson = JSON.stringify(
     {
       data: {
@@ -170,14 +165,20 @@ export function Documentation({ view, locale }: { view: DocsView; locale: Locale
     2,
   );
 
-  if (isQuickstart && headings.length === 0) {
-    headings.push(
+  if (isQuickstart) {
+    headings.unshift(
       { id: "qs-1", text: t("Get your API key", "获取 API 密钥") },
       { id: "qs-2", text: t("Make your first request", "发起第一次请求") },
       { id: "qs-3", text: t("Read the result", "读取返回结果与证据") },
+      { id: "qs-4", text: t("Local offline quickstart", "本地离线演练与脚本验证") },
     );
   }
 
+  const quickstartExamples = {
+    curl: `curl -sS -G "https://api.soldbench.com/v1/sold" \\\n  -H "Authorization: Bearer $SOLDBENCH_API_KEY" \\\n  --data-urlencode "q=Nintendo Switch OLED" \\\n  --data-urlencode "window_days=90" \\\n  --data-urlencode "limit=50"`,
+    python: `import os\nimport requests\n\nresp = requests.get(\n    "https://api.soldbench.com/v1/sold",\n    headers={"Authorization": f"Bearer {os.environ['SOLDBENCH_API_KEY']}"},\n    params={"q": "Nintendo Switch OLED", "window_days": 90, "limit": 50},\n    timeout=30,\n)\nresp.raise_for_status()\nstats = resp.json()["data"]["stats"]\nprint(stats["median_cents"], stats["n_price_verified"])  # None when < 8`,
+    ts: `const res = await fetch(\n  "https://api.soldbench.com/v1/sold?q=Nintendo+Switch+OLED&window_days=90&limit=50",\n  { headers: { Authorization: \`Bearer \${process.env.SOLDBENCH_API_KEY}\` } }\n);\nif (!res.ok) throw new Error(\`SoldBench \${res.status}\`);\nconst { data } = await res.json();\nconsole.log(data.stats.median_cents, data.stats.n_price_verified);`,
+  };
   const currentIdx = view.pages.findIndex((p) => p.path === view.current.path);
   const prevPage = currentIdx > 0 ? view.pages[currentIdx - 1] : null;
   const nextPage = currentIdx >= 0 && currentIdx < view.pages.length - 1 ? view.pages[currentIdx + 1] : null;
@@ -299,9 +300,15 @@ export function Documentation({ view, locale }: { view: DocsView; locale: Locale
               <a href="/.well-known/skills/soldbench/SKILL.md">Agent Skill</a>
             </div>
             <h1>{view.current.title}</h1>
-            {renderedBlocks}
             {isQuickstart && (
               <>
+                <p className="docs-lede">
+                  {t(
+                    "Your first SoldBench API call takes under two minutes: get a key, send a GET /v1/sold request, and inspect the stats and evidence response.",
+                    "不到两分钟完成第一次 SoldBench API 调用：生成密钥、发送 GET /v1/sold 请求并读取包含统计值与可验证证据的响应。",
+                  )}
+                </p>
+
                 <h2 id="qs-1">1 · {t("Get your API key", "获取 API 密钥")}</h2>
                 <p>
                   {t("Create an account and generate a key in ", "创建账户并在")}
@@ -359,7 +366,7 @@ export function Documentation({ view, locale }: { view: DocsView; locale: Locale
                     "（query_id、candidate_set_hash、credits_charged）。",
                   )}
                 </p>
-                <div className="codeblock cap mt-12">
+                <div className="codeblock mt-12">
                   <div className="cb-head">
                     <span>{t("JSON response", "JSON 响应示例")}</span>
                     <button type="button" className="copy-btn" data-copy="#qsRespJson">
@@ -370,8 +377,11 @@ export function Documentation({ view, locale }: { view: DocsView; locale: Locale
                     <code>{highlightCode(quickstartResponseJson, "json")}</code>
                   </pre>
                 </div>
+
+                <h2 id="qs-4">{t("Local offline quickstart", "本地离线演练与脚本验证")}</h2>
               </>
             )}
+            {renderedBlocks}
 
             {(prevPage || nextPage) && (
               <nav
@@ -436,18 +446,6 @@ export function Documentation({ view, locale }: { view: DocsView; locale: Locale
                   {t("Get a free API key", "免费获取密钥")}
                 </a>
               </p>
-            </div>
-            <div className="card mt-16">
-              <h3>{t("Integration resources", "集成工具与文件")}</h3>
-              <div className="otp-list mt-10">
-                <a href={zh ? "/zh-CN/playground" : "/playground"}>{t("API Playground", "API 调试台")}</a>
-                <a href="/openapi.json">OpenAPI 3.1</a>
-                <a href="/.well-known/skills/soldbench/SKILL.md">Agent Skill</a>
-                <a href="/soldbench.postman.json">Postman</a>
-                <a href="/examples/sold.ts">TypeScript</a>
-                <a href="/examples/sold.py">Python</a>
-                <a href="/examples/sold.sh">cURL</a>
-              </div>
             </div>
           </aside>
         </div>
