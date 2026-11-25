@@ -176,8 +176,16 @@ test("public developer assets preserve Markdown while browser views use the same
   const s = await http(),
     x = await createProductFixture(db, roots, { port: s.port });
   s.bind(x.app);
-  const get = (path) => fetch(s.origin + path, { redirect: "manual" });
+  const get = (path, headers) => fetch(s.origin + path, { redirect: "manual", headers });
   assert.equal((await get("/docs")).headers.get("Location"), "/docs/en/quickstart");
+  const zhDocs = await get("/docs", { "Accept-Language": "zh-CN,zh;q=0.9" });
+  assert.equal(zhDocs.headers.get("Location"), "/docs/zh-CN/quickstart");
+  assert.match(zhDocs.headers.get("Vary") ?? "", /Accept-Language/);
+  const overriddenDocs = await get("/docs", {
+    "Accept-Language": "zh-CN",
+    Cookie: "soldbench_locale=en",
+  });
+  assert.equal(overriddenDocs.headers.get("Location"), "/docs/en/quickstart");
   for (const locale of ["en", "zh-CN"]) {
     const r = await get(`/docs/${locale}/quickstart`);
     assert.equal(r.status, 200);

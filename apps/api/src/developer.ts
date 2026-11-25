@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { AppError } from "@soldbench/shared";
 import { renderPage } from "@soldbench/web";
 import type { Hono } from "hono";
+import { preferredLocale } from "./locale.ts";
 
 type Env = { Variables: { requestId: string } };
 type Page = { path: string; locale: string; title: string; text: string };
@@ -15,7 +16,14 @@ export function mountDeveloper(app: Hono<Env>) {
   registry ??= JSON.parse(readFileSync(new URL("./developer/assets.json", import.meta.url), "utf8"));
   const data = registry;
   if (!data) throw new Error("developer_assets_missing");
-  app.get("/docs", (c) => c.redirect("/docs/en/quickstart", 302));
+  app.get("/docs", (c) => {
+    c.header("Vary", "Accept-Language, Cookie", { append: true });
+    const target =
+      preferredLocale(c.req.header("Cookie"), c.req.header("Accept-Language")) === "zh-CN"
+        ? "/docs/zh-CN/quickstart"
+        : "/docs/en/quickstart";
+    return c.redirect(target, 302);
+  });
   app.get("/zh-CN/docs", (c) => c.redirect("/docs/zh-CN/quickstart", 302));
   app.get("/docs/implementation-status.json", (c) => {
     const routes = new Set(

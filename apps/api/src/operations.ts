@@ -9,6 +9,7 @@ import type { Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { getCookie } from "hono/cookie";
 import * as z from "zod";
+import { preferredLocale } from "./locale.ts";
 import { OperationsService } from "./operations-domain.ts";
 import { telemetryViews } from "./ops-telemetry.ts";
 import { siteContentCommand } from "./site-content.ts";
@@ -218,12 +219,15 @@ export function mountOperations(
   });
   app.get("/admin/content", async (c) => {
     const data = await service().contentList(await identity(c));
-    c.header("Vary", "Accept");
+    c.header("Vary", "Accept, Accept-Language, Cookie");
     if (c.req.header("Accept")?.includes("text/html")) {
       const url = new URL(c.req.url);
-      return c.html(
-        renderPage(url.searchParams.get("lang") === "zh-CN" ? "zh-CN" : "en", "/admin/content", url),
-      );
+      const langParam = url.searchParams.get("lang");
+      const locale =
+        langParam === "zh-CN" || langParam === "en"
+          ? langParam
+          : preferredLocale(c.req.header("Cookie"), c.req.header("Accept-Language"));
+      return c.html(renderPage(locale, "/admin/content", url));
     }
     return c.json({ data, meta: meta(c) });
   });

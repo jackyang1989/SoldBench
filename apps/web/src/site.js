@@ -1766,7 +1766,9 @@ if (search) {
       a.href = resume(a.dataset.resume, draft, keepResult);
     }
     const alternate = document.querySelector("[data-language]");
-    alternate.href = (zh ? "" : "/zh-CN") + resume(searchPath, draft, keepResult).slice(prefix.length);
+    if (alternate) {
+      alternate.href = (zh ? "" : "/zh-CN") + resume(searchPath, draft, keepResult).slice(prefix.length);
+    }
   };
   const save = (draft, replace = false) => {
     const next = resume(searchPath, draft, false);
@@ -3431,6 +3433,76 @@ if (page === "/operations") {
     tools.append(form);
     return tools;
   }
+  const opsMeta = {
+    overview: [
+      t("Operations overview", "运营概览"),
+      t(
+        "Today on the platform — volume, health, money and what needs a human.",
+        "平台实时运行态势——请求量、健康度、资金与待人工审批事项。",
+      ),
+    ],
+    approvals: [
+      t("Approvals", "双人审批队列"),
+      t(
+        "Dual-operator approvals before sensitive state changes execute.",
+        "敏感账户与状态变更的双人独立审批记录。",
+      ),
+    ],
+    incidents: [
+      t("Incidents", "事件跟踪"),
+      t("Platform and source incident triage log.", "平台组件与数据源故障响应和恢复状态。"),
+    ],
+    sources: [
+      t("Sources", "数据源准入台账"),
+      t(
+        "Admission ledger — allowed rights, breakers, and expiry.",
+        "数据源准入凭据、五项权利边界、熔断状态与有效期。",
+      ),
+    ],
+    jobs: [
+      t("Job queue", "异步查询作业"),
+      t(
+        "Async search jobs — state, budgets, errors, and safe requeue.",
+        "异步查询作业状态、抓取页预算、错误及幂等重试。",
+      ),
+    ],
+    billing: [
+      t("Billing & reconciliation", "账单与对账"),
+      t("Charges, ledger movements, and payments reconciliation.", "支付渠道扣费、账本流动与人工补偿审核。"),
+    ],
+    recovery: [
+      t("Payment recovery", "支付恢复"),
+      t("Fixture payment webhook replay and recovery checks.", "支付渠道回执重放与异常订单恢复核对。"),
+    ],
+    users: [
+      t("Users & accounts", "用户与账户 360"),
+      t(
+        "Accounts, verification, buckets, and deletion pipeline.",
+        "账户状态、认证核验、额度桶余额与销户流程。",
+      ),
+    ],
+    support: [
+      t("Support queue", "客服工单队列"),
+      t("Customer support requests, SLA timers, and replies.", "用户支持工单受理、SLA 时限与官方回复。"),
+    ],
+    audit: [
+      t("Audit log", "操作审计流水"),
+      t(
+        "Immutable record of every operator action and config version.",
+        "记录操作人、对象、理由与配置版本的不可篡改流水。",
+      ),
+    ],
+    settings: [
+      t("System & permissions", "系统设置与权限"),
+      t("Alert thresholds and active runtime safety modes.", "告警阈值配置与当前平台运行/采集模式状态。"),
+    ],
+  };
+  const opsTitleEl = document.querySelector("[data-ops-title]");
+  const opsSubEl = document.querySelector("[data-ops-sub]");
+  const opsRolePill = document.querySelector("[data-ops-role-pill]");
+  const opsRoleText = document.querySelector("[data-ops-role-text]");
+  const opsModeEl = document.querySelector("[data-ops-mode]");
+
   async function showView(view, cursor, notice = "") {
     const request = ++generation;
     if (!cursor) {
@@ -3438,6 +3510,17 @@ if (page === "/operations") {
       message(notice || t("Loading…", "正在加载…"));
       for (const control of operatorTabs)
         control.setAttribute("aria-pressed", String(control.dataset.opsView === view));
+      const metaPair = opsMeta[view];
+      if (opsTitleEl) {
+        opsTitleEl.textContent =
+          metaPair?.[0] ??
+          operatorTabs.find((item) => item.dataset.opsView === view)?.textContent ??
+          t("Operations overview", "运营概览");
+      }
+      if (opsSubEl) {
+        opsSubEl.textContent =
+          metaPair?.[1] ?? t("Operational telemetry and audit view.", "平台运行指标与审计明细。");
+      }
     }
     try {
       if (reports.includes(view)) {
@@ -3454,7 +3537,16 @@ if (page === "/operations") {
       const path = caseId
         ? `/admin/${view === "billing" ? "charges" : view}/${caseId}`
         : `/admin/${view}${params}`;
-      const [response, canWrite] = await Promise.all([api(path), recoveryAccess]);
+      const [response, canWrite, sourcesResp, auditResp, settingsResp] =
+        view === "overview" && !caseId
+          ? await Promise.all([
+              api(path),
+              recoveryAccess,
+              api("/admin/sources").catch(() => null),
+              api("/admin/audit").catch(() => null),
+              api("/admin/settings").catch(() => null),
+            ])
+          : [...(await Promise.all([api(path), recoveryAccess])), null, null, null];
       if (request !== generation) return;
       if (caseId) {
         message(notice);
@@ -3463,6 +3555,14 @@ if (page === "/operations") {
       }
       if (view === "overview" || view === "settings") {
         const data = response.data;
+        if (view === "overview" && opsRolePill && opsRoleText && data.role) {
+          opsRolePill.hidden = false;
+          opsRoleText.textContent = data.role === "admin" ? t("Admin", "管理员") : t("Support", "支持人员");
+        }
+        const sysData = settingsResp?.data ?? (view === "settings" ? data : null);
+        if (opsModeEl && sysData?.data_mode) {
+          opsModeEl.textContent = String(sysData.data_mode);
+        }
         const summary =
           view === "overview"
             ? [
@@ -3485,16 +3585,220 @@ if (page === "/operations") {
               ];
         message(notice);
         if (view === "overview") {
-          const kpiGrid = element("div", undefined, "grid4 acct-kpi-grid");
-          for (const [label, value] of summary) {
-            const tile = element("section", undefined, "card result-card acct-kpi");
+          const sources = Array.isArray(sourcesResp?.data)
+            ? sourcesResp.data
+            : (sourcesResp?.data?.items ?? []);
+          const activeSources = sources.filter(
+            (s) => s.status === "active" || s.state === "active" || s.breaker_state === "closed",
+          ).length;
+          const pausedSources = sources.filter(
+            (s) => s.status === "suspended" || s.status === "revoked" || s.breaker_state === "open",
+          ).length;
+          const delayedSources = Math.max(0, sources.length - activeSources - pausedSources);
+          const audits = Array.isArray(auditResp?.data) ? auditResp.data : (auditResp?.data?.items ?? []);
+
+          const kpiRow1 = element("div", undefined, "grid4 acct-kpi-grid");
+          for (const [label, value, sub] of [
+            [
+              t("ACTIVE QUERY JOBS", "活动查询作业"),
+              String(data.active_jobs ?? 0),
+              t("Queued or running right now", "当前排队或执行中"),
+            ],
+            [
+              t("OPEN INCIDENTS", "未解决事件"),
+              String(data.open_incidents ?? 0),
+              t("Unresolved operational incidents", "待处置或观察中事件"),
+            ],
+            [
+              t("PENDING APPROVALS", "待执行审批"),
+              String(data.pending_approvals ?? 0),
+              t("Dual-operator gate queue", "待独立复核执行项"),
+            ],
+            [
+              t("OPEN SUPPORT TICKETS", "未结客服工单"),
+              String(data.open_support ?? 0),
+              t("Active customer support queue", "有效保留期内未关闭工单"),
+            ],
+          ]) {
+            const tile = element("section", undefined, "card result-card kpi");
             tile.append(
-              element("span", label, "kpi-label"),
-              element("strong", String(value ?? 0), "kpi-val"),
+              element("div", label, "lab"),
+              element("div", value, "val"),
+              element("div", sub, "sub"),
             );
-            kpiGrid.append(tile);
+            kpiRow1.append(tile);
           }
-          output.append(kpiGrid);
+
+          const kpiRow2 = element("div", undefined, "grid4 acct-kpi-grid");
+          for (const [label, value, sub] of [
+            [
+              t("ACTIVE SOURCES", "活跃数据源"),
+              sources.length ? `${activeSources} / ${sources.length}` : "0",
+              t("Permitted & non-suspended sources", "具备许可且未暂停数据源"),
+            ],
+            [
+              t("DATA MODE", "当前数据模式"),
+              String(sysData?.data_mode ?? "offline_fixture"),
+              t("Runtime collection gate", "受阶段门与许可门控"),
+            ],
+            [
+              t("LIVE COLLECTION", "真实网络采集"),
+              sysData?.collector_enabled ? t("Enabled", "启用") : t("Disabled", "已关闭"),
+              t("COLLECTOR_ENABLED flag", "默认离线关闭"),
+            ],
+            [
+              t("PAYMENTS MODE", "支付渠道模式"),
+              String(sysData?.payments_mode ?? "offline"),
+              t("Commercial gate status", "G0/支付审批边界"),
+            ],
+          ]) {
+            const tile = element("section", undefined, "card result-card kpi");
+            tile.append(
+              element("div", label, "lab"),
+              element("div", value, "val"),
+              element("div", sub, "sub"),
+            );
+            kpiRow2.append(tile);
+          }
+          output.append(kpiRow1, kpiRow2);
+
+          const midGrid = element("div", undefined, "grid2 eq mt-18");
+          const healthCard = element("section", undefined, "card result-card");
+          healthCard.append(element("h2", t("Collector health", "采集运行与准入健康")));
+          for (const [k, badgeText, badgeCls] of [
+            [
+              t("Collector runtime", "采集进程模式"),
+              sysData?.collector_enabled ? t("Live", "运行中") : t("Offline fixture", "离线关闭"),
+              sysData?.collector_enabled ? "badge badge-green" : "badge badge-gray",
+            ],
+            [
+              t("Active sources", "有效准入数据源"),
+              sources.length ? `${activeSources} / ${sources.length}` : "0",
+              activeSources > 0 ? "badge badge-green" : "badge badge-amber",
+            ],
+            [
+              t("Paused / suspended", "暂停或已吊销"),
+              String(pausedSources),
+              pausedSources > 0 ? "badge badge-amber" : "badge badge-green",
+            ],
+            [t("Snapshot timestamp", "状态时间戳"), String(data.as_of ?? "—"), "badge badge-gray"],
+          ]) {
+            const row = element("div", undefined, "ops-kv-row");
+            const valWrap = element("span", undefined, "ops-kv-val");
+            valWrap.append(element("span", badgeText, badgeCls));
+            row.append(element("span", k, "ops-kv-label"), valWrap);
+            healthCard.append(row);
+          }
+          const openCollectorBtn = button(t("Open Collection runs →", "查看采集运行 →"), () =>
+            operatorTabs.find((tab) => tab.dataset.opsView === "collector")?.click(),
+          );
+          openCollectorBtn.className = "btn ghost btn-sm mt-14";
+          healthCard.append(openCollectorBtn);
+
+          const distCard = element("section", undefined, "card result-card");
+          distCard.append(element("h2", t("Source status distribution", "数据源状态分布")));
+          const barTrack = element("div", undefined, "ops-bar-track");
+          if (activeSources > 0) {
+            const segF = element("div", undefined, "ops-bar-seg ops-bar-fresh");
+            segF.style.flexGrow = String(activeSources);
+            barTrack.append(segF);
+          }
+          if (delayedSources > 0) {
+            const segD = element("div", undefined, "ops-bar-seg ops-bar-delayed");
+            segD.style.flexGrow = String(delayedSources);
+            barTrack.append(segD);
+          }
+          if (pausedSources > 0) {
+            const segP = element("div", undefined, "ops-bar-seg ops-bar-paused");
+            segP.style.flexGrow = String(pausedSources);
+            barTrack.append(segP);
+          }
+          const kvGrid = element("div", undefined, "ops-kv-grid");
+          for (const [lab, cnt] of [
+            [t("Fresh / active", "正常活跃"), String(activeSources)],
+            [t("Other / delayed", "其他或延迟"), String(delayedSources)],
+            [t("Suspended / revoked", "暂停或吊销"), String(pausedSources)],
+            [t("Total sources", "数据源总数"), String(sources.length)],
+          ]) {
+            const cell = element("div");
+            cell.append(element("b", lab), document.createTextNode(cnt));
+            kvGrid.append(cell);
+          }
+          const openSourcesBtn = button(t("Open Sources →", "打开数据源台账 →"), () =>
+            operatorTabs.find((tab) => tab.dataset.opsView === "sources")?.click(),
+          );
+          openSourcesBtn.className = "btn ghost btn-sm mt-14";
+          distCard.append(
+            barTrack,
+            kvGrid,
+            element(
+              "p",
+              t(
+                "Source freshness and admission rights are derived from authoritative DB records.",
+                "数据时效性与准入权限均直接源自数据库实时台账，禁止手工篡改。",
+              ),
+              "small mt-12",
+            ),
+            openSourcesBtn,
+          );
+          midGrid.append(healthCard, distCard);
+          output.append(midGrid);
+
+          const opsLower = element("div", undefined, "grid2 eq mt-18");
+          const eventsCard = element("section", undefined, "card result-card");
+          eventsCard.append(element("h2", t("Recent events", "近期关键审计动态")));
+          if (!audits.length) {
+            eventsCard.append(
+              element("p", t("No recent audit events recorded.", "暂无近期审计记录。"), "small mt-10"),
+            );
+          } else {
+            for (const entry of audits.slice(0, 5)) {
+              const row = element("div", undefined, "ops-event-row");
+              const when = (entry.created_at ?? entry.at ?? "").slice(11, 19) || "—";
+              const action = String(entry.action ?? entry.command ?? "event");
+              const target = String(entry.target_type ?? entry.resource_type ?? "");
+              row.append(
+                element("span", `${when} · ${action}${target ? ` (${target})` : ""}`),
+                element("span", String(entry.result ?? entry.status ?? "logged"), "badge badge-gray"),
+              );
+              eventsCard.append(row);
+            }
+          }
+
+          const todoCard = element("section", undefined, "card result-card");
+          todoCard.append(element("h2", t("To-do queue", "待人工处理清单")));
+          for (const [desc, btnLabel, tabKey] of [
+            [
+              `${Number(data.pending_approvals ?? 0)} ${t("pending approvals", "项待双人审批")}`,
+              t("Approvals →", "前往审批 →"),
+              "approvals",
+            ],
+            [
+              `${Number(data.open_incidents ?? 0)} ${t("open incidents", "项未解决事件")}`,
+              t("Incidents →", "查看事件 →"),
+              "incidents",
+            ],
+            [
+              `${Number(data.open_support ?? 0)} ${t("open support tickets", "张未结工单")}`,
+              t("Support →", "处理工单 →"),
+              "support",
+            ],
+            [
+              `${Number(data.active_jobs ?? 0)} ${t("active query jobs", "个活动查询作业")}`,
+              t("Jobs →", "作业队列 →"),
+              "jobs",
+            ],
+          ]) {
+            const row = element("div", undefined, "ops-todo-row");
+            const jumpBtn = button(btnLabel, () =>
+              operatorTabs.find((tab) => tab.dataset.opsView === tabKey)?.click(),
+            );
+            jumpBtn.className = "btn ghost btn-sm";
+            row.append(element("span", desc), jumpBtn);
+            todoCard.append(row);
+          }
+          opsLower.append(eventsCard, todoCard);
+          output.append(opsLower);
         }
         output.append(
           accountTable(
@@ -3945,7 +4249,7 @@ async function showBilling() {
     url.search = params.toString();
     history.replaceState(null, "", url);
     const alternate = document.querySelector("[data-language]");
-    alternate.href = `${zh ? "" : "/zh-CN"}/account/billing${url.search}`;
+    if (alternate) alternate.href = `${zh ? "" : "/zh-CN"}/account/billing${url.search}`;
   }
   selectOffer(prices.offers.find((offer) => offer.plan_code === current().searchParams.get("plan")));
   for (const offer of prices.offers) {
@@ -3985,7 +4289,7 @@ async function showBilling() {
           url.searchParams.set("checkout", id);
           history.replaceState(null, "", url);
           const alternate = document.querySelector("[data-language]");
-          alternate.href = `${zh ? "" : "/zh-CN"}/account/billing${url.search}`;
+          if (alternate) alternate.href = `${zh ? "" : "/zh-CN"}/account/billing${url.search}`;
           await checkOrder(id);
         } finally {
           start.disabled = false;
@@ -6759,13 +7063,15 @@ if (page.startsWith("/account"))
       return;
     }
     const signOut = document.querySelector("[data-logout]");
-    signOut.hidden = false;
-    signOut.addEventListener("click", () =>
-      run(async () => {
-        await post("/auth/logout", {}, (await session())?.csrf_token);
-        location.assign(`${prefix}/`);
-      }),
-    );
+    if (signOut) {
+      signOut.hidden = false;
+      signOut.addEventListener("click", () =>
+        run(async () => {
+          await post("/auth/logout", {}, (await session())?.csrf_token);
+          location.assign(`${prefix}/`);
+        }),
+      );
+    }
     if (page === "/account/usage") return showUsage();
     if (page === "/account/logs") return showLogs();
     if (page === "/account/lookup") return showLookupWorkstation();
@@ -6790,73 +7096,79 @@ if (page.startsWith("/account"))
       }
       return;
     }
-    const [balance, history] =
+    const [balance, history, keysResp] =
       page === "/account"
-        ? await Promise.all([api("/v1/usage"), api("/v1/queries")])
-        : [null, await api("/v1/queries")];
+        ? await Promise.all([api("/v1/usage"), api("/v1/queries"), api("/account/keys").catch(() => null)])
+        : [null, await api("/v1/queries"), null];
     if (balance) {
       const total = Number(balance.data.total_available ?? 0);
+      const keysList = Array.isArray(keysResp?.data) ? keysResp.data : (keysResp?.data?.items ?? []);
+      const activeKeys = keysList.filter((k) => !k.revoked_at);
       const kpiGrid = element("div", undefined, "grid3 eq acct-kpi-grid");
 
       const usage = element("section", undefined, "card result-card acct-kpi");
-      usage.append(element("h2", t("Credit balance", "额度余额")));
+      usage.append(element("h2", t("AVAILABLE CREDITS", "可用总额度")));
       if (Number.isSafeInteger(balance.data.total_available)) {
-        usage.append(element("strong", String(balance.data.total_available), "kpi-val"));
+        const valRow = element("strong", String(balance.data.total_available), "kpi-val");
+        valRow.append(element("span", ` ${t("left", "剩余")}`, "acct-kpi-denom"));
+        usage.append(valRow);
       }
       const prog = element("progress", undefined, "acct-prog");
       prog.max = Math.max(100, Number.isFinite(total) ? total : 0);
       prog.value = Number.isFinite(total) ? total : 0;
-      const usageBtn = link(t("Open usage ledger →", "查看用量流水 →"), `${prefix}/account/usage`);
+      const usageBtn = link(t("Open usage ledger →", "查看用量账本 →"), `${prefix}/account/usage`);
       usageBtn.className = "btn ghost btn-sm";
       usage.append(
         prog,
         element(
           "p",
-          `${balance.data.wallets.length} ${
-            balance.data.wallets.length === 1
-              ? t("credit bucket active", "个有效额度桶")
-              : t("credit buckets active", "个有效额度桶")
-          }`,
+          `${balance.data.wallets.length} ${t("active credit buckets · earliest expiry first", "个有效额度桶 · 最早到期优先")}`,
           "kpi-sub",
         ),
         usageBtn,
       );
 
-      const activity = element("section", undefined, "card result-card acct-kpi");
-      const savedBtn = link(t("Open saved studies →", "查看已保存研究 →"), `${prefix}/account/saved`);
-      savedBtn.className = "btn ghost btn-sm";
-      activity.append(
-        element("h2", t("Research activity", "研究活动")),
-        element("strong", String(history.data.items.length), "kpi-val"),
-        element("p", t("Executed queries in your account history", "账户内已执行研究查询次数"), "kpi-sub"),
-        savedBtn,
-      );
-
-      const devCard = element("section", undefined, "card result-card acct-kpi");
-      const devActions = element("div", undefined, "actions");
-      const keysBtn = link(t("Manage API keys →", "管理 API 密钥 →"), `${prefix}/account/keys`);
-      keysBtn.className = "btn ghost btn-sm";
-      const billingBtn = link(t("Manage billing →", "管理账单 →"), `${prefix}/account/billing`);
-      billingBtn.className = "btn ghost btn-sm";
-      devActions.append(keysBtn, billingBtn);
-      devCard.append(
-        element("h2", t("Developer & billing", "开发者与账单")),
-        element("strong", t("Ready", "就绪"), "kpi-val"),
+      const planCard = element("a", undefined, "card result-card acct-kpi acct-kpi-link");
+      planCard.href = `${prefix}/account/billing`;
+      const hasSub = balance.data.wallets.some((w) => w.type === "subscription" && w.balance > 0);
+      const hasPurchased = balance.data.wallets.some((w) => w.type === "purchased" && w.balance > 0);
+      planCard.append(
+        element("h2", t("PLAN & BUCKETS", "方案与额度来源")),
+        element(
+          "strong",
+          hasSub
+            ? t("Subscribed", "订阅中")
+            : hasPurchased
+              ? t("Top-up active", "加量包有效")
+              : t("Free / Starter", "免费版"),
+          "kpi-val",
+        ),
         element(
           "p",
-          t("API keys, request logs, and billing buckets", "API 密钥、请求日志与账单额度管理"),
+          t("Subscription, promo, and top-up wallets · Manage billing →", "管理订阅、充值与促销额度兑换 →"),
           "kpi-sub",
         ),
-        devActions,
       );
 
-      kpiGrid.append(usage, activity, devCard);
+      const keysCard = element("a", undefined, "card result-card acct-kpi acct-kpi-link");
+      keysCard.href = `${prefix}/account/keys`;
+      keysCard.append(
+        element("h2", t("ACTIVE API KEYS", "活跃 API 密钥")),
+        element("strong", String(activeKeys.length), "kpi-val"),
+        element(
+          "p",
+          t("Up to 10 scoped keys · Manage keys →", "支持多组限权密钥与轮换 · 管理密钥 →"),
+          "kpi-sub",
+        ),
+      );
+
+      kpiGrid.append(usage, planCard, keysCard);
       output.append(kpiGrid);
 
       const midGrid = element("div", undefined, "grid2 eq mt-18");
 
       const bucketsCard = element("section", undefined, "card result-card");
-      bucketsCard.append(element("h2", t("Balance buckets", "额度桶与近期流水")));
+      bucketsCard.append(element("h2", t("Balance buckets", "额度桶明细与流水")));
       if (!balance.data.wallets.length) {
         bucketsCard.append(
           element("p", t("No active credit buckets yet.", "当前暂无有效额度桶。"), "small mt-10"),
@@ -6875,8 +7187,8 @@ if (page.startsWith("/account"))
         element(
           "p",
           t(
-            "Draw order: promo / subscription (earliest expiry) first, then purchased credits.",
-            "扣减顺序：活动与订阅额度（最早到期优先）用尽后再扣永久加量包。",
+            "Draw order: promo / subscription (earliest expiry) → purchased credits.",
+            "扣减顺序：活动与订阅额度（最早到期优先）→ 永久加量包。",
           ),
           "small mt-8",
         ),
@@ -6915,20 +7227,25 @@ if (page.startsWith("/account"))
       quickCard.append(element("h2", t("Quick start", "快速接入清单")));
       const stepsBox = element("div", undefined, "mt-10");
       for (const stepText of [
+        t("1. Create a scoped API key", "1. 生成并保存 API 密钥"),
         t(
-          "1. Generate a scoped API key (shown once at creation).",
-          "1. 生成并保存限定权限的 API 密钥（仅展示一次）。",
+          "2. Send a Bearer sb_k_… request to /v1/sold — or test in Playground",
+          "2. 携带 Bearer 密钥调用 /v1/sold 或使用调试台",
         ),
         t(
-          "2. Send a Bearer request to /v1/sold or test in Playground.",
-          "2. 携带 Bearer 密钥调用 /v1/sold 或前往调试台测试。",
-        ),
-        t(
-          "3. Verify n >= 8 sample gate, median, and evidence hash.",
-          "3. 核验样本阈值 (n ≥ 8)、中位价及证据包哈希。",
+          "3. Inspect Type 7 median, n ≥ 8 gate, and evidence hash",
+          "3. 核验 Type 7 中位价、n ≥ 8 阈值与证据哈希",
         ),
       ]) {
         stepsBox.append(element("p", stepText, "mt-6"));
+      }
+      const checklist = element("div", undefined, "acct-checklist");
+      for (const [done, label] of [
+        [true, t("Account verified and ready", "账户已验证就绪")],
+        [activeKeys.length > 0, t("Active API key created", "已创建可用 API 密钥")],
+        [history.data.items.length > 0, t("First research query completed", "已完成首次查价研究")],
+      ]) {
+        checklist.append(element("div", `${done ? "✓" : "○"} ${label}`));
       }
       const qsActions = element("div", undefined, "actions mt-12");
       const pgBtn = link(t("Open Playground", "打开 API 调试台"), `${prefix}/playground`);
@@ -6941,7 +7258,7 @@ if (page.startsWith("/account"))
       for (const [k, v, hrefUrl] of [
         ["REST", "api.soldbench.com/v1", null],
         ["MCP", "soldbench.com/mcp", null],
-        [t("Docs", "文档"), t("Quickstart & Agent setup →", "快速入门与 Agent 接入 →"), docsUrl],
+        [t("Docs", "文档"), t("Quickstart · Connect an agent →", "快速入门 · 接入智能体 →"), docsUrl],
       ]) {
         const line = element("div");
         line.append(element("b", `${k} `));
@@ -6953,7 +7270,7 @@ if (page.startsWith("/account"))
         } else line.append(element("code", v));
         endpointsBox.append(line);
       }
-      quickCard.append(stepsBox, qsActions, endpointsBox);
+      quickCard.append(stepsBox, checklist, qsActions, endpointsBox);
 
       midGrid.append(bucketsCard, quickCard);
       output.append(midGrid);
@@ -7033,8 +7350,79 @@ document.addEventListener("click", async (event) => {
   }
 });
 
-// Header signed-in menu & prototype homepage tabs / live preview
+// Header language dropdown, What's new popover, signed-in menu & prototype homepage tabs / live preview
 {
+  const langDd = document.querySelector("[data-lang-dd]");
+  const langBtn = document.querySelector("[data-lang-btn]");
+  const langMenu = document.querySelector("[data-lang-menu]");
+  if (langDd && langBtn && langMenu) {
+    const setLangOpen = (open) => {
+      langDd.classList.toggle("open", open);
+      langMenu.hidden = !open;
+      langBtn.setAttribute("aria-expanded", open ? "true" : "false");
+    };
+    langBtn.addEventListener("click", () => {
+      setLangOpen(langMenu.hidden);
+    });
+    document.addEventListener("click", (event) => {
+      const pickLink = event.target.closest?.("a[data-langpick]");
+      if (pickLink) {
+        const chosen = pickLink.dataset.langpick;
+        if (chosen === "en" || chosen === "zh-CN") {
+          const secureFlag = location.protocol === "https:" ? "; Secure" : "";
+          // biome-ignore lint/suspicious/noDocumentCookie: persist allowlisted UI locale synchronously before navigation
+          document.cookie = `soldbench_locale=${chosen}; Path=/; Max-Age=15552000; SameSite=Lax${secureFlag}`;
+        }
+        if (pickLink.getAttribute("aria-current") === "true") {
+          event.preventDefault();
+        }
+        setLangOpen(false);
+        return;
+      }
+      if (!langDd.contains(event.target)) {
+        setLangOpen(false);
+      }
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !langMenu.hidden) {
+        setLangOpen(false);
+        langBtn.focus();
+      } else if (
+        (event.key === "ArrowDown" || event.key === "ArrowUp") &&
+        langMenu.hidden &&
+        document.activeElement === langBtn
+      ) {
+        event.preventDefault();
+        setLangOpen(true);
+        const target =
+          langMenu.querySelector('a[aria-current="true"]') || langMenu.querySelector("a[data-langpick]");
+        target?.focus();
+      }
+    });
+  }
+
+  const whatsNewBtn = document.querySelector("[data-whats-new]");
+  const whatsNewPop = document.querySelector("[data-whats-new-pop]");
+  const whatsNewRead = document.querySelector("[data-whats-new-read]");
+  const whatsNewCount = document.querySelector("[data-whats-new-count]");
+  if (whatsNewBtn && whatsNewPop) {
+    const setNewsOpen = (open) => {
+      whatsNewPop.hidden = !open;
+      whatsNewBtn.setAttribute("aria-expanded", open ? "true" : "false");
+    };
+    whatsNewBtn.addEventListener("click", () => setNewsOpen(whatsNewPop.hidden));
+    whatsNewRead?.addEventListener("click", () => {
+      if (whatsNewCount) whatsNewCount.hidden = true;
+      setNewsOpen(false);
+      showToast(t("All caught up.", "已全部标记为已读。"));
+    });
+    document.addEventListener("click", (event) => {
+      if (!whatsNewBtn.contains(event.target) && !whatsNewPop.contains(event.target)) {
+        setNewsOpen(false);
+      }
+    });
+  }
+
   const acctMenu = document.querySelector("[data-acct-menu]");
   if (acctMenu) {
     const toggle = acctMenu.querySelector("[data-acct-toggle]");
@@ -7042,11 +7430,13 @@ document.addEventListener("click", async (event) => {
     toggle?.addEventListener("click", () => {
       const opening = list.hidden;
       list.hidden = !opening;
+      acctMenu.classList.toggle("open", opening);
       toggle.setAttribute("aria-expanded", opening ? "true" : "false");
     });
     document.addEventListener("click", (event) => {
       if (!acctMenu.contains(event.target)) {
         list.hidden = true;
+        acctMenu.classList.remove("open");
         toggle?.setAttribute("aria-expanded", "false");
       }
     });
@@ -7061,9 +7451,19 @@ document.addEventListener("click", async (event) => {
         if (!user?.email_verified || user.mfa_required) return;
         const avatar = acctMenu.querySelector("[data-acct-avatar]");
         const label = acctMenu.querySelector("[data-acct-label]");
-        const email = typeof user.email === "string" ? user.email : "U";
-        if (avatar) avatar.textContent = email.slice(0, 1).toUpperCase();
-        if (label) label.textContent = email.split("@")[0].slice(0, 16);
+        const dashEmail = document.querySelector("[data-dash-email]");
+        const rawEmail = typeof user.email === "string" && user.email.includes("@") ? user.email : null;
+        const display = rawEmail ? rawEmail.split("@")[0].slice(0, 16) : t("Account", "我的账户");
+        if (avatar) avatar.textContent = rawEmail ? rawEmail.slice(0, 1).toUpperCase() : "S";
+        if (label) label.textContent = display;
+        if (dashEmail && rawEmail) {
+          dashEmail.textContent = rawEmail;
+          dashEmail.hidden = false;
+        }
+        if (page === "/account" && rawEmail) {
+          const acctHeading = document.querySelector("[data-acct-heading]");
+          if (acctHeading) acctHeading.textContent = t(`Hey, ${display}`, `你好，${display}`);
+        }
         acctMenu.hidden = false;
         for (const node of document.querySelectorAll(".nav-right .desktop[data-resume]")) {
           node.hidden = true;

@@ -241,9 +241,6 @@ export function Documentation({ view, locale }: { view: DocsView; locale: Locale
             <div className="docs-site-links">
               <a href={zh ? "/zh-CN/pricing" : "/pricing"}>{t("Pricing", "定价")}</a>
               <a href={zh ? "/zh-CN/account" : "/account"}>{t("Dashboard", "用户中心")}</a>
-              <a href={view.alternate} data-language="" hrefLang={zh ? "en" : "zh-CN"}>
-                {zh ? "English" : "简体中文"}
-              </a>
             </div>
             {groups.map((group) => (
               <section className="docs-nav-group dnav-group" key={group.label} aria-label={group.label}>

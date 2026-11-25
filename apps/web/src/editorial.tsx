@@ -1,4 +1,5 @@
 import type { Locale } from "@soldbench/shared";
+import { highlightCode } from "./highlight.js";
 
 export type EditorialEntry = {
   slug: string;
@@ -451,54 +452,108 @@ export function Editorial({ view, locale, query }: { view: EditorialView; locale
         ),
       ],
     }));
-    const breakdowns = publishedCompare.length
-      ? publishedCompare
-      : [
-          {
-            slug: "compsniper",
-            name: "CompSniper",
-            sub: t("Raw or AI-cleaned comps, 3-year history", "多年历史记录、多平台覆盖"),
-            lede: t(
-              "The strongest incumbent on multi-marketplace breadth. Where it differs from SoldBench is Best Offer price semantics, cache-hit billing, and lack of per-row exclusion rule IDs.",
-              "在多站点广度方面较强；差异在于 Best Offer 口径语义、缓存命中计费策略，以及每条记录是否附带编号可查的剔除原因。",
-            ),
-            url: "#altMatrix",
-            bullets: [
-              t(
-                "Published Type 7 median, P25–P75 range, and 5% trimmed mean",
-                "公开透明的 Type 7 中位价、P25–P75 区间及 5% 截尾均价",
-              ),
-              t(
-                "Rule-numbered exclusions and complete inputs for independent recomputation",
-                "带规则编号的排除明细，输入支持独立离线重算核对",
-              ),
-              t(
-                "Undisclosed Best Offer amounts never enter default medians",
-                "未公开实际接受价的议价订单永不污染默认中位价",
-              ),
-            ],
-          },
-          {
-            slug: "soldcomps-io",
-            name: "SoldComps.io",
-            sub: t("Direct sold-comps lookup and API", "查价与接口服务"),
-            lede: t(
-              "Clean developer ergonomics, but per-row billing (20 credits + 1 per returned row) turns busy categories into unpredictable invoices and low-sample searches can still bill.",
-              "开发者文档友好，但按返回条数计费会使高热度类目账单大幅波动；低样本情况也可能继续输出并扣费。",
-            ),
-            url: "#altMatrix",
-            bullets: [
-              t(
-                "Predictable per-search billing — 1 credit for 1 to 200 comps",
-                "可预期按次计费——1 至 200 条完整可比快照最多仅扣 1 额度",
-              ),
-              t(
-                "No median below n = 8 verified sales, and zero credit charged",
-                "少于 8 条有效核验成交绝不输出中位价且零扣费",
-              ),
-            ],
-          },
-        ];
+    const fallbackBreakdowns = [
+      {
+        slug: "compsniper",
+        name: "CompSniper",
+        sub: t("Raw or AI-cleaned comps, 3-year history", "多年历史记录、多平台覆盖"),
+        lede: t(
+          "The strongest incumbent, and the one most sellers should shortlist against us: eBay in 8 countries plus TCGplayer, PSA, Grailed, Poshmark, Mercari, Depop and auction houses, up to 3 years of sold history, and a published 40-test blind comparison (their figure: 5.4% mismatch). Where it falls short is the fine print — its Best Offer median is computed on the listing price, cache hits and extra pages are charged (measured November 18), and its AI relevance filter hides rows without a per-row reason.",
+          "多站点与三年历史方面最成熟的服务之一；核心差异在于细节：其 Best Offer 中位价采用挂牌标价计算、命中缓存与额外翻页同样计费，且 AI 筛选不给出逐条可核对的规则剔除依据。",
+        ),
+        url: href("/compare/compsniper"),
+        bullets: [
+          t(
+            "Fuller statistics — a published Type 7 median, typical range and 5% trimmed mean, not a bare median",
+            "更完整的统计口径——公开 Type 7 中位价、P25–P75 区间与 5% 截尾均价",
+          ),
+          t(
+            "Evidence you can recompute: rule-numbered exclusions (R-01 to R-10) and the complete computation inputs",
+            "支持离线重算验证：附带 R-01 至 R-10 编号剔除原因及完整输入快照",
+          ),
+          t(
+            "Best Offer honesty: an undisclosed accepted price never enters default statistics",
+            "Best Offer 诚实口径：未公开真实成交价绝不混入默认中位价",
+          ),
+          t(
+            "No charges for cache hits, extra pages, failures or low-sample results",
+            "10 分钟缓存复用、额外翻页、失败与不足 8 条的低样本均零扣费",
+          ),
+        ],
+      },
+      {
+        slug: "soldcomps-io",
+        name: "SoldComps.io",
+        sub: t("Direct sold-comps lookup and API", "直连成交查询与开发者 API"),
+        lede: t(
+          "The developer-experience leader of the three: a polished API, an MCP server plus an Agent Skill, extra signals such as sell-through rate, and the most generous free tier here — 2,000 credits a month. Where it falls short is billing predictability: every search costs 20 credits plus 1 per returned row, so a busy market raises your bill. You also get 100 results per request instead of 200, flags instead of rule-level exclusion reasons, and a low-sample search that still publishes a median and charges you.",
+          "开发者文档与工具生态出色；不足在于按「20＋每返回行 1 额度」计费导致热门品类费用波动、单次上限 100 条、仅附布尔标记而非规则编号解释，且低样本依然出中位价并扣费。",
+        ),
+        url: href("/compare/soldcomps-io"),
+        bullets: [
+          t(
+            "Predictable per-search pricing — 1 credit per search, whether it returns 1 or 200 comps",
+            "可预期按次计费——无论返回 1 条还是 200 条可比样本最多只计 1 额度",
+          ),
+          t(
+            "Exclusion reasons down to rule IDs, not just flags",
+            "每条排除记录明确对应 R-01 至 R-10 规则编号而非模糊标志位",
+          ),
+          t(
+            "Low-sample results publish no median and charge nothing",
+            "有效价格不足 8 条时强制置空不输出误导中位价且免收额度",
+          ),
+          t("200 results per request, not 100", "单次请求上限 200 条完整可比记录，覆盖更完整"),
+        ],
+      },
+      {
+        slug: "sold-comps-com",
+        name: "sold-comps.com",
+        sub: t("The old hand — fast, broad, and thin on analysis", "老牌数据通道，广度大但缺乏统计分析"),
+        lede: t(
+          "An established service with 240 results per request across 8 eBay sites plus Mercari, Poshmark and TCGPlayer, with bulk search and free exports. Where it falls short is analysis: in its signed-in dashboard, a search returns rows and facet filters — no median, no range, no aggregate statistics of any kind — and there is no MCP server or agent tooling. Its Best Offer answer, hydrateBoa, fetches the true price at extra requests per search.",
+          "老牌高吞吐接口（单次 240 条覆盖多平台）；但在其网页面板仅展示明细列表与筛选，不提供中位价、四分位区间或聚合统计，也未提供 MCP 工具；探测 Best Offer 实价需额外收费请求。",
+        ),
+        url: href("/compare/sold-comps-com"),
+        bullets: [
+          t(
+            "Actual aggregate statistics — a Type 7 median, typical range and trimmed mean on every result",
+            "每次返回开箱即用的 Type 7 中位价、P25–P75 区间、5% 截尾均价与五维质量结构",
+          ),
+          t(
+            "An evidence pack with the query hash, engine versions and per-row exclusion reasons",
+            "附带候选集哈希、引擎/清洗版本号及逐条剔除理由的证据包",
+          ),
+          t(
+            "An MCP server and agent tooling, metered exactly like REST",
+            "原生 Hosted MCP 与 Agent Skill，严格复用与 REST 一致的账本和权限规则",
+          ),
+        ],
+      },
+      {
+        slug: "watchcount",
+        name: "WatchCount",
+        sub: t("Free sold-price lookups for casual checking", "零门槛免费网页随手查价"),
+        lede: t(
+          "Free — no account, no key, nothing to bill — and fine for a one-off sanity check. Where it falls short is everything past that: no cleaned median, no statistics, no API or MCP access, and no evidence, exports or status page when a price actually matters.",
+          "无需注册、完全免费，适合临时快速看一眼历史参考；但在需要严谨定价依据、库存批量核价、API / MCP 集成、结构化导出或可用性监测时均缺乏支持。",
+        ),
+        url: href("/compare/watchcount"),
+        bullets: [
+          t(
+            "A cleaned, defensible median instead of raw listings",
+            "基于清洗规则核验后的可辩护中位价，而非未去噪原始列表",
+          ),
+          t(
+            "An API and MCP access for anything programmatic",
+            "提供可编程 REST API 与 Hosted MCP 接口便于自动化集成",
+          ),
+          t("Evidence, exports and a status page", "具备完整证据包、CSV / JSON 导出与实时数据源状态面板"),
+        ],
+      },
+    ];
+    const fallbackSlugs = new Set(fallbackBreakdowns.map((b) => b.slug));
+    const breakdowns = [...fallbackBreakdowns, ...publishedCompare.filter((p) => !fallbackSlugs.has(p.slug))];
 
     return (
       <>
@@ -506,31 +561,33 @@ export function Editorial({ view, locale, query }: { view: EditorialView; locale
           <div className="wrap">
             <div className="alt-hero-grid">
               <div>
-                <p className="eyebrow">{t("COMPARISON · BENCHMARK DESIGN SPEC", "替代方案与对比")}</p>
+                <p className="eyebrow">
+                  {t("COMPARISON · CHECKED NOVEMBER 18, 2026", "对比 · 核查于 2026年11月18日")}
+                </p>
                 <h1>
                   {isAlt
-                    ? t("eBay sold data APIs, compared — ", "成交数据平台对比 — ")
+                    ? t("eBay sold data APIs, compared — ", "eBay 成交数据接口对比 — ")
                     : t("Compare sold-price tools — ", "二手成交研究工具对照 — ")}
-                  <span className="kw">{t("with the receipts", "看清规则与依据")}</span>.
+                  <span className="kw">{t("with the receipts", "附可验证依据")}</span>.
                 </h1>
                 <p className="sub">
                   {t(
-                    "Evaluating tools for sold comps research? Look closely at Best Offer honesty, low-sample rules, cache billing, and whether exclusions carry auditable reasons.",
-                    "选择成交研究或数据接口时，请重点核实：议价未公开价是否混入、低样本如何处理、缓存复用是否扣费、以及每条剔除记录是否有清晰规则解释。",
+                    "Every competitor fact on this page was checked on November 18, 2026 — public pages and signed-in dashboards, visited one by one. The SoldBench column is the V1 plan: this describes what V1 ships alongside offline fixture evidence.",
+                    "本页每项竞品事实均于 2026 年 11 月 18 日逐一核对公开文档与登录工作台。SoldBench 列对应 V1 工程规划：展示已验证的产品能力与离线夹具口径，不作未实测的商业承诺。",
                   )}
                 </p>
-                <div className="actions mt-20">
+                <div className="alt-hero-actions">
                   <a className="btn btn-brand" href={href("/search")}>
-                    {t("Explore SoldBench research ↗", "体验 SoldBench 工作台 ↗")}
+                    {t("Explore SoldBench research ↗", "体验 SoldBench 研究工作台 ↗")}
                   </a>
                   <a className="btn btn-ghost" href="#altMatrix">
                     {t("See the full matrix ↓", "查看完整对比矩阵 ↓")}
                   </a>
                 </div>
-                <p className="small mt-14">
+                <p className="alt-hero-note">
                   {t(
-                    "Competitor history and capacity summarize public specifications. Unknown or unverified items stay explicitly labeled.",
-                    "竞品历史能力归纳自其公开资料；无法验证条目严格标记为未核实。",
+                    "Competitor history and capacity are provider claims, not independent SoldBench measurements. Our own production history is not yet qualified.",
+                    "竞品历史窗口与容量来自服务商公开说明，而非独立第三方实测；SoldBench 自身生产历史窗口尚待商业放行验证。",
                   )}
                 </p>
               </div>
@@ -539,30 +596,22 @@ export function Editorial({ view, locale, query }: { view: EditorialView; locale
                 aria-label={t("The SoldBench difference", "SoldBench 核心原则")}
               >
                 <p className="eyebrow">{t("WHY CHOOSE THIS APPROACH", "为什么采用此方法")}</p>
-                <h2 className="alt-diff-title">
-                  {t("The SoldBench difference", "SoldBench 证据标准的五项原则")}
-                </h2>
+                <h2 className="alt-diff-title">{t("The SoldBench difference", "SoldBench 核心设计差异")}</h2>
                 <ul className="alt-diff-list">
                   {[
-                    t(
-                      "Comparability, not keyword overlap",
-                      "先匹配强属性再求统计——绝不把差异型号混在一起求平均",
-                    ),
+                    t("Comparability, not keyword overlap", "先强属性匹配再求统计，绝不混入不同型号或规格"),
                     t(
                       "Verified realized price, not displayed-only guesses",
-                      "实付成交价与展示挂牌价严格分层，不猜未公开议价金额",
+                      "实付成交价与挂牌参考价严格分层，不猜未公开议价金额",
                     ),
                     t(
                       "Exclusion reasons attached to each record",
-                      "每条剔除记录都附明确规则与原因，而非黑箱分数",
+                      "每条剔除记录均附带规则编号（R-01 至 R-10）",
                     ),
-                    t(
-                      "Publishable statistics gated by sample adequacy",
-                      "少于 8 条核验样本绝不输出中位价且不收费",
-                    ),
+                    t("Publishable statistics gated by sample adequacy", "有效样本不足 8 条强制置空且免费"),
                     t(
                       "Audit-ready snapshots across web, REST and MCP",
-                      "网页工作台、REST API 与 Hosted MCP 共用同一准则与账本",
+                      "网页工作台、REST API 与 Hosted MCP 共用同一快照与账本",
                     ),
                   ].map((item, idx) => (
                     <li key={item}>
@@ -584,117 +633,36 @@ export function Editorial({ view, locale, query }: { view: EditorialView; locale
 
         <section className="blk blk-tight-top" id="altMatrix">
           <div className="wrap">
-            <p className="eyebrow">{t("COMPARISON MATRIX", "核心能力横评表")}</p>
-            <h2 className="serif mt-10">{t("Feature-by-feature breakdown", "重点方案功能逐项对比")}</h2>
-            <div className="live-card mt-14">
-              <div className="table-scroll">
-                <table className="cmp-table tbl-fixed tbl-cmp">
-                  <colgroup>
-                    <col className="col-cmp-k" />
-                    <col className="col-cmp-v" />
-                    <col className="col-cmp-v" />
-                    <col className="col-cmp-v" />
-                    <col className="col-cmp-v" />
-                    <col className="col-cmp-e" />
-                  </colgroup>
-                  <thead>
-                    <tr>
-                      <th />
-                      <th className="sb">
-                        SoldBench <span className="you-pill">{t("You are here", "当前产品")}</span>
-                      </th>
-                      <th>CompSniper</th>
-                      <th>SoldComps.io</th>
-                      <th>sold-comps.com</th>
-                      <th>WatchCount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td>
-                        <b>{t("Pricing unit", "计费单位")}</b>
-                      </td>
-                      <td className="sb">{t("1 credit / search (up to 200)", "按次计费封顶 200 条")}</td>
-                      <td>{t("Per search tier", "按月按次分档")}</td>
-                      <td>{t("20 credits + 1 / row", "基础 20 ＋每条 1 额度")}</td>
-                      <td>{t("Per search", "按次计费")}</td>
-                      <td>{t("Free (ad-supported)", "免费展示")}</td>
-                    </tr>
-                    <tr>
-                      <td>
-                        <b>{t("Best Offer handling", "议价实价规则")}</b>
-                      </td>
-                      <td className="sb">{t("Unknown actuals excluded", "未公开实价绝不补零混入")}</td>
-                      <td>{t("Falls back to list price", "混入标价估测")}</td>
-                      <td>{t("Hidden excluded", "隐藏实价排除")}</td>
-                      <td>{t("Extra paid lookup", "需额外请求")}</td>
-                      <td>{t("Listing display only", "仅页面显示")}</td>
-                    </tr>
-                    <tr>
-                      <td>
-                        <b>{t("Sample < 8 rule", "低样本护栏")}</b>
-                      </td>
-                      <td className="sb">{t("Null median · 0 credits", "强制置空且免费")}</td>
-                      <td>{t("Returns raw median", "照常计算")}</td>
-                      <td>{t("Returns raw median", "照常计算")}</td>
-                      <td>{t("No threshold", "无阈值拦截")}</td>
-                      <td>{t("No stats", "无统计")}</td>
-                    </tr>
-                    <tr>
-                      <td>
-                        <b>{t("AI / MCP support", "AI 智能体接入")}</b>
-                      </td>
-                      <td className="sb">{t("Hosted MCP + OAuth / Key", "Hosted MCP + Skill")}</td>
-                      <td>{t("REST only", "仅 REST API")}</td>
-                      <td>{t("REST only", "仅 REST API")}</td>
-                      <td>{t("REST + dashboard", "REST + 网页")}</td>
-                      <td>{t("Web only", "仅网页")}</td>
-                    </tr>
-                    <tr>
-                      <td>
-                        <b>{t("Audit evidence pack", "可核查证据链")}</b>
-                      </td>
-                      <td className="sb">{t("Hash + rule IDs per row", "候选哈希＋逐条排除码")}</td>
-                      <td>{t("Basic JSON list", "普通列表")}</td>
-                      <td>{t("Basic JSON list", "普通列表")}</td>
-                      <td>{t("Summary only", "仅摘要")}</td>
-                      <td>{t("None", "无")}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <p className="eyebrow mt-36">{t("SIDE BY SIDE", "横向一览")}</p>
-            <h2 className="serif mt-10">{t("Every option at a glance", "主流方案逐项对照表")}</h2>
-            <p className="small mt-10">
+            <p className="eyebrow">{t("SIDE BY SIDE", "横向一览")}</p>
+            <h2 className="serif mt-10">{t("Every option at a glance", "全部方案横向对照一览")}</h2>
+            <p className="sub alt-sub-wide mt-10">
               {t(
-                "Clean sold data removes accessories, parts, wrong models, and unverified Best Offer guesses before computing any median.",
-                "纯净成交统计必须在计算中位价前移除配件故障件、型号冲突及未公开议价。",
+                "Sold data means real completed-sale prices, not active asking prices. Clean sold data means accessories, parts, wrong models and junk matches are removed before you trust the median. This table is the breadth view: every option on the six basics. The per-competitor breakdowns further down cover the detail behind the finalists — how each one cleans, bills, proves and ships its data.",
+                "真实成交数据是指已成交实价而非在售要价；纯净成交数据则在采信中位价前移除配件、残缺品与错配型号。此表先横向展示 15 种方案在六项基础维度上的表现，下文再对重点方案展开清洗、计费与证据拆解。",
               )}
             </p>
             <div className="alt-filter">
               {[
                 ["all", t("All providers", "全部服务")],
-                ["api", t("Sold-data APIs", "数据 API")],
-                ["research", t("Research & tools", "研究工具")],
+                ["api", t("Sold-data APIs", "成交数据 API")],
+                ["research", t("Research & tools", "研究工具与自建")],
                 ["official", t("Official eBay", "eBay 官方接口")],
               ].map(([cat, label], idx) => (
                 <button key={cat} type="button" data-altfilter={cat} className={idx === 0 ? "on" : undefined}>
                   {label}
                 </button>
               ))}
-              <span className="small" data-altfilter-note="">
+              <span className="alt-filter-note" data-altfilter-note="">
                 {t(
                   "Showing 15 of 15 providers — SoldBench stays pinned in every view.",
-                  "当前显示 15 / 15 项对照（SoldBench 始终置顶）。",
+                  "当前显示 15 / 15 项对照——SoldBench 在所有视图始终置顶。",
                 )}
               </span>
             </div>
 
             <div className="live-card mt-14">
               <div className="table-scroll">
-                <div className="dtable cols-6" id="altGlance">
+                <div className="dtable alt-glance-table" id="altGlance">
                   <div className="dt-h">
                     <span className="dt-c">{t("Option", "方案")}</span>
                     <span className="dt-c">{t("Per request", "单次条数")}</span>
@@ -721,27 +689,41 @@ export function Editorial({ view, locale, query }: { view: EditorialView; locale
                 </div>
               </div>
             </div>
+            <p className="small mt-10">
+              {t(
+                "One SoldBench search returns up to 200 sold listings from eBay US, with statistics computed over the full comparable set — not just the rows shown.",
+                "单次 SoldBench 请求返回最多 200 条 eBay US 成交样本，且所有统计值基于完整可比候选快照计算，而非仅按展示页条数截取。",
+              )}
+            </p>
+            <p className="small mt-8">
+              {t(
+                'The wider rows — Soldgraph, CompsAPI, Trawl, SerpApi, Terapeak, eBay’s own APIs, self-scraping, Bright Data and Apify — are summarised from those providers’ public pages and CompSniper’s published comparison (checked November 2026). Cells we could not verify say "Not verified" rather than guess.',
+                "其余服务商列概括自其公开文档与对比资料（2026 年 11 月核对）。无法独立核实的功能严格标记为「未核实」，不作猜测。",
+              )}
+            </p>
 
             <p className="eyebrow mt-36">{t("HISTORY DECODED", "历史窗口深度解读")}</p>
             <h2 className="serif mt-10">
               {t(
                 "Historical days matter. But context matters more.",
-                "历史天数固然重要，口径与可信度更为关键",
+                "历史天数固然重要，口径与上下文更为关键。",
               )}
             </h2>
+            <p className="sub mt-10">
+              {t(
+                "History is a real buying criterion. This visual compares the stated ranges from the table above — checked November 18, 2026 — without silently presenting a source archive as complete marketplace history.",
+                "历史深度是重要选型维度。下图对照各方案公开宣称的时间范围（2026 年 11 月 18 日核对），同时绝不把局部样本归档包装成全市场成交历史。",
+              )}
+            </p>
             <div className="hist-grid">
               <div className="card">
-                <h3>{t("Advertised / documented lookback", "公开历史窗口长度对照")}</h3>
+                <h3>{t("Advertised / documented lookback", "公开宣称或文档载明的回溯范围")}</h3>
                 {[
-                  ["CompSniper", "1,095 days", 1095],
-                  ["Terapeak — eBay Product Research", "1,095 days", 1095],
-                  ["Marketplace Insights", "90 days", 90],
-                  ["SoldComps.io", "~90 days", 90],
-                  [
-                    "SoldBench (V1 plan)",
-                    t("30 / 90 days (fixture/live gated)", "30 / 90 天（受门禁约束）"),
-                    90,
-                  ],
+                  ["CompSniper", t("1,095 days", "1,095 天"), 1095],
+                  ["Terapeak — eBay Product Research", t("1,095 days", "1,095 天"), 1095],
+                  ["Marketplace Insights", t("90 days", "90 天"), 90],
+                  ["SoldComps.io", t("~90 days", "约 90 天"), 90],
+                  ["SoldBench", t("Unverified · not launched", "尚未实测 · 未正式上线"), 0],
                 ].map(([label, text, val]) => (
                   <div className="hist-row" key={String(label)}>
                     <div className="hist-top">
@@ -751,10 +733,10 @@ export function Editorial({ view, locale, query }: { view: EditorialView; locale
                     <progress className="hist-prog" max={1095} value={Number(val)} />
                   </div>
                 ))}
-                <p className="small mt-16">
+                <p className="hist-note">
                   {t(
-                    "Bars use 1,095 days as a visual reference. Availability of long windows does not imply full market coverage or verified Best Offer accuracy.",
-                    "进度条以 1,095 天为视觉标尺。较长历史窗口并不自动代表高覆盖度或议价实价已核验。",
+                    "Bars use 1,095 days as a visual reference. Availability is not a claim of full coverage. SoldBench has no qualified production historical window yet, so its bar stays empty rather than borrowing the V1 plan's 30 / 90-day windows as if they were measured history.",
+                    "进度条以 1,095 天为视觉参考标尺。可回溯窗口不等于全量市场覆盖。SoldBench 尚未完成生产历史窗口验证，因此进度条留空展示，而不把 V1 规划的 30 / 90 天混同为实测历史。",
                   )}
                 </p>
               </div>
@@ -764,36 +746,36 @@ export function Editorial({ view, locale, query }: { view: EditorialView; locale
                   [
                     t("Coverage", "样本覆盖度"),
                     t(
-                      "Did the dataset observe most qualifying sales, or only a slice?",
-                      "记录是接近全量成交，还是抽样碎片？",
+                      "Did the dataset observe most relevant sales, or only a sample?",
+                      "数据集是否观测了绝大多数相关成交，还是仅捕获局部抽样？",
                     ),
                   ],
                   [
                     t("Price semantics", "价格语义是否真实"),
                     t(
-                      "Are accepted offers real paid amounts or listing asking prices?",
-                      "Best Offer 是真实实付价，还是直接混用了挂牌出价？",
+                      "Are realised accepted-offer amounts actually known, or is the listing price standing in for them?",
+                      "Best Offer 是真实实付接受价，还是直接混用了挂牌出价？",
                     ),
                   ],
                   [
                     t("Comparability", "属性强匹配约束"),
                     t(
-                      "Were wrong grades, editions, and lots filtered before stats?",
-                      "统计前是否先剔除了评级错配、散装或捆绑套装？",
+                      "Were wrong grade, edition, region and condition excluded before the price was calculated?",
+                      "计算价格前是否已先排除不同评级、版本、地区与成色错配？",
                     ),
                   ],
                   [
-                    t("Freshness", "数据时效性状态"),
+                    t("Freshness", "数据时效状态"),
                     t(
-                      "When were records last observed and disclosed to buyers?",
-                      "最近观察时间戳是否随响应透出并标识陈旧状态？",
+                      "When were records last observed, and is the source stale?",
+                      "记录最近一次观测于何时，是否存在延迟或陈旧？",
                     ),
                   ],
                   [
-                    t("Rights", "来源与分发授权"),
+                    t("Rights", "采集与分发权限"),
                     t(
-                      "Can the source be stored, cached, and audited cleanly?",
-                      "数据抓取、留存、展示与导出是否受许可纪元门控？",
+                      "Can the provider store and redistribute those records?",
+                      "数据提供方是否具备抓取、留存、展示与导出相应字段的授权？",
                     ),
                   ],
                 ].map(([h, d]) => (
@@ -805,35 +787,46 @@ export function Editorial({ view, locale, query }: { view: EditorialView; locale
               </div>
             </div>
 
-            <h2 className="serif mt-36">{t("Where each alternative falls short", "各项方案差异详述")}</h2>
+            <h2 className="serif mt-36">
+              {t("Where each alternative falls short", "各方案短板与 SoldBench 的工程应对")}
+            </h2>
+            <p className="sub mt-10">
+              {t(
+                "What each option leaves out, and what SoldBench does instead. Every claim below was verified in the same November 18 sweep as the table above.",
+                "每款主要对比产品遗漏的关键环节，以及 SoldBench 对应的工程机制（与上表同日核验）。",
+              )}
+            </p>
             {breakdowns.map((entry) => (
               <div className="alt-sec" key={entry.slug}>
                 <div>
-                  <h3 className="serif">
-                    {entry.url.startsWith("#") ? entry.name : <a href={entry.url}>{entry.name}</a>}
-                  </h3>
-                  <p className="small mt-8">{entry.sub}</p>
+                  <h3 className="serif">{entry.name}</h3>
+                  <p className="alt-sub">{entry.sub}</p>
                 </div>
                 <div>
-                  <p>{entry.lede}</p>
+                  <p className="alt-lede">{entry.lede}</p>
                   <div className="why-box">
-                    <p className="eyebrow">{t("WHY SOLDBENCH IS DIFFERENT", "SOLDBENCH 工程差异点")}</p>
-                    <ul className="mt-10">
+                    <p className="eyebrow">{t("WHY SOLDBENCH IS BETTER", "SOLDBENCH 核心优势")}</p>
+                    <ul>
                       {entry.bullets.map((b) => (
                         <li key={b}>{b}</li>
                       ))}
                     </ul>
-                    {!entry.url.startsWith("#") && (
-                      <p className="mt-10">
-                        <a href={entry.url}>{t("Inspect full comparison notes →", "查看完整分析正文 →")}</a>
-                      </p>
-                    )}
                   </div>
+                  <p className="mt-14">
+                    <a href={entry.url}>
+                      {entry.name.toLowerCase().startsWith("soldbench vs")
+                        ? t(`See the full ${entry.name} breakdown →`, `查看 ${entry.name} 完整对比 →`)
+                        : t(
+                            `See the full SoldBench vs ${entry.name} breakdown →`,
+                            `查看 SoldBench 与 ${entry.name} 完整对比 →`,
+                          )}
+                    </a>
+                  </p>
                 </div>
               </div>
             ))}
 
-            <h2 className="serif mt-36">{t("What would you actually pay?", "月度搜索成本模拟测算")}</h2>
+            <h2 className="serif mt-36">{t("What would you actually pay?", "按月用量测算实际支出")}</h2>
             <div className="card mt-14">
               <div className="field">
                 <label htmlFor="calcN">{t("Monthly searches", "每月查价次数")}</label>
@@ -847,14 +840,14 @@ export function Editorial({ view, locale, query }: { view: EditorialView; locale
                   defaultValue={2000}
                   data-calc-slider=""
                 />
-                <div className="small" id="calcNVal">
+                <div className="small calc-val" id="calcNVal">
                   {t("2,000 searches / month", "每月 2,000 次查价")}
                 </div>
               </div>
               <div className="grid3 eq mt-16">
                 <div className="card calc-highlight">
                   <p className="eyebrow">SOLDBENCH</p>
-                  <p id="calcSB" className="mt-8">
+                  <p id="calcSB" className="calc-price">
                     <b>$9</b> / mo · $0.005 per search
                   </p>
                   <p className="small">
@@ -866,35 +859,280 @@ export function Editorial({ view, locale, query }: { view: EditorialView; locale
                 </div>
                 <div className="card">
                   <p className="eyebrow">COMPSNIPER</p>
-                  <p id="calcCS" className="mt-8">
+                  <p id="calcCS" className="calc-price">
                     <b>$9</b> / mo · $0.005 per search
                   </p>
                   <p className="small">
                     {t(
-                      "List tiers $9/2k, $29/10k, $79/50k — plus extra charges on cache hits and pages.",
-                      "公开档位 $9/2k、$29/10k、$79/50k——不含缓存命中及翻页额外消耗。",
+                      "$0/100 · $9/2,000 · $29/10,000 · $79/50,000 · high-volume $129/$179/$299/$549 — plus a charge per extra page and per cache hit",
+                      "$0/100 · $9/2,000 · $29/10,000 · $79/50,000 — 另加额外翻页与缓存命中计费",
                     )}
                   </p>
                 </div>
                 <div className="card">
                   <p className="eyebrow">SOLDCOMPS.IO</p>
-                  <p id="calcIO" className="mt-8">
+                  <p id="calcIO" className="calc-price">
                     <b>$29</b> / mo · $0.014 per search
                   </p>
                   <p className="small">
                     {t(
-                      "20 credits + 1 per returned row (modeled at 50 rows/search average).",
-                      "每次基础 20 额度＋每返回行 1 额度（按平均每次返回 50 条计算）。",
+                      "20 credits + 1 per returned row. Assumes an average of 50 rows per search — the more rows your searches return, the more you pay.",
+                      "每次基础 20 额度＋每返回行 1 额度（按平均每次返回 50 条计算，返回越多费用越高）。",
                     )}
                   </p>
                 </div>
               </div>
-              <p className="small mt-14" id="calcNote">
+              <p className="calc-note" id="calcNote">
                 {t(
-                  "At 2,000 searches a month, per-row pricing grows directly with market listing volume rather than search count.",
-                  "按行计费会导致市场成交越活跃时账单越高，而按次计费上限固定为 1 额度。",
+                  "At 2,000 searches a month, per-row pricing costs $20 more than SoldBench — and the gap grows with every extra row a search returns, because per-row bills scale with the market's activity, not with your usage.",
+                  "按每月 2,000 次计算，按行计费每月将多支出 $20——且返回样本越多差距越大。",
                 )}
               </p>
+              <p className="small mt-8">
+                {t(
+                  "sold-comps.com is not in the calculator: its homepage does not publish comparable per-tier request counts, and we do not model numbers we cannot cite.",
+                  "sold-comps.com 未纳入计算器：其官网首页未公开可供直接对等测算的分档请求上限，我们不对无引用依据的数值作假设估算。",
+                )}
+              </p>
+            </div>
+
+            <div className="card mt-20">
+              <h3>{t("How we checked", "核验方法与来源说明")}</h3>
+              <p className="mt-8">
+                {t(
+                  'On November 18, 2026 we visited every competitor\'s public pages and signed-in dashboards and recorded what each product actually does — pricing pages, search results, billing behaviour (including a cache hit we let CompSniper charge us for), and documentation. Where we could not verify a claim, the table says "Not verified" instead of guessing.',
+                  "2026 年 11 月 18 日，我们逐一查验了各对比产品的公开文档、定价说明与已登录控制台实际行为，对未能实际测试的功能如实标注为「未核实」。",
+                )}
+              </p>
+              <p className="mt-8">
+                {t(
+                  "One discipline note: CompSniper publishes a 5.4% mismatch figure from its own 40-test blind study. We cite it as their number, with its source, and we do not invent a matching figure for SoldBench — our accuracy claim is different in kind: published rules, per-row exclusion reasons, and inputs you can recompute. Checked by the SoldBench team · Last review November 18, 2026 · Next sweep December 2026.",
+                  "说明：CompSniper 公布过其自有 40 次盲测 5.4% 误判率，此处明确作为其公布数据引述；SoldBench 不自编对等百分比，而以公开规则、逐条排除依据和可重算输入保障透明核验。",
+                )}
+              </p>
+            </div>
+
+            <h2 className="serif mt-36">{t("Decision guide", "场景选型决策指南")}</h2>
+            <div className="live-card mt-14">
+              <div className="table-scroll">
+                <table className="tbl-fixed tbl-decision">
+                  <colgroup>
+                    <col className="col-dec-1" />
+                    <col className="col-dec-2" />
+                    <col className="col-dec-3" />
+                    <col className="col-dec-4" />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th>{t("You are…", "用户角色")}</th>
+                      <th>{t("Your situation", "典型诉求")}</th>
+                      <th>{t("Best fit", "推荐方案")}</th>
+                      <th>{t("Why", "核心原因")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      [
+                        t("A casual seller", "个人卖家"),
+                        t("Pricing a handful of items a month", "每月仅评估少量闲置或转售商品"),
+                        t("SoldBench free tier", "SoldBench 免费档"),
+                        t(
+                          "100 credits and 5 anonymous lookups a day cover it; every price comes with its evidence",
+                          "每月 100 免费额度与每日 5 次匿名快照查价即可覆盖，且均附证据明细",
+                        ),
+                      ],
+                      [
+                        t("A collectibles dealer", "收藏品交易商"),
+                        t(
+                          "Grading-sensitive categories, disputes about price",
+                          "对评级/版别极其敏感且常需自证定价",
+                        ),
+                        "SoldBench",
+                        t(
+                          "Rule-numbered exclusions (a PSA 9 never enters a PSA 10 median) and a recomputation-ready evidence pack",
+                          "带编号规则剔除错配样本（PSA 9 绝不混入 PSA 10）并提供可离线重算的完整证据包",
+                        ),
+                      ],
+                      [
+                        t("A resale business", "二手转售商家"),
+                        t("Pricing inventory at volume", "批量评估采购清单与库存价格"),
+                        "SoldBench Pro",
+                        t(
+                          "Per-search pricing keeps the bill flat; bulk CSV batching stays capped and auditable",
+                          "按次计费令高热度品类成本可预测；支持 20 项 CSV 批量查价与状态追溯",
+                        ),
+                      ],
+                      [
+                        t("A developer / agent builder", "开发者 / Agent 构建者"),
+                        t("Wiring sold data into tools or agents", "将成交参考价接入工作流或 AI 智能体"),
+                        t(
+                          "SoldBench — or SoldComps.io for its Skill ecosystem",
+                          "SoldBench（或按需对比 SoldComps.io）",
+                        ),
+                        t(
+                          "SoldBench shares identical billing across REST & Hosted MCP and publishes complete Type 7 inputs & quality gates",
+                          "REST 与 Hosted MCP 共用同一账本与权限，公开完整 Type 7 计算输入与质量阈值规则",
+                        ),
+                      ],
+                      [
+                        t("An enterprise SaaS", "跨站型 SaaS 企业"),
+                        t("Multi-marketplace coverage today", "当下立即需要多国家多平台大历史归档"),
+                        t("CompSniper, honestly", "可按需求评估 CompSniper"),
+                        t(
+                          "8 eBay countries plus six other marketplaces and 3 years of history — SoldBench V1 focuses on eBay US first",
+                          "多站多平台历史窗口现成覆盖更广；SoldBench 首期专注打深 eBay US 单站严谨口径",
+                        ),
+                      ],
+                      [
+                        t("A professional data user", "专业数据使用者"),
+                        t("Auditable inputs for models and reports", "为定价模型或审计报告提供可核验底数"),
+                        "SoldBench",
+                        t(
+                          "Complete computation inputs and versions in every evidence pack; nothing else here offers recomputation",
+                          "每次交付提供完整计算输入、版本与候选集哈希，支持独立复现中位价",
+                        ),
+                      ],
+                    ].map(([who, sit, fit, why]) => (
+                      <tr key={who}>
+                        <td>
+                          <b>{who}</b>
+                        </td>
+                        <td>{sit}</td>
+                        <td>
+                          <b>{fit}</b>
+                        </td>
+                        <td>{why}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <h2 className="serif mt-36">{t("The short version", "快速体验接口与工作台")}</h2>
+            <p className="sub mt-10">
+              <b className="calc-val">{t("No OAuth dance, no approval queue.", "无需繁琐审批队列。")}</b>{" "}
+              {t(
+                "One Bearer key, one call — median, typical range, trimmed mean and the evidence pack. ",
+                "一个 Bearer 密钥、一次请求即可获取中位价、典型区间、截尾均价与完整证据包。",
+              )}
+              <b className="calc-val">
+                {t("Live in about 5 minutes on a free key.", "免费注册即可在 5 分钟内跑通集成。")}
+              </b>
+            </p>
+            <div className="grid2 mt-16">
+              <div className="codeblock">
+                <div className="cb-head">
+                  <span>{t("One call, full statistics", "一次调用获取完整统计与证据")}</span>
+                  <button type="button" className="copy-btn" data-copy="#altCurl">
+                    {t("Copy", "复制")}
+                  </button>
+                </div>
+                <pre id="altCurl">
+                  <code>
+                    {highlightCode(
+                      'curl -H "Authorization: Bearer sb_live_..." \\\n  "https://api.soldbench.com/v1/sold?q=Nintendo+Switch+OLED"\n# median, p25–p75, trimmed mean, evidence pack — 1 credit',
+                      "bash",
+                    )}
+                  </code>
+                </pre>
+              </div>
+              <div className="card">
+                <h3>{t("Try the workbench", "试用交互式研究工作台")}</h3>
+                <p className="mt-8">
+                  {t(
+                    "The same statistics, computed live over the example datasets — filter them and watch the median, the exclusions and the evidence pack respond.",
+                    "同一套统计引擎直接在浏览器中运行——调整成色或剔除样本即可实时观察中位价、区间与证据变化。",
+                  )}
+                </p>
+                <p className="mt-14">
+                  <a className="btn btn-brand" href={href("/search")}>
+                    {t("Open the workbench", "打开研究工作台")}
+                  </a>
+                </p>
+              </div>
+            </div>
+
+            <h2 className="serif mt-36">{t("FAQ", "常见问题")}</h2>
+            <div className="mt-14">
+              {[
+                [
+                  t(
+                    "Is the SoldBench column live product or plan?",
+                    "SoldBench 列对应已上线产品还是 V1 规划？",
+                  ),
+                  t(
+                    "Plan — stated on the page. This offline engineering build validates V1 rules, API contracts, and evidence outputs against synthetic fixtures; competitor columns summarize public behaviour checked on November 18, 2026.",
+                    "清晰标明为 V1 工程规划与当前离线夹具能力：计算口径、统计阈值与接口契约按产品规格编码实现；竞品列归纳自 2026 年 11 月 18 日公开页面与测试记录。",
+                  ),
+                ],
+                [
+                  t("Why does the Best Offer row matter?", "为什么 Best Offer 口径单独成行对比？"),
+                  t(
+                    "Because a median built on listing prices is not a sold-price median. If the accepted amount is undisclosed, the honest choices are excluding it from default statistics (us, SoldComps.io) or fetching the true price at extra cost (sold-comps.com) — not silently using the asking price.",
+                    "因为混入挂牌要价算出的不是实际成交中位价。当议价实际接受价未知时，诚实做法是将其排除出默认统计（SoldBench、SoldComps.io）或单独探测实价，而不是悄悄把标价当作已售价格。",
+                  ),
+                ],
+                [
+                  t(
+                    "Did you really get charged for a CompSniper cache hit?",
+                    "CompSniper 命中缓存真的也会扣次数吗？",
+                  ),
+                  t(
+                    "Yes — in our November 18 dashboard session, a repeat search served from cache in 31 ms still consumed one search. Their pagination likewise charges per page.",
+                    "是的，在 2026 年 11 月 18 日的控制台实测中，31 ms 缓存命中的重复查询与翻页均会消耗搜索额度；而 SoldBench 同参数 10 分钟内复用完全免费。",
+                  ),
+                ],
+                [
+                  t("Why is SoldComps.io missing from some 'wins'?", "如何客观评价 SoldComps.io 的优缺点？"),
+                  t(
+                    "Its free tier (2,000 credits/mo) is genuinely the most generous, and its developer experience is excellent. It loses on billing predictability: 20 credits + 1 per row means a busy market raises your bill.",
+                    "其每月 2,000 额度免费档及文档体验非常突出；但「20 基础额度＋每返回 1 行另计 1 额度」导致高供给品类账单按返回条数增长，不如固定每次封顶 1 额度稳定。",
+                  ),
+                ],
+                [
+                  t(
+                    "Why does sold-comps.com show 'no statistics'?",
+                    "为什么表格写 sold-comps.com 在面板无聚合统计？",
+                  ),
+                  t(
+                    "Because in its signed-in dashboard, a search returns rows and facet filters — no median, no range, no aggregate of any kind. The API may differ; we report what we verified.",
+                    "我们在其已登录工作台搜索中观察到接口返回明细行与分面过滤，未看到中位价、四分位区间等聚合统计指标；一切只报告实际观察到的页面能力。",
+                  ),
+                ],
+                [
+                  t(
+                    "What does 'Not verified' mean in the table?",
+                    "表中的「未核实 (Not verified)」代表什么？",
+                  ),
+                  t(
+                    "We did not test that behaviour this round. Rather than repeat a marketing claim, we mark it unverified and re-check monthly.",
+                    "表示本轮核对中未实地测试或公开文档未明确载明该项细节；我们避免转述未经验证的宣传口径，将其标注为未核实并按月复核。",
+                  ),
+                ],
+                [
+                  t(
+                    "Can I recompute a SoldBench median myself?",
+                    "我可以自己在离线环境复现 SoldBench 中位价吗？",
+                  ),
+                  t(
+                    "Yes — that is the point of the evidence pack: candidate set, applied filters, rule outcomes and versions are all in the response, so the median is reproducible offline.",
+                    "可以。每次交付结果都包含候选集、过滤后可比样本价格与规则排除记录，可按公开 Type 7 与两端各 floor(5%×n) 规则完全复现。",
+                  ),
+                ],
+                [
+                  t("When does this page update?", "对比矩阵多久复核更新一次？"),
+                  t(
+                    "Monthly, or when a competitor changes pricing or billing. The check date is printed at the top.",
+                    "按月复核，或在竞品调整定价、配额及接口语义时同步更新，并在页面顶部标注最近核查日期。",
+                  ),
+                ],
+              ].map(([q, a]) => (
+                <details className="faq-item" key={q}>
+                  <summary>{q}</summary>
+                  <div className="faq-body">{a}</div>
+                </details>
+              ))}
             </div>
 
             <div className="card cta-card mt-30">
@@ -902,10 +1140,7 @@ export function Editorial({ view, locale, query }: { view: EditorialView; locale
                 {t("Judge us by the evidence pack.", "用可验证的证据包亲自核查结果。")}
               </h2>
               <p className="small cta-sub">
-                {t(
-                  "Start with 100 free monthly credits and inspect every exclusion rule and median locally.",
-                  "免费账户每月 100 额度，现场检查中位价、四分位区间及排除明细。",
-                )}
+                {t("100 free credits a month. No credit card.", "每月 100 免费额度，无需绑定信用卡。")}
               </p>
               <div className="cta-actions">
                 <a className="btn btn-brand" href={href("/register")}>
@@ -920,6 +1155,484 @@ export function Editorial({ view, locale, query }: { view: EditorialView; locale
         </section>
       </>
     );
+  }
+
+  const compareData: Record<
+    string,
+    {
+      name: string;
+      verdict: [string, string];
+      rows: Array<[[string, string], [string, string], [string, string]]>;
+      they: Array<[string, string]>;
+      us: Array<[string, string]>;
+      faq: Array<[[string, string], [string, string]]>;
+    }
+  > = {
+    compsniper: {
+      name: "CompSniper",
+      verdict: [
+        "The strongest incumbent: widest coverage, longest history, a live product. SoldBench answers with fuller statistics, recomputation-grade evidence and billing that never charges for cache hits or pages.",
+        "多站广度与三年历史方面最强的现有产品之一；SoldBench 则以完整统计口径、可离线重算的规则证据包以及对缓存命中/分页零扣费作为核心差异。",
+      ],
+      rows: [
+        [
+          ["Results per request", "单次返回条数"],
+          ["200", "200 条"],
+          ["240", "240 条"],
+        ],
+        [
+          ["Median", "中位价口径"],
+          ["Type 7 + p25–p75 + trimmed mean", "Type 7 中位价＋P25–P75＋5% 截尾均价"],
+          ["Yes — Best Offer at listing price", "提供——未核实议价采用挂牌标价"],
+        ],
+        [
+          ["Exclusion reasons", "剔除依据"],
+          ["Per row, rule IDs R-01 to R-10", "逐条附规则编号 R-01 至 R-10"],
+          ["AI relevance, no per-row reason", "AI 相关性判断，无逐条规则码"],
+        ],
+        [
+          ["Cache hits", "缓存复用计费"],
+          ["Free for 10 minutes", "10 分钟内同参数复用免费"],
+          ["Charged (measured Nov 18)", "照常扣费（11月18日实测）"],
+        ],
+        [
+          ["Pagination", "分页检索"],
+          ["Re-fetch free", "已交付复取免费"],
+          ["Charged per page", "按页单独扣费"],
+        ],
+        [
+          ["Marketplaces", "支持市场"],
+          ["eBay US (V1)", "eBay US（首期重点）"],
+          ["8 eBay countries + 6 more", "8 个 eBay 站点＋6 平台"],
+        ],
+        [
+          ["History", "历史窗口"],
+          ["30 / 90 days", "30 / 90 天"],
+          ["Up to 3 years", "最长 3 年"],
+        ],
+        [
+          ["MCP", "AI MCP 接入"],
+          ["2 tools, same metering", "2 个工具，严格同源计费"],
+          ["7 tools, per-call charge", "7 个工具，按调用扣费"],
+        ],
+      ],
+      they: [
+        [
+          "Coverage: eight eBay countries plus TCGplayer, PSA, Grailed, Poshmark, Mercari, Depop and auction houses",
+          "覆盖广度：8 个 eBay 站点及 TCGplayer、PSA、Grailed、Poshmark、Mercari、Depop 与拍卖行",
+        ],
+        ["Three years of sold history", "最长 3 年历史成交档案"],
+        [
+          "A published blind-test figure (5.4% mismatch, their own 40-test study)",
+          "公开发布的 40 次自测盲测报告（误判率 5.4%）",
+        ],
+        ["A live, mature product", "已在运营的成熟线上产品"],
+      ],
+      us: [
+        [
+          "Statistics: trimmed mean and typical range beside a published Type 7 median",
+          "统计深度：除 Type 7 中位价外完整返回典型四分位区间与 5% 截尾均价",
+        ],
+        [
+          "Evidence: complete inputs and rule-numbered exclusions — recompute any median",
+          "证据透明：返回完整计算输入与逐条规则剔除原因，可独立离线重算",
+        ],
+        [
+          "Billing: no charge for cache hits, pages, failures or low-sample results",
+          "计费护栏：缓存复用、额外分页、失败与不足 8 条的低样本均不收费",
+        ],
+        [
+          "Best Offer: undisclosed prices never enter default statistics",
+          "议价严格隔离：未公开实付金额绝不作为成交价计入中位价",
+        ],
+      ],
+      faq: [
+        [
+          ["Is CompSniper bad?", "CompSniper 本身存在问题吗？"],
+          [
+            "No — it is the benchmark we built against, and for multi-marketplace coverage today it is the right choice. This page exists because statistics, evidence and billing differ in ways a feature list hides.",
+            "并不是——它是我们对齐研发的重要参照。若当下急需跨 8 国与多平台历史档案，CompSniper 覆盖更广；本对比聚焦于统计语义、逐条剔除透明度与缓存扣费差异。",
+          ],
+        ],
+        [
+          ["What is the listing-price Best Offer issue?", "为什么 Best Offer 用标价计算值得关注？"],
+          [
+            "When a Best Offer is accepted, eBay hides the amount. CompSniper's median uses the listing price for those sales (their documentation says so), which inflates the 'sold' median toward asking prices.",
+            "议价成交被接收后实际成交额可能低于标价；若直接按原挂牌价计算中位价，会使统计整体向要价偏高漂移。",
+          ],
+        ],
+        [
+          ["Which is cheaper?", "两者在费用上差距大吗？"],
+          [
+            "At list prices the tiers look identical ($9/2,000, $29/10,000). The difference is behavioural: cache hits and pagination charges make real CompSniper bills higher than the tier math suggests.",
+            "标牌月费完全相近（$9/2k、$29/10k），差异在于计费规则：缓存重复读取与翻页单独消耗额度会使实际月耗用量放大。",
+          ],
+        ],
+      ],
+    },
+    "soldcomps-io": {
+      name: "SoldComps.io",
+      verdict: [
+        "The developer-experience leader, with MCP plus an Agent Skill and a generous free tier. SoldBench answers with predictable per-search pricing and rule-level evidence.",
+        "开发者文档、MCP 与 Agent Skill 体验突出且免费额度高；SoldBench 则主打按次封顶可预测计费、规则级排除理由与 <8 样本零收费护栏。",
+      ],
+      rows: [
+        [
+          ["Results per request", "单次条数"],
+          ["200", "200 条"],
+          ["100", "100 条"],
+        ],
+        [
+          ["Pricing unit", "计费单位"],
+          ["1 credit per search", "每次搜索封顶 1 额度"],
+          ["20 credits + 1 per returned row", "20 基础额度＋每返回行 1 额度"],
+        ],
+        [
+          ["Median", "中位价"],
+          ["Type 7 + range + trimmed mean", "Type 7 中位价＋区间＋截尾均价"],
+          ["Yes", "提供"],
+        ],
+        [
+          ["Exclusion reasons", "剔除解释"],
+          ["Per row, rule IDs", "逐条带规则编号"],
+          ["Flags: lot / for_parts / replica / outlier", "布尔标签（lot / for_parts 等）"],
+        ],
+        [
+          ["Low-sample policy", "低样本策略"],
+          ["No median, no charge", "不足 8 条置空且不扣费"],
+          ["Publishes and charges", "照常输出统计并扣费"],
+        ],
+        [
+          ["Free tier", "免费额度"],
+          ["100 credits/mo + anonymous lookups", "每月 100 额度＋每日 5 次匿名缓存查询"],
+          ["2,000 credits/mo", "每月 2,000 额度"],
+        ],
+        [
+          ["MCP", "MCP 支持"],
+          ["2 tools", "2 个工具"],
+          ["5 tools + Agent Skill", "5 个工具＋Agent Skill"],
+        ],
+        [
+          ["Evidence", "证据能力"],
+          ["Full pack with inputs", "完整可重算证据包"],
+          ["Logs + stats endpoint", "日志＋统计接口"],
+        ],
+      ],
+      they: [
+        [
+          "Developer experience: clean docs, MCP server and a published Agent Skill",
+          "开发者体验：清晰文档、MCP 服务与 Agent Skill",
+        ],
+        ["Generous free tier — 2,000 credits a month", "慷慨免费额度：每月 2,000 credits"],
+        ["Extra signals like sell-through rate", "附带售罄率等补充分析字段"],
+      ],
+      us: [
+        [
+          "Per-search pricing: the bill cannot grow because a search returned more rows",
+          "固定按次封顶计费，不因返回条数较多而账单翻倍",
+        ],
+        ["Rule-numbered exclusion reasons on every row", "每条样本均附对应 R-01 至 R-10 排除编号"],
+        ["Low-sample honesty: no median below n = 8, and no charge", "样本不足 8 条不给中位价且免扣额度"],
+      ],
+      faq: [
+        [
+          ["Why does per-row pricing matter?", "按返回条数计费为什么会影响预算？"],
+          [
+            "Because you do not control how many rows a search returns — the market does. A hot item in a busy week can double a per-row bill; a per-search bill cannot move.",
+            "热销单品的成交列表往往充满 100+ 条结果，按条收费令成本受市场流动性波动；按次 1 额度封顶令单次请求费用完全可预测。",
+          ],
+        ],
+        [
+          ["Is 100 results per request a problem?", "单次 100 条与 200 条有多大区别？"],
+          [
+            "For common items, the tail beyond 100 is mostly noise — but for statistics you want the full comparable set, and 200 with rule-based cleaning beats 100 with flags.",
+            "对于长尾高频商品，扩大到 200 条候选样本并在规则剔除后统一计入统计，有助于覆盖完整周期而不受 100 条截断偏差。",
+          ],
+        ],
+        [
+          ["Which free tier is better?", "两家免费档更推荐哪一种？"],
+          [
+            "Theirs, in raw credits. Ours adds 5 anonymous cached lookups a day with no account at all.",
+            "从绝对额度数字看 SoldComps.io 更充足；SoldBench 另提供无需登录即可使用的每日 5 次公共快照查价。",
+          ],
+        ],
+      ],
+    },
+    "sold-comps-com": {
+      name: "sold-comps.com",
+      verdict: [
+        "An established, efficient data pipe: 240 rows a request across 8 eBay sites. What it does not do is analysis — no aggregate statistics in its dashboard search, no evidence pack, no MCP.",
+        "老牌高吞吐数据管线（单次 240 条、覆盖多站点）；但它本身不做聚合分析——网页面板不返回中位价或分布区间，也无 MCP 工具。",
+      ],
+      rows: [
+        [
+          ["Results per request", "单次条数"],
+          ["200", "200 条"],
+          ["240", "240 条"],
+        ],
+        [
+          ["Aggregate statistics", "聚合统计"],
+          ["Full: median, range, trimmed mean", "完整中位价、四分位区间、截尾均价"],
+          ["None in dashboard search", "工作台搜索无统计值"],
+        ],
+        [
+          ["Median", "中位价"],
+          ["Type 7, published method", "公开 Type 7 方法论"],
+          ["—", "—"],
+        ],
+        [
+          ["Evidence", "证据能力"],
+          ["Full pack: hash, versions, reasons, inputs", "哈希、版本、逐条原因与输入"],
+          ["Request history", "仅请求记录"],
+        ],
+        [
+          ["MCP", "MCP 服务"],
+          ["Yes — 2 tools", "支持（2 工具）"],
+          ["Not advertised", "未公布"],
+        ],
+        [
+          ["Exports", "导出"],
+          ["CSV / JSON (signed-in)", "登录支持 CSV / JSON"],
+          ["6 free exports", "6 次免费导出"],
+        ],
+        [
+          ["Bulk search", "批量查询"],
+          ["Available (20-item CSV workbench)", "支持 20 项 CSV 批量工作台"],
+          ["Yes", "支持"],
+        ],
+        [
+          ["Pricing", "入门定价"],
+          ["$9 / 2,000 searches", "$9 / 2,000 次"],
+          ["$9/mo entry (homepage)", "$9/月起"],
+        ],
+      ],
+      they: [
+        [
+          "240 results per request across 8 eBay sites, plus Mercari, Poshmark and TCGPlayer",
+          "8 个 eBay 站点及多平台支持，单次最高 240 条",
+        ],
+        ["Established bulk throughput pipeline", "成熟稳定的批量数据管道"],
+        ["An established service with a long operating history", "较长运营周期的老牌服务"],
+      ],
+      us: [
+        [
+          "Statistics exist at all — median, range, trimmed mean, quality dimensions",
+          "自带完整可验证统计值与五维样本质量评估",
+        ],
+        [
+          "An evidence pack that makes every number auditable",
+          "每项统计附带候选集哈希、清洗版本与逐条排除理由",
+        ],
+        ["MCP and agent tooling with the same billing as REST", "提供标准 Hosted MCP 接口并与 REST 共用账本"],
+      ],
+      faq: [
+        [
+          ["Is 'no statistics' fair?", "写「无聚合统计」客观吗？"],
+          [
+            "It is what we verified on November 18, 2026: the signed-in dashboard search returns rows and facets only. If their API computes aggregates, it is not surfaced where users search.",
+            "此项严格描述 2026 年 11 月 18 日实测其已登录网页工作台所见功能——仅返回明细与筛选，无中位价等聚合结果展示。",
+          ],
+        ],
+        [
+          ["When would I pick sold-comps.com?", "什么场景下更适合选用 sold-comps.com？"],
+          [
+            "When you want raw rows in bulk across many eBay sites and you run your own statistics — it is an efficient pipe for exactly that.",
+            "若你的团队已有完整的下游清洗与自建统计代码，只需要高效拉取多站原始列表，它是不错的数据源管道。",
+          ],
+        ],
+        [
+          ["What is hydrateBoa?", "什么是其文档中的 hydrateBoa？"],
+          [
+            "Their mechanism for fetching true Best Offer prices, at extra requests. It is the honest way to handle hidden prices — we exclude them from defaults instead, and say so.",
+            "它是该平台消耗额外请求次数以获取 Best Offer 实际成交价的功能机制；SoldBench 在默认统计口径中先严格隔离未核验议价，再提供独立核验队列。",
+          ],
+        ],
+      ],
+    },
+    watchcount: {
+      name: "WatchCount",
+      verdict: [
+        "A free lookup tool for casual price checks. The moment you need a defensible number, an API, or evidence, you have outgrown it — that gap is exactly what SoldBench fills.",
+        "适合零门槛随手查询单品；但一旦需要经得起争议或业务校验的中位价、API / MCP 集成与完整证据导出，SoldBench 正好弥补这段能力空白。",
+      ],
+      rows: [
+        [
+          ["Price", "价格"],
+          ["Free tier, then per search", "免费额度＋按次计费"],
+          ["Free", "免费"],
+        ],
+        [
+          ["Cleaned median", "清洗后中位价"],
+          ["Yes — rule-based, Type 7", "规则清洗＋Type 7"],
+          ["No", "无"],
+        ],
+        [
+          ["Evidence pack", "证据包"],
+          ["Full", "完整提供"],
+          ["No", "无"],
+        ],
+        [
+          ["API", "编程接口"],
+          ["REST + MCP", "REST + Hosted MCP"],
+          ["No", "无"],
+        ],
+        [
+          ["Results per request", "单次样本量"],
+          ["200", "200 条"],
+          ["—", "—"],
+        ],
+        [
+          ["Exclusion reasons", "剔除解释"],
+          ["Per row, rule IDs", "逐条带规则编号"],
+          ["No", "无"],
+        ],
+        [
+          ["Status page", "服务状态"],
+          ["Yes", "具备状态面板"],
+          ["—", "—"],
+        ],
+        [
+          ["Billing surprises", "计费边界"],
+          ["None — failures and low samples are free", "失败与不足 8 条零扣费"],
+          ["None (it is free)", "完全免费"],
+        ],
+      ],
+      they: [
+        ["Completely free, no account and no key", "免登录免密钥、完全免费"],
+        ["Instant for a one-off sanity check", "适合临时看一眼单个商品情况"],
+      ],
+      us: [
+        [
+          "A median you can defend — cleaned, verified, with its sample size",
+          "可溯源、经过去噪核验的统计中位价与样本量披露",
+        ],
+        ["Programmatic access: REST, MCP, exports", "提供 REST API、Hosted MCP 与结构化导出"],
+        [
+          "Evidence and methodology a buyer, seller or auditor can inspect",
+          "买家、商家和审计方可独立复查的方法论与完整依据",
+        ],
+      ],
+      faq: [
+        [
+          ["Why not just use the free tool?", "已有免费网页，什么时候需要用 SoldBench？"],
+          [
+            "For a single casual check, do. For pricing inventory, settling a dispute or feeding a model, an uncleaned list of listings is not a price — it is homework.",
+            "偶尔看一件商品完全可以用免费网页；但在为库存批次定价、应对交易估价争议或向程序/AI 提供数据时，必须要有严谨清洗和证据包。",
+          ],
+        ],
+        [
+          ["Does SoldBench have a free tier?", "SoldBench 也有免费额度吗？"],
+          [
+            "Yes: 100 credits a month, plus 5 anonymous cached lookups a day without an account.",
+            "有：注册账户每月附带 100 免费额度，另加每日 5 次免登录公开快照查价。",
+          ],
+        ],
+        [
+          ["What does WatchCount do better?", "WatchCount 不可替代的优点是什么？"],
+          [
+            "Nothing to install, nothing to pay, nothing to learn. Simplicity is a real feature — it is just the only one.",
+            "无需注册、零费用、零学习门槛，在非正式轻量查价场景下非常省事。",
+          ],
+        ],
+      ],
+    },
+  };
+
+  if (view.path.startsWith("/compare/")) {
+    const slug = view.path.slice("/compare/".length);
+    const cmp = compareData[slug];
+    if (cmp) {
+      return (
+        <section className="blk blk-tight-top">
+          <div className="wrap">
+            <p className="crumbs">
+              <a href={href("/alternatives")}>{t("Alternatives", "竞品方案对比")}</a> /{" "}
+              {`SoldBench vs ${cmp.name}`}
+            </p>
+            <p className="eyebrow">
+              {t("COMPARISON · CHECKED NOVEMBER 18, 2026", "对比 · 核查于 2026年11月18日")}
+            </p>
+            <h1 className="serif mt-10">{`SoldBench vs ${cmp.name}`}</h1>
+            <p className="sub mt-10">{t(cmp.verdict[0], cmp.verdict[1])}</p>
+
+            <div className="live-card mt-22">
+              <div className="table-scroll">
+                <table className="cmp-table tbl-fixed tbl-cmp-2col">
+                  <colgroup>
+                    <col className="col-cmp2-k" />
+                    <col className="col-cmp2-v" />
+                    <col className="col-cmp2-v" />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th />
+                      <th className="sb">
+                        SoldBench <span className="you-pill">{t("You are here", "当前产品")}</span>
+                      </th>
+                      <th>{cmp.name}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cmp.rows.map(([k, usVal, themVal]) => (
+                      <tr key={k[0]}>
+                        <td>
+                          <b>{t(k[0], k[1])}</b>
+                        </td>
+                        <td className="sb">{t(usVal[0], usVal[1])}</td>
+                        <td>{t(themVal[0], themVal[1])}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="grid2 mt-22">
+              <div className="card">
+                <h3>{t(`Where ${cmp.name} wins`, `${cmp.name} 的优势`)}</h3>
+                <ul className="cmp-list">
+                  {cmp.they.map((item) => (
+                    <li key={item[0]}>{t(item[0], item[1])}</li>
+                  ))}
+                </ul>
+              </div>
+              <div className="card">
+                <h3>{t("Where SoldBench wins", "SoldBench 的核心优势")}</h3>
+                <ul className="cmp-list">
+                  {cmp.us.map((item) => (
+                    <li key={item[0]}>{t(item[0], item[1])}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            <h2 className="serif mt-36">{t("FAQ", "常见问题")}</h2>
+            <div className="mt-14">
+              {cmp.faq.map(([q, a]) => (
+                <details className="faq-item" key={q[0]}>
+                  <summary>{t(q[0], q[1])}</summary>
+                  <div className="faq-body">{t(a[0], a[1])}</div>
+                </details>
+              ))}
+            </div>
+
+            <div className="card cta-card mt-30">
+              <h2 className="serif cta-title">
+                {t("See the evidence pack for yourself.", "亲自核查每次输出的完整证据包。")}
+              </h2>
+              <div className="cta-actions">
+                <a className="btn btn-brand" href={href("/search")}>
+                  {t("Try the workbench", "试用研究工作台")}
+                </a>
+                <a className="btn btn-ghost" href={href("/alternatives")}>
+                  {t("All comparisons", "返回全部对比")}
+                </a>
+              </div>
+            </div>
+          </div>
+        </section>
+      );
+    }
   }
 
   if (view.path === "/changelog") {

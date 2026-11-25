@@ -31,6 +31,7 @@ import { mountDeveloper } from "./developer.ts";
 import { editorialNotFound, mountEditorial, siteBlocks } from "./editorial.ts";
 import { mountHistory } from "./history.ts";
 import { mountInventory } from "./inventory.ts";
+import { preferredLocale } from "./locale.ts";
 import { mountLookup } from "./lookup.ts";
 import { mountMcp } from "./mcp.ts";
 import { mountOAuth } from "./oauth.ts";
@@ -93,6 +94,50 @@ export function createApp(
       "Content-Security-Policy",
       "default-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
     );
+    await next();
+  });
+  const localizedHtmlRoutes = new Set<string>([
+    ...webPages,
+    "/status",
+    "/blog",
+    "/guides",
+    "/alternatives",
+    "/compare",
+    "/changelog",
+    "/about",
+    "/terms",
+    "/privacy",
+    "/help",
+    "/worth",
+  ]);
+  const localizedHtmlPrefixes = [
+    "/operations/",
+    "/blog/",
+    "/guides/",
+    "/compare/",
+    "/categories/",
+    "/results/",
+  ];
+  app.use("*", async (c, next) => {
+    if (c.req.method === "GET") {
+      const reqUrl = new URL(c.req.url);
+      const pathname = reqUrl.pathname;
+      const isLocalizedUnprefixed =
+        localizedHtmlRoutes.has(pathname) ||
+        localizedHtmlPrefixes.some((prefix) => pathname.startsWith(prefix));
+      const accept = c.req.header("Accept") ?? "";
+      const wantsHtml = parseAccept(accept).some(
+        ({ type, q }) => type.toLowerCase() === "text/html" && q > 0,
+      );
+      if (isLocalizedUnprefixed && wantsHtml) {
+        c.header("Vary", "Accept-Language, Cookie", { append: true });
+        if (preferredLocale(c.req.header("Cookie"), c.req.header("Accept-Language")) === "zh-CN") {
+          const mapped = pathname === "/status" ? "/data-availability" : pathname;
+          const target = `${mapped === "/" ? "/zh-CN" : `/zh-CN${mapped}`}${reqUrl.search}`;
+          return c.redirect(target, 302);
+        }
+      }
+    }
     await next();
   });
   app.onError((error, c) => {

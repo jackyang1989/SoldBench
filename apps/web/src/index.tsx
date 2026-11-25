@@ -1389,15 +1389,32 @@ export function renderPage(
                   )}
                 </div>
               ))}
-              <div className="acct-group">{t("Site", "站点")}</div>
-              <a className="side-link" href={link("/")}>
-                {t("← Back to site", "← 返回主站")}
-              </a>
+              <div className="acct-side-foot">
+                <a className="side-link" href={link("/account")}>
+                  {t("User center →", "用户中心 →")}
+                </a>
+                <a className="side-link" href={link("/")}>
+                  {t("← Back to site", "← 返回主站")}
+                </a>
+              </div>
             </nav>
           </aside>
-          <div className="acct-main account-main">
+          <div className="acct-main adm-main account-main">
             <div className="acct-head">
-              <h1>{title}</h1>
+              <div className="acct-head-title">
+                <h1 className="serif" data-ops-title="">
+                  {t("Operations overview", "运营概览")}
+                </h1>
+                <p className="small acct-sub" data-ops-sub="">
+                  {t(
+                    "Today on the platform — volume, health, money and what needs a human.",
+                    "平台实时运行态势——请求量、健康度、资金与待人工审批事项。",
+                  )}
+                </p>
+              </div>
+              <span className="badge badge-gray" data-ops-mode="">
+                {t("Offline fixture", "离线夹具模式")}
+              </span>
             </div>
             {status}
             <div data-results="" />
@@ -2870,60 +2887,137 @@ export function renderPage(
       </section>
     );
   } else {
-    const accountGroups: Array<[string, ReadonlyArray<Page>]> = [
-      [
-        t("Overview & Research", "概览与研究"),
-        ["/account", "/account/queries", "/account/saved", "/account/history", "/account/alerts"],
-      ],
-      [
-        t("Workbenches & Verticals", "工作台与垂类"),
-        [
-          "/account/lookup",
-          "/account/batches",
-          "/account/inventory",
-          "/account/sites",
-          "/account/marketplaces",
-          "/account/cards",
-          "/account/auctions",
-        ],
-      ],
-      [t("Usage & API", "用量与接口"), ["/account/usage", "/account/logs", "/account/keys"]],
-      [t("Billing & Security", "账单与安全"), ["/account/billing", "/account/security"]],
+    const docsHref = zh ? "/docs/zh-CN/quickstart" : "/docs/en/quickstart";
+    const primaryNav: Array<[string, string, boolean?]> = [
+      [link("/account"), t("Overview", "账户概览")],
+      [link("/search"), t("Search", "查价工作台")],
+      [link("/playground"), t("Playground", "API 调试台")],
+      [link("/account/queries"), t("Queries", "研究历史")],
+      [link("/account/batches"), t("Bulk pricing", "批量查价")],
+      [link("/account/keys"), t("API keys", "API 密钥")],
+      [link("/agents"), t("Agents", "智能体")],
+      [link("/account/usage"), t("Usage", "用量")],
+      [link("/account/billing"), t("Billing", "账单")],
+      [link("/account/security"), t("Security", "安全设置")],
+      [link("/support"), t("Support", "支持")],
     ];
+    const workspaceNav: Array<Page> = [
+      "/account/saved",
+      "/account/logs",
+      "/account/history",
+      "/account/alerts",
+      "/account/lookup",
+      "/account/inventory",
+      "/account/sites",
+      "/account/marketplaces",
+      "/account/cards",
+      "/account/auctions",
+    ];
+    const acctSubs: Partial<Record<Page, [string, string]>> = {
+      "/account": [
+        "Your account at a glance. Live ledger, active buckets, and research state.",
+        "账户额度桶、研究历史与开发接入总览。",
+      ],
+      "/account/queries": ["Your executed searches and snapshots.", "已执行的成交研究与交付快照。"],
+      "/account/saved": [
+        "Saved filters, exclusions, and two-sided comparisons.",
+        "保存的过滤视图、排除记录与对照研究。",
+      ],
+      "/account/usage": [
+        "Credits, buckets, and every settled ledger entry.",
+        "额度桶余额、扣减顺序与完整账本。",
+      ],
+      "/account/logs": [
+        "Audited request log tied to query and ledger IDs.",
+        "关联 query_id 与流水 ID 的完整请求日志。",
+      ],
+      "/account/keys": [
+        "Create and manage API keys. Secrets show once.",
+        "创建、轮换与吊销 API 密钥，完整明文仅展示一次。",
+      ],
+      "/account/billing": [
+        "Credit buckets, top-ups, and promo redemptions.",
+        "订阅与加量包额度、充值与促销兑换记录。",
+      ],
+      "/account/security": [
+        "Sessions, MFA, passkeys, and authorized OAuth apps.",
+        "会话管理、双因素认证、通行密钥与 OAuth 客户端。",
+      ],
+    };
+    const subText =
+      acctSubs[page]?.[zh ? 1 : 0] ?? t("Workspace view and research state.", "账户研究工作台与实时状态。");
     content = (
       <section className="acct-shell">
         <aside className="acct-side">
           <nav className="side-inner" aria-label={t("Account navigation", "账户导航")}>
-            {accountGroups.map(([groupLabel, targets]) => (
-              <div key={groupLabel}>
-                <div className="acct-group">{groupLabel}</div>
-                {targets.map((target) => (
-                  <a key={target} aria-current={page === target ? "page" : undefined} href={link(target)}>
-                    {headings[target]?.[zh ? 1 : 0]}
-                  </a>
-                ))}
-                {groupLabel === t("Usage & API", "用量与接口") && (
-                  <a href={link("/playground")}>{t("API Playground", "API 调试台")}</a>
-                )}
-                {groupLabel === t("Billing & Security", "账单与安全") && (
-                  <a href={link("/support")}>{t("Support", "支持")}</a>
-                )}
-              </div>
+            {primaryNav.map(([targetHref, label]) => (
+              <a
+                key={targetHref}
+                aria-current={url.pathname === targetHref ? "page" : undefined}
+                href={targetHref}
+              >
+                {label}
+              </a>
             ))}
-            <div className="acct-group">{t("Site", "站点")}</div>
-            <a href={link("/")}>{t("← Back to site", "← 返回主站")}</a>
+            <a href={docsHref}>{t("Docs ↗", "文档 ↗")}</a>
+            <a href={link("/operations")}>{t("Admin console ↗", "运营控制台 ↗")}</a>
+            <div className="acct-group">{t("Workspace & verticals", "研究与垂类")}</div>
+            {workspaceNav.map((target) => (
+              <a key={target} aria-current={page === target ? "page" : undefined} href={link(target)}>
+                {headings[target]?.[zh ? 1 : 0]}
+              </a>
+            ))}
+            <div className="acct-side-foot">
+              <a href={link("/")}>{t("← Back to site", "← 返回主站")}</a>
+            </div>
           </nav>
         </aside>
         <div className="acct-main account-main">
           <div className="acct-head">
-            <h1>{title}</h1>
-            <div className="actions">
-              <a className="btn brand" href={resume("/search")}>
-                {t("New search", "开始查价")}
-              </a>
-              <button className="btn ghost" type="button" data-logout="" hidden>
-                {t("Sign out", "退出登录")}
+            <div className="acct-head-title">
+              <h1 className="serif" data-acct-heading="">
+                {title}
+              </h1>
+              <p className="small acct-sub" data-acct-sub="">
+                {subText}
+              </p>
+            </div>
+            <div className="actions acct-head-actions">
+              <button type="button" className="btn ghost btn-sm" data-whats-new="" aria-expanded="false">
+                {t("What's new", "近期更新")}{" "}
+                <span className="badge badge-red" data-whats-new-count="">
+                  3
+                </span>
               </button>
+              <div className="card whats-new-pop" data-whats-new-pop="" hidden>
+                <div className="whats-new-row">
+                  <span className="badge badge-green">{t("ADDED", "新增")}</span>{" "}
+                  <b>{t("Evidence pack on every result", "每次查询标配可核验数据包")}</b>
+                  <div className="small">
+                    {t("query_id, candidate_set_hash & rule IDs", "附带候选集哈希与逐条规则编号")}
+                  </div>
+                </div>
+                <div className="whats-new-row">
+                  <span className="badge badge-green">{t("ADDED", "新增")}</span>{" "}
+                  <b>{t("MCP server: sold_search + sold_stats", "Hosted MCP：sold_search / sold_stats")}</b>
+                  <div className="small">
+                    {t("Shared billing ledger across REST & MCP", "与 REST 接口共用同一套账本和扣费规则")}
+                  </div>
+                </div>
+                <div className="whats-new-row">
+                  <span className="badge badge-amber">{t("CHANGED", "优化")}</span>{" "}
+                  <b>{t("Five quality dimensions & Best Offer isolation", "五维质量评分与议价实价隔离")}</b>
+                  <div className="small">
+                    {t("total_score remains null; <8 sample free", "total_score 恒为 null，不足 8 条免费")}
+                  </div>
+                </div>
+                <div className="whats-new-foot">
+                  <button type="button" className="btn ghost btn-sm" data-whats-new-read="">
+                    {t("Mark all read", "全部标记已读")}
+                  </button>
+                  <a href={link("/changelog")}>{t("View full changelog →", "查看全部更新 →")}</a>
+                </div>
+              </div>
             </div>
           </div>
           {status}
@@ -2932,6 +3026,87 @@ export function renderPage(
       </section>
     );
   }
+  const currentHref =
+    page === "/operations"
+      ? `${url.pathname}${operationParams.size ? `?${operationParams}` : ""}`
+      : editorial
+        ? `${link(editorial.path)}${editorial.path === "/worth" ? query : ""}`
+        : docs
+          ? docs.current.path
+          : page === "/share" || page === "/admin/content"
+            ? `${url.pathname}?lang=${locale}`
+            : link(resultId ? `/results/${resultId}` : page) + query;
+  const isDash = page.startsWith("/account") || page === "/operations" || page === "/admin/content";
+  const isOps = page === "/operations" || page === "/admin/content";
+  const langDropdown = (
+    <div className="lang-dd" id="langDd" data-lang-dd="">
+      <button
+        type="button"
+        className="lang-btn"
+        id="langBtn"
+        data-lang-btn=""
+        aria-haspopup="menu"
+        aria-expanded="false"
+        aria-label={t("Language", "切换语言")}
+      >
+        {zh ? "中文" : "EN"}
+        <span className="lang-caret" aria-hidden="true">
+          ▾
+        </span>
+      </button>
+      <div className="lang-menu" id="langMenu" data-lang-menu="" hidden>
+        <a
+          href={zh ? other : currentHref}
+          data-langpick="en"
+          data-language={zh ? "" : undefined}
+          hrefLang="en"
+          aria-current={zh ? undefined : "true"}
+        >
+          English
+        </a>
+        <a
+          href={zh ? currentHref : other}
+          data-langpick="zh-CN"
+          data-language={zh ? undefined : ""}
+          hrefLang="zh-CN"
+          aria-current={zh ? "true" : undefined}
+        >
+          简体中文
+        </a>
+      </div>
+    </div>
+  );
+  const acctMenu = (
+    <div className="acct-menu" data-acct-menu="" hidden>
+      <button type="button" className="acct-menu-btn" data-acct-toggle="" aria-expanded="false">
+        <span className="avatar" data-acct-avatar="">
+          U
+        </span>
+        <span data-acct-label="">{t("Account", "账户")}</span>
+        <span className="lang-caret" aria-hidden="true">
+          ▾
+        </span>
+      </button>
+      <div className="acct-menu-list" data-acct-list="" hidden>
+        <a href={link("/account")}>{t("Overview", "账户概览")}</a>
+        <a href={link("/search")}>{t("Search", "查价工作台")}</a>
+        <a href={link("/playground")}>{t("Playground", "API 调试台")}</a>
+        <a href={link("/account/queries")}>{t("Queries", "研究历史")}</a>
+        <a href={link("/account/batches")}>{t("Bulk pricing", "批量查价")}</a>
+        <a href={link("/account/keys")}>{t("API keys", "API 密钥")}</a>
+        <a href={link("/agents")}>{t("Agents", "智能体")}</a>
+        <a href={link("/account/usage")}>{t("Usage", "用量与账本")}</a>
+        <a href={link("/account/billing")}>{t("Billing", "账单与额度")}</a>
+        <a href={link("/account/security")}>{t("Security", "账户安全")}</a>
+        <a href={link("/support")}>{t("Support", "帮助与支持")}</a>
+        <a href={link("/operations")}>{t("Admin console", "运营控制台")}</a>
+        <div className="sep" />
+        <button type="button" data-nav-logout="">
+          {t("Sign out", "退出登录")}
+        </button>
+      </div>
+    </div>
+  );
   const announcements = blocks.filter((b) => b.kind === "announcement");
   const headerAnn = announcements.length > 0 ? announcements : page === "/" ? sections.slice(0, 1) : [];
   return (
@@ -2963,77 +3138,76 @@ export function renderPage(
             {t("Skip to content", "跳到正文")}
           </a>
           {page !== "/docs" &&
-            !page.startsWith("/account") &&
-            page !== "/operations" &&
-            page !== "/admin/content" &&
+            !isDash &&
             headerAnn.slice(0, 1).map((entry) => (
               <div className="ann-bar" key={entry.slug}>
                 <strong>{entry.title}</strong> — {entry.body}{" "}
                 <a href={link("/changelog")}>{t("See the changelog", "查看更新记录")}</a>
               </div>
             ))}
-          {page !== "/docs" && (
-            <header className="site">
-              <div className="wrap">
-                <nav className="nav" aria-label={t("Main navigation", "主导航")}>
-                  <a className="logo" href={link("/")}>
-                    <BrandLogo size={27} />
-                    SoldBench
-                  </a>
-                  <div className="nav-links">{nav}</div>
-                  <div className="nav-right">
-                    <a className="btn ghost" data-language="" href={other} hrefLang={zh ? "en" : "zh-CN"}>
-                      {t("简体中文", "English")}
+          {page !== "/docs" &&
+            (isDash ? (
+              <header className="site dash-header">
+                <div className="dash-nav-wrap">
+                  <nav className="nav" aria-label={t("Workspace navigation", "工作台导航")}>
+                    <a className="logo" href={link("/")}>
+                      <BrandLogo size={27} />
+                      SoldBench
                     </a>
-                    <a className="btn ghost desktop" data-resume="/login" href={resume("/login")}>
-                      {t("Sign in", "登录")}
-                    </a>
-                    <a className="btn brand desktop" data-resume="/register" href={resume("/register")}>
-                      {t("Get started free", "免费开始")}
-                    </a>
-                    <div className="acct-menu" data-acct-menu="" hidden>
-                      <button
-                        type="button"
-                        className="acct-menu-btn"
-                        data-acct-toggle=""
-                        aria-expanded="false"
-                      >
-                        <span className="avatar" data-acct-avatar="">
-                          U
-                        </span>
-                        <span data-acct-label="">{t("Account", "账户")}</span>
-                      </button>
-                      <div className="acct-menu-list" data-acct-list="" hidden>
-                        <a href={link("/account")}>{t("Overview", "账户概览")}</a>
-                        <a href={link("/search")}>{t("Search workbench", "查价工作台")}</a>
-                        <a href={link("/account/keys")}>{t("API keys", "API 密钥")}</a>
-                        <a href={link("/account/usage")}>{t("Usage & ledger", "用量与账本")}</a>
-                        <a href={link("/account/billing")}>{t("Billing", "账单与额度")}</a>
-                        <a href={link("/account/security")}>{t("Security", "账户安全")}</a>
-                        <div className="sep" />
-                        <a href={link("/operations")}>{t("Operations console", "运营控制台")}</a>
-                        <button type="button" data-nav-logout="">
-                          {t("Sign out", "退出登录")}
-                        </button>
-                      </div>
+                    <span className="badge badge-gray dash-badge" data-dash-badge="">
+                      {isOps ? t("Operations console", "运营控制台") : t("Account", "用户中心")}
+                    </span>
+                    <div className="nav-right">
+                      {isOps && (
+                        <div className="seg seg-role" data-ops-role-pill="" hidden>
+                          <span className="seg-role-val" data-ops-role-text="" />
+                        </div>
+                      )}
+                      <span className="small nav-email desktop" data-dash-email="" hidden />
+                      {langDropdown}
+                      <a className="btn ghost btn-sm desktop" data-resume="/login" href={resume("/login")}>
+                        {t("Sign in", "登录")}
+                      </a>
+                      {acctMenu}
                     </div>
-                    <details className="mobile">
-                      <summary className="btn ghost">{t("Menu", "菜单")}</summary>
-                      <div>
-                        {nav}
-                        <a data-resume="/login" href={resume("/login")}>
-                          {t("Sign in", "登录")}
-                        </a>
-                        <a data-resume="/register" href={resume("/register")}>
-                          {t("Create account", "创建账户")}
-                        </a>
-                      </div>
-                    </details>
-                  </div>
-                </nav>
-              </div>
-            </header>
-          )}
+                  </nav>
+                </div>
+              </header>
+            ) : (
+              <header className="site">
+                <div className="wrap">
+                  <nav className="nav" aria-label={t("Main navigation", "主导航")}>
+                    <a className="logo" href={link("/")}>
+                      <BrandLogo size={27} />
+                      SoldBench
+                    </a>
+                    <div className="nav-links">{nav}</div>
+                    <div className="nav-right">
+                      {langDropdown}
+                      <a className="btn ghost desktop" data-resume="/login" href={resume("/login")}>
+                        {t("Sign in", "登录")}
+                      </a>
+                      <a className="btn brand desktop" data-resume="/register" href={resume("/register")}>
+                        {t("Get started free", "免费开始")}
+                      </a>
+                      {acctMenu}
+                      <details className="mobile">
+                        <summary className="btn ghost">{t("Menu", "菜单")}</summary>
+                        <div>
+                          {nav}
+                          <a data-resume="/login" href={resume("/login")}>
+                            {t("Sign in", "登录")}
+                          </a>
+                          <a data-resume="/register" href={resume("/register")}>
+                            {t("Create account", "创建账户")}
+                          </a>
+                        </div>
+                      </details>
+                    </div>
+                  </nav>
+                </div>
+              </header>
+            ))}
           <main id="main">{content}</main>
           {page !== "/docs" &&
             !page.startsWith("/account") &&

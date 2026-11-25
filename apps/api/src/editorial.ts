@@ -8,6 +8,13 @@ import { type PublishedSiteContent, publishedSiteContent } from "./site-content.
 
 type Env = { Variables: { requestId: string } };
 const chrome = ["announcement", "navigation", "footer"] as const;
+const builtinCompareSlugs = new Set(["compsniper", "soldcomps-io", "sold-comps-com", "watchcount"]);
+const builtinCompareTitles: Record<string, string> = {
+  compsniper: "CompSniper",
+  "soldcomps-io": "SoldComps.io",
+  "sold-comps-com": "sold-comps.com",
+  watchcount: "WatchCount",
+};
 const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const chineseCategories: Record<string, string> = {
   cards_graded: "评级卡牌",
@@ -105,7 +112,21 @@ export function mountEditorial(app: Hono<Env>, db: Database, query?: QueryServic
         const slug = c.req.param("slug");
         if (!query || slug.length > 70 || !slugPattern.test(slug)) return editorialNotFound(c, locale);
         const [entry] = await publishedSiteContent(db, kind, slug);
-        if (!entry) return editorialNotFound(c, locale);
+        if (!entry) {
+          if (path === "/compare" && builtinCompareSlugs.has(slug)) {
+            const rows = await publishedSiteContent(db, [...chrome]);
+            return render(
+              c,
+              {
+                title: `SoldBench vs ${builtinCompareTitles[slug] ?? slug}`,
+                path: `/compare/${slug}`,
+                indexPath: "/alternatives",
+              },
+              rows,
+            );
+          }
+          return editorialNotFound(c, locale);
+        }
         const rows = await publishedSiteContent(db, [kind, ...chrome]);
         const related = (entry.metadata.related ?? []).flatMap((candidate) => {
           const row = rows.find(

@@ -6,6 +6,7 @@ import type { Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { getCookie } from "hono/cookie";
 import * as z from "zod";
+import { preferredLocale } from "./locale.ts";
 
 type Env = { Variables: { requestId: string } };
 type C = Context<Env>;
@@ -101,8 +102,12 @@ export function mountPublicResults(app: Hono<Env>, config: Config, auth?: AuthSe
   app.get("/share/:token", async (c) => {
     const html = c.req.header("Accept")?.includes("text/html");
     const url = new URL(c.req.url);
-    const locale = url.searchParams.get("lang") === "zh-CN" ? "zh-CN" : "en";
-    c.header("Vary", "Accept");
+    const langParam = url.searchParams.get("lang");
+    const locale =
+      langParam === "zh-CN" || langParam === "en"
+        ? langParam
+        : preferredLocale(c.req.header("Cookie"), c.req.header("Accept-Language"));
+    c.header("Vary", "Accept, Accept-Language, Cookie");
     try {
       const data = await service().share(c.req.param("token"));
       return html

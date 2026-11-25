@@ -17,6 +17,7 @@ const repetitions = 3;
 
 async function sample(browser, origin, path) {
   const context = await browser.newContext({
+    locale: "en-US",
     viewport: profile.viewport,
     deviceScaleFactor: profile.deviceScaleFactor,
     isMobile: profile.isMobile,

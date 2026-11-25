@@ -151,7 +151,7 @@ test("Chrome walks an empty account from cache miss and registration to explicit
       [x.source.sourceId],
     );
     await new PublicResults(x.query).publishFixture(x.queryId);
-    const context = await browser.newContext();
+    const context = await browser.newContext({ locale: "en-US" });
     await context.route("**/*", (route) =>
       new URL(route.request().url()).origin === origin ? route.continue() : route.abort(),
     );
@@ -163,6 +163,10 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     page.on("request", (request) => {
       if (request.method() === "POST") requests.push(new URL(request.url()).pathname);
     });
+    const switchLanguage = async (targetPage, label) => {
+      await targetPage.locator("[data-lang-btn]").click();
+      await targetPage.locator("[data-lang-menu]").getByRole("link", { name: label, exact: true }).click();
+    };
     const captures =
       process.env.SOLDBENCH_BROWSER_EVIDENCE ?? (await mkdtemp(join(tmpdir(), "soldbench-browser-")));
     await mkdir(captures, { recursive: true });
@@ -188,10 +192,11 @@ test("Chrome walks an empty account from cache miss and registration to explicit
       }
     }
     await page.goto(`${origin}/docs/en/quickstart`);
+    assert.equal(await page.locator(".docs-side [data-language]").count(), 0);
     await page.getByRole("textbox", { name: "Search documentation" }).fill("claim");
     await page.getByRole("button", { name: "Search", exact: true }).click();
     await page.locator("[data-docs-results] a").first().waitFor();
-    await page.getByRole("link", { name: "简体中文" }).click();
+    await page.goto(`${origin}/docs/zh-CN/quickstart`);
     await page.getByRole("textbox", { name: "搜索文档" }).fill("领取");
     await page.getByRole("button", { name: "搜索", exact: true }).click();
     await page.locator("[data-docs-results] a").first().waitFor();
@@ -229,12 +234,12 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     assert.equal(await search.inputValue(), "unknown fixture");
     assert.equal(await countJobs(), beforeMiss);
     const beforeSwitch = requests.length;
-    await page.getByRole("link", { name: "简体中文" }).click();
+    await switchLanguage(page, "简体中文");
     assert.equal(await page.getByRole("textbox", { name: "查询成交价" }).inputValue(), "unknown fixture");
     assert.equal(requests.length, beforeSwitch);
     const cnSearch = page.getByRole("textbox", { name: "查询成交价" });
     await cnSearch.fill("unsubmitted local draft");
-    await page.getByRole("link", { name: "English" }).click();
+    await switchLanguage(page, "English");
     assert.equal(await search.inputValue(), "unsubmitted local draft");
     assert.equal(requests.length, beforeSwitch);
     await page.goto(`${origin}/register?q=Nintendo+Switch`);
@@ -408,7 +413,7 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByText("Share price summary", { exact: true }).click();
     await page.getByRole("button", { name: "Create 24-hour link" }).click();
     const shareUrl = await page.getByRole("textbox", { name: "Share link" }).inputValue();
-    const visitor = await browser.newContext();
+    const visitor = await browser.newContext({ locale: "en-US" });
     await visitor.route("**/*", (route) =>
       new URL(route.request().url()).origin === origin ? route.continue() : route.abort(),
     );
@@ -420,7 +425,7 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await shared.getByRole("heading", { name: "Shared price research" }).waitFor();
     assert.equal(await shared.locator("table").count(), 0);
     assert.equal((await shared.content()).includes(id), false);
-    await shared.getByRole("link", { name: "简体中文" }).click();
+    await switchLanguage(shared, "简体中文");
     await shared.getByRole("heading", { name: "分享的成交研究" }).waitFor();
     await page.getByRole("button", { name: "Revoke link" }).click();
     await page.getByText("Link revoked.").waitFor();
@@ -440,13 +445,14 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByText(/Pending: 1/).waitFor();
     assert.equal((await charges()).rowCount, 1);
     const beforeLanguage = requests.length;
-    await page.getByRole("link", { name: "简体中文" }).click();
+    await switchLanguage(page, "简体中文");
     await page.getByText(/本次扣费 0 个额度/).waitFor();
     await page.getByText("成交形式、运费与卖家", { exact: true }).click();
     await page.getByRole("cell", { name: "一口价", exact: true }).waitFor();
     await page.getByText("8 条核验价格中，8 条暂无可用运费口径。").waitFor();
     assert.equal(new URL(page.url()).searchParams.get("result"), id);
     assert.equal(requests.length, beforeLanguage);
+    await switchLanguage(page, "English");
     await page.goto(`${origin}/account`);
     await page.getByRole("heading", { name: "Recent research" }).waitFor();
     await page.locator(`a[href="/results/${id}"]`).click();
@@ -476,7 +482,7 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByRole("link", { name: "Saved research", exact: true }).click();
     await page.getByRole("button", { name: "Compare saved research" }).click();
     await page.getByText("Median difference unavailable · sample size", { exact: true }).waitFor();
-    await page.getByRole("link", { name: "简体中文" }).click();
+    await switchLanguage(page, "简体中文");
     await page.getByRole("heading", { name: "已保存的研究", exact: true }).waitFor();
     const original = page
       .locator("article")
@@ -493,6 +499,7 @@ test("Chrome walks an empty account from cache miss and registration to explicit
       .filter({ has: page.getByRole("heading", { name: "重新命名的研究" }) });
     await renamed.getByRole("button", { name: "移除保存" }).click();
     await page.getByText("保存引用已移除。", { exact: true }).waitFor();
+    await switchLanguage(page, "English");
     x.clock.value = new Date(Date.parse(x.now()) + 60000).toISOString();
     for (const [locale, target] of [
       ["en", "/results/"],
@@ -571,7 +578,7 @@ test("Chrome walks an empty account from cache miss and registration to explicit
           x.now(),
         ],
       );
-      const context = await browser.newContext();
+      const context = await browser.newContext({ locale: "en-US" });
       await context.route("**/*", (route) =>
         new URL(route.request().url()).origin === origin ? route.continue() : route.abort(),
       );
@@ -772,9 +779,9 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByRole("heading", { name: "Test checkout" }).waitFor();
     await page.getByText(/Selected test offer · Credit pack/).waitFor();
     assert.equal(new URL(page.url()).searchParams.get("plan"), "purchased_1500");
-    await page.getByRole("link", { name: "简体中文" }).click();
+    await switchLanguage(page, "简体中文");
     await page.getByText(/选中的测试报价 · 额度包/).waitFor();
-    await page.getByRole("link", { name: "English", exact: true }).click();
+    await switchLanguage(page, "English");
     await page.getByText(/Selected test offer · Credit pack/).waitFor();
     assert.equal(requests.length, beforePreview);
     const provider = page.getByRole("combobox", { name: "Payment provider" });
@@ -950,10 +957,10 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByText(/Batch submitted without upfront credit charge/).waitFor();
     await page.getByRole("button", { name: "Cancel remaining", exact: true }).click();
     await page.getByText(/Remaining queued items cancelled/).waitFor();
-    await page.getByRole("link", { name: "简体中文" }).click();
+    await switchLanguage(page, "简体中文");
     await page.getByRole("heading", { name: "批量查价与 CSV", exact: true }).waitFor();
     await page.getByRole("cell", { name: "已取消", exact: true }).first().waitFor();
-    await page.getByRole("link", { name: "English", exact: true }).click();
+    await switchLanguage(page, "English");
     await page.getByRole("heading", { name: "Batch lookup & CSV", exact: true }).waitFor();
     await batchCsv.fill(`q,limit,window_days\n${x.q.q},15,90\n${x.q.q},15,90\n`);
     await page.getByRole("button", { name: "Submit batch", exact: true }).click();
@@ -977,12 +984,12 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByRole("button", { name: "Load historical trend", exact: true }).click();
     await page.getByRole("heading", { name: /Coverage: Partial/ }).waitFor();
     await page.getByRole("cell", { name: "Missing gap", exact: true }).first().waitFor();
-    await page.getByRole("link", { name: "简体中文" }).click();
+    await switchLanguage(page, "简体中文");
     await page.getByRole("heading", { name: "历史档案研究", exact: true }).waitFor();
     await page.getByRole("checkbox", { name: /允许部分覆盖/ }).check();
     await page.getByRole("button", { name: "加载历史研究", exact: true }).click();
     await page.getByRole("cell", { name: "数据缺口", exact: true }).first().waitFor();
-    await page.getByRole("link", { name: "English", exact: true }).click();
+    await switchLanguage(page, "English");
     x.clock.value = new Date(Date.parse(x.now()) + 60000).toISOString();
     await page.goto(`${origin}/account/alerts`);
     await page.getByRole("heading", { name: "Create watchlist alert" }).waitFor();
@@ -994,9 +1001,9 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByText("Copy signing secret now").waitFor();
     await page.getByRole("button", { name: "Switch language" }).first().click();
     await page.getByText("Watchlist language updated (0 credits).").waitFor();
-    await page.getByRole("link", { name: "简体中文" }).click();
+    await switchLanguage(page, "简体中文");
     await page.getByRole("heading", { name: "创建监控与价格提醒" }).waitFor();
-    await page.getByRole("link", { name: "English", exact: true }).click();
+    await switchLanguage(page, "English");
     x.clock.value = new Date(Date.parse(x.now()) + 60000).toISOString();
     await page.goto(`${origin}/account/lookup`);
     await page.getByRole("heading", { name: "Upload & barcode recognition" }).waitFor();
@@ -1006,10 +1013,10 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByRole("button", { name: "Confirm & Run Sold Lookup" }).click();
     await page.getByText("Confirmed sold lookup submitted.").waitFor();
     await page.getByRole("link", { name: "Open confirmed sold lookup" }).waitFor();
-    await page.getByRole("link", { name: "简体中文" }).click();
+    await switchLanguage(page, "简体中文");
     await page.getByRole("heading", { name: "图片上传与条码识别" }).waitFor();
     await page.getByRole("link", { name: "查看已提交的成交查询" }).waitFor();
-    await page.getByRole("link", { name: "English", exact: true }).click();
+    await switchLanguage(page, "English");
     x.clock.value = new Date(Date.parse(x.now()) + 60000).toISOString();
     await page.goto(`${origin}/account/inventory`);
     await page.getByRole("heading", { name: "Import inventory & preview mapping" }).waitFor();
@@ -1038,10 +1045,10 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByRole("button", { name: "Export CSV", exact: true }).click();
     const invCsvExport = await readFile(await (await invDownload).path(), "utf8");
     assert.match(invCsvExport, /SKU-MATCH/);
-    await page.getByRole("link", { name: "简体中文" }).click();
+    await switchLanguage(page, "简体中文");
     await page.getByRole("heading", { name: "导入库存清单与映射预览" }).waitFor();
     await page.getByText("未知（非零）").first().waitFor();
-    await page.getByRole("link", { name: "English", exact: true }).click();
+    await switchLanguage(page, "English");
     x.clock.value = new Date(Date.parse(x.now()) + 60000).toISOString();
     await page.goto(`${origin}/account/sites`);
     await page
@@ -1054,11 +1061,11 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByText(/ebay_fr · eBay France/).waitFor();
     await page.getByText(/ebay_ca · eBay Canada/).waitFor();
     await page.getByText(/ebay_au · eBay Australia/).waitFor();
-    await page.getByRole("link", { name: "简体中文" }).click();
+    await switchLanguage(page, "简体中文");
     await page
       .getByRole("heading", { name: "显式区域站点研究（美 / 英 / 德 / 法 / 意 / 西 / 加 / 澳）" })
       .waitFor();
-    await page.getByRole("link", { name: "English", exact: true }).click();
+    await switchLanguage(page, "English");
     await page.goto(`${origin}/en-GB/sites`);
     await page.getByRole("heading", { name: "SoldBench United Kingdom (eBay UK · GBP)" }).waitFor();
     await page.goto(`${origin}/de/sites`);
@@ -1121,7 +1128,7 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByRole("button", { name: "Preview Mercari US sold & active", exact: true }).click();
     await page.getByText(/Sold stats \(USD\): verified=8\/8/).waitFor();
     await page.getByText(/Active listings \(excluded_from_sold_stats=true\): count=1/).waitFor();
-    await page.getByRole("link", { name: "简体中文" }).click();
+    await switchLanguage(page, "简体中文");
     await page
       .getByRole("heading", {
         name: "第二平台纵向候选矩阵（首发闭环：Mercari US）",
@@ -1129,7 +1136,7 @@ test("Chrome walks an empty account from cache miss and registration to explicit
       .waitFor();
     await page.getByRole("button", { name: "预览 Mercari US 已售与在售", exact: true }).click();
     await page.getByText(/已售统计（USD）：已核验=8\/8/).waitFor();
-    await page.getByRole("link", { name: "English", exact: true }).click();
+    await switchLanguage(page, "English");
     const tcgSource = await provisionFixtureSource(db, x.now(), { retentionDays: 7 });
     const psaSource = await provisionFixtureSource(db, x.now(), { retentionDays: 7 });
     await db.query("UPDATE sources SET marketplace='tcgplayer_us' WHERE id=$1", [tcgSource.sourceId]);
@@ -1175,7 +1182,7 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByRole("button", { name: "Evaluate card comps & registry pop", exact: true }).click();
     await page.getByText(/Sold stats \(graded · 1st_edition\): verified=8/).waitFor();
     await page.getByText(/Grading population \(is_sold_transaction=false · status=available\)/).waitFor();
-    await page.getByRole("link", { name: "简体中文" }).click();
+    await switchLanguage(page, "简体中文");
     await page
       .getByRole("heading", {
         name: "结构化卡牌与评级目录（以标准产品 ID 为唯一身份权威）",
@@ -1184,7 +1191,7 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByLabel("标准卡牌产品 ID").selectOption("tcg-pkmn-base-4-1st");
     await page.getByRole("button", { name: "查询卡牌成交与评级数量", exact: true }).click();
     await page.getByText(/评级分布参考（非成交交易 is_sold_transaction=false · 状态=available）/).waitFor();
-    await page.getByRole("link", { name: "English", exact: true }).click();
+    await switchLanguage(page, "English");
     const goldinSource = await provisionFixtureSource(db, x.now(), { retentionDays: 7 });
     await db.query("UPDATE sources SET marketplace='goldin_us' WHERE id=$1", [goldinSource.sourceId]);
     const aucSvc = new AuctionsVerticalService(x.query);
@@ -1228,7 +1235,7 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByText(/goldin_us · Goldin Auctions US \(USD\)/).waitFor();
     await page.getByRole("button", { name: "Query Goldin US lots", exact: true }).click();
     await page.getByText(/Auction stats \(total_with_premium · USD\): verified=8\/8/).waitFor();
-    await page.getByRole("link", { name: "简体中文" }).click();
+    await switchLanguage(page, "简体中文");
     await page
       .getByRole("heading", {
         name: "拍卖渠道接入目录（首发拍卖闭环：Goldin US）",
@@ -1236,7 +1243,7 @@ test("Chrome walks an empty account from cache miss and registration to explicit
       .waitFor();
     await page.getByRole("button", { name: "查询 Goldin US 拍品", exact: true }).click();
     await page.getByText(/拍卖统计（total_with_premium · USD）：已核验=8\/8/).waitFor();
-    await page.getByRole("link", { name: "English", exact: true }).click();
+    await switchLanguage(page, "English");
     x.clock.value = new Date(Date.parse(x.now()) + 60000).toISOString();
     await page.goto(`${origin}/account/billing`);
     await page.getByRole("heading", { name: "Promo credit campaigns" }).waitFor();
@@ -1245,20 +1252,20 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByLabel("Promo code", { exact: true }).fill("LAUNCH50_PREVIEW");
     await page.getByRole("button", { name: "Redeem promo code", exact: true }).click();
     await page.getByText(/Promo granted: LAUNCH50_PREVIEW \(\+50 credits/).waitFor();
-    await page.getByRole("link", { name: "简体中文" }).click();
+    await switchLanguage(page, "简体中文");
     await page.getByRole("heading", { name: "促销额度活动兑换" }).waitFor();
     await page.getByRole("heading", { name: "版本化报价目录（待商业审批）" }).waitFor();
     await page.getByText(/已兑换促销记录/).waitFor();
-    await page.getByRole("link", { name: "English", exact: true }).click();
+    await switchLanguage(page, "English");
     x.clock.value = new Date(Date.parse(x.now()) + 60000).toISOString();
     await page.goto(`${origin}/account/security`);
     await page.getByRole("heading", { name: "Active sessions" }).waitFor();
     await page.getByRole("heading", { name: "Connected OAuth clients" }).waitFor();
     await page.getByRole("heading", { name: "Passkeys" }).waitFor();
-    await page.getByRole("link", { name: "简体中文" }).click();
+    await switchLanguage(page, "简体中文");
     await page.getByRole("heading", { name: "已授权 OAuth 客户端" }).waitFor();
     await page.getByRole("heading", { name: "通行密钥" }).waitFor();
-    await page.getByRole("link", { name: "English", exact: true }).click();
+    await switchLanguage(page, "English");
     await page.getByRole("heading", { name: "Active sessions" }).waitFor();
     await page.getByLabel("Password", { exact: true }).fill(password);
     await page.getByRole("button", { name: "Verify identity" }).click();
@@ -1301,6 +1308,26 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByRole("heading", { name: "价格研究方法" }).waitFor();
     await page.getByRole("link", { name: "报告数据问题" }).click();
     await page.getByRole("heading", { name: "支持" }).waitFor();
+    const zhCtx = await browser.newContext({ locale: "zh-CN" });
+    try {
+      const zhPage = await zhCtx.newPage();
+      zhPage.on("pageerror", (error) => mistakes.push(error.message));
+      await zhPage.goto(`${origin}/`);
+      assert.equal(new URL(zhPage.url()).pathname, "/zh-CN");
+      await zhPage.goto(`${origin}/alternatives`);
+      assert.equal(new URL(zhPage.url()).pathname, "/zh-CN/alternatives");
+      await zhPage.goto(`${origin}/docs`);
+      assert.equal(new URL(zhPage.url()).pathname, "/docs/zh-CN/quickstart");
+      await zhPage.goto(`${origin}/`);
+      await switchLanguage(zhPage, "English");
+      assert.equal(new URL(zhPage.url()).pathname, "/");
+      await zhPage.goto(`${origin}/`);
+      assert.equal(new URL(zhPage.url()).pathname, "/");
+      await zhPage.goto(`${origin}/docs`);
+      assert.equal(new URL(zhPage.url()).pathname, "/docs/en/quickstart");
+    } finally {
+      await zhCtx.close();
+    }
     assert.deepEqual(mistakes, []);
     console.log(`Browser screenshots saved to ${captures}`);
   } finally {
