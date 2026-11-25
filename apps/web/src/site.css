@@ -3186,6 +3186,54 @@ progress.hist-prog::-moz-progress-bar {
 .acct-shell .acct-list li:first-child {
   border-top: 0;
 }
+.legal-wrap {
+  max-width: 900px;
+}
+.legal-wrap .docs-body > div + div {
+  margin-top: 20px;
+}
+.status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.status-row:last-child {
+  border-bottom: 0;
+}
+.status-row .small {
+  margin-top: 3px;
+}
+.grid-stack {
+  display: flex;
+  flex-direction: column;
+}
+.acct-divider {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.acct-ledger-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 6px 0;
+  font-size: 13.5px;
+}
+.acct-ledger-row .small {
+  display: block;
+}
+.acct-endpoints {
+  display: grid;
+  gap: 6px;
+  font-size: 13.5px;
+}
+.acct-quick-actions {
+  flex-wrap: wrap;
+}
 .set-sec {
   background: var(--card);
   border: 1px solid var(--line);

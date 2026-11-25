@@ -4143,7 +4143,52 @@ async function showKeys() {
       ),
     );
   };
-  output.append(setup, list);
+  const keysHelp = element("section", undefined, "card result-card mt-18");
+  keysHelp.append(element("h2", t("Use a key", "使用 API 密钥")));
+  const keySnippets = [
+    [
+      "acctKeyCurl",
+      "cURL",
+      "bash",
+      'curl -sS -G "https://api.soldbench.com/v1/sold" \\\n  -H "Authorization: Bearer $SOLDBENCH_API_KEY" \\\n  --data-urlencode "q=Nintendo Switch OLED"',
+    ],
+    [
+      "acctKeyPy",
+      "Python",
+      "python",
+      'import os, requests\nr = requests.get(\n  "https://api.soldbench.com/v1/sold",\n  params={"q": "Nintendo Switch OLED"},\n  headers={"Authorization": f"Bearer {os.environ[\'SOLDBENCH_API_KEY\']}"},\n)\nprint(r.json()["data"]["stats"]["median_cents"])',
+    ],
+    [
+      "acctKeyMcp",
+      "MCP server JSON",
+      "json",
+      '{\n  "mcpServers": {\n    "soldbench": {\n      "url": "https://soldbench.com/mcp",\n      "headers": { "Authorization": "Bearer $SOLDBENCH_API_KEY" }\n    }\n  }\n}',
+    ],
+  ];
+  for (const [id, titleText, lang, codeText] of keySnippets) {
+    const block = element("div", undefined, "codeblock cap mt-12");
+    const head = element("div", undefined, "cb-head");
+    const copy = element("button", t("Copy", "复制"), "copy-btn");
+    copy.type = "button";
+    copy.dataset.copy = `#${id}`;
+    head.append(element("span", titleText), copy);
+    const pre = element("pre");
+    pre.id = id;
+    renderHighlightedCode(pre, codeText, lang);
+    block.append(head, pre);
+    keysHelp.append(block);
+  }
+  keysHelp.append(
+    element(
+      "p",
+      t(
+        "Your full key is shown once when created. If lost, create a replacement key and revoke the old one.",
+        "密钥仅在创建时完整显示一次；若遗失请重新创建并及时撤销旧密钥。",
+      ),
+      "small mt-12",
+    ),
+  );
+  output.append(setup, list, keysHelp);
   await refreshKeys(data);
 }
 
@@ -6727,7 +6772,11 @@ if (page.startsWith("/account"))
         prog,
         element(
           "p",
-          `${balance.data.wallets.length} ${t("credit buckets active", "个有效额度桶")}`,
+          `${balance.data.wallets.length} ${
+            balance.data.wallets.length === 1
+              ? t("credit bucket active", "个有效额度桶")
+              : t("credit buckets active", "个有效额度桶")
+          }`,
           "kpi-sub",
         ),
         usageBtn,
@@ -6763,6 +6812,111 @@ if (page.startsWith("/account"))
 
       kpiGrid.append(usage, activity, devCard);
       output.append(kpiGrid);
+
+      const midGrid = element("div", undefined, "grid2 eq mt-18");
+
+      const bucketsCard = element("section", undefined, "card result-card");
+      bucketsCard.append(element("h2", t("Balance buckets", "额度桶与近期流水")));
+      if (!balance.data.wallets.length) {
+        bucketsCard.append(
+          element("p", t("No active credit buckets yet.", "当前暂无有效额度桶。"), "small mt-10"),
+        );
+      } else {
+        for (const w of balance.data.wallets) {
+          const line = element("p", undefined, "mt-8");
+          const exp = w.expires_at
+            ? `${t("expires", "到期")} ${w.expires_at.slice(0, 10)}`
+            : t("never expires", "永不过期");
+          line.append(element("b", String(w.type)), document.createTextNode(` — ${w.balance} · ${exp}`));
+          bucketsCard.append(line);
+        }
+      }
+      bucketsCard.append(
+        element(
+          "p",
+          t(
+            "Draw order: promo / subscription (earliest expiry) first, then purchased credits.",
+            "扣减顺序：活动与订阅额度（最早到期优先）用尽后再扣永久加量包。",
+          ),
+          "small mt-8",
+        ),
+      );
+      const ledgerBox = element("div", undefined, "acct-divider");
+      ledgerBox.append(element("p", t("RECENT LEDGER ACTIVITY", "最近流水动态"), "eyebrow"));
+      const recentLedger = Array.isArray(balance.data.ledger) ? balance.data.ledger.slice(0, 3) : [];
+      if (!recentLedger.length) {
+        ledgerBox.append(element("p", t("No ledger entries yet.", "暂无额度流水记录。"), "small mt-8"));
+      } else {
+        for (const entry of recentLedger) {
+          const row = element("div", undefined, "acct-ledger-row");
+          const metaCol = element("div");
+          metaCol.append(
+            document.createTextNode(String(entry.kind)),
+            element(
+              "span",
+              entry.created_at ? entry.created_at.slice(0, 16).replace("T", " ") : "—",
+              "small",
+            ),
+          );
+          const deltaText = entry.delta > 0 ? `+${entry.delta}` : String(entry.delta);
+          row.append(metaCol, element("b", deltaText));
+          ledgerBox.append(row);
+        }
+      }
+      const ledgerLinkWrap = element("p", undefined, "mt-10");
+      const ledgerLink = document.createElement("a");
+      ledgerLink.href = `${prefix}/account/usage`;
+      ledgerLink.textContent = t("Full ledger →", "查看完整账本 →");
+      ledgerLinkWrap.append(ledgerLink);
+      ledgerBox.append(ledgerLinkWrap);
+      bucketsCard.append(ledgerBox);
+
+      const quickCard = element("section", undefined, "card result-card");
+      quickCard.append(element("h2", t("Quick start", "快速接入清单")));
+      const stepsBox = element("div", undefined, "mt-10");
+      for (const stepText of [
+        t(
+          "1. Generate a scoped API key (shown once at creation).",
+          "1. 生成并保存限定权限的 API 密钥（仅展示一次）。",
+        ),
+        t(
+          "2. Send a Bearer request to /v1/sold or test in Playground.",
+          "2. 携带 Bearer 密钥调用 /v1/sold 或前往调试台测试。",
+        ),
+        t(
+          "3. Verify n >= 8 sample gate, median, and evidence hash.",
+          "3. 核验样本阈值 (n ≥ 8)、中位价及证据包哈希。",
+        ),
+      ]) {
+        stepsBox.append(element("p", stepText, "mt-6"));
+      }
+      const qsActions = element("div", undefined, "actions mt-12");
+      const pgBtn = link(t("Open Playground", "打开 API 调试台"), `${prefix}/playground`);
+      pgBtn.className = "btn brand btn-sm";
+      const keyBtn = link(t("Get API key", "获取 API 密钥"), `${prefix}/account/keys`);
+      keyBtn.className = "btn ghost btn-sm";
+      qsActions.append(pgBtn, keyBtn);
+      const endpointsBox = element("div", undefined, "acct-endpoints acct-divider");
+      const docsUrl = zh ? "/docs/zh-CN/quickstart" : "/docs/en/quickstart";
+      for (const [k, v, hrefUrl] of [
+        ["REST", "api.soldbench.com/v1", null],
+        ["MCP", "soldbench.com/mcp", null],
+        [t("Docs", "文档"), t("Quickstart & Agent setup →", "快速入门与 Agent 接入 →"), docsUrl],
+      ]) {
+        const line = element("div");
+        line.append(element("b", `${k} `));
+        if (hrefUrl) {
+          const docsAnchor = document.createElement("a");
+          docsAnchor.href = hrefUrl;
+          docsAnchor.textContent = v;
+          line.append(docsAnchor);
+        } else line.append(element("code", v));
+        endpointsBox.append(line);
+      }
+      quickCard.append(stepsBox, qsActions, endpointsBox);
+
+      midGrid.append(bucketsCard, quickCard);
+      output.append(midGrid);
     }
     const recent = element("section", undefined, "card result-card");
     recent.append(element("h2", t("Recent research", "近期研究")));
@@ -6800,6 +6954,16 @@ if (page.startsWith("/account"))
     showHistory(history.data);
     recent.append(entries, more);
     output.append(recent);
+    if (page === "/account") {
+      const quickActions = element("div", undefined, "actions acct-quick-actions mt-18");
+      const newSearch = link(t("New search", "发起新查价"), `${prefix}/search`);
+      newSearch.className = "btn brand";
+      const getKeys = link(t("Get API key", "管理 API 密钥"), `${prefix}/account/keys`);
+      const viewUsage = link(t("View usage", "查看用量账本"), `${prefix}/account/usage`);
+      const supLink = link(t("Support", "帮助与支持"), `${prefix}/support`);
+      quickActions.append(newSearch, getKeys, viewUsage, supLink);
+      output.append(quickActions);
+    }
   });
 
 function showToast(text) {

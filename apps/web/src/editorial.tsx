@@ -1099,6 +1099,397 @@ export function Editorial({ view, locale, query }: { view: EditorialView; locale
     );
   }
 
+  if (!current && view.path === "/guides") {
+    const guideItems =
+      view.entries && view.entries.length > 0
+        ? view.entries.map((entry) => ({
+            slug: entry.slug,
+            title: entry.title,
+            desc: entry.body.length > 180 ? `${entry.body.slice(0, 177)}…` : entry.body,
+            meta: `${entry.author ? `${entry.author} · ` : ""}${date(entry.publishedAt)}`,
+            to: articleLink(entry),
+            action: t("Read guide →", "阅读指南 →"),
+          }))
+        : [
+            {
+              slug: "how-to-find-sold-comps",
+              title: t("How to Find Sold Comps", "如何查找可验证的已售样本"),
+              desc: t(
+                "The working method: query, clean, verify — and how to tell a real comp from a listing in disguise.",
+                "实操查价流程：从强属性构造查询、清洗杂音，到区分真实成交与在售挂牌。",
+              ),
+              meta: t("6 min read · Nov 2026", "约 6 分钟 · 2026年11月"),
+              to: href("/methodology"),
+              action: t("Read methodology →", "查看方法论 →"),
+            },
+            {
+              slug: "how-many-comps",
+              title: t("How Many Sold Comps Do You Need?", "需要多少条样本才够可信？"),
+              desc: t(
+                "Why the answer is a threshold, not a vibe: n < 8, 8–29, and 30+ mean different things.",
+                "n < 8、8–29 与 30+ 三档阈值的统计学依据：为何不足 8 条必须隐藏中位价。",
+              ),
+              meta: t("5 min read · Nov 2026", "约 5 分钟 · 2026年11月"),
+              to: href("/methodology"),
+              action: t("See threshold rules →", "查看样本规则 →"),
+            },
+            {
+              slug: "sold-vs-active",
+              title: t("Sold Comps vs Active Listings", "已售成交价 vs 在售挂牌价"),
+              desc: t(
+                "Asking prices measure seller hope. Sold prices measure the market. When each one helps.",
+                "挂牌价反映卖家预期，成交价才反映真实买方支付意愿。",
+              ),
+              meta: t("4 min read · Nov 2026", "约 4 分钟 · 2026年11月"),
+              to: href("/search"),
+              action: t("Open workbench →", "打开工作台 →"),
+            },
+            {
+              slug: "why-no-median",
+              title: t("Why Your Median Has No Price Sometimes", "为何部分查询返回空值中位价"),
+              desc: t(
+                "The n < 8 rule in practice — why thin markets report the observed range without fabricating a median.",
+                "以 Game Boy Color 等小样本商品为例，说明低样本不扣费与范围披露原则。",
+              ),
+              meta: t("4 min read · Nov 2026", "约 4 分钟 · 2026年11月"),
+              to: href("/worth"),
+              action: t("Try price check →", "体验免费查价 →"),
+            },
+            {
+              slug: "reading-evidence",
+              title: t("Reading the Evidence Pack", "如何核验每条结果附带的证据包"),
+              desc: t(
+                "query_id, candidate hashes, rule-numbered exclusions (R-01 to R-10) — a complete field guide.",
+                "逐字段解读 query_id、candidate_set_hash 与 R-01 至 R-10 剔除日志。",
+              ),
+              meta: t("7 min read · Nov 2026", "约 7 分钟 · 2026年11月"),
+              to: href("/search?q=Nintendo+Switch+OLED"),
+              action: t("Inspect live snapshot →", "查看示例快照 →"),
+            },
+            {
+              slug: "pricing-inventory",
+              title: t("Pricing a Whole Inventory", "批量库存 SKU 的分层核价工作流"),
+              desc: t(
+                "Batch pricing without batch errors: n≥30 auto-pricing, limited-sample checks, and review queues.",
+                "将批量商品按样本充足度自动分桶：足量直出、有限抽检、低样本人工复核。",
+              ),
+              meta: t("8 min read · Nov 2026", "约 8 分钟 · 2026年11月"),
+              to: href("/pricing"),
+              action: t("See batch & plans →", "查看定价方案 →"),
+            },
+          ];
+
+    return (
+      <>
+        <section className="page-head">
+          <div className="wrap">
+            <p className="eyebrow">{t("GUIDES", "研究指南")}</p>
+            <h1>{t("Pricing, explained", "二手成交定价实战指南")}</h1>
+            <p className="sub">
+              {t(
+                "Short, practical guides from the people who built the methodology.",
+                "由方法论与数据引擎作者编写的简明实操指南。",
+              )}
+            </p>
+          </div>
+        </section>
+        <section className="blk blk-tight-top">
+          <div className="wrap">
+            <div className="grid3 eq">
+              {guideItems.map((g) => (
+                <article className="card" key={g.slug}>
+                  <h3>
+                    <a href={g.to}>{g.title}</a>
+                  </h3>
+                  <p>{g.desc}</p>
+                  <p className="small mt-10">{g.meta}</p>
+                  <p className="card-foot">
+                    <a href={g.to}>{g.action}</a>
+                  </p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+      </>
+    );
+  }
+
+  if (!current && view.path === "/blog") {
+    const blogPosts =
+      view.entries && view.entries.length > 0
+        ? view.entries.map((entry, idx) => ({
+            slug: entry.slug,
+            title: entry.title,
+            desc: entry.body.length > 220 ? `${entry.body.slice(0, 217)}…` : entry.body,
+            meta: `${entry.author ? `${entry.author} · ` : ""}${date(entry.publishedAt)}`,
+            cat: idx === 0 ? t("FEATURED", "精选") : t("ARTICLE", "文章"),
+            to: articleLink(entry),
+          }))
+        : [
+            {
+              slug: "price-from-evidence",
+              title: t("Price From Evidence: A Method, Not a Guess", "用证据定价：可复现的方法而非直觉估算"),
+              desc: t(
+                "A repeatable order of operations for turning past sales into a price you can defend — whether you price one item or two hundred.",
+                "无论评估单件藏品还是两百件库存，一套始终如一的强属性过滤、清洗与中位数检验顺序。",
+              ),
+              meta: t("Nov 18, 2026 · 6 min read", "2026年11月18日 · 约 6 分钟"),
+              cat: t("METHOD", "方法论"),
+              to: href("/methodology"),
+            },
+            {
+              slug: "sold-vs-asking-price",
+              title: t(
+                "Sold Price vs Asking Price: Two Numbers, Two Questions",
+                "已售实价与挂牌要价：两个完全不同的问题",
+              ),
+              desc: t(
+                "Asking prices measure hope and strategy; sold prices measure what buyers actually paid.",
+                "在售列表反映卖家博弈心理与锚定效应；已完结成交记录才反映市场真实清理价。",
+              ),
+              meta: t("Nov 13, 2026 · 5 min read", "2026年11月13日 · 约 5 分钟"),
+              cat: t("PRICING", "定价口径"),
+              to: href("/alternatives"),
+            },
+            {
+              slug: "reading-a-price-distribution",
+              title: t("How to Read a Price Distribution", "如何阅读价格分布与双峰信号"),
+              desc: t(
+                "The median is a location, not the story. Spread, shape, and bimodal humps tell you when filters are missing.",
+                "中位价只是集中位置；四分位宽窄、右偏长尾和双峰结构往往揭示了未拆分版本。",
+              ),
+              meta: t("Nov 9, 2026 · 6 min read", "2026年11月9日 · 约 6 分钟"),
+              cat: t("STATISTICS", "分布统计"),
+              to: href("/search?q=Nintendo+Switch+OLED"),
+            },
+            {
+              slug: "what-makes-a-comp-trustworthy",
+              title: t("What Makes a Comp Trustworthy?", "一条值得采信的成交样本需要满足什么？"),
+              desc: t(
+                "Five checks every comparable sale has to pass before it earns a place in your median.",
+                "同款同成色、实付价格可知、时间有效、事件去重、剔除记录可审计。",
+              ),
+              meta: t("Nov 4, 2026 · 5 min read", "2026年11月4日 · 约 5 分钟"),
+              cat: t("METHOD", "样本核验"),
+              to: href("/methodology"),
+            },
+          ];
+    const feat = blogPosts[0];
+    const rest = blogPosts.slice(1);
+
+    return (
+      <>
+        <section className="page-head">
+          <div className="wrap">
+            <p className="eyebrow">{t("BLOG", "专栏博客")}</p>
+            <h1>{t("Notes on pricing with evidence", "用证据定价的方法笔记")}</h1>
+            <p className="sub">
+              {t(
+                "Method, judgement and the statistics behind sold prices — written to stay useful after the market moves.",
+                "围绕方法论、可比判断与成交分布统计的常青笔记，不依赖短期行情预测。",
+              )}
+            </p>
+          </div>
+        </section>
+        <section className="blk blk-tight-top">
+          <div className="wrap">
+            {feat && (
+              <article className="card published-section">
+                <p className="eyebrow">{`${t("LATEST", "最新精选")} · ${feat.cat}`}</p>
+                <h2 className="mt-8">
+                  <a href={feat.to}>{feat.title}</a>
+                </h2>
+                <p className="mt-10">{feat.desc}</p>
+                <p className="small mt-10">{feat.meta}</p>
+              </article>
+            )}
+            <div className="grid3 eq mt-20">
+              {rest.map((post) => (
+                <article className="card published-section" key={post.slug}>
+                  <p className="eyebrow">{post.cat}</p>
+                  <h3 className="mt-8">
+                    <a href={post.to}>{post.title}</a>
+                  </h3>
+                  <p className="mt-8">{post.desc}</p>
+                  <p className="small mt-10">{post.meta}</p>
+                  <p className="card-foot">
+                    <a href={post.to}>{t("Read more →", "阅读全文 →")}</a>
+                  </p>
+                </article>
+              ))}
+            </div>
+            <p className="small mt-18">
+              {t("Looking for step-by-step material? The ", "想查看分步实操流程？欢迎阅读 ")}
+              <a href={href("/guides")}>{t("research guides", "研究指南")}</a>
+              {t(" teach the working method.", "了解一线研究与工程判断顺序。")}
+            </p>
+          </div>
+        </section>
+      </>
+    );
+  }
+
+  if (view.path === "/about" || view.path === "/privacy" || view.path === "/terms") {
+    const meta =
+      view.path === "/about"
+        ? {
+            eyebrow: t("ABOUT", "关于我们"),
+            heading: t("About SoldBench", "关于 SoldBench"),
+            sub: t(
+              "What this service is, who it is for, and how it makes its numbers.",
+              "了解 SoldBench 的定位、服务对象以及统计与证据包生成原则。",
+            ),
+            sections: [
+              [
+                t("What SoldBench is", "SoldBench 是什么"),
+                t(
+                  "SoldBench is a sold-price data service for eBay US. It collects completed sales, cleans them with a published rule set, and returns defensible statistics — the median sold price, the typical range, quality dimensions, and the evidence behind every number — through a web workbench, a REST API, and an MCP server.",
+                  "SoldBench 是面向 eBay US 成交价研究的平台，通过公开规则对已完结成交记录进行强属性清洗、统计计算，并通过网页工作台、REST API 和托管 MCP 服务返回附带证据包的区间统计结果。",
+                ),
+              ],
+              [
+                t("Who it is for", "服务对象"),
+                t(
+                  "Resellers pricing inventory, collectors verifying what an item sells for before bidding, and developers and agents that need an auditable sold price. Below 8 verified comparable prices, no center statistic is published — only the observed range and reason.",
+                  "服务二手商家批量定盘、收藏交易者出价核查以及开发者与 AI Agent 集成场景。有效核验可比成交少于 8 条时绝不强行给出中心均值，仅如实反馈已观察区间与原因。",
+                ),
+              ],
+              [
+                t("What SoldBench is not", "能力与免责边界"),
+                t(
+                  "SoldBench is not affiliated with eBay Inc. Prices represent historical completed observations under stated windows and modes — not appraisals, authentication, or guaranteed future resale value.",
+                  "SoldBench 与 eBay Inc. 无隶属或背书关系。全部价格数值仅反映特定时间窗口和来源模式下的历史成交观察事实，不构成真伪鉴定、资产评估或未来售价担保。",
+                ),
+              ],
+              [
+                t("Contact", "联系我们"),
+                t(
+                  "Target production endpoints: https://soldbench.com · API https://api.soldbench.com/v1 · MCP https://soldbench.com/mcp · Support support@soldbench.com.",
+                  "规划服务入口：网站 https://soldbench.com · API https://api.soldbench.com/v1 · MCP https://soldbench.com/mcp · 客服 support@soldbench.com。",
+                ),
+              ],
+            ],
+          }
+        : view.path === "/privacy"
+          ? {
+              eyebrow: t("PRIVACY", "隐私政策"),
+              heading: t("Privacy policy", "隐私政策"),
+              sub: t(
+                "What we collect, what we never collect, and how account deletion works.",
+                "说明收集的数据范围、不采集项以及账户删除与审计留存机制。",
+              ),
+              sections: [
+                [
+                  t("What we collect", "收集的信息"),
+                  t(
+                    "Account email and Argon2 password hash; API usage and search parameter records required for billing ledgers, 10-minute deduplication, and owner history; and payment confirmations/references from Stripe (primary) and PayPal (supplementary) without storing card numbers.",
+                    "账户邮箱与加密口令哈希；用于账本结算、10 分钟去重与研究历史回看的查询日志；以及来自 Stripe / PayPal 的支付回执参考编号（绝不保存完整银行卡号）。",
+                  ),
+                ],
+                [
+                  t("What we never collect or sell", "不采集与不出售"),
+                  t(
+                    "We do not sell personal data, run third-party ad trackers, or feed customer query histories into advertising profiles. Operations views mask user emails and keep API secrets one-time display / hash-only.",
+                    "不出售用户个人数据，不使用跨站广告追踪 Cookie；运营控制台脱敏展示账户标识，API 密钥仅在创建时完整显示一次并仅以安全哈希落库。",
+                  ),
+                ],
+                [
+                  t("Retention & deletion", "数据留存与删除回执"),
+                  t(
+                    "You can request account deletion from Security settings or submit a deletion receipt inquiry on Support. Legally retained financial records are masked without retaining raw credential or query secrets.",
+                    "用户可在账户安全中心发起注销删除，并通过私密回执查询清理进展；依法必须留存的财务对账记录会与可读身份及查询明文脱敏隔离。",
+                  ),
+                ],
+              ],
+            }
+          : {
+              eyebrow: t("TERMS", "服务条款"),
+              heading: t("Terms of service", "服务条款"),
+              sub: t(
+                "Rules for accounts, credits, API metering, and acceptable use.",
+                "规范账户安全、额度结算边界、研究口径披露及可接受使用规则。",
+              ),
+              sections: [
+                [
+                  t("Credits and billing", "额度与计费口径"),
+                  t(
+                    "One valid delivered search consumes at most 1 credit regardless of returning 1 or 200 comps. Failures, low-sample (<8 verified) lookups, async polling, and 10-minute identical repeats are free. Purchased top-up credits never expire and are drawn after expiring subscription or promo buckets.",
+                    "每次成功交付的标准查询最多扣除 1 额度（最多含 200 条记录）；查询失败、低样本（<8）、异步排队轮询及 10 分钟内同参数复用免费。购买的永久加量包永不过期且在订阅/活动桶用尽后扣除。",
+                  ),
+                ],
+                [
+                  t("Rights & revocation", "来源权限与撤权机制"),
+                  t(
+                    "Delivery is checked continuously against current source clearances and permission epochs across web, exports, shares, and primary images.",
+                    "网页研究、导出文件、外链分享及主图读取均实时校验当前来源授权与权限纪元，撤权后即刻停止分发。",
+                  ),
+                ],
+                [
+                  t("About the data", "数据口径说明"),
+                  t(
+                    "Results represent observed samples from stated marketplaces and modes (currently local offline fixture mode until live clearances are signed), not total marketplace volume.",
+                    "查询结果反映指定平台与当前模式下的有效样本统计（当前处于离线演示模式），不代表平台全市场总销量。",
+                  ),
+                ],
+              ],
+            };
+
+    return (
+      <>
+        <section className="page-head">
+          <div className="wrap">
+            <p className="eyebrow">{meta.eyebrow}</p>
+            <h1>{meta.heading}</h1>
+            <p className="sub">{meta.sub}</p>
+          </div>
+        </section>
+        <section className="blk blk-tight-top">
+          <div className="wrap">
+            <div className="legal-wrap">
+              <article className="card published-section docs-body">
+                {current ? (
+                  <>
+                    <div>
+                      <h2>{current.title}</h2>
+                      {paragraphBlocks(current.body)}
+                    </div>
+                    {view.path === "/about" &&
+                      !current.body.includes("\n\n") &&
+                      meta.sections.slice(1).map(([heading, body]) => (
+                        <div key={heading}>
+                          <h2>{heading}</h2>
+                          <p>{body}</p>
+                        </div>
+                      ))}
+                  </>
+                ) : (
+                  meta.sections.map(([heading, body]) => (
+                    <div key={heading}>
+                      <h2>{heading}</h2>
+                      <p>{body}</p>
+                    </div>
+                  ))
+                )}
+                {(view.path === "/terms" || view.path === "/privacy") && (
+                  <p className="notice mt-16">
+                    {t("The policy is pending separate publication approval.", "政策尚待独立批准和发布。")}
+                  </p>
+                )}
+              </article>
+              <p className="small mt-18">
+                {t("See also:", "延伸阅读：")} <a href={href("/about")}>{t("About", "关于")}</a> ·{" "}
+                <a href={href("/privacy")}>{t("Privacy", "隐私政策")}</a> ·{" "}
+                <a href={href("/terms")}>{t("Terms", "服务条款")}</a> ·{" "}
+                <a href={href("/methodology")}>{t("Methodology", "方法论")}</a>
+              </p>
+            </div>
+          </div>
+        </section>
+      </>
+    );
+  }
+
   const featuredEntry = !current && view.path === "/blog" && view.entries?.length ? view.entries[0] : null;
   const gridEntries = featuredEntry && view.entries ? view.entries.slice(1) : view.entries;
 

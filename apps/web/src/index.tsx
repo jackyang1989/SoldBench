@@ -383,7 +383,148 @@ export function renderPage(
         )}
       </section>
     );
-  } else if (page === "/categories" || page === "/data-availability") {
+  } else if (page === "/data-availability") {
+    const components = [
+      {
+        name: "API (/v1/sold & /v1/jobs)",
+        desc: t("Research API and idempotent claim endpoints", "标准研究接口与原子领用结算服务"),
+        state: t("Local operational", "本地运行中"),
+        cls: "badge badge-green",
+      },
+      {
+        name: t("Sold Listings Corpus", "已售样本语料库"),
+        desc: t("Offline synthetic fixture source for local testing", "当前处于离线夹具演示模式"),
+        state: t("Offline fixture", "离线演示"),
+        cls: "badge badge-amber",
+      },
+      {
+        name: t("Dashboard & Workbench", "网页研究与账户中心"),
+        desc: t("SSR pages, exports, shares, and billing ledger", "服务端渲染页面、导出与账单流水"),
+        state: t("Local operational", "本地运行中"),
+        cls: "badge badge-green",
+      },
+      {
+        name: t("Self-Hosted Collector", "自研采集管线"),
+        desc: t(
+          "Disabled in offline CI/dev defaults until G0 clearance",
+          "离线默认禁用（等待 G0 与来源准入）",
+        ),
+        state: t("Disabled offline", "离线禁用"),
+        cls: "badge badge-gray",
+      },
+      {
+        name: t("Billing & Webhooks", "支付与额度账本"),
+        desc: t(
+          "Stripe/PayPal adapters in offline sandbox verification",
+          "Stripe 主路径与 PayPal 离线沙盒校验",
+        ),
+        state: t("Sandbox mode", "沙盒模式"),
+        cls: "badge badge-amber",
+      },
+    ];
+    const freshnessRows = [
+      [t("Graded cards", "集换与评级卡牌"), "30 / 90 days", t("Offline fixture", "离线演示样本")],
+      [t("Sneakers", "潮流球鞋"), "30 / 90 days", t("Offline fixture", "离线演示样本")],
+      [t("Watches", "收藏腕表"), "30 / 90 days", t("Offline fixture", "离线演示样本")],
+      [t("Video games", "电子游戏与主机"), "30 / 90 days", t("Offline fixture", "离线演示样本")],
+      [t("GPUs & hardware", "显卡与硬件"), "30 / 90 days", t("Offline fixture", "离线演示样本")],
+      [t("Collectibles", "潮流玩具与收藏品"), "30 / 90 days", t("Offline fixture", "离线演示样本")],
+    ];
+
+    content = (
+      <>
+        <section className="page-head">
+          <div className="wrap">
+            <p className="eyebrow">{t("DATA AVAILABILITY · STATUS", "数据可用性与运行状态")}</p>
+            <h1>{title}</h1>
+            <p className="sub">
+              {t(
+                "Live source readiness, freshness windows, and outage boundaries. Missing or unverified metrics stay explicit instead of synthetic SLA claims.",
+                "展示支持类目数据源状态、时间窗口及断源边界说明；未接通或未实测指标不填虚假 SLA 数字。",
+              )}
+            </p>
+            <div className="actions mt-16">
+              <span className="badge badge-amber">
+                {t("Offline fixture mode · Not production live", "本地离线演示模式 · 非生产实时环境")}
+              </span>
+              <a className="btn ghost btn-sm" href={link("/categories")}>
+                {t("Research categories", "研究类目")}
+              </a>
+              <a className="btn brand btn-sm" href={link("/search")}>
+                {t("Open research workbench", "打开研究工作台")}
+              </a>
+            </div>
+            {status}
+          </div>
+        </section>
+        <section className="blk blk-tight-top">
+          <div className="wrap">
+            <div className="grid3 eq" data-results="" />
+            <div className="grid2 mt-22">
+              <div className="card">
+                <h2>{t("Component readiness", "核心模块就绪状态")}</h2>
+                <div className="mt-12">
+                  {components.map((comp) => (
+                    <div className="status-row" key={comp.name}>
+                      <div>
+                        <b>{comp.name}</b>
+                        <p className="small">{comp.desc}</p>
+                      </div>
+                      <span className={comp.cls}>{comp.state}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="grid-stack">
+                <div className="card">
+                  <h3>{t("How freshness works", "数据时效性窗口规则")}</h3>
+                  <p>
+                    {t(
+                      "Every category snapshot tracks its latest verified observation timestamp. Candidate freshness targets fresh (≤24h) and explicit stale consent (≤72h, 0 credits); expired sources never masquerade as current prices.",
+                      "每个类目均绑定最近一次有效观察时间戳：候选新鲜窗口为 ≤24h，过期延展 ≤72h 需显式同意且免费；超出窗口或撤权数据源绝不继续充当当前价。",
+                    )}
+                  </p>
+                </div>
+                <div className="card mt-18">
+                  <h3>{t("Rights & immediate revocation", "授权与即时撤权保护")}</h3>
+                  <p>
+                    {t(
+                      "Permissions for collection, storage, statistics, display, and image delivery are evaluated live against permission epochs on every read, export, and share link.",
+                      "网页查询、导出文件、外链分享与主图代理读取每次都会核验当前来源许可及权限纪元，撤权时先拒绝访问再清理副本。",
+                    )}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <h2 className="serif section-h2 mt-36">{t("Freshness by category", "各类目可用性概览")}</h2>
+            <div className="live-card mt-12">
+              <div className="table-scroll">
+                <div className="dtable">
+                  <div className="dt-h">
+                    <span className="dt-c">{t("Category", "研究类目")}</span>
+                    <span className="dt-c">{t("Supported windows", "时间窗口")}</span>
+                    <span className="dt-c">{t("Readiness", "当前状态")}</span>
+                  </div>
+                  {freshnessRows.map(([name, win, state]) => (
+                    <div className="dt-r" key={name}>
+                      <span className="dt-c">
+                        <b>{name}</b>
+                      </span>
+                      <span className="dt-c">{win}</span>
+                      <span className="dt-c">
+                        <span className="badge badge-amber">{state}</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </>
+    );
+  } else if (page === "/categories") {
     const categoryCatalog = [
       {
         slug: "graded-cards",
