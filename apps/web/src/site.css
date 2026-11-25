@@ -3404,12 +3404,10 @@ progress.hist-prog::-moz-progress-bar {
   border-top: 1px solid var(--line-soft);
 }
 .docs-site-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 14px;
-  padding: 0 12px 12px;
-  margin-bottom: 8px;
-  border-bottom: 1px solid var(--line);
+  margin-bottom: 10px;
+}
+.docs-site-links a {
+  font-weight: 500;
 }
 .docs-shell.docs-v2 .docs-nav {
   position: static;
@@ -3418,8 +3416,29 @@ progress.hist-prog::-moz-progress-bar {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 2px 24px 24px 0;
-  margin-top: 6px;
+  padding: 2px 0 16px 0;
+  margin-top: 8px;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .docs-v2 .docs-nav {
+    scrollbar-width: thin;
+    scrollbar-color: var(--brand-bg) transparent;
+  }
+}
+.docs-v2 .docs-nav::-webkit-scrollbar {
+  width: 5px;
+}
+.docs-v2 .docs-nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+.docs-v2 .docs-nav::-webkit-scrollbar-thumb {
+  background: var(--brand-bg);
+  border-radius: 99px;
+}
+@media (min-width: 901px) {
+  .docs-shell.docs-v2 .docs-nav > * {
+    margin-right: 24px;
+  }
 }
 .docs-otp {
   position: sticky;
@@ -3439,7 +3458,7 @@ progress.hist-prog::-moz-progress-bar {
 }
 .otp-list {
   position: relative;
-  padding-left: 18px;
+  padding-left: 20px;
 }
 .otp-list::before {
   content: "";
@@ -3451,15 +3470,30 @@ progress.hist-prog::-moz-progress-bar {
   background: var(--line);
   border-radius: 2px;
 }
+.otp-fill {
+  position: absolute;
+  left: 0;
+  top: 5px;
+  width: 2px;
+  height: 0;
+  background: var(--brand);
+  border-radius: 2px;
+  transition: height 0.18s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .otp-fill {
+    transition: none;
+  }
+}
 .otp-list a {
   display: block;
-  padding: 4px 0;
+  padding: 5px 0;
   color: var(--mut);
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
 .otp-list a:hover {
-  color: var(--brand);
+  color: var(--ink);
   text-decoration: none;
 }
 .otp-list a.on {
@@ -3503,12 +3537,6 @@ progress.hist-prog::-moz-progress-bar {
   font-size: 15.5px;
   color: var(--ink);
 }
-.docs-v2 .docs-site-links a {
-  padding: 2px 0;
-  font-size: 13.5px;
-  font-weight: 600;
-  color: var(--mut);
-}
 .docs-v2 .dnav-group h2,
 .docs-v2 .dnav-group h4 {
   margin: 16px 0 4px;
@@ -3525,11 +3553,11 @@ progress.hist-prog::-moz-progress-bar {
 }
 .docs-v2 .docs-nav a {
   display: block;
-  padding: 6px 12px;
+  padding: 5px 12px;
   border-radius: 10px;
-  font-size: 14.5px;
+  font-size: 15px;
   color: var(--body);
-  margin-bottom: 1px;
+  margin-bottom: 0;
 }
 .docs-v2 .docs-nav a:hover {
   background: var(--card2);

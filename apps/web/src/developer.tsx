@@ -425,6 +425,7 @@ export function Documentation({ view, locale }: { view: DocsView; locale: Locale
                   {t("On this page", "本页目录")}
                 </h4>
                 <div className="otp-list">
+                  <span className="otp-fill" aria-hidden="true" />
                   {headings.map((h, i) => (
                     <a
                       key={h.id}

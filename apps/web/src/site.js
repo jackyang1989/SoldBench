@@ -2125,24 +2125,64 @@ if (docsSearch) {
       }
     });
   }
+}
 
-  const otpLinks = [...document.querySelectorAll(".otp-list a[data-otp-target]")];
-  if (otpLinks.length) {
-    const syncOtp = () => {
-      let currentId = otpLinks[0].dataset.otpTarget;
-      for (const item of otpLinks) {
-        const heading = document.getElementById(item.dataset.otpTarget);
-        if (heading && heading.getBoundingClientRect().top <= 135) {
-          currentId = item.dataset.otpTarget;
-        }
-      }
-      for (const item of otpLinks) {
-        item.classList.toggle("on", item.dataset.otpTarget === currentId);
-      }
-    };
-    window.addEventListener("scroll", syncOtp, { passive: true });
-    syncOtp();
+const docsNav = document.querySelector(".docs-v2 .docs-nav");
+if (docsNav) {
+  const activeNav = docsNav.querySelector("a.on");
+  if (activeNav) {
+    const topOffset = activeNav.offsetTop - docsNav.offsetTop - 150;
+    docsNav.scrollTop = Math.max(0, topOffset);
   }
+}
+
+const otpLinks = [...document.querySelectorAll(".otp-list a[data-otp-target]")];
+if (otpLinks.length) {
+  const otpFill = document.querySelector(".otp-list .otp-fill");
+  let otpTick = false;
+  const syncOtp = () => {
+    let currentIndex = 0;
+    for (let i = 0; i < otpLinks.length; i++) {
+      const heading = document.getElementById(otpLinks[i].dataset.otpTarget);
+      if (heading && heading.getBoundingClientRect().top <= 160) {
+        currentIndex = i;
+      }
+    }
+    const maxY = document.documentElement.scrollHeight - window.innerHeight;
+    if (maxY > 0 && window.scrollY >= maxY - 2) {
+      currentIndex = otpLinks.length - 1;
+    }
+    for (let i = 0; i < otpLinks.length; i++) {
+      otpLinks[i].classList.toggle("on", i === currentIndex);
+    }
+    const activeLink = otpLinks[currentIndex];
+    if (otpFill && activeLink) {
+      otpFill.style.height = `${Math.max(0, activeLink.offsetTop + activeLink.offsetHeight / 2 - 5)}px`;
+    }
+  };
+  const scheduleOtp = () => {
+    if (otpTick) return;
+    otpTick = true;
+    requestAnimationFrame(() => {
+      otpTick = false;
+      syncOtp();
+    });
+  };
+  for (const item of otpLinks) {
+    item.addEventListener("click", (event) => {
+      const targetId = item.dataset.otpTarget;
+      const target = targetId ? document.getElementById(targetId) : null;
+      if (!target) return;
+      event.preventDefault();
+      const offset = document.querySelector(".docs-shell") ? (window.innerWidth <= 900 ? 64 : 28) : 84;
+      const top = target.getBoundingClientRect().top + window.scrollY - offset;
+      window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    });
+  }
+  window.addEventListener("scroll", scheduleOtp, { passive: true });
+  window.addEventListener("resize", scheduleOtp, { passive: true });
+  window.addEventListener("load", syncOtp);
+  syncOtp();
 }
 
 function privateReceipt() {
