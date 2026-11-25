@@ -1760,7 +1760,9 @@ if (search) {
       submit.disabled = false;
     }
   };
-  const searchPath = ["/", "/playground", "/worth"].includes(page) ? page : "/search";
+  const searchPath = ["/", "/playground", "/worth", "/account/search", "/account/playground"].includes(page)
+    ? page
+    : "/search";
   const updateLinks = (draft, keepResult) => {
     for (const a of document.querySelectorAll("[data-resume]")) {
       a.href = resume(a.dataset.resume, draft, keepResult);
@@ -3942,6 +3944,11 @@ async function showUsage() {
       data.ledger.map((row) => [row.created_at, labels[row.kind] ?? row.kind, row.delta, row.balance_after]),
     ),
   );
+  const usageLinks = element("div", undefined, "actions mt-18");
+  const reqLogsLink = link(t("Request logs", "请求日志"), `${prefix}/account/logs`);
+  const billLink = link(t("Manage billing", "账单与充值"), `${prefix}/account/billing`);
+  usageLinks.append(reqLogsLink, billLink);
+  output.append(usageLinks);
 }
 
 function billingPlanName(plan) {
@@ -7096,69 +7103,100 @@ if (page.startsWith("/account"))
       }
       return;
     }
+    if (["/account/search", "/account/playground", "/account/agents", "/account/support"].includes(page)) {
+      return;
+    }
     const [balance, history, keysResp] =
       page === "/account"
         ? await Promise.all([api("/v1/usage"), api("/v1/queries"), api("/account/keys").catch(() => null)])
         : [null, await api("/v1/queries"), null];
     if (balance) {
       const total = Number(balance.data.total_available ?? 0);
+      const ledgerList = Array.isArray(balance.data.ledger) ? balance.data.ledger : [];
+      const totalUsed = ledgerList.reduce((acc, row) => {
+        const d = Number(row.delta ?? 0);
+        return d < 0 && row.kind === "charge" ? acc + Math.abs(d) : acc;
+      }, 0);
+      const cap = Math.max(total + totalUsed, total || 100);
       const keysList = Array.isArray(keysResp?.data) ? keysResp.data : (keysResp?.data?.items ?? []);
       const activeKeys = keysList.filter((k) => !k.revoked_at);
       const kpiGrid = element("div", undefined, "grid3 eq acct-kpi-grid");
 
-      const usage = element("section", undefined, "card result-card acct-kpi");
-      usage.append(element("h2", t("AVAILABLE CREDITS", "可用总额度")));
+      const usage = element("section", undefined, "card acct-kpi");
+      usage.append(element("p", t("AVAILABLE CREDITS", "可用总额度"), "eyebrow"));
       if (Number.isSafeInteger(balance.data.total_available)) {
-        const valRow = element("strong", String(balance.data.total_available), "kpi-val");
-        valRow.append(element("span", ` ${t("left", "剩余")}`, "acct-kpi-denom"));
+        const valRow = element("div", String(balance.data.total_available), "acct-kpi-num");
+        valRow.append(element("span", ` / ${cap} ${t("left", "剩余")}`, "small acct-kpi-denom"));
         usage.append(valRow);
       }
       const prog = element("progress", undefined, "acct-prog");
-      prog.max = Math.max(100, Number.isFinite(total) ? total : 0);
+      prog.max = Math.max(100, cap);
       prog.value = Number.isFinite(total) ? total : 0;
-      const usageBtn = link(t("Open usage ledger →", "查看用量账本 →"), `${prefix}/account/usage`);
-      usageBtn.className = "btn ghost btn-sm";
       usage.append(
         prog,
         element(
           "p",
-          `${balance.data.wallets.length} ${t("active credit buckets · earliest expiry first", "个有效额度桶 · 最早到期优先")}`,
-          "kpi-sub",
+          `${totalUsed} ${t("used", "已用")} · ${balance.data.wallets.length} ${t("active buckets", "个有效额度桶")}`,
+          "small acct-card-sub",
         ),
-        usageBtn,
+        element(
+          "p",
+          t("Draw order: promo / subscription first, then purchased", "扣减顺序：活动与订阅优先，次之加量包"),
+          "small",
+        ),
       );
 
-      const planCard = element("a", undefined, "card result-card acct-kpi acct-kpi-link");
+      const planCard = element("a", undefined, "card acct-kpi-link acct-kpi");
       planCard.href = `${prefix}/account/billing`;
       const hasSub = balance.data.wallets.some((w) => w.type === "subscription" && w.balance > 0);
       const hasPurchased = balance.data.wallets.some((w) => w.type === "purchased" && w.balance > 0);
+      const expiringDates = balance.data.wallets
+        .map((w) => w.expires_at)
+        .filter(Boolean)
+        .sort();
+      const planLine1 = element("p", undefined, "small acct-card-sub");
+      planLine1.append(
+        document.createTextNode(t("Subscription, promo & top-up wallets · ", "订阅、促销与加量包额度 · ")),
+        element("span", t("Manage plan →", "管理方案 →"), "nw"),
+      );
       planCard.append(
-        element("h2", t("PLAN & BUCKETS", "方案与额度来源")),
+        element("p", t("PLAN", "当前方案"), "eyebrow"),
         element(
-          "strong",
+          "div",
           hasSub
             ? t("Subscribed", "订阅中")
             : hasPurchased
               ? t("Top-up active", "加量包有效")
-              : t("Free / Starter", "免费版"),
-          "kpi-val",
+              : t("Free", "免费版"),
+          "acct-kpi-num",
         ),
+        planLine1,
         element(
           "p",
-          t("Subscription, promo, and top-up wallets · Manage billing →", "管理订阅、充值与促销额度兑换 →"),
-          "kpi-sub",
+          expiringDates.length
+            ? `${t("Next expiry", "最近到期")} ${expiringDates[0].slice(0, 10)}`
+            : t("100 free tier baseline · Offline sandbox", "基础免费额度 · 本地离线沙盒"),
+          "small",
         ),
       );
 
-      const keysCard = element("a", undefined, "card result-card acct-kpi acct-kpi-link");
+      const keysCard = element("a", undefined, "card acct-kpi-link acct-kpi");
       keysCard.href = `${prefix}/account/keys`;
+      const keyLine1 = element("p", undefined, "small acct-card-sub");
+      keyLine1.append(
+        document.createTextNode(t("Up to 10 keys · ", "最多 10 个限权密钥 · ")),
+        element("span", t("Manage keys →", "管理密钥 →"), "nw"),
+      );
       keysCard.append(
-        element("h2", t("ACTIVE API KEYS", "活跃 API 密钥")),
-        element("strong", String(activeKeys.length), "kpi-val"),
+        element("p", t("ACTIVE API KEYS", "活跃 API 密钥"), "eyebrow"),
+        element("div", String(activeKeys.length), "acct-kpi-num"),
+        keyLine1,
         element(
           "p",
-          t("Up to 10 scoped keys · Manage keys →", "支持多组限权密钥与轮换 · 管理密钥 →"),
-          "kpi-sub",
+          activeKeys.length
+            ? `${t("Latest:", "最近创建：")} ${activeKeys[0].name || t("Scoped key", "限权密钥")}`
+            : t("Create a scoped key for REST & MCP", "创建可用于 REST 与 MCP 的限权密钥"),
+          "small",
         ),
       );
 
@@ -7167,35 +7205,55 @@ if (page.startsWith("/account"))
 
       const midGrid = element("div", undefined, "grid2 eq mt-18");
 
-      const bucketsCard = element("section", undefined, "card result-card");
-      bucketsCard.append(element("h2", t("Balance buckets", "额度桶明细与流水")));
-      if (!balance.data.wallets.length) {
-        bucketsCard.append(
-          element("p", t("No active credit buckets yet.", "当前暂无有效额度桶。"), "small mt-10"),
-        );
-      } else {
-        for (const w of balance.data.wallets) {
-          const line = element("p", undefined, "mt-8");
-          const exp = w.expires_at
-            ? `${t("expires", "到期")} ${w.expires_at.slice(0, 10)}`
-            : t("never expires", "永不过期");
-          line.append(element("b", String(w.type)), document.createTextNode(` — ${w.balance} · ${exp}`));
-          bucketsCard.append(line);
+      const bucketsCard = element("section", undefined, "card");
+      bucketsCard.append(element("p", t("BALANCE BUCKETS", "额度桶明细"), "eyebrow"));
+      const summarizeBucket = (kind) => balance.data.wallets.filter((w) => w.type === kind && w.balance > 0);
+      const bucketDefs = [
+        ["subscription", t("Subscription", "订阅额度")],
+        ["purchased", t("Purchased", "永久加量包")],
+        ["promo", t("Promo", "促销赠额")],
+      ];
+      for (const [kind, label] of bucketDefs) {
+        const list = summarizeBucket(kind);
+        const sum = list.reduce((acc, w) => acc + Number(w.balance ?? 0), 0);
+        const dates = list
+          .map((w) => w.expires_at)
+          .filter(Boolean)
+          .sort();
+        const line = element("p", undefined, "acct-bucket-line");
+        line.append(element("b", label));
+        if (!sum) {
+          line.append(document.createTextNode(" — 0"));
+        } else if (kind === "purchased" && !dates.length) {
+          line.append(document.createTextNode(` — ${sum} · ${t("never expires", "永不过期")}`));
+        } else if (dates.length) {
+          line.append(
+            document.createTextNode(` — ${sum} · ${t("expires", "到期")} ${dates[0].slice(0, 10)}`),
+          );
+        } else {
+          line.append(document.createTextNode(` — ${sum}`));
         }
+        bucketsCard.append(line);
       }
       bucketsCard.append(
         element(
           "p",
           t(
-            "Draw order: promo / subscription (earliest expiry) → purchased credits.",
+            "Draw order: promo / subscription (earliest expiry) → purchased.",
             "扣减顺序：活动与订阅额度（最早到期优先）→ 永久加量包。",
           ),
           "small mt-8",
         ),
       );
       const ledgerBox = element("div", undefined, "acct-divider");
-      ledgerBox.append(element("p", t("RECENT LEDGER ACTIVITY", "最近流水动态"), "eyebrow"));
-      const recentLedger = Array.isArray(balance.data.ledger) ? balance.data.ledger.slice(0, 3) : [];
+      ledgerBox.append(element("p", t("Recent ledger activity", "最近流水动态"), "eyebrow"));
+      const kindLabels = {
+        grant: t("Credit grant", "额度入账"),
+        charge: t("Search charge", "查价扣费"),
+        refund: t("Credit refund", "额度退回"),
+        expire: t("Credit expired", "额度到期"),
+      };
+      const recentLedger = ledgerList.slice(0, 3);
       if (!recentLedger.length) {
         ledgerBox.append(element("p", t("No ledger entries yet.", "暂无额度流水记录。"), "small mt-8"));
       } else {
@@ -7203,7 +7261,7 @@ if (page.startsWith("/account"))
           const row = element("div", undefined, "acct-ledger-row");
           const metaCol = element("div");
           metaCol.append(
-            document.createTextNode(String(entry.kind)),
+            document.createTextNode(kindLabels[entry.kind] ?? String(entry.kind)),
             element(
               "span",
               entry.created_at ? entry.created_at.slice(0, 16).replace("T", " ") : "—",
@@ -7211,7 +7269,7 @@ if (page.startsWith("/account"))
             ),
           );
           const deltaText = entry.delta > 0 ? `+${entry.delta}` : String(entry.delta);
-          row.append(metaCol, element("b", deltaText));
+          row.append(metaCol, element("b", deltaText, "nw"));
           ledgerBox.append(row);
         }
       }
@@ -7223,42 +7281,52 @@ if (page.startsWith("/account"))
       ledgerBox.append(ledgerLinkWrap);
       bucketsCard.append(ledgerBox);
 
-      const quickCard = element("section", undefined, "card result-card");
-      quickCard.append(element("h2", t("Quick start", "快速接入清单")));
-      const stepsBox = element("div", undefined, "mt-10");
-      for (const stepText of [
-        t("1. Create a scoped API key", "1. 生成并保存 API 密钥"),
-        t(
-          "2. Send a Bearer sb_k_… request to /v1/sold — or test in Playground",
-          "2. 携带 Bearer 密钥调用 /v1/sold 或使用调试台",
-        ),
-        t(
-          "3. Inspect Type 7 median, n ≥ 8 gate, and evidence hash",
-          "3. 核验 Type 7 中位价、n ≥ 8 阈值与证据哈希",
-        ),
+      const quickCard = element("section", undefined, "card");
+      quickCard.append(element("p", t("QUICK START", "快速接入指南"), "eyebrow"));
+      const stepsBox = element("div", undefined, "acct-steps");
+      for (const [num, desc] of [
+        ["1.", t(" Create a scoped API key", " 创建限权 API 密钥")],
+        [
+          "2.",
+          t(
+            " Send a Bearer sb_k_… request to /v1/sold — or try the Playground first",
+            " 使用 Bearer 密钥调用 /v1/sold 或先在调试台试跑",
+          ),
+        ],
+        [
+          "3.",
+          t(
+            " Inspect Type 7 median, n ≥ 8 gate, and evidence hash",
+            " 核验 Type 7 中位价、n ≥ 8 门槛与证据哈希",
+          ),
+        ],
       ]) {
-        stepsBox.append(element("p", stepText, "mt-6"));
+        const p = element("p");
+        p.append(element("b", num), document.createTextNode(desc));
+        stepsBox.append(p);
       }
       const checklist = element("div", undefined, "acct-checklist");
       for (const [done, label] of [
         [true, t("Account verified and ready", "账户已验证就绪")],
         [activeKeys.length > 0, t("Active API key created", "已创建可用 API 密钥")],
         [history.data.items.length > 0, t("First research query completed", "已完成首次查价研究")],
+        [false, t("Connect the MCP server to Claude", "将托管 MCP 接入 AI 客户端")],
       ]) {
         checklist.append(element("div", `${done ? "✓" : "○"} ${label}`));
       }
       const qsActions = element("div", undefined, "actions mt-12");
-      const pgBtn = link(t("Open Playground", "打开 API 调试台"), `${prefix}/playground`);
+      const pgBtn = link(t("Open Playground", "打开 API 调试台"), `${prefix}/account/playground`);
       pgBtn.className = "btn brand btn-sm";
       const keyBtn = link(t("Get API key", "获取 API 密钥"), `${prefix}/account/keys`);
       keyBtn.className = "btn ghost btn-sm";
       qsActions.append(pgBtn, keyBtn);
+      const baseUrlNote = element("p", "Base URL https://api.soldbench.com/v1", "mono small mt-10");
       const endpointsBox = element("div", undefined, "acct-endpoints acct-divider");
       const docsUrl = zh ? "/docs/zh-CN/quickstart" : "/docs/en/quickstart";
       for (const [k, v, hrefUrl] of [
         ["REST", "api.soldbench.com/v1", null],
         ["MCP", "soldbench.com/mcp", null],
-        [t("Docs", "文档"), t("Quickstart · Connect an agent →", "快速入门 · 接入智能体 →"), docsUrl],
+        [t("Docs", "文档"), t("Quickstart", "快速入门"), docsUrl],
       ]) {
         const line = element("div");
         line.append(element("b", `${k} `));
@@ -7266,19 +7334,22 @@ if (page.startsWith("/account"))
           const docsAnchor = document.createElement("a");
           docsAnchor.href = hrefUrl;
           docsAnchor.textContent = v;
-          line.append(docsAnchor);
+          const agentAnchor = document.createElement("a");
+          agentAnchor.href = `${prefix}/account/agents`;
+          agentAnchor.textContent = t("Connect an agent", "接入智能体");
+          line.append(docsAnchor, document.createTextNode(" · "), agentAnchor);
         } else line.append(element("code", v));
         endpointsBox.append(line);
       }
-      quickCard.append(stepsBox, checklist, qsActions, endpointsBox);
+      quickCard.append(stepsBox, checklist, qsActions, baseUrlNote, endpointsBox);
 
       midGrid.append(bucketsCard, quickCard);
       output.append(midGrid);
     }
-    const recent = element("section", undefined, "card result-card");
-    recent.append(element("h2", t("Recent research", "近期研究")));
+    const recent = element("section", undefined, "card result-card mt-18");
+    recent.append(element("h3", t("Recent research", "近期研究")));
     if (!history.data.items.length) {
-      recent.append(element("p", t("Your research history is empty.", "暂无研究记录。")));
+      recent.append(element("p", t("Your research history is empty.", "暂无研究记录。"), "small mt-8"));
     }
     const entries = element("ul", undefined, "acct-list");
     const more = button(t("Load more", "加载更多"), () => {
@@ -7313,11 +7384,11 @@ if (page.startsWith("/account"))
     output.append(recent);
     if (page === "/account") {
       const quickActions = element("div", undefined, "actions acct-quick-actions mt-18");
-      const newSearch = link(t("New search", "发起新查价"), `${prefix}/search`);
+      const newSearch = link(t("New search", "发起新查价"), `${prefix}/account/search`);
       newSearch.className = "btn brand";
       const getKeys = link(t("Get API key", "管理 API 密钥"), `${prefix}/account/keys`);
       const viewUsage = link(t("View usage", "查看用量账本"), `${prefix}/account/usage`);
-      const supLink = link(t("Support", "帮助与支持"), `${prefix}/support`);
+      const supLink = link(t("Support", "帮助与支持"), `${prefix}/account/support`);
       quickActions.append(newSearch, getKeys, viewUsage, supLink);
       output.append(quickActions);
     }
@@ -7454,7 +7525,7 @@ document.addEventListener("click", async (event) => {
         const dashEmail = document.querySelector("[data-dash-email]");
         const rawEmail = typeof user.email === "string" && user.email.includes("@") ? user.email : null;
         const display = rawEmail ? rawEmail.split("@")[0].slice(0, 16) : t("Account", "我的账户");
-        if (avatar) avatar.textContent = rawEmail ? rawEmail.slice(0, 1).toUpperCase() : "S";
+        if (avatar) avatar.textContent = rawEmail ? rawEmail.slice(0, 1).toUpperCase() : "A";
         if (label) label.textContent = display;
         if (dashEmail && rawEmail) {
           dashEmail.textContent = rawEmail;
@@ -7967,7 +8038,7 @@ console.log(data.stats.median_cents, data.stats.n_price_verified);`,
       .catch(() => {});
   }
 
-  if (output && page === "/search") {
+  if (output && (page === "/search" || page === "/account/search")) {
     output.addEventListener("click", (event) => {
       const btn = event.target.closest?.("[data-search-rowexp]");
       if (!btn) return;

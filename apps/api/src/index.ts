@@ -222,7 +222,7 @@ export function createApp(
                 return [];
               })
             : Promise.resolve([]),
-          (page === "/" || page === "/search") && queryService
+          (page === "/" || page === "/search" || page === "/account/search") && queryService
             ? new PublicResults(queryService).homeShowcase().catch((err) => {
                 if (isDatabaseConnectionError(err)) throw err;
                 return null;

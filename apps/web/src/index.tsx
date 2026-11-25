@@ -70,6 +70,8 @@ export const webPages = [
   "/forgot-password",
   "/reset-password",
   "/account",
+  "/account/search",
+  "/account/playground",
   "/account/queries",
   "/account/lookup",
   "/account/saved",
@@ -84,8 +86,10 @@ export const webPages = [
   "/account/usage",
   "/account/logs",
   "/account/keys",
+  "/account/agents",
   "/account/security",
   "/account/billing",
+  "/account/support",
   "/pricing",
   "/deletion-receipt",
   "/playground",
@@ -192,6 +196,8 @@ export function renderPage(
     "/forgot-password": ["Reset your password", "找回密码"],
     "/reset-password": ["Choose a new password", "设置新密码"],
     "/account": ["Overview", "账户概览"],
+    "/account/search": ["Sold price research", "成交价研究"],
+    "/account/playground": ["API Playground", "API 调试台"],
     "/account/queries": ["Research history", "研究历史"],
     "/account/lookup": ["Image & Barcode Lookup", "图片与条码查价"],
     "/account/saved": ["Saved research", "已保存的研究"],
@@ -206,8 +212,10 @@ export function renderPage(
     "/account/usage": ["Usage", "用量"],
     "/account/logs": ["Request logs", "请求日志"],
     "/account/keys": ["API keys", "API 密钥"],
+    "/account/agents": ["Agents", "智能体"],
     "/account/security": ["Account security", "账户安全"],
     "/account/billing": ["Billing", "账单"],
+    "/account/support": ["Support", "支持"],
     "/pricing": ["Pricing and credits", "定价与额度"],
     "/deletion-receipt": ["Deletion receipt", "删除回执"],
     "/playground": ["API Playground", "API 调试台"],
@@ -272,17 +280,18 @@ export function renderPage(
       </a>
     </>
   );
-  const examples = (
+  const renderExamples = (targetPath: string) => (
     <div className="chips">
       <span>{t("Sample queries", "示例搜索")}</span>
       {["Nintendo Switch", "Nintendo Switch OLED", "Game Boy Color"].map((q) => (
-        <a className="chip" key={q} href={`${link("/search")}?${new URLSearchParams({ q })}`}>
+        <a className="chip" key={q} href={`${link(targetPath)}?${new URLSearchParams({ q })}`}>
           {q}
         </a>
       ))}
     </div>
   );
-  const searchBox = (
+  const examples = renderExamples("/search");
+  const renderSearchBox = (defaultQuery?: string) => (
     <div className="searchbox">
       <label htmlFor="q" className="sr-only">
         {t("Search sold prices", "查询成交价")}
@@ -292,7 +301,7 @@ export function renderPage(
         required
         name="q"
         maxLength={120}
-        defaultValue={draft.get("q") ?? ""}
+        defaultValue={defaultQuery ?? draft.get("q") ?? ""}
         placeholder={t("e.g. Nintendo Switch OLED", "例如 Nintendo Switch OLED")}
       />
       <button className="btn brand" type="submit">
@@ -300,6 +309,7 @@ export function renderPage(
       </button>
     </div>
   );
+  const searchBox = renderSearchBox();
   const market = (
     <p className="small market">
       {t("eBay US · USD", "eBay 美国站 · 美元")}.{" "}
@@ -307,6 +317,592 @@ export function renderPage(
     </p>
   );
   const status = <p className="notice" data-status="" aria-live="polite" hidden />;
+  const agentClientSetupMap: Array<[string, string, string]> = [
+    [
+      "claude",
+      "Claude Code",
+      `# Add SoldBench Hosted MCP server\nclaude mcp add --transport http soldbench https://soldbench.com/mcp \\\n  --header "Authorization: Bearer $SOLDBENCH_API_KEY"`,
+    ],
+    [
+      "chatgpt",
+      "ChatGPT",
+      `# ChatGPT -> Settings -> Connectors -> Add custom connector\nName: SoldBench\nURL:  https://soldbench.com/mcp\nAuth: Bearer $SOLDBENCH_API_KEY`,
+    ],
+    [
+      "cursor",
+      "Cursor",
+      `// ~/.cursor/mcp.json\n{\n  "mcpServers": {\n    "soldbench": {\n      "url": "https://soldbench.com/mcp",\n      "headers": { "Authorization": "Bearer $SOLDBENCH_API_KEY" }\n    }\n  }\n}`,
+    ],
+    [
+      "vscode",
+      "VS Code",
+      `// .vscode/mcp.json\n{\n  "servers": {\n    "soldbench": {\n      "type": "http",\n      "url": "https://soldbench.com/mcp",\n      "headers": { "Authorization": "Bearer $SOLDBENCH_API_KEY" }\n    }\n  }\n}`,
+    ],
+    [
+      "windsurf",
+      "Windsurf",
+      `// ~/.codeium/windsurf/mcp_config.json\n{\n  "mcpServers": {\n    "soldbench": {\n      "serverUrl": "https://soldbench.com/mcp",\n      "headers": { "Authorization": "Bearer $SOLDBENCH_API_KEY" }\n    }\n  }\n}`,
+    ],
+  ];
+  const agentPlaybookRules = [
+    t(
+      "Quote the median and P25–P75 range alongside sample size (n_price_verified).",
+      "始终附带净中位价、P25–P75 区间及有效核验样本数量。",
+    ),
+    t(
+      "Below 8 verified sales, report insufficient data honestly — never fabricate a median.",
+      "少于 8 条有效核验价格时如实告知样本不足，严禁凭空编造价格。",
+    ),
+    t(
+      "Never convert undisclosed Best Offer amounts or unknown shipping into zero.",
+      "未公开实价的议价与未知运费绝不补零混入统计。",
+    ),
+    t(
+      "Cite query_id and data_as_of in every price summary for full auditability.",
+      "回答时附带 query_id 与 data_as_of 以便核验溯源。",
+    ),
+    t(
+      "Stop cleanly on 402 quota errors and respect Retry-After on 429/503 responses.",
+      "遇到 402 额度不足立即停止，遇到 429/503 遵守 Retry-After 重试退避。",
+    ),
+  ];
+  const agentClientSetupCard = (
+    <div className="card ag-card">
+      <h2 className="serif ag-title">{t("Set up your client", "选择您的 AI 客户端配置")}</h2>
+      <div className="tabs" role="tablist" aria-label={t("MCP clients", "MCP 客户端")}>
+        {agentClientSetupMap.map(([key, label], idx) => (
+          <button key={key} type="button" data-agent-client={key} className={idx === 0 ? "on" : undefined}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="codeblock mt-12">
+        <div className="cb-head">
+          <span data-agent-client-title="">Claude Code setup</span>
+          <button type="button" className="copy-btn" data-copy="#agentClientCode">
+            {t("Copy", "复制")}
+          </button>
+        </div>
+        <pre id="agentClientCode" data-agent-client-code="">
+          {highlightCode(agentClientSetupMap[0]?.[2] ?? "", "bash")}
+        </pre>
+      </div>
+    </div>
+  );
+  const renderSupportIntakeGrid = (includeStatus: boolean) => (
+    <div className="grid2 mt-22">
+      <div className="card auth-card">
+        <form data-support="" method="post">
+          <h2>{t("Open a ticket", "提交新工单")}</h2>
+          <label>
+            {t("Issue type", "问题类型")}
+            <select name="category" required>
+              <option value="data_quality">{t("Data quality", "数据质量")}</option>
+              <option value="takedown">{t("Data rights or takedown", "数据权利或下架")}</option>
+              <option value="account">{t("Account access", "账户访问")}</option>
+              <option value="billing">{t("Billing", "账务")}</option>
+              <option value="other">{t("Other", "其他")}</option>
+            </select>
+          </label>
+          <label>
+            {t("Request ID (optional)", "请求编号（选填）")}
+            <input name="request_id" maxLength={36} />
+          </label>
+          <label>
+            {t("What happened?", "请描述遇到的问题")}
+            <textarea name="message" required maxLength={4000} rows={5} />
+          </label>
+          <button className="btn brand" type="submit">
+            {t("Submit request", "提交工单")}
+          </button>
+        </form>
+        {includeStatus ? status : null}
+      </div>
+
+      <div>
+        <div className="card auth-card">
+          <form data-support-receipt="" method="post">
+            <h2>{t("Check a support request", "查看工单进展")}</h2>
+            <label>
+              {t("Private support receipt", "私密工单回执")}
+              <input
+                name="receipt"
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                minLength={43}
+                maxLength={43}
+                required
+              />
+            </label>
+            <button className="btn ghost" type="submit">
+              {t("Check request status", "查询工单状态")}
+            </button>
+          </form>
+          <div data-support-result="" className="mt-14" />
+        </div>
+        <div className="card mt-18">
+          <h3>{t("Response expectations", "处理时效说明")}</h3>
+          <div className="kv mt-12">
+            <div>
+              <b>{t("Billing", "账务核对")}</b>
+              <span>{t("Same business day", "当天工作日响应")}</span>
+            </div>
+            <div>
+              <b>{t("Rights & takedowns", "版权与下架")}</b>
+              <span>{t("Verified against permission epoch", "按权限纪元即时撤权")}</span>
+            </div>
+            <div>
+              <b>{t("Service availability", "服务状态")}</b>
+              <a href={link("/data-availability")}>{t("Check availability →", "查看数据可用性 →")}</a>
+            </div>
+            <div>
+              <b>{t("Direct contact", "直接邮件")}</b>
+              <a href="mailto:support@soldbench.com">support@soldbench.com</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+  const renderPlaygroundBody = (formAction: string, chipsTarget: string, includeStatus: boolean) => (
+    <>
+      <div className="notice mt-0 mb-16" data-kind="warning">
+        {t(
+          "Live API mode — requests run against your signed-in session. Failed queries, low-sample (<8) results, and identical repeats within 10 minutes are free; broad searches return 202 and charge only on explicit claim.",
+          "实时调试模式 — 请求直接使用当前登录会话执行。失败查询、低样本（<8）结果与 10 分钟内同参数复用均免费；宽泛查询返回 202，仅在显式领用结果时计费。",
+        )}
+      </div>
+      <div className="grid2">
+        <div className="card auth-card">
+          <form action={link(formAction)} method="get" data-search="">
+            <label>
+              {t("q — search terms", "q — 查询关键词")}
+              <input
+                name="q"
+                maxLength={120}
+                required
+                defaultValue={draft.get("q") ?? "Nintendo Switch OLED"}
+                placeholder={t("e.g. Nintendo Switch OLED", "例如 Nintendo Switch OLED")}
+              />
+            </label>
+            <div className="pg-form-row">
+              <label>
+                {t("Condition", "成色")}
+                <select name="condition" defaultValue={draft.get("condition") ?? ""}>
+                  <option value="">{t("Any", "不限")}</option>
+                  <option value="like_new">{t("Like new", "近新")}</option>
+                  <option value="good">{t("Good", "良好")}</option>
+                  <option value="fair">{t("Fair", "一般")}</option>
+                  <option value="defective">{t("For parts", "故障/零件")}</option>
+                </select>
+              </label>
+              <label>
+                {t("Format", "成交方式")}
+                <select name="sale_format" defaultValue={draft.get("sale_format") ?? ""}>
+                  <option value="">{t("Any", "不限")}</option>
+                  <option value="fixed_price">{t("Fixed price", "一口价")}</option>
+                  <option value="auction">{t("Auction", "拍卖")}</option>
+                  <option value="best_offer">{t("Best Offer", "议价")}</option>
+                </select>
+              </label>
+              <label>
+                {t("Window", "时间窗口")}
+                <select name="window_days" defaultValue={draft.get("window_days") ?? "90"}>
+                  <option value="90">{t("90 days", "90 天")}</option>
+                  <option value="30">{t("30 days", "30 天")}</option>
+                </select>
+              </label>
+            </div>
+            <div className="pg-form-row">
+              <label>
+                {t("Min price ($)", "最低价格")}
+                <input
+                  name="min_price"
+                  inputMode="decimal"
+                  maxLength={17}
+                  pattern="[0-9]+([.][0-9]{1,2})?"
+                  defaultValue={priceDraft("min_price_cents")}
+                  placeholder="—"
+                />
+              </label>
+              <label>
+                {t("Max price ($)", "最高价格")}
+                <input
+                  name="max_price"
+                  inputMode="decimal"
+                  maxLength={17}
+                  pattern="[0-9]+([.][0-9]{1,2})?"
+                  defaultValue={priceDraft("max_price_cents")}
+                  placeholder="—"
+                />
+              </label>
+              <label>
+                {t("Price basis", "价格口径")}
+                <select
+                  name="price_basis"
+                  defaultValue={draft.get("price_basis") ?? "item_plus_observed_shipping"}
+                >
+                  <option value="item_plus_observed_shipping">{t("Item + ship", "商品＋运费")}</option>
+                  <option value="item">{t("Item only", "仅商品价")}</option>
+                </select>
+              </label>
+            </div>
+            <label className="check">
+              <input
+                type="checkbox"
+                name="allow_stale"
+                defaultChecked={draft.get("allow_stale") === "true"}
+              />
+              <span>{t("Allow older cached data", "允许使用较旧缓存")}</span>
+            </label>
+            <button className="btn brand pg-submit" type="submit">
+              {t("Search", "查询")}
+            </button>
+            <p className="small mt-10">
+              {t(
+                "Sync results deliver immediately; broad queries return 202 and charge only when you claim.",
+                "同步查价直接交付结果；宽泛查询先返回 202，显式领用时再结算额度。",
+              )}
+            </p>
+          </form>
+          {renderExamples(chipsTarget)}
+          {includeStatus ? status : null}
+          <div className="actions" data-actions="" />
+        </div>
+
+        <section className="card" data-api-trace="">
+          <h2>{t("Requests and responses", "请求与响应")}</h2>
+          <div className="actions" data-trace-list="" />
+          <details open className="mt-12">
+            <summary>{t("Response", "响应")}</summary>
+            <pre data-trace-body="">
+              {`{
+  "data": {
+    "query": "Nintendo Switch OLED",
+    "stats": {
+      "median_cents": 28150,
+      "p25_cents": 26500,
+      "p75_cents": 29175,
+      "trimmed_mean_cents": 27867,
+      "n_price_verified": 8
+    },
+    "quality": {
+      "sample_tier": "limited",
+      "total_score": null
+    }
+  },
+  "meta": {
+    "query_id": "q_demo_oled",
+    "credits_charged": 1
+  }
+}`}
+            </pre>
+          </details>
+          <details className="mt-8">
+            <summary>{t("Headers", "响应头")}</summary>
+            <pre data-trace-headers="" />
+          </details>
+          <details className="mt-8">
+            <summary>{t("Server-side cURL example", "服务端 cURL 示例")}</summary>
+            <pre data-trace-code="" />
+          </details>
+        </section>
+      </div>
+    </>
+  );
+  const renderSearchBody = (
+    formAction: string,
+    chipsTarget: string,
+    ssrShowcase: typeof homeShowcase | null,
+    defaultQuery: string | undefined,
+    includeStatus: boolean,
+  ) => (
+    <>
+      <form action={link(formAction)} method="get" data-search="">
+        {renderSearchBox(defaultQuery)}
+        {renderExamples(chipsTarget)}
+        {draft.get("category") && <input type="hidden" name="category" value={draft.get("category") ?? ""} />}
+        <div className="wb-filters">
+          <label>
+            {t("Condition", "成色")}
+            <select name="condition" defaultValue={draft.get("condition") ?? ""}>
+              <option value="">{t("Any condition", "不限成色")}</option>
+              <option value="like_new">{t("Like new", "近新")}</option>
+              <option value="good">{t("Good", "良好")}</option>
+              <option value="fair">{t("Fair", "一般")}</option>
+              <option value="defective">{t("For parts", "故障或零件")}</option>
+            </select>
+          </label>
+          <label>
+            {t("Format", "成交方式")}
+            <select name="sale_format" defaultValue={draft.get("sale_format") ?? ""}>
+              <option value="">{t("Any format", "不限方式")}</option>
+              <option value="fixed_price">{t("Fixed price", "一口价")}</option>
+              <option value="auction">{t("Auction", "拍卖")}</option>
+              <option value="best_offer">{t("Best Offer", "议价")}</option>
+            </select>
+          </label>
+          <label>
+            {t("Min price (USD)", "最低价格（美元）")}
+            <input
+              name="min_price"
+              inputMode="decimal"
+              maxLength={17}
+              pattern="[0-9]+([.][0-9]{1,2})?"
+              defaultValue={priceDraft("min_price_cents")}
+            />
+          </label>
+          <label>
+            {t("Max price (USD)", "最高价格（美元）")}
+            <input
+              name="max_price"
+              inputMode="decimal"
+              maxLength={17}
+              pattern="[0-9]+([.][0-9]{1,2})?"
+              defaultValue={priceDraft("max_price_cents")}
+            />
+          </label>
+          <label>
+            {t("Window", "时间范围")}
+            <select name="window_days" defaultValue={draft.get("window_days") ?? "90"}>
+              <option value="90">{t("90 days", "90 天")}</option>
+              <option value="30">{t("30 days", "30 天")}</option>
+            </select>
+          </label>
+          <label>
+            {t("Price basis", "价格口径")}
+            <select
+              name="price_basis"
+              defaultValue={draft.get("price_basis") ?? "item_plus_observed_shipping"}
+            >
+              <option value="item_plus_observed_shipping">
+                {t("Item + observed shipping", "商品价＋已观察运费")}
+              </option>
+              <option value="item">{t("Item only", "仅商品价")}</option>
+            </select>
+          </label>
+          <label className="wb-check-label">
+            <input type="checkbox" name="allow_stale" defaultChecked={draft.get("allow_stale") === "true"} />
+            <span>{t("Allow older cache", "允许陈旧缓存")}</span>
+          </label>
+        </div>
+      </form>
+      {includeStatus ? status : null}
+      <div className="actions" data-actions="" />
+      <div data-results="" className="mt-16">
+        {ssrShowcase &&
+          (() => {
+            const verifiedPrices = ssrShowcase.comps
+              .map((c) => c.item_price_cents)
+              .filter((v): v is number => v !== null && v !== undefined);
+            const meanCents = verifiedPrices.length
+              ? Math.round(verifiedPrices.reduce((acc, v) => acc + v, 0) / verifiedPrices.length)
+              : null;
+            const shipValues = ssrShowcase.comps
+              .map((c) => c.observed_shipping_cents)
+              .filter((v): v is number => v !== null && v !== undefined);
+            const avgShipCents = shipValues.length
+              ? Math.round(shipValues.reduce((acc, v) => acc + v, 0) / shipValues.length)
+              : null;
+            const excludedCount =
+              Math.max(0, ssrShowcase.stats.n_observed - ssrShowcase.stats.n_comparable) +
+              ssrShowcase.stats.n_excluded_unverified_price;
+            const sampleTierLabel =
+              ssrShowcase.stats.n_price_verified >= 30
+                ? t("Full sample", "充足样本")
+                : ssrShowcase.stats.n_price_verified >= 8
+                  ? t("Limited sample", "有限样本")
+                  : t("Low sample (n < 8)", "样本不足 (n < 8)");
+            const sourceBadgeLabel =
+              ssrShowcase.data_mode === "approved_network"
+                ? t("Approved sample", "合规样本")
+                : t("Offline fixture", "本地合成样本");
+            const basisNote =
+              ssrShowcase.price_basis === "item"
+                ? t("Basis: item price", "口径：仅商品价")
+                : t("Basis: item + shipping", "口径：商品＋运费");
+
+            return (
+              <>
+                <p className="summary-note">
+                  <b>{t("Free lookup · Cached public snapshot", "免费查价 · 公共缓存快照")}</b>
+                  {" · "}
+                  {t(
+                    "Fresh within 24h · Observed sample · Verified prices only",
+                    "24 小时内新鲜样本 · 已观察样本 · 仅计入已核验价格",
+                  )}
+                </p>
+                <section className="live-card result-card mt-10">
+                  <div className="stat-card">
+                    <div className="stat-badges">
+                      <span className="badge badge-green">{t("Cached public snapshot", "公共演示快照")}</span>
+                      <span className="tag-ex">{sourceBadgeLabel}</span>
+                    </div>
+                    <div className="stat-grid">
+                      <div>
+                        <div className="lab">{t("Median sold price", "中位成交价")}</div>
+                        <div className="median-big">{fmtMoney(ssrShowcase.stats.median_cents, locale)}</div>
+                        <div className="stat-range">
+                          {ssrShowcase.stats.p25_cents != null && ssrShowcase.stats.p75_cents != null
+                            ? `${t("Typical range", "典型区间")} ${fmtMoney(ssrShowcase.stats.p25_cents, locale)} – ${fmtMoney(ssrShowcase.stats.p75_cents, locale)}`
+                            : `${t("Typical range", "典型区间")} —`}
+                        </div>
+                        <div className="small mt-6">{`${sampleTierLabel} · ${basisNote}`}</div>
+                      </div>
+                      <div className="stat-mini">
+                        <div>
+                          <div className="lab">{t("Average", "均值")}</div>
+                          <div className="val">{fmtMoney(meanCents, locale)}</div>
+                        </div>
+                        <div>
+                          <div className="lab">{t("Trimmed mean", "5% 截尾均价")}</div>
+                          <div className="val">{fmtMoney(ssrShowcase.stats.trimmed_mean_cents, locale)}</div>
+                        </div>
+                        <div>
+                          <div className="lab">{t("Low – High", "最低 – 最高")}</div>
+                          <div className="val">
+                            {ssrShowcase.stats.observed_min_cents != null
+                              ? `${fmtMoney(ssrShowcase.stats.observed_min_cents, locale)} – ${fmtMoney(ssrShowcase.stats.observed_max_cents, locale)}`
+                              : "—"}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="lab">{t("Avg shipping", "平均运费")}</div>
+                          <div className="val">{fmtShipping(avgShipCents, locale, zh)}</div>
+                        </div>
+                        <div>
+                          <div className="lab">{t("Sample (verified)", "核验样本")}</div>
+                          <div className="val">{ssrShowcase.stats.n_price_verified}</div>
+                        </div>
+                        <div>
+                          <div className="lab">{t("Observed", "已观察")}</div>
+                          <div className="val">{ssrShowcase.stats.n_observed}</div>
+                        </div>
+                        <div>
+                          <div className="lab">{t("Comparable", "可比样本")}</div>
+                          <div className="val">{ssrShowcase.stats.n_comparable}</div>
+                        </div>
+                        <div>
+                          <div className="lab">{t("Excluded / diagnostic", "排除 / 诊断")}</div>
+                          <div className="val">{excludedCount}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <div className="live-card mt-14">
+                  <div className="table-scroll">
+                    <table className="tbl-fixed tbl-preview">
+                      <colgroup>
+                        <col className="col-p1" />
+                        <col className="col-p2" />
+                        <col className="col-p3" />
+                        <col className="col-p4" />
+                        <col className="col-p5" />
+                        <col className="col-p6" />
+                        <col className="col-p7" />
+                        <col className="col-p8" />
+                      </colgroup>
+                      <thead>
+                        <tr>
+                          <th>{t("Title", "商品标题")}</th>
+                          <th>{t("Condition", "成色")}</th>
+                          <th>{t("Format", "方式")}</th>
+                          <th className="num">{t("Sold", "成交价")}</th>
+                          <th className="num">{t("Shipping", "运费")}</th>
+                          <th className="num">{t("Total", "总价")}</th>
+                          <th>{t("Date", "日期")}</th>
+                          <th>{t("Details", "详情")}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ssrShowcase.comps.slice(0, 12).map((c, idx) => {
+                          const totalCents =
+                            c.item_price_cents != null && c.observed_shipping_cents != null
+                              ? c.item_price_cents + c.observed_shipping_cents
+                              : null;
+                          return (
+                            <tr key={c.sale_event_id}>
+                              <td>
+                                <div className="thumb-title">
+                                  <span className="thumb">
+                                    <ProductThumbSvg index={idx} />
+                                  </span>
+                                  <span className="ttl-demo">
+                                    {c.title ??
+                                      t("Verified listing (title withheld)", "已核验记录（标题隐藏）")}
+                                    <span className="demo-tag">{t("Fixture", "示例")}</span>
+                                  </span>
+                                </div>
+                              </td>
+                              <td>{fmtCondition(c.condition_std, zh)}</td>
+                              <td>
+                                <span className={fmtFormatClass(c.sale_format)}>
+                                  {fmtFormat(c.sale_format, zh)}
+                                </span>
+                              </td>
+                              <td className="num price">{fmtMoney(c.item_price_cents, locale)}</td>
+                              <td className="num">{fmtShipping(c.observed_shipping_cents, locale, zh)}</td>
+                              <td className="num">{fmtMoney(totalCents, locale)}</td>
+                              <td className="nw">{fmtSoldDate(c.sold_date, zh)}</td>
+                              <td>
+                                <button
+                                  type="button"
+                                  className="row-exp"
+                                  data-search-rowexp={c.sale_event_id}
+                                  aria-expanded="false"
+                                >
+                                  {t("Details", "详情")} <span className="chev">▾</span>
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <section className="card mt-16">
+                  <h3>{t("Evidence pack", "证据包")}</h3>
+                  <p className="small">
+                    {t(
+                      "Every delivered search includes the query snapshot identifier, candidate set hash, and rule versions behind these numbers.",
+                      "每次交付结果均附带查询快照编号、候选集哈希以及用于计算上述统计数据的清洗与统计规则版本。",
+                    )}
+                  </p>
+                  <div className="kv mt-12">
+                    <div>
+                      <b>{t("Query ID", "查询编号")}</b>
+                      <span>
+                        <code>{ssrShowcase.query_id}</code>
+                      </span>
+                    </div>
+                    <div>
+                      <b>{t("Candidate hash", "候选集哈希")}</b>
+                      <span>
+                        <code>{ssrShowcase.candidate_set_hash.slice(0, 18)}…</code>
+                      </span>
+                    </div>
+                    <div>
+                      <b>{t("Rule versions", "规则版本")}</b>
+                      <span>{`engine ${ssrShowcase.engine_version} · cleaner ${ssrShowcase.cleaner_version}`}</span>
+                    </div>
+                    <div>
+                      <b>{t("Sample status", "样本状态")}</b>
+                      <span>{`${sampleTierLabel} (${ssrShowcase.stats.n_price_verified}/${ssrShowcase.stats.n_observed})`}</span>
+                    </div>
+                  </div>
+                </section>
+              </>
+            );
+          })()}
+      </div>
+      <noscript>{t("Enable JavaScript to submit a search.", "请启用 JavaScript 后提交搜索。")}</noscript>
+    </>
+  );
   const research =
     page === "/search" || page === "/research" || page === "/results" || page === "/playground";
   const auth = ["/login", "/register", "/verify-email", "/forgot-password", "/reset-password"].includes(page);
@@ -909,56 +1505,7 @@ export function renderPage(
       </>
     );
   } else if (page === "/agents") {
-    const clientSetupMap: Array<[string, string, string]> = [
-      [
-        "claude",
-        "Claude Code",
-        `# Add SoldBench Hosted MCP server\nclaude mcp add --transport http soldbench https://soldbench.com/mcp \\\n  --header "Authorization: Bearer $SOLDBENCH_API_KEY"`,
-      ],
-      [
-        "chatgpt",
-        "ChatGPT",
-        `# ChatGPT -> Settings -> Connectors -> Add custom connector\nName: SoldBench\nURL:  https://soldbench.com/mcp\nAuth: Bearer $SOLDBENCH_API_KEY`,
-      ],
-      [
-        "cursor",
-        "Cursor",
-        `// ~/.cursor/mcp.json\n{\n  "mcpServers": {\n    "soldbench": {\n      "url": "https://soldbench.com/mcp",\n      "headers": { "Authorization": "Bearer $SOLDBENCH_API_KEY" }\n    }\n  }\n}`,
-      ],
-      [
-        "vscode",
-        "VS Code",
-        `// .vscode/mcp.json\n{\n  "servers": {\n    "soldbench": {\n      "type": "http",\n      "url": "https://soldbench.com/mcp",\n      "headers": { "Authorization": "Bearer $SOLDBENCH_API_KEY" }\n    }\n  }\n}`,
-      ],
-      [
-        "windsurf",
-        "Windsurf",
-        `// ~/.codeium/windsurf/mcp_config.json\n{\n  "mcpServers": {\n    "soldbench": {\n      "serverUrl": "https://soldbench.com/mcp",\n      "headers": { "Authorization": "Bearer $SOLDBENCH_API_KEY" }\n    }\n  }\n}`,
-      ],
-    ];
     const heroSnippet = `// ${t("Example MCP call", "MCP 调用示例")}\n{\n  "tool": "sold_search",\n  "arguments": {\n    "q": "Nintendo Switch OLED",\n    "window_days": 90,\n    "limit": 50\n  }\n}\n\n# ${t("Verifiable response invariants", "严格不变式保证")}\nn_observed: 12\nn_comparable: 10\nn_price_verified: 8\ncoverage_status: "observed_sample"\nsource_price_status: "verified_only"`;
-    const playbookRules = [
-      t(
-        "Quote the median and P25–P75 range alongside sample size (n_price_verified).",
-        "始终附带净中位价、P25–P75 区间及有效核验样本数量。",
-      ),
-      t(
-        "Below 8 verified sales, report insufficient data honestly — never fabricate a median.",
-        "少于 8 条有效核验价格时如实告知样本不足，严禁凭空编造价格。",
-      ),
-      t(
-        "Never convert undisclosed Best Offer amounts or unknown shipping into zero.",
-        "未公开实价的议价与未知运费绝不补零混入统计。",
-      ),
-      t(
-        "Cite query_id and data_as_of in every price summary for full auditability.",
-        "回答时附带 query_id 与 data_as_of 以便核验溯源。",
-      ),
-      t(
-        "Stop cleanly on 402 quota errors and respect Retry-After on 429/503 responses.",
-        "遇到 402 额度不足立即停止，遇到 429/503 遵守 Retry-After 重试退避。",
-      ),
-    ];
 
     content = (
       <>
@@ -1111,32 +1658,7 @@ export function renderPage(
               </div>
             </div>
 
-            <div className="card ag-card">
-              <h2 className="serif ag-title">{t("Set up your client", "选择您的 AI 客户端配置")}</h2>
-              <div className="tabs" role="tablist" aria-label={t("MCP clients", "MCP 客户端")}>
-                {clientSetupMap.map(([key, label], idx) => (
-                  <button
-                    key={key}
-                    type="button"
-                    data-agent-client={key}
-                    className={idx === 0 ? "on" : undefined}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <div className="codeblock mt-12">
-                <div className="cb-head">
-                  <span data-agent-client-title="">Claude Code setup</span>
-                  <button type="button" className="copy-btn" data-copy="#agentClientCode">
-                    {t("Copy", "复制")}
-                  </button>
-                </div>
-                <pre id="agentClientCode" data-agent-client-code="">
-                  {highlightCode(clientSetupMap[0]?.[2] ?? "", "bash")}
-                </pre>
-              </div>
-            </div>
+            {agentClientSetupCard}
 
             <div className="card ag-card">
               <h2 className="serif ag-title">
@@ -1160,7 +1682,7 @@ export function renderPage(
             <div className="card ag-card">
               <h2 className="serif ag-title">{t("Agent playbook", "Agent 集成最佳实践准则")}</h2>
               <ol className="ag-list">
-                {playbookRules.map((rule) => (
+                {agentPlaybookRules.map((rule) => (
                   <li key={rule}>{rule}</li>
                 ))}
               </ol>
@@ -2177,76 +2699,7 @@ export function renderPage(
               </div>
             </div>
 
-            <div className="grid2 mt-22">
-              <div className="card auth-card">
-                <form data-support="" method="post">
-                  <h2>{t("Open a ticket", "提交新工单")}</h2>
-                  <label>
-                    {t("Issue type", "问题类型")}
-                    <select name="category" required>
-                      <option value="data_quality">{t("Data quality", "数据质量")}</option>
-                      <option value="takedown">{t("Data rights or takedown", "数据权利或下架")}</option>
-                      <option value="account">{t("Account access", "账户访问")}</option>
-                      <option value="billing">{t("Billing", "账务")}</option>
-                      <option value="other">{t("Other", "其他")}</option>
-                    </select>
-                  </label>
-                  <label>
-                    {t("Request ID (optional)", "请求编号（选填）")}
-                    <input name="request_id" maxLength={36} />
-                  </label>
-                  <label>
-                    {t("What happened?", "请描述遇到的问题")}
-                    <textarea name="message" required maxLength={4000} rows={5} />
-                  </label>
-                  <button className="btn brand" type="submit">
-                    {t("Submit request", "提交工单")}
-                  </button>
-                </form>
-                {status}
-              </div>
-
-              <div>
-                <div className="card auth-card">
-                  <form data-support-receipt="" method="post">
-                    <h2>{t("Check a support request", "查看工单进展")}</h2>
-                    <label>
-                      {t("Private support receipt", "私密工单回执")}
-                      <input
-                        name="receipt"
-                        type="password"
-                        autoComplete="off"
-                        spellCheck={false}
-                        minLength={43}
-                        maxLength={43}
-                        required
-                      />
-                    </label>
-                    <button className="btn ghost" type="submit">
-                      {t("Check request status", "查询工单状态")}
-                    </button>
-                  </form>
-                  <div data-support-result="" className="mt-14" />
-                </div>
-                <div className="card mt-18">
-                  <h3>{t("Response expectations", "处理时效说明")}</h3>
-                  <div className="kv mt-12">
-                    <div>
-                      <b>{t("Billing", "账务核对")}</b>
-                      <span>{t("Same business day", "当天工作日响应")}</span>
-                    </div>
-                    <div>
-                      <b>{t("Rights & takedowns", "版权与下架")}</b>
-                      <span>{t("Verified against permission epoch", "按权限纪元即时撤权")}</span>
-                    </div>
-                    <div>
-                      <b>{t("Service availability", "服务状态")}</b>
-                      <a href={link("/data-availability")}>{t("Check availability →", "查看数据可用性 →")}</a>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+            {renderSupportIntakeGrid(true)}
           </div>
         </section>
       </>
@@ -2285,454 +2738,12 @@ export function renderPage(
           <div className="wrap">
             {page === "/playground" ? (
               <>
-                <div className="notice mt-0 mb-16" data-kind="warning">
-                  {t(
-                    "Live API mode — requests run against your signed-in session. Failed queries, low-sample (<8) results, and identical repeats within 10 minutes are free; broad searches return 202 and charge only on explicit claim.",
-                    "实时调试模式 — 请求直接使用当前登录会话执行。失败查询、低样本（<8）结果与 10 分钟内同参数复用均免费；宽泛查询返回 202，仅在显式领用结果时计费。",
-                  )}
-                </div>
-                <div className="grid2">
-                  <div className="card auth-card">
-                    <form action={link("/search")} method="get" data-search="">
-                      <label>
-                        {t("q — search terms", "q — 查询关键词")}
-                        <input
-                          name="q"
-                          maxLength={120}
-                          required
-                          defaultValue={draft.get("q") ?? "Nintendo Switch OLED"}
-                          placeholder={t("e.g. Nintendo Switch OLED", "例如 Nintendo Switch OLED")}
-                        />
-                      </label>
-                      <div className="pg-form-row">
-                        <label>
-                          {t("Condition", "成色")}
-                          <select name="condition" defaultValue={draft.get("condition") ?? ""}>
-                            <option value="">{t("Any", "不限")}</option>
-                            <option value="like_new">{t("Like new", "近新")}</option>
-                            <option value="good">{t("Good", "良好")}</option>
-                            <option value="fair">{t("Fair", "一般")}</option>
-                            <option value="defective">{t("For parts", "故障/零件")}</option>
-                          </select>
-                        </label>
-                        <label>
-                          {t("Format", "成交方式")}
-                          <select name="sale_format" defaultValue={draft.get("sale_format") ?? ""}>
-                            <option value="">{t("Any", "不限")}</option>
-                            <option value="fixed_price">{t("Fixed price", "一口价")}</option>
-                            <option value="auction">{t("Auction", "拍卖")}</option>
-                            <option value="best_offer">{t("Best Offer", "议价")}</option>
-                          </select>
-                        </label>
-                        <label>
-                          {t("Window", "时间窗口")}
-                          <select name="window_days" defaultValue={draft.get("window_days") ?? "90"}>
-                            <option value="90">{t("90 days", "90 天")}</option>
-                            <option value="30">{t("30 days", "30 天")}</option>
-                          </select>
-                        </label>
-                      </div>
-                      <div className="pg-form-row">
-                        <label>
-                          {t("Min price ($)", "最低价格")}
-                          <input
-                            name="min_price"
-                            inputMode="decimal"
-                            maxLength={17}
-                            pattern="[0-9]+([.][0-9]{1,2})?"
-                            defaultValue={priceDraft("min_price_cents")}
-                            placeholder="—"
-                          />
-                        </label>
-                        <label>
-                          {t("Max price ($)", "最高价格")}
-                          <input
-                            name="max_price"
-                            inputMode="decimal"
-                            maxLength={17}
-                            pattern="[0-9]+([.][0-9]{1,2})?"
-                            defaultValue={priceDraft("max_price_cents")}
-                            placeholder="—"
-                          />
-                        </label>
-                        <label>
-                          {t("Price basis", "价格口径")}
-                          <select
-                            name="price_basis"
-                            defaultValue={draft.get("price_basis") ?? "item_plus_observed_shipping"}
-                          >
-                            <option value="item_plus_observed_shipping">
-                              {t("Item + ship", "商品＋运费")}
-                            </option>
-                            <option value="item">{t("Item only", "仅商品价")}</option>
-                          </select>
-                        </label>
-                      </div>
-                      <label className="check">
-                        <input
-                          type="checkbox"
-                          name="allow_stale"
-                          defaultChecked={draft.get("allow_stale") === "true"}
-                        />
-                        <span>{t("Allow older cached data", "允许使用较旧缓存")}</span>
-                      </label>
-                      <button className="btn brand pg-submit" type="submit">
-                        {t("Search", "查询")}
-                      </button>
-                      <p className="small mt-10">
-                        {t(
-                          "Sync results deliver immediately; broad queries return 202 and charge only when you claim.",
-                          "同步查价直接交付结果；宽泛查询先返回 202，显式领用时再结算额度。",
-                        )}
-                      </p>
-                    </form>
-                    {examples}
-                    {status}
-                    <div className="actions" data-actions="" />
-                  </div>
-
-                  <section className="card" data-api-trace="">
-                    <h2>{t("Requests and responses", "请求与响应")}</h2>
-                    <div className="actions" data-trace-list="" />
-                    <details open className="mt-12">
-                      <summary>{t("Response", "响应")}</summary>
-                      <pre data-trace-body="">
-                        {`{
-  "data": {
-    "query": "Nintendo Switch OLED",
-    "stats": {
-      "median_cents": 28150,
-      "p25_cents": 26500,
-      "p75_cents": 29175,
-      "trimmed_mean_cents": 27867,
-      "n_price_verified": 8
-    },
-    "quality": {
-      "sample_tier": "limited",
-      "total_score": null
-    }
-  },
-  "meta": {
-    "query_id": "q_demo_oled",
-    "credits_charged": 1
-  }
-}`}
-                      </pre>
-                    </details>
-                    <details className="mt-8">
-                      <summary>{t("Headers", "响应头")}</summary>
-                      <pre data-trace-headers="" />
-                    </details>
-                    <details className="mt-8">
-                      <summary>{t("Server-side cURL example", "服务端 cURL 示例")}</summary>
-                      <pre data-trace-code="" />
-                    </details>
-                  </section>
-                </div>
+                {renderPlaygroundBody("/search", "/search", true)}
+                <div data-results="" className="mt-16" />
               </>
             ) : (
-              <>
-                <form action={link("/search")} method="get" data-search="">
-                  {searchBox}
-                  {examples}
-                  {draft.get("category") && (
-                    <input type="hidden" name="category" value={draft.get("category") ?? ""} />
-                  )}
-                  <div className="wb-filters">
-                    <label>
-                      {t("Condition", "成色")}
-                      <select name="condition" defaultValue={draft.get("condition") ?? ""}>
-                        <option value="">{t("Any condition", "不限成色")}</option>
-                        <option value="like_new">{t("Like new", "近新")}</option>
-                        <option value="good">{t("Good", "良好")}</option>
-                        <option value="fair">{t("Fair", "一般")}</option>
-                        <option value="defective">{t("For parts", "故障或零件")}</option>
-                      </select>
-                    </label>
-                    <label>
-                      {t("Format", "成交方式")}
-                      <select name="sale_format" defaultValue={draft.get("sale_format") ?? ""}>
-                        <option value="">{t("Any format", "不限方式")}</option>
-                        <option value="fixed_price">{t("Fixed price", "一口价")}</option>
-                        <option value="auction">{t("Auction", "拍卖")}</option>
-                        <option value="best_offer">{t("Best Offer", "议价")}</option>
-                      </select>
-                    </label>
-                    <label>
-                      {t("Min price (USD)", "最低价格（美元）")}
-                      <input
-                        name="min_price"
-                        inputMode="decimal"
-                        maxLength={17}
-                        pattern="[0-9]+([.][0-9]{1,2})?"
-                        defaultValue={priceDraft("min_price_cents")}
-                      />
-                    </label>
-                    <label>
-                      {t("Max price (USD)", "最高价格（美元）")}
-                      <input
-                        name="max_price"
-                        inputMode="decimal"
-                        maxLength={17}
-                        pattern="[0-9]+([.][0-9]{1,2})?"
-                        defaultValue={priceDraft("max_price_cents")}
-                      />
-                    </label>
-                    <label>
-                      {t("Window", "时间范围")}
-                      <select name="window_days" defaultValue={draft.get("window_days") ?? "90"}>
-                        <option value="90">{t("90 days", "90 天")}</option>
-                        <option value="30">{t("30 days", "30 天")}</option>
-                      </select>
-                    </label>
-                    <label>
-                      {t("Price basis", "价格口径")}
-                      <select
-                        name="price_basis"
-                        defaultValue={draft.get("price_basis") ?? "item_plus_observed_shipping"}
-                      >
-                        <option value="item_plus_observed_shipping">
-                          {t("Item + observed shipping", "商品价＋已观察运费")}
-                        </option>
-                        <option value="item">{t("Item only", "仅商品价")}</option>
-                      </select>
-                    </label>
-                    <label className="wb-check-label">
-                      <input
-                        type="checkbox"
-                        name="allow_stale"
-                        defaultChecked={draft.get("allow_stale") === "true"}
-                      />
-                      <span>{t("Allow older cache", "允许陈旧缓存")}</span>
-                    </label>
-                  </div>
-                </form>
-                {status}
-                <div className="actions" data-actions="" />
-              </>
+              renderSearchBody("/search", "/search", ssrShowcase, undefined, true)
             )}
-
-            <div data-results="" className="mt-16">
-              {ssrShowcase &&
-                (() => {
-                  const verifiedPrices = ssrShowcase.comps
-                    .map((c) => c.item_price_cents)
-                    .filter((v): v is number => v !== null && v !== undefined);
-                  const meanCents = verifiedPrices.length
-                    ? Math.round(verifiedPrices.reduce((acc, v) => acc + v, 0) / verifiedPrices.length)
-                    : null;
-                  const shipValues = ssrShowcase.comps
-                    .map((c) => c.observed_shipping_cents)
-                    .filter((v): v is number => v !== null && v !== undefined);
-                  const avgShipCents = shipValues.length
-                    ? Math.round(shipValues.reduce((acc, v) => acc + v, 0) / shipValues.length)
-                    : null;
-                  const excludedCount =
-                    Math.max(0, ssrShowcase.stats.n_observed - ssrShowcase.stats.n_comparable) +
-                    ssrShowcase.stats.n_excluded_unverified_price;
-                  const sampleTierLabel =
-                    ssrShowcase.stats.n_price_verified >= 30
-                      ? t("Full sample", "充足样本")
-                      : ssrShowcase.stats.n_price_verified >= 8
-                        ? t("Limited sample", "有限样本")
-                        : t("Low sample (n < 8)", "样本不足 (n < 8)");
-                  const sourceBadgeLabel =
-                    ssrShowcase.data_mode === "approved_network"
-                      ? t("Approved sample", "合规样本")
-                      : t("Offline fixture", "本地合成样本");
-                  const basisNote =
-                    ssrShowcase.price_basis === "item"
-                      ? t("Basis: item price", "口径：仅商品价")
-                      : t("Basis: item + shipping", "口径：商品＋运费");
-
-                  return (
-                    <>
-                      <p className="summary-note">
-                        <b>{t("Free lookup · Cached public snapshot", "免费查价 · 公共缓存快照")}</b>
-                        {" · "}
-                        {t(
-                          "Fresh within 24h · Observed sample · Verified prices only",
-                          "24 小时内新鲜样本 · 已观察样本 · 仅计入已核验价格",
-                        )}
-                      </p>
-                      <section className="live-card result-card mt-10">
-                        <div className="stat-card">
-                          <div className="stat-badges">
-                            <span className="badge badge-green">
-                              {t("Cached public snapshot", "公共演示快照")}
-                            </span>
-                            <span className="tag-ex">{sourceBadgeLabel}</span>
-                          </div>
-                          <div className="stat-grid">
-                            <div>
-                              <div className="lab">{t("Median sold price", "中位成交价")}</div>
-                              <div className="median-big">
-                                {fmtMoney(ssrShowcase.stats.median_cents, locale)}
-                              </div>
-                              <div className="stat-range">
-                                {ssrShowcase.stats.p25_cents != null && ssrShowcase.stats.p75_cents != null
-                                  ? `${t("Typical range", "典型区间")} ${fmtMoney(ssrShowcase.stats.p25_cents, locale)} – ${fmtMoney(ssrShowcase.stats.p75_cents, locale)}`
-                                  : `${t("Typical range", "典型区间")} —`}
-                              </div>
-                              <div className="small mt-6">{`${sampleTierLabel} · ${basisNote}`}</div>
-                            </div>
-                            <div className="stat-mini">
-                              <div>
-                                <div className="lab">{t("Average", "均值")}</div>
-                                <div className="val">{fmtMoney(meanCents, locale)}</div>
-                              </div>
-                              <div>
-                                <div className="lab">{t("Trimmed mean", "5% 截尾均价")}</div>
-                                <div className="val">
-                                  {fmtMoney(ssrShowcase.stats.trimmed_mean_cents, locale)}
-                                </div>
-                              </div>
-                              <div>
-                                <div className="lab">{t("Low – High", "最低 – 最高")}</div>
-                                <div className="val">
-                                  {ssrShowcase.stats.observed_min_cents != null
-                                    ? `${fmtMoney(ssrShowcase.stats.observed_min_cents, locale)} – ${fmtMoney(ssrShowcase.stats.observed_max_cents, locale)}`
-                                    : "—"}
-                                </div>
-                              </div>
-                              <div>
-                                <div className="lab">{t("Avg shipping", "平均运费")}</div>
-                                <div className="val">{fmtShipping(avgShipCents, locale, zh)}</div>
-                              </div>
-                              <div>
-                                <div className="lab">{t("Sample (verified)", "核验样本")}</div>
-                                <div className="val">{ssrShowcase.stats.n_price_verified}</div>
-                              </div>
-                              <div>
-                                <div className="lab">{t("Observed", "已观察")}</div>
-                                <div className="val">{ssrShowcase.stats.n_observed}</div>
-                              </div>
-                              <div>
-                                <div className="lab">{t("Comparable", "可比样本")}</div>
-                                <div className="val">{ssrShowcase.stats.n_comparable}</div>
-                              </div>
-                              <div>
-                                <div className="lab">{t("Excluded / diagnostic", "排除 / 诊断")}</div>
-                                <div className="val">{excludedCount}</div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </section>
-
-                      <div className="live-card mt-14">
-                        <div className="table-scroll">
-                          <table className="tbl-fixed tbl-preview">
-                            <colgroup>
-                              <col className="col-p1" />
-                              <col className="col-p2" />
-                              <col className="col-p3" />
-                              <col className="col-p4" />
-                              <col className="col-p5" />
-                              <col className="col-p6" />
-                              <col className="col-p7" />
-                              <col className="col-p8" />
-                            </colgroup>
-                            <thead>
-                              <tr>
-                                <th>{t("Title", "商品标题")}</th>
-                                <th>{t("Condition", "成色")}</th>
-                                <th>{t("Format", "方式")}</th>
-                                <th className="num">{t("Sold", "成交价")}</th>
-                                <th className="num">{t("Shipping", "运费")}</th>
-                                <th className="num">{t("Total", "总价")}</th>
-                                <th>{t("Date", "日期")}</th>
-                                <th>{t("Details", "详情")}</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {ssrShowcase.comps.slice(0, 12).map((c, idx) => {
-                                const totalCents =
-                                  c.item_price_cents != null && c.observed_shipping_cents != null
-                                    ? c.item_price_cents + c.observed_shipping_cents
-                                    : null;
-                                return (
-                                  <tr key={c.sale_event_id}>
-                                    <td>
-                                      <div className="thumb-title">
-                                        <span className="thumb">
-                                          <ProductThumbSvg index={idx} />
-                                        </span>
-                                        <span className="ttl-demo">
-                                          {c.title ??
-                                            t("Verified listing (title withheld)", "已核验记录（标题隐藏）")}
-                                          <span className="demo-tag">{t("Fixture", "示例")}</span>
-                                        </span>
-                                      </div>
-                                    </td>
-                                    <td>{fmtCondition(c.condition_std, zh)}</td>
-                                    <td>
-                                      <span className={fmtFormatClass(c.sale_format)}>
-                                        {fmtFormat(c.sale_format, zh)}
-                                      </span>
-                                    </td>
-                                    <td className="num price">{fmtMoney(c.item_price_cents, locale)}</td>
-                                    <td className="num">
-                                      {fmtShipping(c.observed_shipping_cents, locale, zh)}
-                                    </td>
-                                    <td className="num">{fmtMoney(totalCents, locale)}</td>
-                                    <td className="nw">{fmtSoldDate(c.sold_date, zh)}</td>
-                                    <td>
-                                      <button
-                                        type="button"
-                                        className="row-exp"
-                                        data-search-rowexp={c.sale_event_id}
-                                        aria-expanded="false"
-                                      >
-                                        {t("Details", "详情")} <span className="chev">▾</span>
-                                      </button>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-
-                      <section className="card mt-16">
-                        <h3>{t("Evidence pack", "证据包")}</h3>
-                        <p className="small">
-                          {t(
-                            "Every delivered search includes the query snapshot identifier, candidate set hash, and rule versions behind these numbers.",
-                            "每次交付结果均附带查询快照编号、候选集哈希以及用于计算上述统计数据的清洗与统计规则版本。",
-                          )}
-                        </p>
-                        <div className="kv mt-12">
-                          <div>
-                            <b>{t("Query ID", "查询编号")}</b>
-                            <span>
-                              <code>{ssrShowcase.query_id}</code>
-                            </span>
-                          </div>
-                          <div>
-                            <b>{t("Candidate hash", "候选集哈希")}</b>
-                            <span>
-                              <code>{ssrShowcase.candidate_set_hash.slice(0, 18)}…</code>
-                            </span>
-                          </div>
-                          <div>
-                            <b>{t("Rule versions", "规则版本")}</b>
-                            <span>{`engine ${ssrShowcase.engine_version} · cleaner ${ssrShowcase.cleaner_version}`}</span>
-                          </div>
-                          <div>
-                            <b>{t("Sample status", "样本状态")}</b>
-                            <span>{`${sampleTierLabel} (${ssrShowcase.stats.n_price_verified}/${ssrShowcase.stats.n_observed})`}</span>
-                          </div>
-                        </div>
-                      </section>
-                    </>
-                  );
-                })()}
-            </div>
-            <noscript>
-              {t("Enable JavaScript to submit a search.", "请启用 JavaScript 后提交搜索。")}
-            </noscript>
           </div>
         </section>
       </>
@@ -2888,18 +2899,18 @@ export function renderPage(
     );
   } else {
     const docsHref = zh ? "/docs/zh-CN/quickstart" : "/docs/en/quickstart";
-    const primaryNav: Array<[string, string, boolean?]> = [
+    const primaryNav: Array<[string, string]> = [
       [link("/account"), t("Overview", "账户概览")],
-      [link("/search"), t("Search", "查价工作台")],
-      [link("/playground"), t("Playground", "API 调试台")],
+      [link("/account/search"), t("Search", "查价工作台")],
+      [link("/account/playground"), t("Playground", "API 调试台")],
       [link("/account/queries"), t("Queries", "研究历史")],
       [link("/account/batches"), t("Bulk pricing", "批量查价")],
       [link("/account/keys"), t("API keys", "API 密钥")],
-      [link("/agents"), t("Agents", "智能体")],
+      [link("/account/agents"), t("Agents", "智能体")],
       [link("/account/usage"), t("Usage", "用量")],
       [link("/account/billing"), t("Billing", "账单")],
       [link("/account/security"), t("Security", "安全设置")],
-      [link("/support"), t("Support", "支持")],
+      [link("/account/support"), t("Support", "支持")],
     ];
     const workspaceNav: Array<Page> = [
       "/account/saved",
@@ -2918,7 +2929,19 @@ export function renderPage(
         "Your account at a glance. Live ledger, active buckets, and research state.",
         "账户额度桶、研究历史与开发接入总览。",
       ],
+      "/account/search": [
+        "Same pricing engine as the API — filter, exclude diagnostics, and save snapshots.",
+        "与 API 同源的清洗与统计引擎，支持筛选、排除项审计与快照保存。",
+      ],
+      "/account/playground": [
+        "Live API requests against your session, with response headers and cURL trace.",
+        "基于当前登录会话发起实时 API 调试，查看完整响应体、响应头与 cURL 示例。",
+      ],
       "/account/queries": ["Your executed searches and snapshots.", "已执行的成交研究与交付快照。"],
+      "/account/agents": [
+        "Connect AI clients to SoldBench over Hosted MCP (/mcp) or REST.",
+        "将 Claude Code、Cursor、ChatGPT 等接入 SoldBench Hosted MCP 或 REST 接口。",
+      ],
       "/account/saved": [
         "Saved filters, exclusions, and two-sided comparisons.",
         "保存的过滤视图、排除记录与对照研究。",
@@ -2943,9 +2966,39 @@ export function renderPage(
         "Sessions, MFA, passkeys, and authorized OAuth apps.",
         "会话管理、双因素认证、通行密钥与 OAuth 客户端。",
       ],
+      "/account/support": [
+        "Open a ticket with a request ID or check a private support receipt.",
+        "关联请求编号提交工单，或凭私密回执核查处理进展。",
+      ],
     };
     const subText =
       acctSubs[page]?.[zh ? 1 : 0] ?? t("Workspace view and research state.", "账户研究工作台与实时状态。");
+    const accountSearchShowcase =
+      page === "/account/search" && !resultId && !draft.get("job") && homeShowcase
+        ? !draft.get("q") || draft.get("q")?.trim().toLowerCase() === homeShowcase.query.toLowerCase()
+          ? homeShowcase
+          : null
+        : null;
+    const renderAccountAgentsBody = () => (
+      <div className="ag-stack mt-16">
+        <div className="endpoint-bar">
+          <span>
+            <span className="m">MCP</span> https://soldbench.com/mcp
+          </span>
+          <span>REST https://api.soldbench.com/v1</span>
+          <span>{t("Same quota · Same billing", "共享额度 · 统一账本")}</span>
+        </div>
+        {agentClientSetupCard}
+        <div className="card ag-card">
+          <h2 className="serif ag-title">{t("How agent usage bills", "智能体调用与计费规则")}</h2>
+          <ol className="ag-list">
+            {agentPlaybookRules.map((rule) => (
+              <li key={rule}>{rule}</li>
+            ))}
+          </ol>
+        </div>
+      </div>
+    );
     content = (
       <section className="acct-shell">
         <aside className="acct-side">
@@ -2959,17 +3012,25 @@ export function renderPage(
                 {label}
               </a>
             ))}
-            <a href={docsHref}>{t("Docs ↗", "文档 ↗")}</a>
-            <a href={link("/operations")}>{t("Admin console ↗", "运营控制台 ↗")}</a>
-            <div className="acct-group">{t("Workspace & verticals", "研究与垂类")}</div>
-            {workspaceNav.map((target) => (
-              <a key={target} aria-current={page === target ? "page" : undefined} href={link(target)}>
-                {headings[target]?.[zh ? 1 : 0]}
-              </a>
-            ))}
+            <a href={docsHref}>
+              {t("Docs", "文档")} <span className="small">↗</span>
+            </a>
+            <a href={link("/operations")}>
+              {t("Admin console", "运营控制台")} <span className="small">↗</span>
+            </a>
             <div className="acct-side-foot">
               <a href={link("/")}>{t("← Back to site", "← 返回主站")}</a>
             </div>
+            <details className="acct-more" open={workspaceNav.includes(page) || undefined}>
+              <summary>{t("More tools", "更多研究工具")}</summary>
+              <div className="acct-more-list">
+                {workspaceNav.map((target) => (
+                  <a key={target} aria-current={page === target ? "page" : undefined} href={link(target)}>
+                    {headings[target]?.[zh ? 1 : 0]}
+                  </a>
+                ))}
+              </div>
+            </details>
           </nav>
         </aside>
         <div className="acct-main account-main">
@@ -3021,7 +3082,26 @@ export function renderPage(
             </div>
           </div>
           {status}
-          <div data-results="" />
+          {page === "/account/search" ? (
+            renderSearchBody(
+              "/account/search",
+              "/account/search",
+              accountSearchShowcase,
+              draft.get("q") ?? homeShowcase?.query ?? undefined,
+              false,
+            )
+          ) : page === "/account/playground" ? (
+            <>
+              {renderPlaygroundBody("/account/playground", "/account/playground", false)}
+              <div data-results="" className="mt-16" />
+            </>
+          ) : page === "/account/agents" ? (
+            renderAccountAgentsBody()
+          ) : page === "/account/support" ? (
+            renderSupportIntakeGrid(false)
+          ) : (
+            <div data-results="" />
+          )}
         </div>
       </section>
     );
@@ -3089,16 +3169,16 @@ export function renderPage(
       </button>
       <div className="acct-menu-list" data-acct-list="" hidden>
         <a href={link("/account")}>{t("Overview", "账户概览")}</a>
-        <a href={link("/search")}>{t("Search", "查价工作台")}</a>
-        <a href={link("/playground")}>{t("Playground", "API 调试台")}</a>
+        <a href={link("/account/search")}>{t("Search", "查价工作台")}</a>
+        <a href={link("/account/playground")}>{t("Playground", "API 调试台")}</a>
         <a href={link("/account/queries")}>{t("Queries", "研究历史")}</a>
         <a href={link("/account/batches")}>{t("Bulk pricing", "批量查价")}</a>
         <a href={link("/account/keys")}>{t("API keys", "API 密钥")}</a>
-        <a href={link("/agents")}>{t("Agents", "智能体")}</a>
+        <a href={link("/account/agents")}>{t("Agents", "智能体")}</a>
         <a href={link("/account/usage")}>{t("Usage", "用量与账本")}</a>
         <a href={link("/account/billing")}>{t("Billing", "账单与额度")}</a>
         <a href={link("/account/security")}>{t("Security", "账户安全")}</a>
-        <a href={link("/support")}>{t("Support", "帮助与支持")}</a>
+        <a href={link("/account/support")}>{t("Support", "帮助与支持")}</a>
         <a href={link("/operations")}>{t("Admin console", "运营控制台")}</a>
         <div className="sep" />
         <button type="button" data-nav-logout="">
