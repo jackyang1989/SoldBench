@@ -157,6 +157,9 @@ export function mountAuth(app: Hono<Env>, config: Config, provided?: AuthService
     return c.json({ data: result.view, meta: meta(c) });
   });
   app.get("/auth/me", async (c) => c.json({ data: await service().me(sessionToken(c)), meta: meta(c) }));
+  app.get("/web/session", async (c) =>
+    c.json({ data: await service().webSession(sessionToken(c)), meta: meta(c) }),
+  );
   app.post("/auth/logout", async (c) => {
     await body(c, [], []);
     const token = sessionToken(c);

@@ -92,6 +92,7 @@ async function api(path, options, downloadFile = false) {
   if (!response.ok) {
     throw Object.assign(new Error(body.error?.code ?? "service_unavailable"), {
       status: response.status,
+      detail: body.error?.message,
       reference: response.headers.get("X-Request-ID"),
       retryAfter: response.headers.get("Retry-After"),
     });
@@ -147,6 +148,16 @@ async function session() {
   }
 }
 
+async function webSession() {
+  try {
+    return (await api("/web/session")).data;
+  } catch (error) {
+    if (error.status === 401) return null;
+    if (error.status === 404 || error.status === 503) return session();
+    throw error;
+  }
+}
+
 function report(error) {
   const localized = {
     insufficient_credits: t(
@@ -192,8 +203,15 @@ function report(error) {
           `Rate limit reached. ${retry > 0 ? `Retry in ${retry} seconds.` : "Try again later."}`,
           `达到请求上限。${retry > 0 ? `请在 ${retry} 秒后重试。` : "请稍后再试。"}`,
         )
-      : (localized[error.message] ??
-        t("The request failed. Check your inputs or try again.", "请求失败。请核对输入或稍后重试。"));
+      : error.message === "forbidden" && error.detail === "Request origin is not allowed."
+        ? t(
+            "Request origin is not allowed. Open this page using the exact configured server origin (e.g. 127.0.0.1 instead of localhost).",
+            "请求来源（Origin）不被允许。请使用服务端配置的同源地址访问（例如用 127.0.0.1 替代 localhost）。",
+          )
+        : page === "/login" && error.message === "unauthenticated"
+          ? t("Invalid email or password.", "邮箱或密码错误。")
+          : (localized[error.message] ??
+            t("The request failed. Check your inputs or try again.", "请求失败。请核对输入或稍后重试。"));
   message(text + (error.reference ? ` · ${t("Request", "请求")} ${error.reference}` : ""), "warning");
 }
 
@@ -3874,6 +3892,43 @@ if (page === "/operations") {
   run(() => showView(operatorTabs.some((tab) => tab.dataset.opsView === initial) ? initial : "overview"));
 }
 
+function renderMonthlyUsageBars(ledgerList) {
+  const monthNamesEn = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const now = new Date();
+  const buckets = [];
+  const bucketMap = new Map();
+  for (let offset = 5; offset >= 0; offset--) {
+    const dt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1));
+    const ym = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}`;
+    const label = zh ? `${dt.getUTCMonth() + 1}月` : monthNamesEn[dt.getUTCMonth()];
+    const entry = { ym, label, count: 0 };
+    buckets.push(entry);
+    bucketMap.set(ym, entry);
+  }
+  for (const row of Array.isArray(ledgerList) ? ledgerList : []) {
+    if (row.kind !== "charge" && row.kind !== "consume") continue;
+    const d = Number(row.delta ?? 0);
+    if (!Number.isFinite(d) || d >= 0) continue;
+    const ym = String(row.created_at ?? "").slice(0, 7);
+    const target = bucketMap.get(ym);
+    if (target) target.count += Math.abs(d);
+  }
+  const max = Math.max(1, ...buckets.map((b) => b.count));
+  const bars = element("div", undefined, "bars");
+  for (const b of buckets) {
+    const col = element("div", undefined, "bcol");
+    const level = b.count === 0 ? 0 : Math.max(1, Math.min(10, Math.round((b.count / max) * 10)));
+    const bar = element("div", undefined, `bar bar-h-${level}`);
+    col.append(
+      element("span", b.count.toLocaleString("en-US"), "bval"),
+      bar,
+      element("span", b.label, "blab"),
+    );
+    bars.append(col);
+  }
+  return bars;
+}
+
 async function showUsage() {
   const { data } = await api("/v1/usage");
   const labels = {
@@ -3930,6 +3985,12 @@ async function showUsage() {
 
   kpiGrid.append(balCard, bucketCard, ledgerCard);
   output.append(kpiGrid);
+  const monthlyCard = element("section", undefined, "card mt-18");
+  monthlyCard.append(
+    element("h3", t("Monthly history", "月度消费历史")),
+    renderMonthlyUsageBars(data.ledger),
+  );
+  output.append(monthlyCard);
   output.append(
     accountTable(
       t("Credit buckets", "额度桶"),
@@ -7115,7 +7176,7 @@ if (page.startsWith("/account"))
       const ledgerList = Array.isArray(balance.data.ledger) ? balance.data.ledger : [];
       const totalUsed = ledgerList.reduce((acc, row) => {
         const d = Number(row.delta ?? 0);
-        return d < 0 && row.kind === "charge" ? acc + Math.abs(d) : acc;
+        return d < 0 && (row.kind === "charge" || row.kind === "consume") ? acc + Math.abs(d) : acc;
       }, 0);
       const cap = Math.max(total + totalUsed, total || 100);
       const keysList = Array.isArray(keysResp?.data) ? keysResp.data : (keysResp?.data?.items ?? []);
@@ -7250,6 +7311,7 @@ if (page.startsWith("/account"))
       const kindLabels = {
         grant: t("Credit grant", "额度入账"),
         charge: t("Search charge", "查价扣费"),
+        consume: t("Search charge", "查价扣费"),
         refund: t("Credit refund", "额度退回"),
         expire: t("Credit expired", "额度到期"),
       };
@@ -7345,13 +7407,44 @@ if (page.startsWith("/account"))
 
       midGrid.append(bucketsCard, quickCard);
       output.append(midGrid);
+
+      const monthlyUsageCard = element("section", undefined, "card mt-18");
+      const monthlyHead = element("div", undefined, "acct-card-head");
+      const fullUsageLink = document.createElement("a");
+      fullUsageLink.href = `${prefix}/account/usage`;
+      fullUsageLink.textContent = t("Full usage →", "查看完整用量 →");
+      monthlyHead.append(element("h3", t("Usage this month", "本月用量趋势")), fullUsageLink);
+      monthlyUsageCard.append(monthlyHead, renderMonthlyUsageBars(ledgerList));
+      output.append(monthlyUsageCard);
     }
     const recent = element("section", undefined, "card result-card mt-18");
     recent.append(element("h3", t("Recent research", "近期研究")));
-    if (!history.data.items.length) {
-      recent.append(element("p", t("Your research history is empty.", "暂无研究记录。"), "small mt-8"));
+    const tableScroll = element("div", undefined, "table-scroll mt-12");
+    const qTable = element("table", undefined, "tbl-fixed tbl-acct-queries");
+    const colgroup = document.createElement("colgroup");
+    for (const colCls of ["col-q1", "col-q2", "col-q3", "col-q4", "col-q5"]) {
+      const col = document.createElement("col");
+      col.className = colCls;
+      colgroup.append(col);
     }
-    const entries = element("ul", undefined, "acct-list");
+    const thead = document.createElement("thead");
+    const hRow = document.createElement("tr");
+    for (const colTitle of [
+      t("Query", "查询词"),
+      t("When", "时间"),
+      t("Result", "状态"),
+      t("Charge", "计费"),
+      "",
+    ]) {
+      const th = document.createElement("th");
+      th.textContent = colTitle;
+      hRow.append(th);
+    }
+    thead.append(hRow);
+    const tbody = document.createElement("tbody");
+    qTable.append(colgroup, thead, tbody);
+    tableScroll.append(qTable);
+
     const more = button(t("Load more", "加载更多"), () => {
       more.disabled = true;
       run(async () => {
@@ -7363,24 +7456,106 @@ if (page.startsWith("/account"))
         }
       });
     });
+    function queryResultLabel(row) {
+      if (row.result_state === "available") return t("Delivered", "已交付");
+      if (row.result_state === "ready") return t("Ready · unclaimed", "待领取");
+      if (row.result_state === "expired") return t("Expired", "已过期");
+      if (row.compute_status === "failed") return t("Failed", "失败");
+      if (row.compute_status === "running") return t("Running", "运行中");
+      return t("Queued", "排队中");
+    }
+    function queryChargeLabel(row) {
+      if (row.credits_charged === 1) return t("Claimed · 1 credit", "已领用 · 1 额度");
+      if (row.result_state === "ready") return t("Ready · uncharged", "待领用 · 未扣费");
+      if (row.result_state === "available") return t("Free · 0 credits", "免费 · 0 额度");
+      return t("Uncharged", "未扣费");
+    }
     function showHistory({ items, next_cursor }) {
+      if (!items.length && !tbody.childElementCount) {
+        const emptyRow = document.createElement("tr");
+        emptyRow.className = "acct-empty-row";
+        const emptyCell = document.createElement("td");
+        emptyCell.colSpan = 5;
+        emptyCell.className = "small";
+        emptyCell.textContent = t("Your research history is empty.", "暂无研究记录。");
+        emptyRow.append(emptyCell);
+        tbody.append(emptyRow);
+      } else {
+        tbody.querySelector(".acct-empty-row")?.remove();
+      }
       for (const row of items) {
         const id = safeId(row.query_id);
-        const item = element("li");
-        const when = `${row.created_at.slice(0, 16).replace("T", " ")} UTC`;
+        const tr = document.createElement("tr");
+        const c1 = document.createElement("td");
+        c1.append(element("b", row.q));
+        const c2 = document.createElement("td");
+        c2.className = "nw small";
+        c2.textContent = row.created_at.slice(0, 16).replace("T", " ");
+        const c3 = document.createElement("td");
+        c3.textContent = queryResultLabel(row);
+        const c4 = document.createElement("td");
+        c4.textContent = queryChargeLabel(row);
+        const c5 = document.createElement("td");
+        c5.className = "nw";
         if (id && row.result_state === "available") {
-          item.append(link(row.q, `${prefix}/results/${id}`));
+          const a = document.createElement("a");
+          a.href = `${prefix}/results/${id}`;
+          a.textContent = t("Open →", "查看 →");
+          c5.append(a);
+        } else if (id && row.result_state === "ready") {
+          const claimParams = new URLSearchParams({
+            ...(safeId(row.job_id) ? { job: row.job_id } : {}),
+            result: id,
+          });
+          const a = document.createElement("a");
+          a.href = `${prefix}/account/search?${claimParams}`;
+          a.textContent = t("Claim →", "领用 →");
+          c5.append(a);
         } else {
-          item.append(element("strong", row.q));
+          c5.textContent = "—";
         }
-        item.append(element("p", when, "small"));
-        entries.append(item);
+        tr.append(c1, c2, c3, c4, c5);
+        tbody.append(tr);
       }
       more.hidden = !next_cursor;
       more.dataset.cursor = next_cursor ?? "";
     }
     showHistory(history.data);
-    recent.append(entries, more);
+    recent.append(tableScroll, more);
+    if (page === "/account") {
+      const pendingJob = history.data.items.find((r) => r.result_state === "ready" && safeId(r.query_id));
+      const asyncBar = element("div", undefined, "acct-async-bar");
+      const asyncCopy = element("span");
+      if (pendingJob) {
+        asyncCopy.append(
+          element("b", t("Async job ready: ", "异步任务待领用：")),
+          document.createTextNode(
+            `${pendingJob.q} — ${t("result ready, unclaimed (uncharged until claimed).", "结果已就绪，显式领用后才扣减额度。")}`,
+          ),
+        );
+        const claimParams = new URLSearchParams({
+          ...(safeId(pendingJob.job_id) ? { job: pendingJob.job_id } : {}),
+          result: pendingJob.query_id,
+        });
+        const claimLink = link(t("Claim result", "领用结果"), `${prefix}/account/search?${claimParams}`);
+        claimLink.className = "btn brand btn-sm";
+        asyncBar.append(asyncCopy, claimLink);
+      } else {
+        asyncCopy.append(
+          element("b", t("Async jobs: ", "异步任务：")),
+          document.createTextNode(
+            t(
+              "No unclaimed jobs awaiting settlement — wide searches run free and settle 1 credit only on claim.",
+              "暂无待结算的异步查价任务；宽泛查价免费排队，仅在显式领用时扣除 1 额度。",
+            ),
+          ),
+        );
+        const runLink = link(t("Run a search", "发起新查价"), `${prefix}/account/search`);
+        runLink.className = "btn ghost btn-sm";
+        asyncBar.append(asyncCopy, runLink);
+      }
+      recent.append(asyncBar);
+    }
     output.append(recent);
     if (page === "/account") {
       const quickActions = element("div", undefined, "actions acct-quick-actions mt-18");
@@ -7517,7 +7692,7 @@ document.addEventListener("click", async (event) => {
         location.assign(`${prefix}/`);
       }),
     );
-    session()
+    webSession()
       .then((user) => {
         if (!user?.email_verified || user.mfa_required) return;
         const avatar = acctMenu.querySelector("[data-acct-avatar]");

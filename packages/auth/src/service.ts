@@ -414,6 +414,19 @@ export class AuthService {
       };
     });
   }
+  async webSession(token: string) {
+    return transaction(this.db, async (c) => {
+      const { user, row } = await this.session(c, token, true);
+      return {
+        user_id: user.id,
+        email: user.email,
+        email_verified: Boolean(user.email_verified_at),
+        expires_at: row.expires_at.toISOString(),
+        csrf_token: this.crypto.hash("auth.csrf", token),
+        mfa_required: row.mfa_pending,
+      };
+    });
+  }
   async logout(token: string, context: AuthContext) {
     try {
       await transaction(this.db, async (c) => {

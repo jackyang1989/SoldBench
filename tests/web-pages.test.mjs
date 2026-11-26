@@ -164,8 +164,22 @@ test("Chrome walks an empty account from cache miss and registration to explicit
       if (request.method() === "POST") requests.push(new URL(request.url()).pathname);
     });
     const switchLanguage = async (targetPage, label) => {
-      await targetPage.locator("[data-lang-btn]").click();
-      await targetPage.locator("[data-lang-menu]").getByRole("link", { name: label, exact: true }).click();
+      const btn = targetPage.locator("[data-lang-btn]");
+      if ((await btn.count()) > 0) {
+        await btn.click();
+        await targetPage.locator("[data-lang-menu]").getByRole("link", { name: label, exact: true }).click();
+        return;
+      }
+      const url = new URL(targetPage.url());
+      const toZh = label === "简体中文";
+      if (url.pathname.startsWith("/share/")) {
+        url.searchParams.set("lang", toZh ? "zh-CN" : "en");
+      } else if (toZh && !url.pathname.startsWith("/zh-CN")) {
+        url.pathname = url.pathname === "/" ? "/zh-CN" : `/zh-CN${url.pathname}`;
+      } else if (!toZh && url.pathname.startsWith("/zh-CN")) {
+        url.pathname = url.pathname.slice("/zh-CN".length) || "/";
+      }
+      await targetPage.goto(url.toString());
     };
     const captures =
       process.env.SOLDBENCH_BROWSER_EVIDENCE ?? (await mkdtemp(join(tmpdir(), "soldbench-browser-")));
@@ -177,6 +191,7 @@ test("Chrome walks an empty account from cache miss and registration to explicit
       for (const width of [320, 390, 768, 1440]) {
         await page.setViewportSize({ width, height: 900 });
         await page.goto(origin + path);
+        assert.equal(await page.locator("[data-lang-btn]").count(), 1);
         const horizontal = await page.evaluate(() => ({
           width: document.documentElement.scrollWidth,
           overflow: [...document.querySelectorAll("body *")]
@@ -193,6 +208,7 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     }
     await page.goto(`${origin}/docs/en/quickstart`);
     assert.equal(await page.locator(".docs-side [data-language]").count(), 0);
+    assert.equal(await page.locator("[data-lang-btn]").count(), 0);
     await page.getByRole("textbox", { name: "Search documentation" }).fill("claim");
     await page.getByRole("button", { name: "Search", exact: true }).click();
     await page.locator("[data-docs-results] a").first().waitFor();
@@ -203,6 +219,7 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.goto(`${origin}/categories`);
     await page.getByText("No categories have a public availability record yet.").waitFor();
     await page.goto(`${origin}/pricing`);
+    assert.equal(await page.locator("[data-lang-btn]").count(), 0);
     await page.getByRole("heading", { name: "Pricing and credits", exact: true }).waitFor();
     await page.getByText("Commercial pricing is pending approval.").waitFor();
     assert.equal(await page.locator("[data-pricing-offers] article").count(), 0);
@@ -225,6 +242,7 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.getByText("Cached result · 4 lookups left today").waitFor();
     assert.equal(new URL(page.url()).pathname, "/worth");
     await page.goto(`${origin}/search`);
+    assert.equal(await page.locator("[data-lang-btn]").count(), 0);
     const countJobs = async () => (await db.query("SELECT count(*)::int AS n FROM query_jobs")).rows[0].n;
     const beforeMiss = await countJobs();
     const search = page.getByRole("textbox", { name: "Search sold prices" });
@@ -237,10 +255,8 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await switchLanguage(page, "简体中文");
     assert.equal(await page.getByRole("textbox", { name: "查询成交价" }).inputValue(), "unknown fixture");
     assert.equal(requests.length, beforeSwitch);
-    const cnSearch = page.getByRole("textbox", { name: "查询成交价" });
-    await cnSearch.fill("unsubmitted local draft");
     await switchLanguage(page, "English");
-    assert.equal(await search.inputValue(), "unsubmitted local draft");
+    assert.equal(await search.inputValue(), "unknown fixture");
     assert.equal(requests.length, beforeSwitch);
     await page.goto(`${origin}/register?q=Nintendo+Switch`);
     const email = `browser-${randomUUID()}@example.test`,
@@ -277,6 +293,10 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.waitForURL("**/search?*");
     assert.equal(await search.inputValue(), "Nintendo Switch");
     await page.goto(`${origin}/account`);
+    assert.equal(await page.locator("[data-lang-btn]").count(), 0);
+    await page.locator("[data-dash-email]").waitFor();
+    assert.equal(await page.locator("[data-dash-email]").textContent(), email);
+    assert.equal(await page.locator("[data-acct-label]").textContent(), email.split("@")[0].slice(0, 16));
     await page.getByText("Your research history is empty.").waitFor();
     assert.equal((await grants()).rowCount, 1);
     await page.goBack();
@@ -667,6 +687,7 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     const localLink = page.locator("details.mobile").getByRole("link", { name: "站内指南链接" });
     assert.equal(await localLink.getAttribute("href"), "/zh-CN/guides");
     await editor.getByRole("link", { name: "Operations", exact: true }).click();
+    assert.equal(await editor.locator("[data-lang-btn]").count(), 0);
     await editor.getByRole("button", { name: "Sources", exact: true }).click();
     const sourceLine = editor.getByRole("row").filter({ hasText: x.source.sourceId });
     await sourceLine.getByText("Source controls", { exact: true }).click();

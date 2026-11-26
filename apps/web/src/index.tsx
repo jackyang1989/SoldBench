@@ -2912,18 +2912,6 @@ export function renderPage(
       [link("/account/security"), t("Security", "安全设置")],
       [link("/account/support"), t("Support", "支持")],
     ];
-    const workspaceNav: Array<Page> = [
-      "/account/saved",
-      "/account/logs",
-      "/account/history",
-      "/account/alerts",
-      "/account/lookup",
-      "/account/inventory",
-      "/account/sites",
-      "/account/marketplaces",
-      "/account/cards",
-      "/account/auctions",
-    ];
     const acctSubs: Partial<Record<Page, [string, string]>> = {
       "/account": [
         "Your account at a glance. Live ledger, active buckets, and research state.",
@@ -3021,16 +3009,6 @@ export function renderPage(
             <div className="acct-side-foot">
               <a href={link("/")}>{t("← Back to site", "← 返回主站")}</a>
             </div>
-            <details className="acct-more" open={workspaceNav.includes(page) || undefined}>
-              <summary>{t("More tools", "更多研究工具")}</summary>
-              <div className="acct-more-list">
-                {workspaceNav.map((target) => (
-                  <a key={target} aria-current={page === target ? "page" : undefined} href={link(target)}>
-                    {headings[target]?.[zh ? 1 : 0]}
-                  </a>
-                ))}
-              </div>
-            </details>
           </nav>
         </aside>
         <div className="acct-main account-main">
@@ -3244,7 +3222,6 @@ export function renderPage(
                         </div>
                       )}
                       <span className="small nav-email desktop" data-dash-email="" hidden />
-                      {langDropdown}
                       <a className="btn ghost btn-sm desktop" data-resume="/login" href={resume("/login")}>
                         {t("Sign in", "登录")}
                       </a>
@@ -3263,7 +3240,7 @@ export function renderPage(
                     </a>
                     <div className="nav-links">{nav}</div>
                     <div className="nav-right">
-                      {langDropdown}
+                      {page === "/" ? langDropdown : null}
                       <a className="btn ghost desktop" data-resume="/login" href={resume("/login")}>
                         {t("Sign in", "登录")}
                       </a>
