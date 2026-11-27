@@ -8,6 +8,7 @@ import pg from "pg";
 export type Database = pg.Pool;
 export type Transaction = pg.PoolClient;
 export type DatabaseStartupMode = "migrate" | "verify";
+type DeploymentRuntimeRole = "soldbench_runtime" | "soldbench_collector";
 const migrationDirectory = fileURLToPath(new URL("../migrations/", import.meta.url));
 
 function migrationNames() {
@@ -126,7 +127,12 @@ export async function migrate(db: Database, through?: string): Promise<string[]>
 }
 
 /** Runtime startup can verify the pre-migrated schema without DDL, locks, or migration privileges. */
-export async function prepareDatabase(db: Database, mode: DatabaseStartupMode): Promise<void> {
+export async function prepareDatabase(
+  db: Database,
+  mode: DatabaseStartupMode,
+  role?: DeploymentRuntimeRole,
+): Promise<void> {
+  if (role && mode !== "verify") throw new Error("deployment_runtime_requires_verify_mode");
   if (mode === "migrate") {
     await migrate(db);
     return;
@@ -147,6 +153,22 @@ export async function prepareDatabase(db: Database, mode: DatabaseStartupMode): 
     installed.delete(name);
   }
   if (installed.size) throw new Error("database_schema_newer_or_unknown");
+  if (role) {
+    const {
+      rows: [identity],
+    } = await db.query<{ allowed: boolean }>(
+      `SELECT current_user=$1 AND NOT (r.rolsuper OR r.rolcreaterole OR r.rolcreatedb OR r.rolbypassrls
+        OR r.rolreplication) AND NOT has_schema_privilege(current_user,'public','CREATE')
+        AND NOT has_database_privilege(current_user,current_database(),'CREATE')
+        AND NOT has_table_privilege(current_user,'public.soldbench_migrations','INSERT, UPDATE, DELETE, TRUNCATE')
+        AND NOT EXISTS (SELECT 1 FROM pg_auth_members m WHERE m.member=r.oid)
+        AND NOT EXISTS (SELECT 1 FROM pg_class c
+          JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relowner=r.oid) AS allowed
+        FROM pg_roles r WHERE r.rolname=current_user`,
+      [role],
+    );
+    if (!identity?.allowed) throw new Error("deployment_runtime_role_invalid");
+  }
 }
 
 /** Retry transient database connections for long-running processes during startup. */
@@ -155,12 +177,13 @@ export async function prepareRuntimeDatabase(
   mode: DatabaseStartupMode,
   signal: AbortSignal,
   onUnavailable: () => void,
+  role?: DeploymentRuntimeRole,
 ): Promise<void> {
   const delays = [1000, 2000, 4000, 8000, 10000];
   for (let attempt = 0; ; attempt++) {
     signal.throwIfAborted();
     try {
-      await prepareDatabase(db, mode);
+      await prepareDatabase(db, mode, role);
       signal.throwIfAborted();
       return;
     } catch (error) {
@@ -200,4 +223,21 @@ export function assertLocalDatabaseUrl(url: string, allowedSocketDirectories: re
   if (!localTcp && !localSocket) throw new Error("database_target_must_be_local");
   if (!Number.isSafeInteger(client.port) || client.port < 1 || client.port > 65535)
     throw new Error("invalid_local_database_port");
+}
+
+export function assertRuntimeDatabaseUrl(
+  url: string,
+  config: { liveGateAcknowledged: boolean; isolatedDeployment: boolean },
+  testSocketDirectory?: string,
+): void {
+  if (config.liveGateAcknowledged) {
+    if (!["postgres:", "postgresql:"].includes(new URL(url).protocol))
+      throw new Error("Invalid DATABASE_URL");
+    return;
+  }
+  assertLocalDatabaseUrl(url, [
+    resolve(".local/postgres/socket"),
+    ...(config.isolatedDeployment ? ["/run/soldbench/postgres"] : []),
+    ...(testSocketDirectory ? [testSocketDirectory] : []),
+  ]);
 }

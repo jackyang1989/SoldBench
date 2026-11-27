@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { promisify } from "node:util";
 import { createApp } from "@soldbench/api";
 import { database, migrate, transaction } from "@soldbench/db";
 import { decryptImageSourceUrl, encryptImageSourceUrl } from "@soldbench/media";
 import { loadConfig } from "@soldbench/shared";
 
-test("PG16 empty migration, old-version upgrade, restart idempotency and original relational constraints", async () => {
+test("PG16 empty migration, old-version upgrade, restart idempotency and original relational constraints", async (t) => {
   const db = database(process.env.DATABASE_URL);
   try {
     assert.match((await db.query("SHOW server_version")).rows[0].server_version, /^16\./);
@@ -92,10 +97,24 @@ test("PG16 empty migration, old-version upgrade, restart idempotency and origina
     const sourceUrl = "https://images.example.test/signed?token=fixture";
     const imageUrlKey = Buffer.alloc(32, 7).toString("base64");
     const ciphertext = encryptImageSourceUrl(sourceUrl, "00000000-0000-0000-0000-000000000008", imageUrlKey);
-    await db.query("UPDATE listing_images SET source_url_ciphertext=$2, source_url=NULL WHERE id=$1", [
+    await db.query("UPDATE listing_images SET source_url_ciphertext=$2 WHERE id=$1", [
       "00000000-0000-0000-0000-000000000008",
       ciphertext,
     ]);
+    const keys = await mkdtemp(join(tmpdir(), "sb-image-key-"));
+    t.after(() => rm(keys, { force: true, recursive: true }));
+    const keyFile = join(keys, "source-url-key");
+    await writeFile(keyFile, Buffer.alloc(32, 8).toString("base64"), { mode: 0o600 });
+    const execute = promisify(execFile);
+    const env = { ...process.env, SOURCE_URL_ENCRYPTION_KEY_FILE: keyFile };
+    delete env.SOURCE_URL_ENCRYPTION_KEY;
+    await assert.rejects(execute(process.execPath, ["scripts/encrypt-image-source-urls.mjs"], { env }));
+    const unchanged = (await db.query("SELECT source_url,source_url_ciphertext FROM listing_images")).rows[0];
+    assert.equal(unchanged.source_url, sourceUrl);
+    assert.deepEqual(unchanged.source_url_ciphertext, ciphertext);
+    await writeFile(keyFile, imageUrlKey, { mode: 0o600 });
+    const repaired = await execute(process.execPath, ["scripts/encrypt-image-source-urls.mjs"], { env });
+    assert.equal(JSON.parse(repaired.stdout).cleartextRowsRemaining, 0);
     assert.deepEqual(await migrate(db, "0004_image_rights_hardening.sql"), [
       "0004_image_rights_hardening.sql",
     ]);

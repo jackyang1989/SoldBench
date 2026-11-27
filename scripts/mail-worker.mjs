@@ -1,16 +1,17 @@
-import { resolve } from "node:path";
 import {
   AuthService,
-  localAuthSecrets,
   ResendMailTransport,
+  runtimeAuthSecrets,
   SmtpMailTransport,
   TransactionalMailWorker,
 } from "@soldbench/auth";
-import { database } from "@soldbench/db";
+import { database, prepareDatabase } from "@soldbench/db";
 import { loadConfig } from "@soldbench/shared";
+import { assertAllowedDatabaseUrl } from "./runtime-db.mjs";
 
 const config = loadConfig(process.env);
 if (!config.databaseUrl) throw new Error("DATABASE_URL is required");
+assertAllowedDatabaseUrl(config, config.databaseUrl);
 
 const mode = process.env.MAIL_TRANSPORT ?? "";
 const from = process.env.MAIL_FROM ?? "support@soldbench.com";
@@ -37,7 +38,9 @@ if (mode === "resend") {
 
 const db = database(config.databaseUrl);
 try {
-  const auth = new AuthService(db, localAuthSecrets(resolve(config.localStateRoot)), config.origin);
+  if (process.env.NODE_ENV === "production")
+    await prepareDatabase(db, config.databaseStartup, "soldbench_runtime");
+  const auth = new AuthService(db, runtimeAuthSecrets(config.localStateRoot), config.origin);
   const worker = new TransactionalMailWorker(auth, transport, { from });
   const results = [];
   for (;;) {

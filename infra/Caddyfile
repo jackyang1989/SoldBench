@@ -5,7 +5,7 @@
 	email support@soldbench.com
 }
 
-soldbench.com {
+{$SOLD_SITE_ADDRESS:http://soldbench.test} {
 	encode zstd gzip
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
@@ -17,13 +17,13 @@ soldbench.com {
 		max_size 2MB
 	}
 	reverse_proxy api:3000 {
-		health_uri /health
+		health_uri /ready
 		health_interval 15s
 		health_timeout 3s
 	}
 }
 
-api.soldbench.com {
+{$SOLD_API_ADDRESS:http://api.soldbench.test} {
 	encode zstd gzip
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
@@ -36,7 +36,11 @@ api.soldbench.com {
 	}
 	@allowed_api path /v1/* /health /ready
 	handle @allowed_api {
-		reverse_proxy api:3000
+		reverse_proxy api:3000 {
+			health_uri /ready
+			health_interval 15s
+			health_timeout 3s
+		}
 	}
 	handle {
 		respond "Not Found" 404

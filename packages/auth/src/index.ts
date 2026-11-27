@@ -12,4 +12,5 @@ export * from "./oauth.ts";
 export { OfflineMailQueue } from "./offline-mail.ts";
 export * from "./passkeys.ts";
 export { AccountPrivacy } from "./privacy.ts";
+export { runtimeAuthSecrets } from "./runtime-secrets.ts";
 export * from "./service.ts";

@@ -49,6 +49,7 @@ COPY --from=builder /app/packages/media/dist ./packages/media/dist
 COPY --from=builder /app/packages/collector/package.json ./packages/collector/package.json
 COPY --from=builder /app/packages/collector/dist ./packages/collector/dist
 COPY --from=builder /app/scripts ./scripts
+RUN install -d -m 0750 -o node -g node /var/lib/soldbench/media /var/lib/soldbench/spool
 
 USER node
 STOPSIGNAL SIGTERM

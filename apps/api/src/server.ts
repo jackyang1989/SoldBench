@@ -2,8 +2,8 @@ import { resolve } from "node:path";
 import { serve } from "@hono/node-server";
 import {
   AuthService,
-  localAuthSecrets,
   ResendMailTransport,
+  runtimeAuthSecrets,
   SmtpMailTransport,
   TransactionalMailWorker,
 } from "@soldbench/auth";
@@ -14,7 +14,7 @@ import {
   PayPalProviderAdapter,
   StripeProviderAdapter,
 } from "@soldbench/billing";
-import { assertLocalDatabaseUrl, database, prepareRuntimeDatabase } from "@soldbench/db";
+import { assertRuntimeDatabaseUrl, database, prepareRuntimeDatabase } from "@soldbench/db";
 import { PrivateMediaStore } from "@soldbench/media";
 import { QueryService } from "@soldbench/query";
 import { loadConfig } from "@soldbench/shared";
@@ -22,12 +22,8 @@ import { createApp } from "./index.ts";
 
 const config = loadConfig(process.env);
 if (!config.databaseUrl) throw new Error("DATABASE_URL is required");
-if (!config.liveGateAcknowledged) {
-  assertLocalDatabaseUrl(config.databaseUrl, [
-    resolve(".local/postgres/socket"),
-    ...(process.env.SOLDBENCH_TEST_SOCKET ? [process.env.SOLDBENCH_TEST_SOCKET] : []),
-  ]);
-}
+assertRuntimeDatabaseUrl(config.databaseUrl, config, process.env.SOLDBENCH_TEST_SOCKET);
+const authSecrets = runtimeAuthSecrets(config.localStateRoot);
 const db = database(config.databaseUrl);
 const signals = ["SIGINT", "SIGTERM"] as const;
 const startup = new AbortController();
@@ -63,10 +59,14 @@ async function start() {
   let listening = false;
   let mailTimer: ReturnType<typeof setInterval> | null = null;
   try {
-    await prepareRuntimeDatabase(db, config.databaseStartup, startup.signal, () =>
-      console.error("soldbench_api_startup_database_unavailable"),
+    await prepareRuntimeDatabase(
+      db,
+      config.databaseStartup,
+      startup.signal,
+      () => console.error("soldbench_api_startup_database_unavailable"),
+      process.env.NODE_ENV === "production" ? "soldbench_runtime" : undefined,
     );
-    const auth = new AuthService(db, localAuthSecrets(resolve(config.localStateRoot)), config.origin);
+    const auth = new AuthService(db, authSecrets, config.origin);
     const billing = new BillingService(db);
     const payments = buildPaymentsLifecycle(billing);
     const mailWorker = buildMailWorker(auth);

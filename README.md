@@ -75,6 +75,8 @@ python3 docs/contracts/check_contracts.py
 
 验证浏览器工作流时，设置 `SOLDBENCH_BROWSER_BINARY` 为本机 Chrome 可执行文件路径，再运行 `npm run check`。项目锁定的 Playwright 驱动使用该已安装浏览器。GitHub Actions 的离线作业要求 Chrome，并在正式运行测试前检查它是否可执行。默认分支支持手动重跑整套离线检查。
 
+V1 部署角色、挂载密钥、正式运行形态的隔离环境及回退说明见 [工程实施规格 §19](docs/工程实施规格.md#19-v1-部署角色与密钥实施说明)。在本机 Docker 引擎可用时执行 `bash tests/compose-runtime.sh` 验证专用临时项目中的 Caddy、API、Worker 和 PG16。
+
 这些检查验证夹具与文档一致性，不代表真实网络来源、支付或生产端到端验收通过。工程命令为`npm run lint`、`npm run typecheck`、`npm run build`、`npm test`、`npm run contracts`；运行前需`npm ci`。开发服务器使用回环地址、离线fixture、支付offline和Collector关闭：
 
 ```sh

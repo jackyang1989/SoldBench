@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 # Verified offline-capable PostgreSQL 16 backup, integrity check, and restore utility.
 # Fails closed on missing inputs, existing target dumps, or SHA-256 / archive structure mismatch.
@@ -51,7 +52,17 @@ cmd_backup() {
   }
   trap cleanup_tmp EXIT
 
-  pg_dump --format=custom --no-owner --no-acl --file="$tmp_dump" "$db_url"
+  local -a options=(--format=custom --no-owner --no-acl)
+  # The deployment backup role has an explicit full-row SELECT policy on Outbox.
+  # Keep the default pg_dump RLS guard for every other credential.
+  if [[ "$(psql "$db_url" -XAtqc 'SELECT current_user' 2>/dev/null)" == soldbench_backup ]]; then
+    if [[ "$(psql "$db_url" -XAtqc "SELECT count(*) FROM pg_policy WHERE polrelid='public.outbox'::regclass AND polname='soldbench_backup_outbox' AND polcmd='r' AND polroles=ARRAY[(SELECT oid FROM pg_roles WHERE rolname=current_user)] AND pg_get_expr(polqual,polrelid)='true' AND NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relrowsecurity AND c.oid<>'public.outbox'::regclass)")" != 1 ]]; then
+      echo "backup_outbox_policy_not_verified" >&2
+      exit 1
+    fi
+    options+=(--enable-row-security)
+  fi
+  pg_dump "${options[@]}" --file="$tmp_dump" "$db_url"
   pg_restore --list "$tmp_dump" >/dev/null
   mv "$tmp_dump" "$dump_path"
   chmod 0600 "$dump_path"

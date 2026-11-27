@@ -1,16 +1,21 @@
 services:
   postgres:
     image: postgres:16-alpine
+    command: ["postgres", "-c", "listen_addresses=", "-c", "hba_file=/etc/soldbench/pg_hba.conf"]
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-soldbench}
-      POSTGRES_USER: ${POSTGRES_USER:-soldbench}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_USER: ${POSTGRES_USER:-soldbench_bootstrap}
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_bootstrap
+    secrets:
+      - db_bootstrap
     networks:
       - internal
     volumes:
       - soldbench_pgdata:/var/lib/postgresql/data
+      - soldbench_pgsocket:/var/run/postgresql
+      - ./db/pg_hba.conf:/etc/soldbench/pg_hba.conf:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-soldbench} -d $${POSTGRES_DB:-soldbench}"]
+      test: ["CMD-SHELL", 'test "$$(cat /proc/1/comm)" = postgres && pg_isready -q -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
       interval: 10s
       timeout: 5s
       retries: 10
@@ -19,44 +24,55 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
 
-  redis:
-    image: redis:7-alpine
-    command:
-      - redis-server
-      - --appendonly
-      - "yes"
-      - --maxmemory
-      - 256mb
-      - --maxmemory-policy
-      - noeviction
-    networks:
-      - internal
-    volumes:
-      - soldbench_redis:/data
+  db-bootstrap:
+    image: postgres:16-alpine
+    entrypoint: ["/bin/sh", "/opt/soldbench/db/provision.sh"]
+    user: postgres
     read_only: true
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-    stop_grace_period: 15s
-
-  migrate:
-    profiles: ["ops"]
-    build:
-      context: ..
-      dockerfile: infra/Dockerfile.runtime
-    command: ["node", "scripts/migrate.mjs"]
     networks:
       - internal
     depends_on:
       postgres:
         condition: service_healthy
+    volumes:
+      - soldbench_pgsocket:/var/run/postgresql:ro
+      - ./db:/opt/soldbench/db:ro
+    secrets:
+      - db_bootstrap
+      - db_migrator
+      - db_runtime
+      - db_collector
+      - db_backup
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-soldbench}
+      POSTGRES_USER: ${POSTGRES_USER:-soldbench_bootstrap}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  migrate:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.runtime
+    command: ["node", "--import", "./scripts/container-database.mjs", "scripts/deploy-db.mjs"]
+    volumes:
+      - soldbench_pgsocket:/run/soldbench/postgres:ro
+    secrets:
+      - source: db_migrator
+        target: db_password
+    networks:
+      - internal
+    depends_on:
+      db-bootstrap:
+        condition: service_completed_successfully
     read_only: true
     tmpfs:
       - /tmp:size=32m,noexec,nosuid
@@ -65,7 +81,11 @@ services:
     cap_drop:
       - ALL
     environment:
-      DATABASE_URL: ${MIGRATION_DATABASE_URL:?set MIGRATION_DATABASE_URL}
+      POSTGRES_DB: ${POSTGRES_DB:-soldbench}
+      SOLDBENCH_DATABASE_ROLE: soldbench_migrator
+      NODE_ENV: production
+      APP_ORIGIN: ${APP_ORIGIN:-http://soldbench.test}
+      SOLDBENCH_ISOLATED_DEPLOYMENT: ${SOLDBENCH_ISOLATED_DEPLOYMENT:-true}
       SOLDBENCH_LIVE_GATE_ACKNOWLEDGED: ${SOLDBENCH_LIVE_GATE_ACKNOWLEDGED:-false}
       COLLECTOR_ENABLED: "false"
       DATA_MODE: ${DATA_MODE:-offline_fixture}
@@ -76,20 +96,23 @@ services:
     build:
       context: ..
       dockerfile: infra/Dockerfile.runtime
+    command: ["node", "--import", "./scripts/container-database.mjs", "apps/api/dist/server.js"]
     networks:
       - edge
       - internal
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     read_only: true
     tmpfs:
       - /tmp:size=64m,noexec,nosuid
     volumes:
-      - soldbench_state:/var/lib/soldbench/state
+      - soldbench_pgsocket:/run/soldbench/postgres:ro
       - soldbench_media:/var/lib/soldbench/media:ro
+    secrets:
+      - source: db_runtime
+        target: db_password
+      - auth_bundle
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -112,11 +135,15 @@ services:
       timeout: 5s
       retries: 5
     environment:
-      HOST: ${HOST:-127.0.0.1}
-      PORT: ${PORT:-3000}
-      APP_ORIGIN: ${APP_ORIGIN:-http://127.0.0.1:3000}
-      NODE_ENV: ${NODE_ENV:-development}
-      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
+      HOST: 0.0.0.0
+      PORT: "3000"
+      APP_ORIGIN: ${APP_ORIGIN:-http://soldbench.test}
+      NODE_ENV: production
+      POSTGRES_DB: ${POSTGRES_DB:-soldbench}
+      SOLDBENCH_DATABASE_ROLE: soldbench_runtime
+      SOLDBENCH_ISOLATED_DEPLOYMENT: ${SOLDBENCH_ISOLATED_DEPLOYMENT:-true}
+      AUTH_SECRETS_FILE: /run/secrets/auth_bundle
+      AUTH_SECRETS_VERSION: ${AUTH_SECRETS_VERSION:-initial}
       DB_STARTUP_MODE: verify
       SOLDBENCH_LIVE_GATE_ACKNOWLEDGED: ${SOLDBENCH_LIVE_GATE_ACKNOWLEDGED:-false}
       COLLECTOR_ENABLED: ${COLLECTOR_ENABLED:-false}
@@ -138,28 +165,30 @@ services:
       SMTP_SECURE: ${SMTP_SECURE:-false}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
-      LOCAL_STATE_ROOT: /var/lib/soldbench/state
       MEDIA_ROOT: /var/lib/soldbench/media
-      SOURCE_URL_ENCRYPTION_KEY: ${SOURCE_URL_ENCRYPTION_KEY:?set SOURCE_URL_ENCRYPTION_KEY}
 
   query-worker:
     build:
       context: ..
       dockerfile: infra/Dockerfile.runtime
-    command: ["node", "scripts/query-worker.mjs", "--watch"]
+    command: ["node", "--import", "./scripts/container-database.mjs", "scripts/query-worker.mjs", "--watch"]
+    healthcheck:
+      disable: true
     networks:
       - internal
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     read_only: true
     tmpfs:
       - /tmp:size=64m,noexec,nosuid
     volumes:
-      - soldbench_state:/var/lib/soldbench/state
+      - soldbench_pgsocket:/run/soldbench/postgres:ro
       - soldbench_media:/var/lib/soldbench/media:ro
+    secrets:
+      - source: db_runtime
+        target: db_password
+      - auth_bundle
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -171,9 +200,14 @@ services:
           cpus: "2.0"
           memory: 1024M
     environment:
-      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
+      POSTGRES_DB: ${POSTGRES_DB:-soldbench}
+      SOLDBENCH_DATABASE_ROLE: soldbench_runtime
       DB_STARTUP_MODE: verify
-      NODE_ENV: ${NODE_ENV:-development}
+      NODE_ENV: production
+      APP_ORIGIN: ${APP_ORIGIN:-http://soldbench.test}
+      SOLDBENCH_ISOLATED_DEPLOYMENT: ${SOLDBENCH_ISOLATED_DEPLOYMENT:-true}
+      AUTH_SECRETS_FILE: /run/secrets/auth_bundle
+      AUTH_SECRETS_VERSION: ${AUTH_SECRETS_VERSION:-initial}
       SOLDBENCH_LIVE_GATE_ACKNOWLEDGED: ${SOLDBENCH_LIVE_GATE_ACKNOWLEDGED:-false}
       COLLECTOR_ENABLED: "false"
       DATA_MODE: ${DATA_MODE:-offline_fixture}
@@ -186,10 +220,11 @@ services:
       SMTP_SECURE: ${SMTP_SECURE:-false}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
-      LOCAL_STATE_ROOT: /var/lib/soldbench/state
       MEDIA_ROOT: /var/lib/soldbench/media
 
   collector-supervisor:
+    profiles: ["collector"]
+    command: ["node", "--import", "./scripts/container-database.mjs", "scripts/collector-supervisor.mjs", "--source=${COLLECTOR_SOURCE_ID:-unconfigured}", "--watch=true"]
     build:
       context: ..
       dockerfile: infra/Dockerfile.collector
@@ -198,14 +233,18 @@ services:
       - internal
       - collector_egress
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     read_only: true
     tmpfs:
       - /tmp:size=128m,nosuid
     volumes:
+      - soldbench_pgsocket:/run/soldbench/postgres:ro
       - soldbench_media:/var/lib/soldbench/media
       - soldbench_spool:/var/lib/soldbench/spool
+    secrets:
+      - source: db_collector
+        target: db_password
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -217,7 +256,11 @@ services:
           cpus: "2.0"
           memory: 1536M
     environment:
-      DATABASE_URL: ${COLLECTOR_DATABASE_URL:?set COLLECTOR_DATABASE_URL}
+      POSTGRES_DB: ${POSTGRES_DB:-soldbench}
+      SOLDBENCH_DATABASE_ROLE: soldbench_collector
+      NODE_ENV: production
+      APP_ORIGIN: ${APP_ORIGIN:-http://soldbench.test}
+      SOLDBENCH_ISOLATED_DEPLOYMENT: ${SOLDBENCH_ISOLATED_DEPLOYMENT:-true}
       DB_STARTUP_MODE: verify
       SOLDBENCH_LIVE_GATE_ACKNOWLEDGED: ${SOLDBENCH_LIVE_GATE_ACKNOWLEDGED:-false}
       COLLECTOR_ENABLED: ${COLLECTOR_ENABLED:-false}
@@ -230,13 +273,14 @@ services:
 
   caddy:
     image: caddy:2.9-alpine
-    ports:
-      - "80:80"
-      - "443:443"
     networks:
       - edge
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+    environment:
+      SOLD_SITE_ADDRESS: ${SOLD_SITE_ADDRESS:-http://soldbench.test}
+      SOLD_API_ADDRESS: ${SOLD_API_ADDRESS:-http://api.soldbench.test}
     read_only: true
     tmpfs:
       - /tmp:size=16m,noexec,nosuid
@@ -255,17 +299,32 @@ services:
 networks:
   edge:
     driver: bridge
+    internal: true
   internal:
     driver: bridge
     internal: true
   collector_egress:
     driver: bridge
+    internal: true
 
 volumes:
   soldbench_pgdata:
-  soldbench_redis:
-  soldbench_state:
+  soldbench_pgsocket:
   soldbench_media:
   soldbench_spool:
   soldbench_caddy_data:
   soldbench_caddy_config:
+
+secrets:
+  db_bootstrap:
+    file: ${SOLDBENCH_SECRETS_DIR:-./.secrets}/db-bootstrap
+  db_migrator:
+    file: ${SOLDBENCH_SECRETS_DIR:-./.secrets}/db-migrator
+  db_runtime:
+    file: ${SOLDBENCH_SECRETS_DIR:-./.secrets}/db-runtime
+  db_collector:
+    file: ${SOLDBENCH_SECRETS_DIR:-./.secrets}/db-collector
+  db_backup:
+    file: ${SOLDBENCH_SECRETS_DIR:-./.secrets}/db-backup
+  auth_bundle:
+    file: ${SOLDBENCH_SECRETS_DIR:-./.secrets}/auth-bundle.json

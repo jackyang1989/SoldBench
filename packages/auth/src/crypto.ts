@@ -7,7 +7,11 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 import { AppError } from "@soldbench/shared";
-export type AuthSecrets = { tokenPepper: string; encryptionKey: string };
+export type AuthSecrets = {
+  tokenPepper: string;
+  encryptionKey: string;
+  decryptOnlyKeys?: readonly string[];
+};
 export function newAuthSecrets(): AuthSecrets {
   return {
     tokenPepper: randomBytes(32).toString("base64"),
@@ -15,6 +19,7 @@ export function newAuthSecrets(): AuthSecrets {
   };
 }
 function key(value: string) {
+  if (typeof value !== "string" || value.length !== 44) throw new Error("invalid_auth_secret");
   const bytes = Buffer.from(value, "base64");
   if (bytes.length !== 32 || bytes.toString("base64") !== value) throw new Error("invalid_auth_secret");
   return bytes;
@@ -22,9 +27,18 @@ function key(value: string) {
 export class AuthCrypto {
   readonly pepper: Buffer;
   readonly encryption: Buffer;
+  private readonly decryptionKeys: readonly Buffer[];
   constructor(secrets: AuthSecrets) {
     this.pepper = key(secrets.tokenPepper);
     this.encryption = key(secrets.encryptionKey);
+    const previous = secrets.decryptOnlyKeys ?? [];
+    if (
+      !Array.isArray(previous) ||
+      previous.length > 3 ||
+      new Set([secrets.encryptionKey, ...previous]).size !== previous.length + 1
+    )
+      throw new Error("invalid_auth_secret");
+    this.decryptionKeys = [this.encryption, ...previous.map(key)];
   }
   hash(domain: string, value: string) {
     return createHmac("sha256", this.pepper).update(`${domain}\u0000${value}`).digest("hex");
@@ -47,10 +61,19 @@ export class AuthCrypto {
   open<T>(value: Uint8Array, aad: string): T {
     const bytes = Buffer.from(value);
     if (bytes.length < 29) throw new Error("invalid_auth_ciphertext");
-    const decipher = createDecipheriv("aes-256-gcm", this.encryption, bytes.subarray(0, 12));
-    decipher.setAAD(Buffer.from(aad));
-    decipher.setAuthTag(bytes.subarray(-16));
-    return JSON.parse(Buffer.concat([decipher.update(bytes.subarray(12, -16)), decipher.final()]).toString());
+    for (const encryptionKey of this.decryptionKeys) {
+      const decipher = createDecipheriv("aes-256-gcm", encryptionKey, bytes.subarray(0, 12));
+      decipher.setAAD(Buffer.from(aad));
+      decipher.setAuthTag(bytes.subarray(-16));
+      let plaintext: Buffer;
+      try {
+        plaintext = Buffer.concat([decipher.update(bytes.subarray(12, -16)), decipher.final()]);
+      } catch {
+        continue;
+      }
+      return JSON.parse(plaintext.toString());
+    }
+    throw new Error("invalid_auth_ciphertext");
   }
 }
 let active = 0;

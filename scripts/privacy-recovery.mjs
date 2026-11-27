@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { open, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { AccountPrivacy, AuthService, localAuthSecrets } from "@soldbench/auth";
+import { AccountPrivacy, AuthService, runtimeAuthSecrets } from "@soldbench/auth";
 import { CollectorStore } from "@soldbench/collector";
 import { assertLocalDatabaseUrl, database, migrate, transaction } from "@soldbench/db";
 import { loadConfig } from "@soldbench/shared";
@@ -202,7 +202,7 @@ assertLocalDatabaseUrl(url, [
 const signed = action === "replay" ? await readCheckpoint(path) : undefined;
 const db = database(url);
 try {
-  const auth = new AuthService(db, localAuthSecrets(resolve(config.localStateRoot)), config.origin),
+  const auth = new AuthService(db, runtimeAuthSecrets(config.localStateRoot), config.origin),
     privacy = new AccountPrivacy(auth);
   const signing = (body) => auth.crypto.hash("recovery.bundle", body);
   if (action === "export") {

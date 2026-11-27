@@ -5,9 +5,9 @@ import { publishNextScheduledContent } from "@soldbench/api";
 import {
   AccountPrivacy,
   AuthService,
-  localAuthSecrets,
   OfflineMailQueue,
   ResendMailTransport,
+  runtimeAuthSecrets,
   SmtpMailTransport,
   TransactionalMailWorker,
 } from "@soldbench/auth";
@@ -25,18 +25,24 @@ if (args.length > 1 || args.some((a) => !["--once", "--watch"].includes(a)))
 const config = loadConfig(process.env),
   url = config.databaseUrl ?? localDatabaseUrl();
 assertAllowedDatabaseUrl(config, url);
+const authSecrets = runtimeAuthSecrets(config.localStateRoot);
 const db = database(url),
   abort = new AbortController();
 const watch = args[0] === "--watch";
+const runtimeRole = process.env.NODE_ENV === "production" ? "soldbench_runtime" : undefined;
 const wait = (milliseconds) => setTimeout(milliseconds, undefined, { signal: abort.signal }).catch(() => {});
 for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => abort.abort());
 try {
   if (watch)
-    await prepareRuntimeDatabase(db, config.databaseStartup, abort.signal, () =>
-      console.error("soldbench_query_worker_startup_database_unavailable"),
+    await prepareRuntimeDatabase(
+      db,
+      config.databaseStartup,
+      abort.signal,
+      () => console.error("soldbench_query_worker_startup_database_unavailable"),
+      runtimeRole,
     );
-  else await prepareDatabase(db, config.databaseStartup);
-  const auth = new AuthService(db, localAuthSecrets(resolve(config.localStateRoot)), config.origin),
+  else await prepareDatabase(db, config.databaseStartup, runtimeRole);
+  const auth = new AuthService(db, authSecrets, config.origin),
     processMail = (() => {
       if (config.mail.mode === "resend") {
         const w = new TransactionalMailWorker(auth, new ResendMailTransport(config.mail), {

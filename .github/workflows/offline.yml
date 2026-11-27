@@ -47,6 +47,12 @@ jobs:
         run: npm run test:step0
       - name: Validate product Skill
         run: python scripts/check-developer-assets.py
+      - name: Validate deployment roles and isolated proxy topology
+        run: |
+          python -m unittest discover -s tests -p test_infra_deployment.py
+          docker compose --env-file infra/.env.production.example -f infra/compose.prod.yaml config --quiet
+          docker compose --env-file infra/.env.production.example -f infra/compose.prod.yaml -f infra/compose.edge.yaml config --quiet
+          bash tests/compose-runtime.sh
       - name: Rehearse the offline runtime archive and backup recovery
         run: |
           python -m unittest discover -s tests -p test_runtime_package.py

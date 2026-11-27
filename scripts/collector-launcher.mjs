@@ -18,6 +18,7 @@ export function workerEnvironment(input) {
     "COLLECTOR_DEMO_DIR",
     "MEDIA_ROOT",
     "SOLDBENCH_TEST_SOCKET",
+    "SOLDBENCH_ISOLATED_DEPLOYMENT",
   ])
     if (input[key] !== undefined) result[key] = input[key];
   return result;

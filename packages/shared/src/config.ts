@@ -41,6 +41,7 @@ export type Config = {
   host: string;
   port: number;
   liveGateAcknowledged: boolean;
+  isolatedDeployment: boolean;
   dataMode: DataMode;
   paymentsMode: PaymentsMode;
   paymentFixtures: boolean;
@@ -138,6 +139,11 @@ function parseMailConfig(
  */
 export function loadConfig(env: Record<string, string | undefined>): Config {
   const liveGateAcknowledged = env.SOLDBENCH_LIVE_GATE_ACKNOWLEDGED === "true";
+  if (env.SOLDBENCH_ISOLATED_DEPLOYMENT && !["true", "false"].includes(env.SOLDBENCH_ISOLATED_DEPLOYMENT))
+    throw new Error("invalid_isolated_deployment_mode");
+  const isolatedDeployment = env.SOLDBENCH_ISOLATED_DEPLOYMENT === "true";
+  if (isolatedDeployment && liveGateAcknowledged)
+    throw new Error("isolated_deployment_cannot_accept_live_gate");
 
   if (env.PAYMENT_FIXTURES && !["true", "false"].includes(env.PAYMENT_FIXTURES)) {
     throw new Error("Invalid PAYMENT_FIXTURES");
@@ -158,19 +164,28 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
       throw new Error("Payment network access remains disabled");
     if (env.MAIL_TRANSPORT && env.MAIL_TRANSPORT !== "offline")
       throw new Error("Mail transport requires SOLDBENCH_LIVE_GATE_ACKNOWLEDGED=true");
-    if (env.NODE_ENV === "production") throw new Error("Production release gates have not been signed");
+    if (env.NODE_ENV === "production" && !isolatedDeployment)
+      throw new Error("Production release gates have not been signed");
+    if (isolatedDeployment && (env.PAYMENT_FIXTURES === "true" || env.COLLECTOR_PROXY_URL?.trim()))
+      throw new Error("isolated_deployment_requires_disabled_fixtures_and_proxy");
     const host = env.HOST ?? "127.0.0.1";
-    if (!["127.0.0.1", "localhost", "::1"].includes(host))
+    const loopbackHosts = ["127.0.0.1", "localhost", "::1"];
+    if (!loopbackHosts.includes(host) && !(isolatedDeployment && host === "0.0.0.0"))
       throw new Error("Offline development server must bind to loopback");
-    const hostForUrl = host.includes(":") ? `[${host}]` : host;
+    const hostForUrl = host.includes(":") ? `[${host}]` : host === "0.0.0.0" ? "127.0.0.1" : host;
     const origin = new URL(env.APP_ORIGIN ?? `http://${hostForUrl}:${port}`);
+    const internalSite =
+      isolatedDeployment && /^[a-z0-9-]+(?:\.[a-z0-9-]+)*\.test$/.test(origin.hostname) && !origin.port;
     if (
       origin.protocol !== "http:" ||
       origin.username ||
       origin.password ||
       origin.pathname !== "/" ||
-      !["127.0.0.1", "localhost", "::1"].includes(origin.hostname) ||
-      Number(origin.port || 80) !== port
+      origin.search ||
+      origin.hash ||
+      (!internalSite &&
+        (!["127.0.0.1", "localhost", "[::1]"].includes(origin.hostname) ||
+          Number(origin.port || 80) !== port))
     )
       throw new Error("Invalid APP_ORIGIN");
 
@@ -181,6 +196,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
       host,
       port,
       liveGateAcknowledged: false,
+      isolatedDeployment,
       dataMode: "offline_fixture",
       paymentsMode: "offline",
       paymentFixtures: env.PAYMENT_FIXTURES === "true",
@@ -250,6 +266,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     host,
     port,
     liveGateAcknowledged: true,
+    isolatedDeployment: false,
     dataMode,
     paymentsMode,
     paymentFixtures,

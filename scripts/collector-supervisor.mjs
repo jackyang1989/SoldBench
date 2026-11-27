@@ -271,7 +271,11 @@ async function run(args) {
   );
   let retryDelay = 0;
   async function supervise() {
-    await prepareDatabase(db, config.databaseStartup);
+    await prepareDatabase(
+      db,
+      config.databaseStartup,
+      process.env.NODE_ENV === "production" ? "soldbench_collector" : undefined,
+    );
     if (abort.signal.aborted) return;
     await sourceState(db, sourceId, config.dataMode);
     if (abort.signal.aborted) return;
