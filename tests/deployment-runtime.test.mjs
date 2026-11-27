@@ -73,16 +73,15 @@ test("production auth selects a private versioned file and rotates ciphertext wi
   );
 });
 
-test("isolated production mode keeps external operations closed and allows only the assigned local socket", () => {
-  const config = loadConfig({ ...rehearsal, HOST: "0.0.0.0", APP_ORIGIN: "http://soldbench.test" });
+test("isolated production mode keeps external operations closed and connects to native local PostgreSQL", () => {
+  const config = loadConfig({ ...rehearsal, APP_ORIGIN: "http://soldbench.test:8080" });
   assert.equal(config.liveGateAcknowledged, false);
-  const mountedSocket =
-    "postgresql://soldbench_runtime@localhost/soldbench?host=%2Frun%2Fsoldbench%2Fpostgres";
-  assert.doesNotThrow(() => assertRuntimeDatabaseUrl(mountedSocket, config));
-  assert.throws(
-    () => assertRuntimeDatabaseUrl(mountedSocket, loadConfig({})),
-    /database_target_must_be_local/,
+  assert.doesNotThrow(() =>
+    assertRuntimeDatabaseUrl("postgresql://soldbench_runtime@127.0.0.1/soldbench", config),
   );
+  const tempSocket = "postgresql://soldbench_runtime@localhost/soldbench?host=%2Ftmp%2Fsoldbench-test";
+  assert.doesNotThrow(() => assertRuntimeDatabaseUrl(tempSocket, config, "/tmp/soldbench-test"));
+  assert.throws(() => assertRuntimeDatabaseUrl(tempSocket, config), /database_target_must_be_local/);
   assert.throws(
     () => assertRuntimeDatabaseUrl("postgresql://soldbench_runtime@unapproved.test/soldbench", config),
     /database_target_must_be_local/,
@@ -94,6 +93,7 @@ test("isolated production mode keeps external operations closed and allows only 
     { PAYMENTS_MODE: "stripe_paypal_live" },
     { PAYMENT_FIXTURES: "true" },
     { APP_ORIGIN: "https://soldbench.com" },
+    { HOST: "0.0.0.0" },
   ])
     assert.throws(() => loadConfig({ ...rehearsal, ...override }));
 });

@@ -6,16 +6,27 @@ load_password() {
   value=$(cat "$1")
   case "$value" in
     ""|replace-*) echo "missing or placeholder database credential" >&2; exit 1 ;;
+    *'
+'*) echo "database credential must fit on one line" >&2; exit 1 ;;
   esac
   printf '%s' "$value"
 }
 
-export PGPASSWORD="$(load_password /run/secrets/db_bootstrap)"
-export SOLD_MIGRATOR_PASSWORD="$(load_password /run/secrets/db_migrator)"
-export SOLD_RUNTIME_PASSWORD="$(load_password /run/secrets/db_runtime)"
-export SOLD_COLLECTOR_PASSWORD="$(load_password /run/secrets/db_collector)"
-export SOLD_BACKUP_PASSWORD="$(load_password /run/secrets/db_backup)"
+secrets="${SOLDBENCH_SECRETS_DIR:?set SOLDBENCH_SECRETS_DIR}"
+case "$secrets" in /*) ;; *) echo "secret directory must be absolute" >&2; exit 1 ;; esac
+host="${PGHOST:-127.0.0.1}"
+case "$host" in 127.0.0.1|::1|/*) ;; *) echo "bootstrap requires native local PostgreSQL" >&2; exit 1 ;; esac
+
+PGPASSWORD="$(load_password "$secrets/db-bootstrap")"
+SOLD_MIGRATOR_PASSWORD="$(load_password "$secrets/db-migrator")"
+SOLD_RUNTIME_PASSWORD="$(load_password "$secrets/db-runtime")"
+SOLD_COLLECTOR_PASSWORD="$(load_password "$secrets/db-collector")"
+SOLD_BACKUP_PASSWORD="$(load_password "$secrets/db-backup")"
+export PGPASSWORD SOLD_MIGRATOR_PASSWORD SOLD_RUNTIME_PASSWORD SOLD_COLLECTOR_PASSWORD SOLD_BACKUP_PASSWORD
+
+script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 
 exec psql -X --no-password --set ON_ERROR_STOP=1 \
-  --host "${PGHOST:-/var/run/postgresql}" --port "${PGPORT:-5432}" \
-  --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --file /opt/soldbench/db/provision.sql
+  --host "$host" --port "${PGPORT:-5432}" \
+  --username "${POSTGRES_USER:?set the native bootstrap role}" \
+  --dbname "${POSTGRES_DB:?set the target native database}" --file "$script_dir/provision.sql"

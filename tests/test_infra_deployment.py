@@ -27,7 +27,7 @@ class InfraDeploymentTests(unittest.TestCase):
         services = compose["services"]
         expected_services = {
             "postgres",
-            "db-bootstrap",
+            "redis",
             "migrate",
             "api",
             "query-worker",
@@ -35,6 +35,11 @@ class InfraDeploymentTests(unittest.TestCase):
             "caddy",
         }
         self.assertEqual(set(services.keys()), expected_services)
+        for service in services.values():
+            self.assertEqual(service.get("profiles"), ["legacy-container"])
+        development = yaml.safe_load((INFRA / "compose.yaml").read_text())
+        for service in development["services"].values():
+            self.assertEqual(service.get("profiles"), ["legacy-container"])
 
         # Network isolation: only collector-supervisor uses collector_egress; collector-supervisor never joins edge.
         for name, svc in services.items():
@@ -84,24 +89,6 @@ class InfraDeploymentTests(unittest.TestCase):
         self.assertIn("offline_fixture", str(api_env["DATA_MODE"]))
         self.assertIn("offline", str(api_env["PAYMENTS_MODE"]))
         self.assertEqual(api_env["DB_STARTUP_MODE"], "verify")
-        self.assertEqual(api_env["NODE_ENV"], "production")
-        self.assertEqual(api_env["HOST"], "0.0.0.0")
-        self.assertEqual(api_env["PORT"], "3000")
-        self.assertEqual(api_env["AUTH_SECRETS_FILE"], "/run/secrets/auth_bundle")
-        self.assertEqual(services["query-worker"]["environment"]["AUTH_SECRETS_FILE"], api_env["AUTH_SECRETS_FILE"])
-        self.assertNotIn("SOURCE_URL_ENCRYPTION_KEY", api_env)
-        for service in services.values():
-            self.assertNotIn("ports", service)
-        self.assertTrue(networks["edge"]["internal"])
-        self.assertTrue(networks["collector_egress"]["internal"])
-        self.assertEqual(services["migrate"]["depends_on"], {"db-bootstrap": {"condition": "service_completed_successfully"}})
-        self.assertEqual(services["api"]["depends_on"], {"migrate": {"condition": "service_completed_successfully"}})
-        self.assertEqual(services["query-worker"]["depends_on"], services["api"]["depends_on"])
-        self.assertIn("collector", services["collector-supervisor"]["profiles"])
-        self.assertEqual(collector_env["SOLDBENCH_DATABASE_ROLE"], "soldbench_collector")
-        self.assertNotIn("auth_bundle", services["collector-supervisor"]["secrets"])
-        self.assertEqual(services["api"]["secrets"][0], {"source": "db_runtime", "target": "db_password"})
-        self.assertEqual(services["migrate"]["secrets"], [{"source": "db_migrator", "target": "db_password"}])
 
     def test_dockerfiles_pin_node_non_root_and_no_third_party_scrapers(self):
         runtime_df = (INFRA / "Dockerfile.runtime").read_text()
@@ -122,7 +109,8 @@ class InfraDeploymentTests(unittest.TestCase):
         self.assertIn("soldbench.com", caddy)
         self.assertIn("api.soldbench.com", caddy)
         self.assertIn("support@soldbench.com", caddy)
-        self.assertIn("reverse_proxy api:3000", caddy)
+        self.assertIn("reverse_proxy {$SOLD_UPSTREAM:127.0.0.1:3000}", caddy)
+        self.assertIn("health_uri /ready", caddy)
         self.assertIn("Strict-Transport-Security", caddy)
         self.assertIn("X-Content-Type-Options", caddy)
 
@@ -130,19 +118,15 @@ class InfraDeploymentTests(unittest.TestCase):
         self.assertIn("COLLECTOR_ENABLED=false", env_tpl)
         self.assertIn("DATA_MODE=offline_fixture", env_tpl)
         self.assertIn("PAYMENTS_MODE=offline", env_tpl)
-        self.assertIn("SOLDBENCH_ISOLATED_DEPLOYMENT=true", env_tpl)
+        self.assertIn("DB_STARTUP_MODE=verify", env_tpl)
+        self.assertIn("HOST=127.0.0.1", env_tpl)
+        self.assertIn("DATABASE_URL=postgresql://soldbench_runtime@127.0.0.1:5432/soldbench", env_tpl)
         self.assertIn("SOLDBENCH_LIVE_GATE_ACKNOWLEDGED=false", env_tpl)
-        self.assertIn("POSTGRES_USER=soldbench_bootstrap", env_tpl)
-        for unused in ("MIGRATION_DATABASE_URL", "COLLECTOR_DATABASE_URL", "API_ORIGIN", "SUPPORT_EMAIL"):
-            self.assertNotIn(f"{unused}=", env_tpl)
+        self.assertIn("AUTH_SECRETS_VERSION=initial", env_tpl)
+        workflow = (ROOT / ".github/workflows/offline.yml").read_text()
+        self.assertNotIn("docker compose", workflow)
+        self.assertIn("native-proxy-rehearsal.py", workflow)
         self.assertIsNone(re.search(r"sk_(live|test)_[0-9a-zA-Z]{16,}", env_tpl))
-        overlay = yaml.safe_load((INFRA / "compose.edge.yaml").read_text())
-        self.assertEqual(
-            [name for name, config in overlay["services"].items() if "ports" in config],
-            ["caddy"],
-        )
-        self.assertEqual(overlay["services"]["api"]["environment"]["APP_ORIGIN"], "https://soldbench.com")
-        self.assertEqual(overlay["services"]["api"]["environment"]["SOLDBENCH_ISOLATED_DEPLOYMENT"], "false")
 
     def test_backup_restore_script_syntax_and_live_pg16_tamper_detection(self):
         script = INFRA / "backup-restore.sh"

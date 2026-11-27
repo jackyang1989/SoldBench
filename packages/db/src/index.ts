@@ -227,7 +227,7 @@ export function assertLocalDatabaseUrl(url: string, allowedSocketDirectories: re
 
 export function assertRuntimeDatabaseUrl(
   url: string,
-  config: { liveGateAcknowledged: boolean; isolatedDeployment: boolean },
+  config: { liveGateAcknowledged: boolean },
   testSocketDirectory?: string,
 ): void {
   if (config.liveGateAcknowledged) {
@@ -237,7 +237,6 @@ export function assertRuntimeDatabaseUrl(
   }
   assertLocalDatabaseUrl(url, [
     resolve(".local/postgres/socket"),
-    ...(config.isolatedDeployment ? ["/run/soldbench/postgres"] : []),
     ...(testSocketDirectory ? [testSocketDirectory] : []),
   ]);
 }

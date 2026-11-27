@@ -3,9 +3,11 @@
 
 {
 	email support@soldbench.com
+	admin off
 }
 
-{$SOLD_SITE_ADDRESS:http://soldbench.test} {
+{$SOLD_SITE_ADDRESS:http://soldbench.test:8080} {
+	bind {$SOLD_EDGE_BIND:127.0.0.1}
 	encode zstd gzip
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
@@ -16,14 +18,15 @@
 	request_body {
 		max_size 2MB
 	}
-	reverse_proxy api:3000 {
+	reverse_proxy {$SOLD_UPSTREAM:127.0.0.1:3000} {
 		health_uri /ready
 		health_interval 15s
 		health_timeout 3s
 	}
 }
 
-{$SOLD_API_ADDRESS:http://api.soldbench.test} {
+{$SOLD_API_ADDRESS:http://api.soldbench.test:8080} {
+	bind {$SOLD_EDGE_BIND:127.0.0.1}
 	encode zstd gzip
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
@@ -36,7 +39,7 @@
 	}
 	@allowed_api path /v1/* /health /ready
 	handle @allowed_api {
-		reverse_proxy api:3000 {
+		reverse_proxy {$SOLD_UPSTREAM:127.0.0.1:3000} {
 			health_uri /ready
 			health_interval 15s
 			health_timeout 3s

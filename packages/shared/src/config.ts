@@ -170,12 +170,10 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
       throw new Error("isolated_deployment_requires_disabled_fixtures_and_proxy");
     const host = env.HOST ?? "127.0.0.1";
     const loopbackHosts = ["127.0.0.1", "localhost", "::1"];
-    if (!loopbackHosts.includes(host) && !(isolatedDeployment && host === "0.0.0.0"))
-      throw new Error("Offline development server must bind to loopback");
-    const hostForUrl = host.includes(":") ? `[${host}]` : host === "0.0.0.0" ? "127.0.0.1" : host;
+    if (!loopbackHosts.includes(host)) throw new Error("Offline development server must bind to loopback");
+    const hostForUrl = host.includes(":") ? `[${host}]` : host;
     const origin = new URL(env.APP_ORIGIN ?? `http://${hostForUrl}:${port}`);
-    const internalSite =
-      isolatedDeployment && /^[a-z0-9-]+(?:\.[a-z0-9-]+)*\.test$/.test(origin.hostname) && !origin.port;
+    const internalSite = isolatedDeployment && /^[a-z0-9-]+(?:\.[a-z0-9-]+)*\.test$/.test(origin.hostname);
     if (
       origin.protocol !== "http:" ||
       origin.username ||
