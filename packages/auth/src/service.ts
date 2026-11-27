@@ -681,8 +681,7 @@ export class AuthService {
   }
   async listKeys(token: string) {
     return transaction(this.db, async (c) => {
-      const { user, row, now } = await this.session(c, token);
-      await this.sensitive(c, user, row, now);
+      const { user } = await this.session(c, token);
       if (!user.email_verified_at) deny("email_verification_required", 403, "Verify your email first.");
       return (
         await c.query("SELECT * FROM api_keys WHERE user_id=$1 ORDER BY created_at DESC,id LIMIT 100", [

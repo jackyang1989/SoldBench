@@ -391,50 +391,86 @@ export function renderPage(
   );
   const renderSupportIntakeGrid = (includeStatus: boolean) => (
     <div className="grid2 mt-22">
-      <div className="card auth-card">
-        <form data-support="" method="post">
-          <h2>{t("Open a ticket", "提交新工单")}</h2>
-          <label>
-            {t("Issue type", "问题类型")}
-            <select name="category" required>
-              <option value="data_quality">{t("Data quality", "数据质量")}</option>
-              <option value="takedown">{t("Data rights or takedown", "数据权利或下架")}</option>
-              <option value="account">{t("Account access", "账户访问")}</option>
-              <option value="billing">{t("Billing", "账务")}</option>
-              <option value="other">{t("Other", "其他")}</option>
-            </select>
-          </label>
-          <label>
-            {t("Request ID (optional)", "请求编号（选填）")}
-            <input name="request_id" maxLength={36} />
-          </label>
-          <label>
-            {t("What happened?", "请描述遇到的问题")}
-            <textarea name="message" required maxLength={4000} rows={5} />
-          </label>
-          <button className="btn brand" type="submit">
-            {t("Submit request", "提交工单")}
-          </button>
-        </form>
-        {includeStatus ? status : null}
+      <div>
+        <div className="card">
+          <h3>{t("Message support", "提交工单")}</h3>
+          <form data-support="" method="post" className="mt-14">
+            <div className="field">
+              <label>
+                {t("Issue type", "问题类型")}
+                <select name="category" required>
+                  <option value="data_quality">{t("Data quality", "数据质量")}</option>
+                  <option value="takedown">{t("Data rights or takedown", "数据权利或下架")}</option>
+                  <option value="account">{t("Account access", "账户访问")}</option>
+                  <option value="billing">{t("Billing", "账务")}</option>
+                  <option value="other">{t("Other", "其他")}</option>
+                </select>
+              </label>
+            </div>
+            <div className="field">
+              <label>
+                {t("Request ID (optional)", "请求编号（选填）")}
+                <input name="request_id" maxLength={36} placeholder="q_… / req_…" />
+              </label>
+            </div>
+            <div className="field">
+              <label>
+                {t("What happened?", "请描述遇到的问题")}
+                <textarea
+                  name="message"
+                  required
+                  maxLength={4000}
+                  rows={6}
+                  placeholder={t(
+                    "What happened, and what did you expect? IDs help us find the exact records.",
+                    "请说明实际现象与预期结果，附上查询或请求编号有助于快速定位。",
+                  )}
+                />
+              </label>
+            </div>
+            <button className="btn brand" type="submit">
+              {t("Submit request", "提交工单")}
+            </button>
+          </form>
+          {includeStatus ? status : null}
+        </div>
+        <div className="card mt-18">
+          <h3>{t("Before you write", "提交前可先查阅")}</h3>
+          <p className="mt-8">{t("Most answers live in the docs:", "多数常见问题已在文档说明：")}</p>
+          <p className="mt-10 small">
+            <a href={zh ? "/docs/zh-CN/quickstart" : "/docs/en/quickstart"}>{t("Quickstart", "快速入门")}</a>
+            {" · "}
+            <a href={zh ? "/docs/zh-CN/errors" : "/docs/en/errors"}>{t("Errors & retries", "错误与重试")}</a>
+            {" · "}
+            <a href={zh ? "/docs/zh-CN/evidence" : "/docs/en/evidence"}>
+              {t("Evidence & quality", "证据与质量")}
+            </a>
+            {" · "}
+            <a href={link("/methodology")}>{t("Methodology", "研究方法")}</a>
+            {" · "}
+            <a href={link("/changelog")}>{t("Changelog", "更新日志")}</a>
+          </p>
+        </div>
       </div>
 
       <div>
-        <div className="card auth-card">
-          <form data-support-receipt="" method="post">
-            <h2>{t("Check a support request", "查看工单进展")}</h2>
-            <label>
-              {t("Private support receipt", "私密工单回执")}
-              <input
-                name="receipt"
-                type="password"
-                autoComplete="off"
-                spellCheck={false}
-                minLength={43}
-                maxLength={43}
-                required
-              />
-            </label>
+        <div className="card">
+          <h3>{t("Check a support request", "查看工单进展")}</h3>
+          <form data-support-receipt="" method="post" className="mt-14">
+            <div className="field">
+              <label>
+                {t("Private support receipt", "私密工单回执")}
+                <input
+                  name="receipt"
+                  type="password"
+                  autoComplete="off"
+                  spellCheck={false}
+                  minLength={43}
+                  maxLength={43}
+                  required
+                />
+              </label>
+            </div>
             <button className="btn ghost" type="submit">
               {t("Check request status", "查询工单状态")}
             </button>
@@ -442,113 +478,185 @@ export function renderPage(
           <div data-support-result="" className="mt-14" />
         </div>
         <div className="card mt-18">
-          <h3>{t("Response expectations", "处理时效说明")}</h3>
+          <h3>{t("Contact", "联系方式")}</h3>
+          <p className="mt-8">
+            {t("Email ", "邮件联系 ")}
+            <a href="mailto:support@soldbench.com">support@soldbench.com</a>
+            {t(
+              " — tickets from the form and from email land in the same queue.",
+              " —— 网页工单与邮件支持进入同一处理队列。",
+            )}
+          </p>
           <div className="kv mt-12">
             <div>
               <b>{t("Billing", "账务核对")}</b>
-              <span>{t("Same business day", "当天工作日响应")}</span>
+              {t("Same business day", "当天工作日响应")}
             </div>
             <div>
-              <b>{t("Rights & takedowns", "版权与下架")}</b>
-              <span>{t("Verified against permission epoch", "按权限纪元即时撤权")}</span>
+              <b>{t("General", "常规支持")}</b>
+              {t("Within 1 business day", "1 个工作日内响应")}
             </div>
             <div>
-              <b>{t("Service availability", "服务状态")}</b>
-              <a href={link("/data-availability")}>{t("Check availability →", "查看数据可用性 →")}</a>
-            </div>
-            <div>
-              <b>{t("Direct contact", "直接邮件")}</b>
-              <a href="mailto:support@soldbench.com">support@soldbench.com</a>
+              <b>{t("Rights notices", "权利与下架")}</b>
+              {t("Verified against permission epoch", "按权限纪元即时撤权")}
             </div>
           </div>
+          <p className="mt-12">
+            <a className="btn ghost btn-sm" href={link("/data-availability")}>
+              {t("Check system status", "查看服务状态")}
+            </a>
+          </p>
         </div>
       </div>
     </div>
   );
-  const renderPlaygroundBody = (formAction: string, chipsTarget: string, includeStatus: boolean) => (
+  const renderPlaygroundBody = (formAction: string, _chipsTarget: string, includeStatus: boolean) => (
     <>
-      <div className="notice mt-0 mb-16" data-kind="warning">
+      {!includeStatus && (
+        <>
+          <h1 className="serif">{t("Playground", "API 调试台")}</h1>
+          <p className="small acct-sub">
+            {t(
+              "Test the API without writing any code. Every run uses your signed-in session — failed and low-sample (<8) queries never charge.",
+              "无需编写代码即可实时调试研究接口；使用当前登录会话发起请求，失败与不足 8 条结果永不扣费。",
+            )}
+          </p>
+          {status}
+        </>
+      )}
+      <div className="notice mt-16 mb-16">
         {t(
           "Live API mode — requests run against your signed-in session. Failed queries, low-sample (<8) results, and identical repeats within 10 minutes are free; broad searches return 202 and charge only on explicit claim.",
           "实时调试模式 — 请求直接使用当前登录会话执行。失败查询、低样本（<8）结果与 10 分钟内同参数复用均免费；宽泛查询返回 202，仅在显式领用结果时计费。",
         )}
       </div>
-      <div className="grid2">
-        <div className="card auth-card">
+      <div className="grid2 pg-grid">
+        <div className="card">
           <form action={link(formAction)} method="get" data-search="">
-            <label>
-              {t("q — search terms", "q — 查询关键词")}
-              <input
-                name="q"
-                maxLength={120}
-                required
-                defaultValue={draft.get("q") ?? "Nintendo Switch OLED"}
-                placeholder={t("e.g. Nintendo Switch OLED", "例如 Nintendo Switch OLED")}
-              />
-            </label>
-            <div className="pg-form-row">
+            <div className="field">
               <label>
-                {t("Condition", "成色")}
-                <select name="condition" defaultValue={draft.get("condition") ?? ""}>
-                  <option value="">{t("Any", "不限")}</option>
-                  <option value="like_new">{t("Like new", "近新")}</option>
-                  <option value="good">{t("Good", "良好")}</option>
-                  <option value="fair">{t("Fair", "一般")}</option>
-                  <option value="defective">{t("For parts", "故障/零件")}</option>
-                </select>
-              </label>
-              <label>
-                {t("Format", "成交方式")}
-                <select name="sale_format" defaultValue={draft.get("sale_format") ?? ""}>
-                  <option value="">{t("Any", "不限")}</option>
-                  <option value="fixed_price">{t("Fixed price", "一口价")}</option>
-                  <option value="auction">{t("Auction", "拍卖")}</option>
-                  <option value="best_offer">{t("Best Offer", "议价")}</option>
-                </select>
-              </label>
-              <label>
-                {t("Window", "时间窗口")}
-                <select name="window_days" defaultValue={draft.get("window_days") ?? "90"}>
-                  <option value="90">{t("90 days", "90 天")}</option>
-                  <option value="30">{t("30 days", "30 天")}</option>
-                </select>
+                {t("q — search terms", "q — 查询关键词")}
+                <input
+                  name="q"
+                  maxLength={120}
+                  required
+                  defaultValue={draft.get("q") ?? "Nintendo Switch OLED"}
+                  placeholder={t("e.g. Nintendo Switch OLED", "例如 Nintendo Switch OLED")}
+                />
               </label>
             </div>
             <div className="pg-form-row">
+              <div className="field">
+                <label>
+                  {t("category", "category（类目）")}
+                  <select name="category" defaultValue={draft.get("category") ?? ""}>
+                    <option value="">{t("Any category", "不限类目")}</option>
+                    <option value="cards_graded">{t("Graded cards", "评级卡牌")}</option>
+                    <option value="sneakers">{t("Sneakers", "球鞋")}</option>
+                    <option value="watches">{t("Watches", "腕表")}</option>
+                    <option value="video_games">{t("Video games", "电子游戏")}</option>
+                    <option value="gpu_hardware">{t("GPUs & hardware", "显卡硬件")}</option>
+                    <option value="collectibles">{t("Collectibles", "收藏品")}</option>
+                  </select>
+                </label>
+              </div>
+              <div className="field">
+                <label>
+                  {t("condition", "condition（成色）")}
+                  <select name="condition" defaultValue={draft.get("condition") ?? ""}>
+                    <option value="">{t("Any", "不限")}</option>
+                    <option value="like_new">{t("Like new", "近新")}</option>
+                    <option value="good">{t("Good", "良好")}</option>
+                    <option value="fair">{t("Fair", "一般")}</option>
+                    <option value="defective">{t("For parts", "故障/零件")}</option>
+                  </select>
+                </label>
+              </div>
+              <div className="field">
+                <label>
+                  {t("sale_format", "sale_format（方式）")}
+                  <select name="sale_format" defaultValue={draft.get("sale_format") ?? ""}>
+                    <option value="">{t("Any", "不限")}</option>
+                    <option value="fixed_price">{t("Fixed price", "一口价")}</option>
+                    <option value="auction">{t("Auction", "拍卖")}</option>
+                    <option value="best_offer">{t("Best Offer", "议价")}</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+            <div className="pg-form-row-5 mt-14">
+              <div className="field">
+                <label>
+                  {t("min_price ($)", "最低价 ($)")}
+                  <input
+                    name="min_price"
+                    inputMode="decimal"
+                    maxLength={17}
+                    pattern="[0-9]+([.][0-9]{1,2})?"
+                    defaultValue={priceDraft("min_price_cents")}
+                    placeholder="—"
+                  />
+                </label>
+              </div>
+              <div className="field">
+                <label>
+                  {t("max_price ($)", "最高价 ($)")}
+                  <input
+                    name="max_price"
+                    inputMode="decimal"
+                    maxLength={17}
+                    pattern="[0-9]+([.][0-9]{1,2})?"
+                    defaultValue={priceDraft("max_price_cents")}
+                    placeholder="—"
+                  />
+                </label>
+              </div>
+              <div className="field">
+                <label>
+                  {t("days", "窗口天数")}
+                  <select name="window_days" defaultValue={draft.get("window_days") ?? "90"}>
+                    <option value="90">90</option>
+                    <option value="30">30</option>
+                  </select>
+                </label>
+              </div>
+              <div className="field">
+                <label>
+                  {t("limit", "返回上限")}
+                  <input
+                    name="limit"
+                    type="number"
+                    min={1}
+                    max={200}
+                    defaultValue={draft.get("limit") ?? "50"}
+                  />
+                </label>
+              </div>
+              <div className="field">
+                <label>
+                  {t("price_basis", "价格口径")}
+                  <select
+                    name="price_basis"
+                    defaultValue={draft.get("price_basis") ?? "item_plus_observed_shipping"}
+                  >
+                    <option value="item_plus_observed_shipping">{t("Item + ship", "含已知运费")}</option>
+                    <option value="item">{t("Item only", "仅商品价")}</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+            <div className="field mt-14">
               <label>
-                {t("Min price ($)", "最低价格")}
-                <input
-                  name="min_price"
-                  inputMode="decimal"
-                  maxLength={17}
-                  pattern="[0-9]+([.][0-9]{1,2})?"
-                  defaultValue={priceDraft("min_price_cents")}
-                  placeholder="—"
-                />
-              </label>
-              <label>
-                {t("Max price ($)", "最高价格")}
-                <input
-                  name="max_price"
-                  inputMode="decimal"
-                  maxLength={17}
-                  pattern="[0-9]+([.][0-9]{1,2})?"
-                  defaultValue={priceDraft("max_price_cents")}
-                  placeholder="—"
-                />
-              </label>
-              <label>
-                {t("Price basis", "价格口径")}
-                <select
-                  name="price_basis"
-                  defaultValue={draft.get("price_basis") ?? "item_plus_observed_shipping"}
-                >
-                  <option value="item_plus_observed_shipping">{t("Item + ship", "商品＋运费")}</option>
-                  <option value="item">{t("Item only", "仅商品价")}</option>
+                {t("Simulate an error response", "模拟错误响应（不扣费）")}
+                <select defaultValue="none" data-pg-sim="">
+                  <option value="none">{t("None — run normally", "无 — 正常调用实时接口")}</option>
+                  <option value="400">400 invalid_parameter</option>
+                  <option value="402">402 insufficient_credits</option>
+                  <option value="429">429 rate_limited</option>
                 </select>
               </label>
             </div>
-            <label className="check">
+            <label className="check mt-14 mb-12">
               <input
                 type="checkbox"
                 name="allow_stale"
@@ -557,57 +665,82 @@ export function renderPage(
               <span>{t("Allow older cached data", "允许使用较旧缓存")}</span>
             </label>
             <button className="btn brand pg-submit" type="submit">
-              {t("Search", "查询")}
+              {page === "/playground" ? t("Search", "查询") : t("Run request", "运行请求")}
             </button>
             <p className="small mt-10">
               {t(
-                "Sync results deliver immediately; broad queries return 202 and charge only when you claim.",
-                "同步查价直接交付结果；宽泛查询先返回 202，显式领用时再结算额度。",
+                "Flow: POST returns 202 → poll the job → claim (only at claim is 1 credit settled) → full JSON.",
+                "流程：提交返回 202 → 免费轮询作业 → 显式领用（此时才扣 1 额度）→ 完整 JSON。",
               )}
             </p>
           </form>
-          {renderExamples(chipsTarget)}
           {includeStatus ? status : null}
           <div className="actions" data-actions="" />
         </div>
 
-        <section className="card" data-api-trace="">
-          <h2>{t("Requests and responses", "请求与响应")}</h2>
-          <div className="actions" data-trace-list="" />
-          <details open className="mt-12">
-            <summary>{t("Response", "响应")}</summary>
+        <div className="pg-right" data-api-trace="">
+          <div className="codeblock cbwrap">
+            <div className="cb-head">
+              <span>{t("Response — example", "响应示例")}</span>
+              <div className="actions" data-trace-list="" style={{ margin: 0 }} />
+              <button type="button" className="copy-btn" data-copy="[data-trace-body]">
+                {t("Copy", "复制")}
+              </button>
+            </div>
             <pre data-trace-body="">
-              {`{
-  "data": {
-    "query": "Nintendo Switch OLED",
-    "stats": {
-      "median_cents": 28150,
-      "p25_cents": 26500,
-      "p75_cents": 29175,
-      "trimmed_mean_cents": 27867,
-      "n_price_verified": 8
-    },
-    "quality": {
-      "sample_tier": "limited",
-      "total_score": null
-    }
+              {highlightCode(
+                `// What a claimed result looks like. Run the request to get yours.
+{
+  "status": 200,
+  "headers": { "X-Quota-Remaining": "199" },
+  "stats": {
+    "median_cents": 28150,
+    "p25_cents": 26500,
+    "p75_cents": 29175,
+    "n_price_verified": 8
   },
-  "meta": {
-    "query_id": "q_demo_oled",
-    "credits_charged": 1
-  }
-}`}
+  "meta": { "query_id": "q_demo_oled", "credits_charged": 1 }
+}`,
+                "json",
+              )}
             </pre>
+          </div>
+          <div>
+            <div className="tabs mb-10" role="tablist" aria-label={t("Code language", "示例代码语言")}>
+              <button type="button" className="on" data-pg-lang="curl">
+                curl
+              </button>
+              <button type="button" data-pg-lang="python">
+                Python
+              </button>
+              <button type="button" data-pg-lang="ts">
+                TypeScript
+              </button>
+            </div>
+            <div className="codeblock cbwrap">
+              <div className="cb-head">
+                <span>{t("Generated code — follows the form above", "生成代码 — 随左侧表单实时同步")}</span>
+                <button type="button" className="copy-btn" data-copy="[data-pg-generated]">
+                  {t("Copy", "复制")}
+                </button>
+              </div>
+              <pre data-pg-generated="">
+                {highlightCode(
+                  `curl -H "Authorization: Bearer sb_live_..." \\\n  "https://api.soldbench.com/v1/sold?q=Nintendo+Switch+OLED&window_days=90&limit=50"`,
+                  "bash",
+                )}
+              </pre>
+            </div>
+          </div>
+          <details className="pg-trace-detail">
+            <summary className="pg-trace-sum">{t("Headers", "响应头")}</summary>
+            <pre className="pg-trace-pre" data-trace-headers="" />
           </details>
-          <details className="mt-8">
-            <summary>{t("Headers", "响应头")}</summary>
-            <pre data-trace-headers="" />
+          <details className="pg-trace-detail">
+            <summary className="pg-trace-sum">{t("Server-side cURL example", "服务端 cURL 示例")}</summary>
+            <pre className="pg-trace-pre" data-trace-code="" />
           </details>
-          <details className="mt-8">
-            <summary>{t("Server-side cURL example", "服务端 cURL 示例")}</summary>
-            <pre data-trace-code="" />
-          </details>
-        </section>
+        </div>
       </div>
     </>
   );
@@ -627,44 +760,46 @@ export function renderPage(
           <label>
             {t("Condition", "成色")}
             <select name="condition" defaultValue={draft.get("condition") ?? ""}>
-              <option value="">{t("Any condition", "不限成色")}</option>
+              <option value="">{t("Any", "不限")}</option>
               <option value="like_new">{t("Like new", "近新")}</option>
               <option value="good">{t("Good", "良好")}</option>
               <option value="fair">{t("Fair", "一般")}</option>
-              <option value="defective">{t("For parts", "故障或零件")}</option>
+              <option value="defective">{t("For parts", "故障/零件")}</option>
             </select>
           </label>
           <label>
-            {t("Format", "成交方式")}
+            {t("Format", "方式")}
             <select name="sale_format" defaultValue={draft.get("sale_format") ?? ""}>
-              <option value="">{t("Any format", "不限方式")}</option>
+              <option value="">{t("Any", "不限")}</option>
               <option value="fixed_price">{t("Fixed price", "一口价")}</option>
               <option value="auction">{t("Auction", "拍卖")}</option>
               <option value="best_offer">{t("Best Offer", "议价")}</option>
             </select>
           </label>
           <label>
-            {t("Min price (USD)", "最低价格（美元）")}
+            {t("Min ($)", "最低 ($)")}
             <input
               name="min_price"
               inputMode="decimal"
               maxLength={17}
               pattern="[0-9]+([.][0-9]{1,2})?"
+              placeholder="—"
               defaultValue={priceDraft("min_price_cents")}
             />
           </label>
           <label>
-            {t("Max price (USD)", "最高价格（美元）")}
+            {t("Max ($)", "最高 ($)")}
             <input
               name="max_price"
               inputMode="decimal"
               maxLength={17}
               pattern="[0-9]+([.][0-9]{1,2})?"
+              placeholder="—"
               defaultValue={priceDraft("max_price_cents")}
             />
           </label>
           <label>
-            {t("Window", "时间范围")}
+            {t("Window", "窗口")}
             <select name="window_days" defaultValue={draft.get("window_days") ?? "90"}>
               <option value="90">{t("90 days", "90 天")}</option>
               <option value="30">{t("30 days", "30 天")}</option>
@@ -676,15 +811,13 @@ export function renderPage(
               name="price_basis"
               defaultValue={draft.get("price_basis") ?? "item_plus_observed_shipping"}
             >
-              <option value="item_plus_observed_shipping">
-                {t("Item + observed shipping", "商品价＋已观察运费")}
-              </option>
-              <option value="item">{t("Item only", "仅商品价")}</option>
+              <option value="item_plus_observed_shipping">{t("Item + ship", "含已知运费")}</option>
+              <option value="item">{t("Item price", "仅商品价")}</option>
             </select>
           </label>
           <label className="wb-check-label">
             <input type="checkbox" name="allow_stale" defaultChecked={draft.get("allow_stale") === "true"} />
-            <span>{t("Allow older cache", "允许陈旧缓存")}</span>
+            <span>{t("Allow older cache", "允许较旧缓存")}</span>
           </label>
         </div>
       </form>
@@ -899,6 +1032,17 @@ export function renderPage(
               </>
             );
           })()}
+        {!ssrShowcase && !resultId && !draft.get("job") && page === "/account/search" && (
+          <div className="empty-card">
+            <h3>{t("Search verified sold comps", "搜索已核验历史成交价")}</h3>
+            <p className="small mt-8">
+              {t(
+                "Enter a product keyword above or pick one of the sample queries to compute Type 7 median, P25–P75 range, and full exclusion evidence. Low-sample (<8) results are always free.",
+                "在上方输入商品关键词或点击示例查询，即可按同源统计引擎计算 Type 7 中位价、P25–P75 区间与逐条排除证据；样本不足 8 条与 10 分钟内复用永不扣费。",
+              )}
+            </p>
+          </div>
+        )}
       </div>
       <noscript>{t("Enable JavaScript to submit a search.", "请启用 JavaScript 后提交搜索。")}</noscript>
     </>
@@ -1976,12 +2120,12 @@ export function renderPage(
               </a>
             </nav>
           </aside>
-          <div className="acct-main account-main">
+          <div className="acct-main adm-main account-main">
             <div className="acct-head">
               <h1>{title}</h1>
             </div>
             {status}
-            <div className="grid2">
+            <div className="grid2 adm-content-grid">
               <div className="card auth-card">
                 <form data-content-draft="" method="post">
                   <h2>{t("Draft content", "编辑草稿")}</h2>
@@ -2926,6 +3070,10 @@ export function renderPage(
         "基于当前登录会话发起实时 API 调试，查看完整响应体、响应头与 cURL 示例。",
       ],
       "/account/queries": ["Your executed searches and snapshots.", "已执行的成交研究与交付快照。"],
+      "/account/batches": [
+        "One run, one median per line — for buy lists, inventory checks and catalog sweeps.",
+        "一次提交最多 20 行商品清单，提前预览去重与额度上限，结果就绪后显式领取结算。",
+      ],
       "/account/agents": [
         "Connect AI clients to SoldBench over Hosted MCP (/mcp) or REST.",
         "将 Claude Code、Cursor、ChatGPT 等接入 SoldBench Hosted MCP 或 REST 接口。",
@@ -2978,6 +3126,30 @@ export function renderPage(
         </div>
         {agentClientSetupCard}
         <div className="card ag-card">
+          <h2 className="serif ag-title">{t("Setup prompt", "智能体指令模板")}</h2>
+          <p className="small mb-14">
+            {t(
+              "Paste this into your agent's instruction file so it prices the SoldBench way — median first, sample size always, no invented numbers.",
+              "将以下规则粘贴到 AI Agent 指令文件中，确保始终先报中位价与核验样本数、不编造未核验价格。",
+            )}
+          </p>
+          <div className="codeblock cbwrap">
+            <div className="cb-head">
+              <span>{t("Setup prompt", "指令模板")}</span>
+              <button type="button" className="copy-btn" data-copy="#acctSetupPrompt">
+                {t("Copy", "复制")}
+              </button>
+            </div>
+            <pre id="acctSetupPrompt">
+              {`When pricing anything, use SoldBench.
+1. Call GET /v1/sold (or the sold_search MCP tool) before answering.
+2. Answer with the MEDIAN and n_price_verified, plus the typical range.
+3. If median is null (n < 8), say there is not enough data and give the observed range instead.
+4. Always cite the query_id from meta.`}
+            </pre>
+          </div>
+        </div>
+        <div className="card ag-card">
           <h2 className="serif ag-title">{t("How agent usage bills", "智能体调用与计费规则")}</h2>
           <ol className="ag-list">
             {agentPlaybookRules.map((rule) => (
@@ -3012,54 +3184,65 @@ export function renderPage(
           </nav>
         </aside>
         <div className="acct-main account-main">
-          <div className="acct-head">
-            <div className="acct-head-title">
-              <h1 className="serif" data-acct-heading="">
-                {title}
-              </h1>
-              <p className="small acct-sub" data-acct-sub="">
-                {subText}
-              </p>
-            </div>
-            <div className="actions acct-head-actions">
-              <button type="button" className="btn ghost btn-sm" data-whats-new="" aria-expanded="false">
-                {t("What's new", "近期更新")}{" "}
-                <span className="badge badge-red" data-whats-new-count="">
-                  3
-                </span>
-              </button>
-              <div className="card whats-new-pop" data-whats-new-pop="" hidden>
-                <div className="whats-new-row">
-                  <span className="badge badge-green">{t("ADDED", "新增")}</span>{" "}
-                  <b>{t("Evidence pack on every result", "每次查询标配可核验数据包")}</b>
-                  <div className="small">
-                    {t("query_id, candidate_set_hash & rule IDs", "附带候选集哈希与逐条规则编号")}
-                  </div>
+          {page !== "/account/playground" && (
+            <>
+              <div className="acct-head">
+                <div className="acct-head-title">
+                  <h1 className="serif" data-acct-heading="">
+                    {title}
+                  </h1>
+                  <p className="small acct-sub" data-acct-sub="">
+                    {subText}
+                  </p>
                 </div>
-                <div className="whats-new-row">
-                  <span className="badge badge-green">{t("ADDED", "新增")}</span>{" "}
-                  <b>{t("MCP server: sold_search + sold_stats", "Hosted MCP：sold_search / sold_stats")}</b>
-                  <div className="small">
-                    {t("Shared billing ledger across REST & MCP", "与 REST 接口共用同一套账本和扣费规则")}
-                  </div>
-                </div>
-                <div className="whats-new-row">
-                  <span className="badge badge-amber">{t("CHANGED", "优化")}</span>{" "}
-                  <b>{t("Five quality dimensions & Best Offer isolation", "五维质量评分与议价实价隔离")}</b>
-                  <div className="small">
-                    {t("total_score remains null; <8 sample free", "total_score 恒为 null，不足 8 条免费")}
-                  </div>
-                </div>
-                <div className="whats-new-foot">
-                  <button type="button" className="btn ghost btn-sm" data-whats-new-read="">
-                    {t("Mark all read", "全部标记已读")}
+                <div className="actions acct-head-actions">
+                  <button type="button" className="btn ghost btn-sm" data-whats-new="" aria-expanded="false">
+                    {t("What's new", "近期更新")}{" "}
+                    <span className="badge badge-red" data-whats-new-count="">
+                      3
+                    </span>
                   </button>
-                  <a href={link("/changelog")}>{t("View full changelog →", "查看全部更新 →")}</a>
+                  <div className="card whats-new-pop" data-whats-new-pop="" hidden>
+                    <div className="whats-new-row">
+                      <span className="badge badge-green">{t("ADDED", "新增")}</span>{" "}
+                      <b>{t("Evidence pack on every result", "每次查询标配可核验数据包")}</b>
+                      <div className="small">
+                        {t("query_id, candidate_set_hash & rule IDs", "附带候选集哈希与逐条规则编号")}
+                      </div>
+                    </div>
+                    <div className="whats-new-row">
+                      <span className="badge badge-green">{t("ADDED", "新增")}</span>{" "}
+                      <b>
+                        {t("MCP server: sold_search + sold_stats", "Hosted MCP：sold_search / sold_stats")}
+                      </b>
+                      <div className="small">
+                        {t("Shared billing ledger across REST & MCP", "与 REST 接口共用同一套账本和扣费规则")}
+                      </div>
+                    </div>
+                    <div className="whats-new-row">
+                      <span className="badge badge-amber">{t("CHANGED", "优化")}</span>{" "}
+                      <b>
+                        {t("Five quality dimensions & Best Offer isolation", "五维质量评分与议价实价隔离")}
+                      </b>
+                      <div className="small">
+                        {t(
+                          "total_score remains null; <8 sample free",
+                          "total_score 恒为 null，不足 8 条免费",
+                        )}
+                      </div>
+                    </div>
+                    <div className="whats-new-foot">
+                      <button type="button" className="btn ghost btn-sm" data-whats-new-read="">
+                        {t("Mark all read", "全部标记已读")}
+                      </button>
+                      <a href={link("/changelog")}>{t("View full changelog →", "查看全部更新 →")}</a>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>
-          {status}
+              {status}
+            </>
+          )}
           {page === "/account/search" ? (
             renderSearchBody(
               "/account/search",

@@ -84,6 +84,8 @@ export function createApp(
   } = {},
 ) {
   const app = new Hono<{ Variables: { requestId: string } }>();
+  const configuredOrigin = new URL(config.origin);
+  const loopbackHosts = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
   app.use("*", async (c, next) => {
     c.set("requestId", randomUUID());
     c.header("X-Request-ID", c.get("requestId"));
@@ -122,13 +124,25 @@ export function createApp(
     if (c.req.method === "GET") {
       const reqUrl = new URL(c.req.url);
       const pathname = reqUrl.pathname;
-      const isLocalizedUnprefixed =
-        localizedHtmlRoutes.has(pathname) ||
-        localizedHtmlPrefixes.some((prefix) => pathname.startsWith(prefix));
       const accept = c.req.header("Accept") ?? "";
       const wantsHtml = parseAccept(accept).some(
         ({ type, q }) => type.toLowerCase() === "text/html" && q > 0,
       );
+      if (
+        !config.liveGateAcknowledged &&
+        wantsHtml &&
+        c.req.header("Host") &&
+        loopbackHosts.has(configuredOrigin.hostname.toLowerCase()) &&
+        loopbackHosts.has(reqUrl.hostname.toLowerCase()) &&
+        Number(reqUrl.port || 80) === Number(configuredOrigin.port || 80) &&
+        reqUrl.host.toLowerCase() !== configuredOrigin.host.toLowerCase() &&
+        !/^\/(?:v1|web|auth|oauth|billing|webhooks|admin|assets|mcp|\.well-known)(?:\/|$)/.test(pathname)
+      ) {
+        return c.redirect(`${configuredOrigin.origin}${pathname}${reqUrl.search}`, 307);
+      }
+      const isLocalizedUnprefixed =
+        localizedHtmlRoutes.has(pathname) ||
+        localizedHtmlPrefixes.some((prefix) => pathname.startsWith(prefix));
       if (isLocalizedUnprefixed && wantsHtml) {
         c.header("Vary", "Accept-Language, Cookie", { append: true });
         if (preferredLocale(c.req.header("Cookie"), c.req.header("Accept-Language")) === "zh-CN") {

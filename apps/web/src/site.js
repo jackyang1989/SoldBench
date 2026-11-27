@@ -15,6 +15,7 @@ const queryNames = [
   "condition",
   "sale_format",
   "window_days",
+  "limit",
   "price_basis",
   "allow_stale",
   "min_price_cents",
@@ -29,6 +30,12 @@ function queryDraft(form) {
   for (const name of queryNames) {
     if (name.endsWith("_cents")) continue;
     const value = fields.get(name)?.trim();
+    if (name === "limit") {
+      if (value && /^\d+$/.test(value) && Number(value) >= 1 && Number(value) <= 200) {
+        draft.set(name, value);
+      }
+      continue;
+    }
     if (value) draft.set(name, name === "allow_stale" ? "true" : value);
   }
   for (const name of ["min_price", "max_price"]) {
@@ -107,7 +114,7 @@ function showTrace(path, response, body) {
     .map((name) => `${name}: ${response.headers.get(name)}`)
     .join("\n");
   const display = () => {
-    trace.querySelector("[data-trace-body]").textContent = JSON.stringify(body, null, 2);
+    renderHighlightedCode(trace.querySelector("[data-trace-body]"), JSON.stringify(body, null, 2), "json");
     trace.querySelector("[data-trace-headers]").textContent = headers;
   };
   const control = button(`${response.status} ${path.split("?")[0]}`, display);
@@ -1801,17 +1808,103 @@ if (search) {
     else history.pushState(null, "", canonical);
     updateLinks(draft, draft.has("result"));
   };
+  let pgLang = "curl";
+  const updatePlaygroundCode = () => {
+    const genEl = trace?.querySelector("[data-pg-generated]");
+    if (!genEl) return;
+    const draft = queryDraft(search);
+    const snippetDraft = new URLSearchParams(draft);
+    if (snippetDraft.get("price_basis") === "item_plus_observed_shipping") {
+      snippetDraft.delete("price_basis");
+    }
+    const qs = snippetDraft.toString();
+    const apiUrl = `https://api.soldbench.com/v1/sold${qs ? `?${qs}` : ""}`;
+    if (pgLang === "python") {
+      const pyParams = Object.fromEntries([...snippetDraft.entries()]);
+      renderHighlightedCode(
+        genEl,
+        `import os, requests\n\nresp = requests.get(\n  "https://api.soldbench.com/v1/sold",\n  params=${JSON.stringify(pyParams, null, 2)},\n  headers={"Authorization": f"Bearer {os.environ['SOLDBENCH_API_KEY']}"},\n)\nprint(resp.json()["data"]["stats"])`,
+        "python",
+      );
+    } else if (pgLang === "ts") {
+      renderHighlightedCode(
+        genEl,
+        `const res = await fetch(\n  "${apiUrl}",\n  { headers: { Authorization: \`Bearer \${process.env.SOLDBENCH_API_KEY}\` } },\n);\nconst body = await res.json();\nconsole.log(body.data.stats);`,
+        "ts",
+      );
+    } else {
+      renderHighlightedCode(
+        genEl,
+        `curl -H "Authorization: Bearer $SOLDBENCH_API_KEY" \\\n  "${apiUrl}"`,
+        "bash",
+      );
+    }
+  };
+  if (trace) {
+    for (const btn of trace.querySelectorAll("[data-pg-lang]")) {
+      btn.addEventListener("click", () => {
+        pgLang = btn.dataset.pgLang || "curl";
+        for (const peer of trace.querySelectorAll("[data-pg-lang]")) {
+          peer.classList.toggle("on", peer === btn);
+        }
+        updatePlaygroundCode();
+      });
+    }
+    search.addEventListener("change", updatePlaygroundCode);
+    updatePlaygroundCode();
+  }
   search.addEventListener("input", () => {
     updateLinks(queryDraft(search), false);
+    updatePlaygroundCode();
   });
   search.addEventListener("submit", (event) => {
     event.preventDefault();
+    const sim = search.querySelector("[data-pg-sim]");
+    if (trace && sim && sim.value !== "none") {
+      const errBodies = {
+        400: {
+          error: {
+            code: "invalid_parameter",
+            message: "Parameter 'window_days' must be 30 or 90.",
+            request_id: "req_sim_400",
+          },
+        },
+        402: {
+          error: {
+            code: "insufficient_credits",
+            message: "Not enough credits. Claim after adding credits.",
+            request_id: "req_sim_402",
+          },
+        },
+        429: {
+          error: {
+            code: "rate_limited",
+            message: "Rate limit exceeded. Retry after 30 seconds.",
+            request_id: "req_sim_429",
+          },
+        },
+      };
+      const bodyEl = trace.querySelector("[data-trace-body]");
+      if (bodyEl) renderHighlightedCode(bodyEl, JSON.stringify(errBodies[sim.value] ?? {}, null, 2), "json");
+      const headersEl = trace.querySelector("[data-trace-headers]");
+      if (headersEl) {
+        headersEl.textContent = `X-Request-ID: req_sim_${sim.value}${sim.value === "429" ? "\nRetry-After: 30" : ""}`;
+      }
+      message(
+        t(
+          `Simulated ${sim.value} error preview — errors never charge credits.`,
+          `已展示模拟 ${sim.value} 错误响应 — 错误请求永不扣费。`,
+        ),
+        "warning",
+      );
+      return;
+    }
     perform(async () => {
       const draft = queryDraft(search);
       const input = {};
       for (const [name, value] of draft) {
         input[name] =
-          name === "window_days" || name.endsWith("_cents")
+          name === "window_days" || name === "limit" || name.endsWith("_cents")
             ? Number(value)
             : name === "allow_stale"
               ? true
@@ -2826,8 +2919,10 @@ if (page === "/operations") {
     return tools;
   }
   function operatorForm(path, title, fields, after, values = {}) {
+    const card = element("section", undefined, "card mt-18");
     const form = element("form", undefined, "key-form security-form");
-    form.append(element("h2", title));
+    form.append(element("h3", title));
+    const grid = element("div", undefined, "frow mt-12");
     for (const [name, labelText, maximum, currentValue] of fields) {
       const label = element("label", labelText);
       const input = element(Array.isArray(maximum) ? "select" : "input");
@@ -2846,11 +2941,12 @@ if (page === "/operations") {
       input.name = name;
       input.required = true;
       label.append(input);
-      form.append(label);
+      grid.append(label);
     }
     const submit = element("button", title, "btn brand");
     submit.type = "submit";
-    form.append(submit);
+    grid.append(submit);
+    form.append(grid);
     let attempt;
     form.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -2870,7 +2966,8 @@ if (page === "/operations") {
         }
       });
     });
-    return form;
+    card.append(form);
+    return card;
   }
   const reportLabels = {
     alerts: t("Local alerts", "本机告警"),
@@ -3819,15 +3916,43 @@ if (page === "/operations") {
           }
           opsLower.append(eventsCard, todoCard);
           output.append(opsLower);
+
+          const quickCard = element("section", undefined, "card mt-18");
+          quickCard.append(element("h2", t("Quick links", "快捷入口")));
+          const chips = element("div", undefined, "chips mt-10");
+          for (const tab of operatorTabs.filter(
+            (item) => !item.hidden && item.dataset.opsView !== "overview",
+          )) {
+            const chip = button(tab.textContent ?? tab.dataset.opsView, () => tab.click());
+            chip.className = "chip";
+            chips.append(chip);
+          }
+          quickCard.append(chips);
+          output.append(quickCard);
+          return;
         }
         output.append(
           accountTable(
-            view === "overview" ? t("Operations overview", "运营概览") : t("Effective settings", "生效设置"),
+            t("Effective settings", "生效设置"),
             [t("Item", "项目"), t("Value", "数值")],
             [...summary, [t("As of", "截至"), data.as_of]],
           ),
         );
         return;
+      }
+      if (!canWrite && !cursor) {
+        const ro = element("div", undefined, "ro-note");
+        ro.append(
+          element("b", t("Read-only for Support.", "支持人员只读视角。")),
+          element(
+            "span",
+            t(
+              "Write actions — pause, requeue, compensate, approve, edit — require an Admin session.",
+              "写操作（暂停数据源、重试作业、额度补偿、双人审批）需要管理员身份与 MFA 会话。",
+            ),
+          ),
+        );
+        output.append(ro);
       }
       const { heading, columns, row } = views[view];
       const data = response.data;
@@ -3930,7 +4055,8 @@ function renderMonthlyUsageBars(ledgerList) {
 }
 
 async function showUsage() {
-  const { data } = await api("/v1/usage");
+  const [{ data }, reqRes] = await Promise.all([api("/v1/usage"), api("/v1/requests").catch(() => null)]);
+  const reqItems = Array.isArray(reqRes?.data?.items) ? reqRes.data.items : [];
   const labels = {
     grant: t("Credits granted", "额度入账"),
     consume: t("Search charge", "查询扣费"),
@@ -3938,27 +4064,33 @@ async function showUsage() {
     refund: t("Credit refund", "额度退回"),
   };
   const total = Number(data.total_available ?? 0);
+  const ledgerList = Array.isArray(data.ledger) ? data.ledger : [];
+  const usedCount = ledgerList.reduce((acc, row) => {
+    const d = Number(row.delta ?? 0);
+    return d < 0 && (row.kind === "charge" || row.kind === "consume") ? acc + Math.abs(d) : acc;
+  }, 0);
+  const cap = Math.max(total + usedCount, total || 100);
   const kpiGrid = element("div", undefined, "grid3 eq acct-kpi-grid");
 
-  const balCard = element("section", undefined, "card result-card acct-kpi");
-  const prog = element("progress", undefined, "acct-prog");
-  prog.max = Math.max(100, Number.isFinite(total) ? total : 0);
-  prog.value = Number.isFinite(total) ? total : 0;
+  const balCard = element("section", undefined, "card acct-kpi");
+  const progWrap = element("div", undefined, "progress mt-8");
+  const progBar = element("div");
+  progBar.style.width = `${cap > 0 ? Math.max(0, Math.min(100, Math.round(((Number.isFinite(total) ? total : 0) / cap) * 100))) : 0}%`;
+  progWrap.append(progBar);
+  const balVal = element("div", String(data.total_available ?? 0), "acct-kpi-num");
+  balVal.append(element("span", ` / ${cap} ${t("left", "剩余")}`, "small acct-kpi-denom"));
   balCard.append(
     element("span", t("Total available credits", "当前可用总额度"), "kpi-label"),
-    element("strong", String(data.total_available ?? 0), "kpi-val"),
-    prog,
+    balVal,
+    progWrap,
     element(
       "p",
-      t(
-        "Combined across active grant, subscription, and top-up buckets.",
-        "汇总有效赠送、订阅周期与购买充值额度。",
-      ),
+      `${usedCount} ${t("used", "已用")} · ${t("Combined across grant, subscription, and top-up buckets.", "汇总有效赠送、订阅周期与购买充值额度。")}`,
       "kpi-sub",
     ),
   );
 
-  const bucketCard = element("section", undefined, "card result-card acct-kpi");
+  const bucketCard = element("section", undefined, "card acct-kpi");
   bucketCard.append(
     element("span", t("Active credit buckets", "有效额度桶"), "kpi-label"),
     element("strong", String(data.wallets.length), "kpi-val"),
@@ -3969,15 +4101,15 @@ async function showUsage() {
     ),
   );
 
-  const ledgerCard = element("section", undefined, "card result-card acct-kpi");
+  const ledgerCard = element("section", undefined, "card acct-kpi");
   ledgerCard.append(
     element("span", t("Ledger entries", "额度流水记录"), "kpi-label"),
     element("strong", String(data.ledger.length), "kpi-val"),
     element(
       "p",
       t(
-        "Append-only audit trail of grants, debits, refunds, and expiries.",
-        "只追加不可篡改的入账、扣费、退回与到期流水。",
+        `${reqItems.length} recent API requests · Append-only audit trail.`,
+        `最近 ${reqItems.length} 次请求记录 · 流水不可篡改。`,
       ),
       "kpi-sub",
     ),
@@ -3985,31 +4117,127 @@ async function showUsage() {
 
   kpiGrid.append(balCard, bucketCard, ledgerCard);
   output.append(kpiGrid);
+
   const monthlyCard = element("section", undefined, "card mt-18");
   monthlyCard.append(
     element("h3", t("Monthly history", "月度消费历史")),
     renderMonthlyUsageBars(data.ledger),
   );
   output.append(monthlyCard);
-  output.append(
-    accountTable(
-      t("Credit buckets", "额度桶"),
-      [t("Type", "类型"), t("Balance", "余额"), t("Expires", "到期")],
-      data.wallets.map((row) => [row.type, row.balance, row.expires_at]),
-    ),
+
+  const midGrid = element("div", undefined, "grid2 mt-18");
+  const bucketsCard = element("section", undefined, "card");
+  bucketsCard.append(element("h3", t("Credit buckets", "额度桶明细")));
+  const bTable = element("div", undefined, "dtable mt-12");
+  bTable.style.setProperty("--dtc", "minmax(0,1.2fr) minmax(0,0.8fr) minmax(0,1.5fr)");
+  const bHead = element("div", undefined, "dt-h");
+  bHead.append(
+    element("span", t("Type", "类型"), "dt-c"),
+    element("span", t("Balance", "余额"), "dt-c num"),
+    element("span", t("Expires", "到期"), "dt-c"),
   );
-  output.append(
-    accountTable(
-      t("Latest credit entries", "最近额度流水"),
-      [t("Date", "日期"), t("Action", "操作"), t("Change", "变动"), t("Balance after", "变更后余额")],
-      data.ledger.map((row) => [row.created_at, labels[row.kind] ?? row.kind, row.delta, row.balance_after]),
-    ),
+  bTable.append(bHead);
+  for (const row of data.wallets) {
+    const r = element("div", undefined, "dt-r");
+    const expCell = element(
+      "span",
+      row.expires_at ? row.expires_at.slice(0, 10) : t("Never", "永不过期"),
+      "dt-c small",
+    );
+    if (row.expires_at) expCell.title = row.expires_at;
+    r.append(element("span", row.type, "dt-c"), element("span", String(row.balance), "dt-c num"), expCell);
+    bTable.append(r);
+  }
+  bucketsCard.append(bTable);
+
+  const opMap = new Map();
+  for (const item of reqItems) {
+    const key = String(item.operation ?? "request");
+    const entry = opMap.get(key) ?? { count: 0, credits: 0 };
+    entry.count += 1;
+    entry.credits += Number(item.credits_charged ?? 0);
+    opMap.set(key, entry);
+  }
+  const byOpCard = element("section", undefined, "card");
+  byOpCard.append(element("h3", t("By operation", "按接口操作统计")));
+  const oTable = element("div", undefined, "dtable mt-12");
+  oTable.style.setProperty("--dtc", "minmax(0,1.6fr) minmax(0,0.8fr) minmax(0,0.8fr)");
+  const oHead = element("div", undefined, "dt-h");
+  oHead.append(
+    element("span", t("Operation", "操作"), "dt-c"),
+    element("span", t("Requests", "请求数"), "dt-c num"),
+    element("span", t("Credits", "扣费"), "dt-c num"),
   );
-  const usageLinks = element("div", undefined, "actions mt-18");
+  oTable.append(oHead);
+  if (!opMap.size) {
+    const emptyR = element("div", undefined, "dt-r");
+    emptyR.append(element("span", t("No API requests logged yet.", "暂无接口调用记录。"), "dt-c small"));
+    oTable.append(emptyR);
+  } else {
+    for (const [op, stats] of opMap.entries()) {
+      const r = element("div", undefined, "dt-r");
+      r.append(
+        element("span", op, "dt-c mono"),
+        element("span", String(stats.count), "dt-c num"),
+        element("span", String(stats.credits), "dt-c num"),
+      );
+      oTable.append(r);
+    }
+  }
+  byOpCard.append(oTable);
+  midGrid.append(bucketsCard, byOpCard);
+  output.append(midGrid);
+
+  const ledgerSection = element("section", undefined, "card mt-18");
+  ledgerSection.append(element("h3", t("Latest credit entries", "最近额度流水")));
+  const ledgerTbl = accountTable(
+    t("Latest credit entries", "最近额度流水"),
+    [t("Date", "日期"), t("Action", "操作"), t("Change", "变动"), t("Balance after", "变更后余额")],
+    data.ledger.map((row) => [row.created_at, labels[row.kind] ?? row.kind, row.delta, row.balance_after]),
+  );
+  const ledgerScroll = ledgerTbl.querySelector(".table-scroll");
+  if (ledgerScroll) {
+    ledgerScroll.classList.add("mt-12");
+    ledgerSection.append(ledgerScroll);
+  }
+  output.append(ledgerSection);
+
+  const reqPreview = element("section", undefined, "card mt-18");
+  const reqHead = element("div", undefined, "acct-card-head");
+  reqHead.append(element("h3", t("Request history", "最近请求记录")));
+  const usageLinks = element("div", undefined, "actions mt-0");
   const reqLogsLink = link(t("Request logs", "请求日志"), `${prefix}/account/logs`);
+  reqLogsLink.className = "btn ghost btn-sm";
   const billLink = link(t("Manage billing", "账单与充值"), `${prefix}/account/billing`);
+  billLink.className = "btn ghost btn-sm";
   usageLinks.append(reqLogsLink, billLink);
-  output.append(usageLinks);
+  reqHead.append(usageLinks);
+  reqPreview.append(reqHead);
+  const reqTbl = accountTable(
+    t("Request history", "最近请求记录"),
+    [
+      t("Date", "日期"),
+      t("Operation", "操作"),
+      t("Status", "状态"),
+      t("Credits", "额度"),
+      t("Request ID", "请求编号"),
+    ],
+    reqItems
+      .slice(0, 5)
+      .map((row) => [
+        row.created_at,
+        row.operation,
+        `${row.http_status}${row.error_code ? ` · ${row.error_code}` : ""}`,
+        row.credits_charged,
+        row.request_id,
+      ]),
+  );
+  const reqScroll = reqTbl.querySelector(".table-scroll");
+  if (reqScroll) {
+    reqScroll.classList.add("mt-12");
+    reqPreview.append(reqScroll);
+  }
+  output.append(reqPreview);
 }
 
 function billingPlanName(plan) {
@@ -4060,7 +4288,7 @@ if (page === "/pricing") {
   });
 }
 
-async function renderPromoAndOffersSection(container) {
+async function renderPromoAndOffersSection(gridHost, bottomHost = gridHost) {
   let redemptions = [];
   let catalog = null;
   try {
@@ -4075,9 +4303,9 @@ async function renderPromoAndOffersSection(container) {
     throw error;
   }
 
-  const promoCard = element("section", undefined, "card result-card");
+  const promoCard = element("section", undefined, "card");
   promoCard.append(
-    element("h2", t("Promo credit campaigns", "促销额度活动兑换")),
+    element("h3", t("Promo credit campaigns", "促销额度活动兑换")),
     element(
       "p",
       t(
@@ -4088,22 +4316,24 @@ async function renderPromoAndOffersSection(container) {
     ),
   );
 
-  const form = element("form", undefined, "stack");
+  const form = element("form", undefined, "frow mt-14");
+  const codeField = element("div", undefined, "field");
+  const codeLabel = element("label", t("Promo code", "促销兑换码"));
   const codeInput = element("input");
   codeInput.maxLength = 48;
   codeInput.required = true;
   codeInput.placeholder = "LAUNCH50_PREVIEW";
-  const codeLabel = element("label", t("Promo code", "促销兑换码"));
   codeLabel.append(codeInput);
+  codeField.append(codeLabel);
   const submitBtn = element("button", t("Redeem promo code", "兑换促销码"), "btn brand");
   submitBtn.type = "submit";
-  form.append(codeLabel, submitBtn);
+  form.append(codeField, submitBtn);
 
-  const promoNotice = element("p", undefined, "summary-note");
+  const promoNotice = element("p", undefined, "summary-note mt-10");
   promoNotice.hidden = true;
   promoCard.append(form, promoNotice);
 
-  const tableHost = element("div", undefined, "stack");
+  const tableHost = element("div", undefined, "mt-14");
   function drawRedemptions(items) {
     if (!items.length) {
       tableHost.replaceChildren(
@@ -4111,25 +4341,25 @@ async function renderPromoAndOffersSection(container) {
       );
       return;
     }
-    tableHost.replaceChildren(
-      accountTable(
-        t("Redeemed promo grants", "已兑换促销记录"),
-        [
-          t("Campaign", "活动码"),
-          t("Granted", "发放额度"),
-          t("Remaining", "剩余额度"),
-          t("Wallet status", "桶状态"),
-          t("Expires", "到期时间"),
-        ],
-        items.map((r) => [
-          r.campaign_code,
-          String(r.credits_granted),
-          String(r.remaining_balance),
-          r.wallet_status,
-          r.expires_at,
-        ]),
-      ),
+    const card = accountTable(
+      t("Redeemed promo grants", "已兑换促销记录"),
+      [
+        t("Campaign", "活动码"),
+        t("Granted", "发放额度"),
+        t("Remaining", "剩余额度"),
+        t("Wallet status", "桶状态"),
+        t("Expires", "到期时间"),
+      ],
+      items.map((r) => [
+        r.campaign_code,
+        String(r.credits_granted),
+        String(r.remaining_balance),
+        r.wallet_status,
+        r.expires_at,
+      ]),
     );
+    card.className = "mt-10";
+    tableHost.replaceChildren(card);
   }
   drawRedemptions(redemptions);
   promoCard.append(tableHost);
@@ -4166,9 +4396,9 @@ async function renderPromoAndOffersSection(container) {
     });
   });
 
-  const versionsCard = element("section", undefined, "card result-card");
+  const versionsCard = element("section", undefined, "card mt-18");
   versionsCard.append(
-    element("h2", t("Pricing offer versions (commercial approval gate)", "版本化报价目录（待商业审批）")),
+    element("h3", t("Pricing offer versions (commercial approval gate)", "版本化报价目录（待商业审批）")),
     element(
       "p",
       t(
@@ -4179,40 +4409,43 @@ async function renderPromoAndOffersSection(container) {
     ),
   );
   if (catalog?.versions?.length) {
-    versionsCard.append(
-      accountTable(
-        t("Offer version ledger", "报价版本台账"),
-        [
-          t("Version", "版本"),
-          t("Plan / Cadence", "套餐与周期"),
-          t("Amount (USD)", "参考金额"),
-          t("Credits", "额度"),
-          t("Status", "状态"),
-        ],
-        catalog.versions.map((v) => [
-          v.offer_version,
-          `${v.plan_code} · ${v.billing_cadence}`,
-          amount(v.amount_cents),
-          String(v.credits),
-          v.commercial_approved ? `${v.status} (approved)` : `${v.status} · approval pending`,
-        ]),
-      ),
+    const tbl = accountTable(
+      t("Offer version ledger", "报价版本台账"),
+      [
+        t("Version", "版本"),
+        t("Plan / Cadence", "套餐与周期"),
+        t("Amount (USD)", "参考金额"),
+        t("Credits", "额度"),
+        t("Status", "状态"),
+      ],
+      catalog.versions.map((v) => [
+        v.offer_version,
+        `${v.plan_code} · ${v.billing_cadence}`,
+        amount(v.amount_cents),
+        String(v.credits),
+        v.commercial_approved ? `${v.status} (approved)` : `${v.status} · approval pending`,
+      ]),
     );
+    const wrap = tbl.querySelector(".table-scroll");
+    if (wrap) versionsCard.append(wrap);
   }
-  container.append(promoCard, versionsCard);
+  gridHost.append(promoCard);
+  bottomHost.append(versionsCard);
 }
 
 async function showBilling() {
-  let data, prices, transactions;
+  let data, prices, transactions, usage;
   try {
-    const [subscription, offers, payments] = await Promise.all([
+    const [subscription, offers, payments, usageRes] = await Promise.all([
       api("/billing/subscription"),
       api("/billing/offers"),
       api("/billing/payments"),
+      api("/v1/usage").catch(() => null),
     ]);
     data = subscription.data;
     prices = offers.data;
     transactions = payments.data;
+    usage = usageRes?.data ?? null;
   } catch (error) {
     if (error.status !== 503) throw error;
     message(
@@ -4221,7 +4454,25 @@ async function showBilling() {
         "支付沙盒暂不可用。仍可在用量页查看额度及扣费。",
       ),
     );
-    output.replaceChildren(link(t("View usage", "查看用量"), `${prefix}/account/usage`));
+    const noticeCard = element("section", undefined, "card mb-18");
+    const noticeHead = element("div", undefined, "acct-card-head");
+    const noticeLeft = element("div");
+    noticeLeft.append(
+      element("h3", t("Billing & subscription", "订阅与支付渠道")),
+      element(
+        "p",
+        t(
+          "Payment gateway is currently in offline mode. View credit balances, redeem promo codes, and inspect reference offers below.",
+          "当前处于本地离线沙盒模式（未启用在线支付通道）。您可在下方兑换活动码、查看参考套餐或前往用量页检查额度桶。",
+        ),
+        "small mt-6",
+      ),
+    );
+    const usageLink = link(t("View usage", "查看用量"), `${prefix}/account/usage`);
+    usageLink.className = "btn ghost";
+    noticeHead.append(noticeLeft, usageLink);
+    noticeCard.append(noticeHead);
+    output.replaceChildren(noticeCard);
     await renderPromoAndOffersSection(output);
     return;
   }
@@ -4237,20 +4488,32 @@ async function showBilling() {
     awaiting_reconciliation: t("Awaiting reconciliation", "等待对账"),
     confirmed: t("Confirmed", "已确认"),
   };
-  const subscriptionCard = element("section", undefined, "card result-card");
-  subscriptionCard.append(element("h2", t("Subscription", "订阅")));
-  subscriptionCard.append(
-    element("p", `${billingPlanName(data.plan_code)} · ${labels[data.status] ?? data.status}`),
+  const subscriptionCard = element("section", undefined, "card");
+  const planHead = element("div", undefined, "acct-card-head");
+  const planLeft = element("div");
+  const planTitle = element("div");
+  const planName = element("span", billingPlanName(data.plan_code));
+  planName.style.fontSize = "20px";
+  planName.style.fontWeight = "800";
+  const planBadge = element(
+    "span",
+    labels[data.status] ?? data.status,
+    `badge ${data.status === "active" ? "badge-green" : "badge-gray"}`,
   );
-  if (data.current_period_end)
-    subscriptionCard.append(
-      element("p", `${t("Current period ends", "本期结束")} · ${data.current_period_end}`, "small"),
+  planTitle.append(planName, " ", planBadge);
+  planLeft.append(planTitle);
+  if (data.current_period_end) {
+    planLeft.append(
+      element("div", `${t("Current period ends", "本期结束")} · ${data.current_period_end}`, "small mt-4"),
     );
-  if (data.cancel_at_period_end)
-    subscriptionCard.append(
-      element("p", t("Scheduled to end after this period.", "订阅将在本期结束后取消。")),
+  }
+  if (data.cancel_at_period_end) {
+    planLeft.append(
+      element("div", t("Scheduled to end after this period.", "订阅将在本期结束后取消。"), "small mt-4"),
     );
-  else if (data.version) {
+  }
+  planHead.append(planLeft);
+  if (!data.cancel_at_period_end && data.version) {
     const cancel = button(t("Cancel at period end", "本期结束后取消"), () =>
       run(async () => {
         if (!confirm(t("End renewal after the current billing period?", "本期结束后停止续费？"))) return;
@@ -4264,19 +4527,49 @@ async function showBilling() {
       }),
     );
     cancel.className = "btn ghost";
-    subscriptionCard.append(cancel);
+    planHead.append(cancel);
   }
-  const checkout = element("section", undefined, "card result-card");
+  subscriptionCard.append(planHead);
+
+  if (usage) {
+    const avail = Number(usage.total_available ?? 0);
+    const ledgerList = Array.isArray(usage.ledger) ? usage.ledger : [];
+    const usedCount = ledgerList.reduce((acc, row) => {
+      const d = Number(row.delta ?? 0);
+      return d < 0 && (row.kind === "charge" || row.kind === "consume") ? acc + Math.abs(d) : acc;
+    }, 0);
+    const cap = Math.max(avail + usedCount, avail || 100);
+    const progWrap = element("div", undefined, "progress mt-16");
+    const progBar = element("div");
+    progBar.style.width = `${cap > 0 ? Math.max(0, Math.min(100, Math.round((avail / cap) * 100))) : 0}%`;
+    progWrap.append(progBar);
+    const usageLine = element("p", undefined, "small mt-8");
+    const uLink = document.createElement("a");
+    uLink.href = `${prefix}/account/usage`;
+    uLink.textContent = t("View usage →", "查看用量 →");
+    usageLine.append(
+      document.createTextNode(
+        `${avail} ${t("credits available", "额度可用")} (${usedCount} ${t("used", "已用")}) · `,
+      ),
+      uLink,
+    );
+    subscriptionCard.append(progWrap, usageLine);
+  }
+
+  const midGrid = element("div", undefined, "grid2 mt-18");
+  const checkout = element("section", undefined, "card");
   checkout.append(
-    element("h2", t("Test checkout", "测试结账")),
+    element("h3", t("Test checkout", "测试结账")),
     element(
       "p",
       t(
         "These sandbox offers use fixture amounts. No real payment is collected.",
         "以下为沙盒测试报价，使用合成金额。此处不会收取实际款项。",
       ),
+      "small",
     ),
   );
+  const chooserField = element("div", undefined, "field mt-14");
   const chooser = element("label", t("Payment provider", "支付渠道"));
   const provider = element("select");
   for (const choice of prices.providers) {
@@ -4285,25 +4578,33 @@ async function showBilling() {
     provider.append(option);
   }
   chooser.append(provider);
-  checkout.append(chooser);
-  const currentOrder = element("div", undefined, "summary-note");
+  chooserField.append(chooser);
+  checkout.append(chooserField);
+  const currentOrder = element("div", undefined, "summary-note mt-12");
   const checkoutId = safeId(current().searchParams.get("checkout"));
   async function checkOrder(id) {
     const { data } = await api(`/billing/checkout/${id}`);
-    currentOrder.replaceChildren(
-      element("p", `${data.provider} · ${amount(data.amount_cents)} · ${labels[data.status] ?? data.status}`),
-    );
-    currentOrder.append(
-      button(t("Refresh order", "刷新订单"), () =>
-        run(async () => {
-          await showBilling();
-        }),
+    const orderRow = element("div", undefined, "acct-async-bar");
+    orderRow.append(
+      element(
+        "span",
+        `${data.provider} · ${amount(data.amount_cents)} · ${labels[data.status] ?? data.status}`,
       ),
+      (() => {
+        const b = button(t("Refresh order", "刷新订单"), () =>
+          run(async () => {
+            await showBilling();
+          }),
+        );
+        b.className = "btn ghost btn-sm";
+        return b;
+      })(),
     );
+    currentOrder.replaceChildren(orderRow);
   }
   const actions = element("div", undefined, "actions");
   const keys = new Map();
-  const selected = element("p", undefined, "summary-note");
+  const selected = element("p", undefined, "summary-note mt-10");
   selected.hidden = true;
   checkout.append(selected);
   function selectOffer(offer) {
@@ -4364,31 +4665,40 @@ async function showBilling() {
         }
       }),
     );
+    start.className = "btn brand btn-sm";
     actions.append(start);
   }
   checkout.append(actions, currentOrder);
-  output.replaceChildren(
-    subscriptionCard,
-    checkout,
-    accountTable(
-      t("Payments and refunds", "付款与退款"),
-      [
-        t("Date", "日期"),
-        t("Provider", "渠道"),
-        t("Amount", "金额"),
-        t("Refund", "退款"),
-        t("Status", "状态"),
-      ],
-      transactions.items.map((row) => [
-        row.created_at,
-        row.provider,
-        amount(row.amount_cents),
-        amount(row.refunded_cents),
-        labels[row.status] ?? row.status,
-      ]),
+  midGrid.append(checkout);
+
+  const txCard = element("section", undefined, "card mt-18");
+  txCard.append(element("h3", t("Payments and refunds", "付款与退款")));
+  const txTbl = accountTable(
+    t("Payments and refunds", "付款与退款"),
+    [t("Date", "日期"), t("Provider", "渠道"), t("Amount", "金额"), t("Refund", "退款"), t("Status", "状态")],
+    transactions.items.map((row) => [
+      row.created_at,
+      row.provider,
+      amount(row.amount_cents),
+      amount(row.refunded_cents),
+      labels[row.status] ?? row.status,
+    ]),
+  );
+  const txScroll = txTbl.querySelector(".table-scroll");
+  if (txScroll) txCard.append(txScroll);
+  txCard.append(
+    element(
+      "p",
+      t(
+        "Refunds return to the bucket the credits came from. Cancellation takes effect at the end of the current period — purchased credits remain yours.",
+        "退款严格退回原消费桶；退订于当前计费周期结束时生效，永久加量包额度不受影响。",
+      ),
+      "small mt-10",
     ),
   );
-  await renderPromoAndOffersSection(output);
+
+  output.replaceChildren(subscriptionCard, midGrid, txCard);
+  await renderPromoAndOffersSection(midGrid, output);
   if (checkoutId) await checkOrder(checkoutId);
 }
 
@@ -4431,43 +4741,101 @@ async function showLogs(cursor) {
 
 async function showKeys() {
   const { data } = await api("/v1/keys");
-  const setup = element("section", undefined, "card result-card");
-  setup.append(element("h2", t("Create an API key", "创建 API 密钥")));
-  const form = element("form", undefined, "key-form");
+  const topNote = element(
+    "p",
+    t(
+      "Keys authenticate your API requests. Treat them like passwords — never share them or commit them to git. You can create up to 10 keys; all keys share your plan quota.",
+      "API 密钥用于身份鉴权，请像密码一样妥善保管，切勿公开分享或提交至 Git 仓库。每个账户最多保留 10 个有效密钥，并共享套餐额度。",
+    ),
+    "small",
+  );
+  const setup = element("section", undefined, "card mt-14");
+  setup.append(element("h3", t("Create an API key", "创建 API 密钥")));
+  const form = element("form", undefined, "frow mt-12");
+  const nameField = element("div", undefined, "field");
   const label = element("label", t("Key name", "密钥名称"));
   const name = element("input");
   name.name = "name";
   name.maxLength = 80;
   name.required = true;
+  name.placeholder = t("e.g. Production script", "例如：生产环境脚本");
   label.append(name);
-  const scopes = element("fieldset");
-  scopes.append(element("legend", t("Scopes", "权限范围")));
+  nameField.append(label);
+
+  const scopesField = element("div", undefined, "field");
+  scopesField.append(element("label", t("Scopes", "权限范围")));
+  const scopesRow = element("div", undefined, "actions mt-0");
   for (const scope of ["sold:read", "jobs:read", "usage:read"]) {
     const check = element("input");
     check.type = "checkbox";
     check.name = "scopes";
     check.value = scope;
     check.checked = scope === "sold:read";
-    const entry = element("label");
+    const entry = element("label", undefined, "wb-check-label");
     entry.append(check, scope);
-    scopes.append(entry);
+    scopesRow.append(entry);
   }
+  scopesField.append(scopesRow);
   const submit = element("button", t("Create key", "创建密钥"), "btn brand");
-  const secret = element("div");
+  const secret = element("div", undefined, "mt-12");
   secret.setAttribute("aria-live", "polite");
   let attempt;
+  const promptReauth = (retry) => {
+    secret.replaceChildren();
+    const warn = element(
+      "div",
+      t(
+        "Your recent identity verification window (10 min) expired. Confirm your password below to create, rotate, or revoke keys without leaving this page.",
+        "敏感操作身份校验窗口（10 分钟）已过，请在下方验证密码后继续创建、轮换或吊销密钥。",
+      ),
+      "ro-note mb-10",
+    );
+    const reForm = securityForm(
+      t("Verify identity", "验证身份"),
+      [{ name: "password", label: t("Password", "密码") }],
+      "/auth/reauthenticate",
+      async () => {
+        secret.replaceChildren();
+        message(t("Identity verified — retrying key action.", "身份已复核，正在继续操作。"));
+        await retry();
+      },
+    );
+    reForm.className = "frow security-form mt-8";
+    secret.append(warn, reForm);
+  };
   const saveKey = async (path, input, idempotency) => {
-    const { data } = await post(path, input, (await session())?.csrf_token, idempotency);
+    let data;
+    try {
+      ({ data } = await post(path, input, (await session())?.csrf_token, idempotency));
+    } catch (error) {
+      if (error.message === "reauthentication_required") {
+        promptReauth(() => saveKey(path, input, idempotency));
+        return;
+      }
+      throw error;
+    }
     secret.replaceChildren();
     if (data.key) {
+      const box = element("div", undefined, "endpoint-bar");
       const value = element("input");
       value.value = data.key;
       value.readOnly = true;
+      value.className = "set-input";
       value.setAttribute("aria-label", t("New key shown once", "仅显示一次的新密钥"));
       value.addEventListener("focus", () => value.select());
+      const hideBtn = button(t("Hide key", "隐藏密钥"), () => secret.replaceChildren());
+      hideBtn.className = "btn ghost btn-sm";
+      box.append(value, hideBtn);
       secret.append(
-        value,
-        button(t("Hide key", "隐藏密钥"), () => secret.replaceChildren()),
+        element(
+          "p",
+          t(
+            "Copy your new key now — this is the only time the full secret is shown.",
+            "请立即复制保存完整密钥——关闭后将无法再次查看明文。",
+          ),
+          "small mb-8",
+        ),
+        box,
       );
       value.focus();
     } else
@@ -4482,7 +4850,7 @@ async function showKeys() {
       );
     await refreshKeys();
   };
-  form.append(label, scopes, submit);
+  form.append(nameField, scopesField, submit);
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     if (submit.disabled) return;
@@ -4502,7 +4870,7 @@ async function showKeys() {
     });
   });
   setup.append(form, secret);
-  const list = element("div");
+  const list = element("div", undefined, "mt-18");
   const refreshKeys = async (rows) => {
     const keys = rows ?? (await api("/v1/keys")).data;
     list.replaceChildren(
@@ -4517,46 +4885,66 @@ async function showKeys() {
         ],
         keys.map((row) => {
           const controls = element("div", undefined, "actions");
-          if (row.revoked_at) controls.append(t("Revoked", "已撤销"));
+          if (row.revoked_at) controls.append(element("span", t("Revoked", "已撤销"), "badge badge-gray"));
           else {
             const id = safeId(row.id);
             const key = crypto.randomUUID();
-            controls.append(
-              button(t("Rotate", "轮换"), () =>
-                run(async () => {
-                  if (
-                    confirm(
-                      t("Rotate this key? The old key will be revoked.", "轮换此密钥？旧密钥将被撤销。"),
-                    )
+            const rotBtn = button(t("Rotate", "轮换"), () =>
+              run(async () => {
+                if (
+                  confirm(t("Rotate this key? The old key will be revoked.", "轮换此密钥？旧密钥将被撤销。"))
+                )
+                  await saveKey(`/v1/keys/${id}/rotate`, { name: row.name, scopes: row.scopes }, key);
+              }),
+            );
+            rotBtn.className = "btn ghost btn-sm";
+            const revBtn = button(t("Revoke", "撤销"), () =>
+              run(async () => {
+                if (
+                  !confirm(
+                    t("Revoke this key? Calls using it will fail.", "撤销此密钥？使用它的调用将失败。"),
                   )
-                    await saveKey(`/v1/keys/${id}/rotate`, { name: row.name, scopes: row.scopes }, key);
-                }),
-              ),
-              button(t("Revoke", "撤销"), () =>
-                run(async () => {
-                  if (
-                    !confirm(
-                      t("Revoke this key? Calls using it will fail.", "撤销此密钥？使用它的调用将失败。"),
-                    )
-                  )
-                    return;
+                )
+                  return;
+                try {
                   await api(`/v1/keys/${id}`, {
                     method: "DELETE",
                     headers: { "X-CSRF-Token": (await session())?.csrf_token ?? "" },
                   });
-                  secret.replaceChildren();
-                  await refreshKeys();
-                }),
-              ),
+                } catch (error) {
+                  if (error.message === "reauthentication_required") {
+                    promptReauth(async () => {
+                      await api(`/v1/keys/${id}`, {
+                        method: "DELETE",
+                        headers: { "X-CSRF-Token": (await session())?.csrf_token ?? "" },
+                      });
+                      secret.replaceChildren();
+                      await refreshKeys();
+                    });
+                    return;
+                  }
+                  throw error;
+                }
+                secret.replaceChildren();
+                await refreshKeys();
+              }),
             );
+            revBtn.className = "btn btn-danger-o btn-sm";
+            controls.append(rotBtn, revBtn);
           }
-          return [row.name, row.prefix, row.scopes.join(", "), row.last_used_at, controls];
+          return [
+            row.name,
+            element("code", row.prefix),
+            row.scopes.join(", "),
+            row.last_used_at ?? "—",
+            controls,
+          ];
         }),
       ),
     );
   };
-  const keysHelp = element("section", undefined, "card result-card mt-18");
-  keysHelp.append(element("h2", t("Use a key", "使用 API 密钥")));
+  const keysHelp = element("section", undefined, "card mt-18");
+  keysHelp.append(element("h3", t("Use a key", "使用 API 密钥")));
   const keySnippets = [
     [
       "acctKeyCurl",
@@ -4600,7 +4988,7 @@ async function showKeys() {
       "small mt-12",
     ),
   );
-  output.append(setup, list, keysHelp);
+  output.append(topNote, setup, list, keysHelp);
   await refreshKeys(data);
 }
 
@@ -4661,29 +5049,38 @@ if (receiptForm)
   });
 
 function accountDeletion() {
-  const card = element("section", undefined, "card result-card");
-  card.append(element("h2", t("Delete account", "删除账户")));
-  card.append(
+  const card = element("section", undefined, "set-sec danger");
+  const titleEl = element("h3", t("Danger zone", "危险操作区"));
+  titleEl.style.color = "var(--red)";
+  card.append(titleEl);
+  const row = element("div", undefined, "set-row");
+  const left = element("div");
+  left.append(
+    element("div", t("Delete account", "删除账户"), "lab"),
     element(
-      "p",
+      "div",
       t(
         "Deletion ends your sessions and revokes account access, API keys and shares. Required billing and audit records are retained.",
         "删除会结束登录会话并撤销账户、密钥与分享访问。必要的账务和审计记录会保留。",
       ),
+      "desc",
     ),
   );
+  const ctl = element("div", undefined, "ctl");
   const prepare = button(t("Prepare deletion", "准备删除"), () => {
     prepare.disabled = true;
     const receipt = privateReceipt();
+    const wrap = element("div", undefined, "field mt-12");
     const label = element(
       "label",
       t("Save this private receipt to view deletion status later", "请保存此私密回执，以后可查询删除状态"),
     );
-    const value = element("input");
+    const value = element("input", undefined, "set-input");
     value.readOnly = true;
     value.value = receipt;
     value.addEventListener("focus", () => value.select());
     label.append(value);
+    wrap.append(label);
     const submit = button(t("Confirm account deletion", "确认删除账户"), () =>
       run(async () => {
         if (!confirm(t("Permanently delete this account?", "永久删除此账户？"))) return;
@@ -4711,57 +5108,142 @@ function accountDeletion() {
         message(t(`Deletion requested · ${id}`, `已申请删除 · ${id}`));
       }),
     );
-    const controls = element("div", undefined, "actions");
+    submit.className = "btn btn-danger";
+    const controls = element("div", undefined, "actions mt-8");
     controls.append(
       submit,
       button(t("Cancel", "取消"), () => {
-        label.remove();
+        wrap.remove();
         controls.remove();
         prepare.disabled = false;
         prepare.focus();
       }),
     );
-    card.append(label, controls);
+    left.append(wrap, controls);
     value.focus();
   });
-  card.append(prepare, link(t("Check a deletion receipt", "查询删除回执"), `${prefix}/deletion-receipt`));
+  prepare.className = "btn btn-danger-o";
+  const receiptLink = link(t("Check a deletion receipt", "查询删除回执"), `${prefix}/deletion-receipt`);
+  receiptLink.className = "btn ghost";
+  ctl.append(prepare, receiptLink);
+  row.append(left, ctl);
+  card.append(row);
   return card;
 }
 
 async function showAccountSecurity(codes) {
-  const [sessions, mfa, grants, passkeys] = await Promise.all([
+  const [userMeta, sessions, mfa, grants, passkeys] = await Promise.all([
+    webSession().catch(() => null),
     api("/account/sessions"),
     api("/account/mfa"),
     api("/v1/oauth/grants"),
     api("/v1/auth/passkeys"),
   ]);
   output.replaceChildren();
-  const state = element("section", undefined, "card result-card");
-  state.append(element("h2", t("Two-factor authentication", "双重验证")));
+
+  const profileSec = element("section", undefined, "set-sec");
+  profileSec.append(element("h3", t("Profile", "个人资料")));
+  const profileRow = element("div", undefined, "set-row");
+  const profileLeft = element("div", undefined, "actions mt-0");
+  const userEmail = userMeta?.email || document.querySelector("[data-dash-email]")?.textContent || "Account";
+  const avatar = element("span", userEmail.slice(0, 1).toUpperCase(), "avatar");
+  avatar.style.width = "42px";
+  avatar.style.height = "42px";
+  avatar.style.fontSize = "16px";
+  const pInfo = element("div");
+  pInfo.append(
+    element("div", userEmail, "lab"),
+    element(
+      "div",
+      userMeta?.email_verified
+        ? t("Email verified · Session active", "邮箱已验证 · 当前会话有效")
+        : t("Active account session", "当前账户会话"),
+      "desc",
+    ),
+  );
+  profileLeft.append(avatar, pInfo);
+  const profileCtl = element("div", undefined, "ctl");
+  profileCtl.append(
+    element(
+      "span",
+      userMeta?.email_verified ? t("Verified", "已验证") : t("Active", "正常"),
+      "badge badge-green",
+    ),
+  );
+  profileRow.append(profileLeft, profileCtl);
+  profileSec.append(profileRow);
+
+  const secSection = element("section", undefined, "set-sec");
+  secSection.append(element("h3", t("Security", "安全验证与密码")));
+
+  const reauthRow = element("div", undefined, "set-row");
+  const reauthLeft = element("div");
+  reauthLeft.append(
+    element("div", t("Verify identity", "敏感操作身份复核"), "lab"),
+    element(
+      "div",
+      t(
+        "Reauthenticate with your password (and authenticator code when enabled) before key or deletion actions.",
+        "在开启双重验证、修改密码或发起删号前核验当前身份。",
+      ),
+      "desc",
+    ),
+  );
+  const password = { name: "password", label: t("Password", "密码") };
+  const authFields = mfa.data.enabled
+    ? [
+        password,
+        {
+          name: "totp_code",
+          label: t("Authenticator code", "验证器验证码"),
+          type: "text",
+          autocomplete: "one-time-code",
+        },
+      ]
+    : [password];
+  const reauthForm = securityForm(t("Verify identity", "验证身份"), authFields, "/auth/reauthenticate", () =>
+    message(t("Identity verified.", "身份已验证。")),
+  );
+  reauthForm.className = "frow security-form mt-10";
+  reauthLeft.append(reauthForm);
+  reauthRow.append(reauthLeft);
+
+  const mfaRow = element("div", undefined, "set-row");
+  const mfaLeft = element("div");
   const statusText = mfa.data.enabled
     ? t("Authenticator enabled", "验证器已启用")
     : t("Authenticator disabled", "验证器未启用");
-  state.append(element("p", statusText));
-  const oneTime = element("div", undefined, "security-secrets");
+  mfaLeft.append(
+    element("div", t("Two-factor authentication", "双重验证 (TOTP)"), "lab"),
+    element("div", statusText, "desc"),
+  );
+  const oneTime = element("div", undefined, "security-secrets mt-10");
   oneTime.setAttribute("aria-live", "polite");
-  function showCodes(codes) {
-    oneTime.replaceChildren(element("h3", t("Save these one-time recovery codes", "请保存这些一次性恢复码")));
+  function showCodes(codesList) {
+    oneTime.replaceChildren(element("h4", t("Save these one-time recovery codes", "请保存这些一次性恢复码")));
     const list = element("ul");
-    for (const code of codes) list.append(element("li", code));
-    oneTime.append(
-      list,
-      button(t("Hide recovery codes", "隐藏恢复码"), () => oneTime.replaceChildren()),
-    );
+    for (const code of codesList) list.append(element("li", code));
+    const hideBtn = button(t("Hide recovery codes", "隐藏恢复码"), () => oneTime.replaceChildren());
+    hideBtn.className = "btn ghost btn-sm";
+    oneTime.append(list, hideBtn);
   }
+  const mfaCtl = element("div", undefined, "ctl");
+  mfaCtl.append(
+    element(
+      "span",
+      mfa.data.enabled ? t("On", "已开启") : t("Off", "未开启"),
+      `badge ${mfa.data.enabled ? "badge-green" : "badge-gray"}`,
+    ),
+  );
   if (mfa.data.enabled) {
-    state.append(
+    mfaLeft.append(
       element(
-        "p",
+        "div",
         t(
           `${mfa.data.recovery_codes_remaining} unused recovery codes`,
           `剩余 ${mfa.data.recovery_codes_remaining} 个恢复码`,
         ),
-        "small",
+        "desc",
       ),
     );
     const regenerate = button(t("Replace recovery codes", "更换恢复码"), () =>
@@ -4776,7 +5258,8 @@ async function showAccountSecurity(codes) {
         }
       }),
     );
-    state.append(regenerate);
+    regenerate.className = "btn ghost";
+    mfaCtl.append(regenerate);
     if (!mfa.data.required) {
       const disable = button(t("Disable authenticator", "停用验证器"), () =>
         run(async () => {
@@ -4789,7 +5272,7 @@ async function showAccountSecurity(codes) {
         }),
       );
       disable.className = "btn ghost";
-      state.append(disable);
+      mfaCtl.append(disable);
     }
   } else {
     const enable = button(t("Set up authenticator", "设置验证器"), () =>
@@ -4811,6 +5294,7 @@ async function showAccountSecurity(codes) {
             "/account/mfa/confirm",
             (result) => showAccountSecurity(result.recovery_codes),
           );
+          proof.className = "frow security-form mt-10";
           oneTime.replaceChildren(
             element(
               "p",
@@ -4818,6 +5302,7 @@ async function showAccountSecurity(codes) {
                 "Enter this secret into your authenticator, then enter its current code.",
                 "将此密钥输入验证器，再填写当前验证码。",
               ),
+              "small",
             ),
             code,
             proof,
@@ -4827,15 +5312,71 @@ async function showAccountSecurity(codes) {
         }
       }),
     );
-    state.append(enable);
+    enable.className = "btn ghost";
+    mfaCtl.append(enable);
   }
   if (codes) showCodes(codes);
-  state.append(oneTime);
+  mfaLeft.append(oneTime);
+  mfaRow.append(mfaLeft, mfaCtl);
 
-  const signIns = accountTable(
-    t("Active sessions", "活动会话"),
-    [t("Device", "设备"), t("Started", "开始时间"), t("Expires", "到期"), t("Actions", "操作")],
-    sessions.data.map((row) => {
+  const pwRow = element("div", undefined, "set-row");
+  const pwLeft = element("div");
+  pwLeft.append(
+    element("div", t("Change password", "修改登录密码"), "lab"),
+    element(
+      "div",
+      t(
+        "Use a unique password — SoldBench never asks for it by email.",
+        "请使用高强度独立密码；更新后需使用新密码重新登录。",
+      ),
+      "desc",
+    ),
+  );
+  const pwForm = securityForm(
+    t("Update password", "更新密码"),
+    [
+      { name: "current_password", label: t("Current password", "当前密码") },
+      { name: "new_password", label: t("New password", "新密码"), autocomplete: "new-password" },
+    ],
+    "/account/password",
+    () => location.assign(`${prefix}/login`),
+  );
+  pwForm.className = "frow security-form mt-10";
+  pwLeft.append(pwForm);
+  pwRow.append(pwLeft);
+
+  secSection.append(mfaRow, reauthRow, pwRow);
+
+  const signIns = element("section", undefined, "set-sec");
+  signIns.append(element("h3", t("Active sessions", "活动会话")));
+  if (!sessions.data.length) {
+    const emptyRow = element("div", undefined, "set-row");
+    emptyRow.append(element("div", t("No active sessions.", "暂无活动会话。"), "desc"));
+    signIns.append(emptyRow);
+  } else {
+    for (const row of sessions.data) {
+      const sRow = element("div", undefined, "set-row");
+      const sLeft = element("div");
+      const fmtUtc = (iso) =>
+        typeof iso === "string" && iso.length >= 16
+          ? `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC`
+          : String(iso ?? "");
+      const sDesc = element(
+        "div",
+        `${t("Started", "开始")} ${fmtUtc(row.created_at)} · ${t("Expires", "到期")} ${fmtUtc(row.expires_at)}`,
+        "desc",
+      );
+      sDesc.title = `${row.created_at} -> ${row.expires_at}`;
+      sLeft.append(
+        element(
+          "div",
+          row.is_current ? `${row.device_label} · ${t("Current", "当前")}` : row.device_label,
+          "lab",
+        ),
+        sDesc,
+      );
+      const sCtl = element("div", undefined, "ctl");
+      if (row.is_current) sCtl.append(element("span", t("This device", "当前设备"), "badge badge-green"));
       const revoke = button(
         row.is_current ? t("Sign out", "退出登录") : t("Revoke session", "撤销会话"),
         () =>
@@ -4849,71 +5390,48 @@ async function showAccountSecurity(codes) {
             else await showAccountSecurity();
           }),
       );
-      return [
-        row.is_current ? `${row.device_label} · ${t("Current", "当前")}` : row.device_label,
-        row.created_at,
-        row.expires_at,
-        revoke,
-      ];
-    }),
-  );
-  const credentials = element("section", undefined, "card result-card");
-  credentials.append(element("h2", t("Reauthenticate", "重新认证")));
-  const password = { name: "password", label: t("Password", "密码") };
-  const authFields = mfa.data.enabled
-    ? [
-        password,
-        {
-          name: "totp_code",
-          label: t("Authenticator code", "验证器验证码"),
-          type: "text",
-          autocomplete: "one-time-code",
-        },
-      ]
-    : [password];
-  credentials.append(
-    securityForm(t("Verify identity", "验证身份"), authFields, "/auth/reauthenticate", () =>
-      message(t("Identity verified.", "身份已验证。")),
-    ),
-  );
-  credentials.append(element("h2", t("Change password", "修改密码")));
-  credentials.append(
-    securityForm(
-      t("Update password", "更新密码"),
-      [
-        { name: "current_password", label: t("Current password", "当前密码") },
-        { name: "new_password", label: t("New password", "新密码"), autocomplete: "new-password" },
-      ],
-      "/account/password",
-      () => location.assign(`${prefix}/login`),
-    ),
-  );
-  const connectedClients = element("section", undefined, "card result-card");
-  connectedClients.append(
-    element("h2", t("Connected OAuth clients", "已授权 OAuth 客户端")),
-    element(
-      "p",
-      t(
-        "Manage MCP OAuth 2.1 client permissions. Revoking a grant invalidates its active tokens immediately without altering source rights.",
-        "管理已授权的 MCP OAuth 2.1 客户端权限。撤销授权将立即失效其有效令牌，且不会绕过来源权限检查。",
-      ),
-      "small",
-    ),
-  );
+      revoke.className = "btn ghost";
+      sCtl.append(revoke);
+      sRow.append(sLeft, sCtl);
+      signIns.append(sRow);
+    }
+  }
+  const connectedClients = element("section", undefined, "set-sec");
+  connectedClients.append(element("h3", t("Connected OAuth clients", "已授权 OAuth 客户端")));
   if (!grants.data.length) {
-    connectedClients.append(
-      element("p", t("No OAuth clients authorized yet.", "暂无已授权的 OAuth 客户端。"), "small"),
+    const row = element("div", undefined, "set-row");
+    const left = element("div");
+    left.append(
+      element("div", t("No OAuth clients authorized yet", "暂无已授权的 OAuth 客户端"), "lab"),
+      element(
+        "div",
+        t(
+          "Manage MCP OAuth 2.1 client permissions. Revoking a grant invalidates active tokens immediately.",
+          "管理已授权的 MCP OAuth 2.1 客户端权限，撤销后立即失效令牌。",
+        ),
+        "desc",
+      ),
     );
+    row.append(left);
+    connectedClients.append(row);
   } else {
-    const grantList = element("ul", undefined, "plain-list");
     for (const grant of grants.data) {
-      const row = element("li");
-      row.append(
+      const row = element("div", undefined, "set-row");
+      const left = element("div");
+      left.append(
+        element("div", `${grant.client_name} (${grant.client_id})`, "lab"),
+        element(
+          "div",
+          `${grant.scopes.join(" ")} · ${grant.status === "active" ? t("Active", "有效") : t("Revoked", "已撤销")}`,
+          "desc",
+        ),
+      );
+      const ctl = element("div", undefined, "ctl");
+      ctl.append(
         element(
           "span",
-          `${grant.client_name} (${grant.client_id}) · ${grant.scopes.join(" ")} · ${
-            grant.status === "active" ? t("Active", "有效") : t("Revoked", "已撤销")
-          }`,
+          grant.status === "active" ? t("Active", "有效") : t("Revoked", "已撤销"),
+          `badge ${grant.status === "active" ? "badge-green" : "badge-gray"}`,
         ),
       );
       if (grant.status === "active") {
@@ -4933,37 +5451,49 @@ async function showAccountSecurity(codes) {
           }),
         );
         revokeBtn.className = "btn ghost";
-        row.append(" ", revokeBtn);
+        ctl.append(revokeBtn);
       }
-      grantList.append(row);
+      row.append(left, ctl);
+      connectedClients.append(row);
     }
-    connectedClients.append(grantList);
   }
 
-  const passkeySection = element("section", undefined, "card result-card");
-  passkeySection.append(
-    element("h2", t("Passkeys", "通行密钥")),
-    element(
-      "p",
-      t(
-        "WebAuthn public-key credentials for sign-in. Revoking a passkey never lowers your password or TOTP MFA requirements.",
-        "用于登录的 WebAuthn 公钥通行密钥。移除通行密钥不会降低账户原有密码或双重验证要求。",
-      ),
-      "small",
-    ),
-  );
+  const passkeySection = element("section", undefined, "set-sec");
+  passkeySection.append(element("h3", t("Passkeys", "通行密钥")));
   if (!passkeys.data.length) {
-    passkeySection.append(element("p", t("No passkeys registered.", "暂未绑定通行密钥。"), "small"));
+    const row = element("div", undefined, "set-row");
+    const left = element("div");
+    left.append(
+      element("div", t("No passkeys registered", "暂未绑定通行密钥"), "lab"),
+      element(
+        "div",
+        t(
+          "WebAuthn public-key credentials for sign-in. Revoking a passkey never lowers password or TOTP MFA rules.",
+          "用于登录的 WebAuthn 公钥通行密钥，移除后不影响原有密码与双重验证规则。",
+        ),
+        "desc",
+      ),
+    );
+    row.append(left);
+    passkeySection.append(row);
   } else {
-    const pkList = element("ul", undefined, "plain-list");
     for (const item of passkeys.data) {
-      const row = element("li");
-      row.append(
+      const row = element("div", undefined, "set-row");
+      const left = element("div");
+      left.append(
+        element("div", item.label, "lab"),
+        element(
+          "div",
+          `${item.algorithm} · ${item.revoked_at ? t("Revoked", "已撤销") : t("Active", "有效")}`,
+          "desc",
+        ),
+      );
+      const ctl = element("div", undefined, "ctl");
+      ctl.append(
         element(
           "span",
-          `${item.label} (${item.algorithm}) · ${
-            item.revoked_at ? t("Revoked", "已撤销") : t("Active", "有效")
-          }`,
+          item.revoked_at ? t("Revoked", "已撤销") : t("Active", "有效"),
+          `badge ${item.revoked_at ? "badge-gray" : "badge-green"}`,
         ),
       );
       if (!item.revoked_at) {
@@ -4983,14 +5513,14 @@ async function showAccountSecurity(codes) {
           }),
         );
         removeBtn.className = "btn ghost";
-        row.append(" ", removeBtn);
+        ctl.append(removeBtn);
       }
-      pkList.append(row);
+      row.append(left, ctl);
+      passkeySection.append(row);
     }
-    passkeySection.append(pkList);
   }
 
-  output.append(state, signIns, connectedClients, passkeySection, credentials, accountDeletion());
+  output.append(profileSec, secSection, signIns, connectedClients, passkeySection, accountDeletion());
 }
 
 async function showSavedResearch() {
@@ -5218,35 +5748,47 @@ async function showBatchWorkbench() {
   const intro = element(
     "p",
     t(
-      "Upload or paste CSV (max 20 rows, 1 active batch per account). Preview deduplication and upper-bound credits before submitting; claim ready items explicitly with zero upfront deduction.",
-      "上传或粘贴 CSV（每次最多 20 行、每账户仅限 1 个活跃批量任务）。提交前先预览去重与最大预估额度；提交不提前扣费，就绪后显式领取结算。",
+      "Zero upfront deduction — preview deduplication and upper-bound credits before submitting; ready items stay uncharged until claimed.",
+      "提交不预先扣费 —— 提交前可免费预览批内去重与最大预估额度，计算就绪后显式领取结算。",
     ),
-    "notice",
+    "notice mb-18",
   );
 
-  const formCard = element("section", undefined, "card result-card");
-  formCard.append(element("h2", t("CSV batch input", "CSV 批量输入")));
-  const form = element("form");
+  const formCard = element("section", undefined, "card");
+  formCard.append(
+    element("h3", t("Price a list in one run", "一次批量核对整份商品清单")),
+    element(
+      "p",
+      t(
+        "Paste CSV rows below (header must include q; max 20 rows, 1 active batch per account) or upload a CSV file.",
+        "在下方粘贴 CSV（首行须包含 q，每次最多 20 行、每账户限 1 个活跃批量任务）或直接上传 CSV 文件。",
+      ),
+      "small",
+    ),
+  );
+  const form = element("form", undefined, "mt-14");
+  const nameField = element("div", undefined, "field");
   const nameLabel = element("label", t("Batch name (optional)", "批量名称（可选）"));
   const nameInput = element("input");
   nameInput.maxLength = 120;
   nameInput.placeholder = t("e.g. Handheld inventory check", "例如：掌机库存复核");
   nameLabel.append(nameInput);
+  nameField.append(nameLabel);
 
-  const fileLabel = element("label", t("Choose CSV file", "选择 CSV 文件"));
-  const fileInput = element("input");
-  fileInput.type = "file";
-  fileInput.accept = ".csv,text/csv";
-  fileLabel.append(fileInput);
-
+  const csvField = element("div", undefined, "field");
   const csvLabel = element("label", t("CSV rows (header must include q)", "CSV 内容（表头须包含 q）"));
-  const csvArea = element("textarea");
+  const csvArea = element("textarea", undefined, "bulk-ta");
   csvArea.rows = 6;
   csvArea.setAttribute("data-batch-csv", "");
   csvArea.value =
     "q,condition,window_days\nNintendo Switch OLED,like_new,90\nNintendo Switch OLED,like_new,90\n";
   csvLabel.append(csvArea);
+  csvField.append(csvLabel);
 
+  const fileInput = element("input");
+  fileInput.type = "file";
+  fileInput.accept = ".csv,text/csv";
+  fileInput.hidden = true;
   fileInput.addEventListener("change", () => {
     const file = fileInput.files?.[0];
     if (!file) return;
@@ -5254,28 +5796,35 @@ async function showBatchWorkbench() {
       csvArea.value = await file.text();
     });
   });
+  const uploadLabel = element("label", t("Upload CSV", "上传 CSV"), "btn ghost");
+  uploadLabel.append(fileInput);
 
   const btnRow = element("div", undefined, "actions");
+  const submitBtn = element("button", t("Submit batch", "提交批量任务"), "btn brand");
+  submitBtn.type = "submit";
+  const previewBtn = element("button", t("Preview dedupe & cost", "预览去重与额度上限"), "btn ghost");
+  previewBtn.type = "button";
   const sampleBtn = element("button", t("Load sample CSV", "加载示例 CSV"), "btn ghost");
   sampleBtn.type = "button";
   sampleBtn.addEventListener("click", () => {
     csvArea.value =
       "q,category,window_days\nNintendo Game Boy,video_games,90\nNintendo Game Boy,video_games,90\nUncovered Item,video_games,90\n";
   });
-  const previewBtn = element("button", t("Preview dedupe & cost", "预览去重与额度上限"), "btn ghost");
-  previewBtn.type = "button";
-  const submitBtn = element("button", t("Submit batch", "提交批量任务"), "btn brand");
-  submitBtn.type = "submit";
-  btnRow.append(sampleBtn, previewBtn, submitBtn);
-  form.append(nameLabel, fileLabel, csvLabel, btnRow);
+  const limitNote = element(
+    "span",
+    t("Max 20 rows per run · 0 upfront credits", "每次最多 20 行 · 提交不预先扣费"),
+    "small",
+  );
+  btnRow.append(submitBtn, previewBtn, uploadLabel, sampleBtn, limitNote);
+  form.append(nameField, csvField, btnRow);
 
   const previewBox = element("div");
   previewBox.setAttribute("data-batch-preview", "");
   formCard.append(form, previewBox);
 
-  const activeBox = element("section", undefined, "card result-card");
+  const activeBox = element("section", undefined, "card result-card mt-18");
   activeBox.setAttribute("data-batch-detail", "");
-  const listBox = element("section", undefined, "card result-card");
+  const listBox = element("section", undefined, "card result-card mt-18");
   listBox.setAttribute("data-batch-list", "");
   output.append(intro, formCard, activeBox, listBox);
 
@@ -7169,7 +7718,7 @@ if (page.startsWith("/account"))
     }
     const [balance, history, keysResp] =
       page === "/account"
-        ? await Promise.all([api("/v1/usage"), api("/v1/queries"), api("/account/keys").catch(() => null)])
+        ? await Promise.all([api("/v1/usage"), api("/v1/queries"), api("/v1/keys").catch(() => null)])
         : [null, await api("/v1/queries"), null];
     if (balance) {
       const total = Number(balance.data.total_available ?? 0);
@@ -7190,11 +7739,16 @@ if (page.startsWith("/account"))
         valRow.append(element("span", ` / ${cap} ${t("left", "剩余")}`, "small acct-kpi-denom"));
         usage.append(valRow);
       }
-      const prog = element("progress", undefined, "acct-prog");
-      prog.max = Math.max(100, cap);
-      prog.value = Number.isFinite(total) ? total : 0;
+      const progWrap = element("div", undefined, "progress mt-10");
+      const progBar = element("div");
+      const pct =
+        cap > 0
+          ? Math.max(0, Math.min(100, Math.round(((Number.isFinite(total) ? total : 0) / cap) * 100)))
+          : 0;
+      progBar.style.width = `${pct}%`;
+      progWrap.append(progBar);
       usage.append(
-        prog,
+        progWrap,
         element(
           "p",
           `${totalUsed} ${t("used", "已用")} · ${balance.data.wallets.length} ${t("active buckets", "个有效额度桶")}`,
@@ -7417,9 +7971,126 @@ if (page.startsWith("/account"))
       monthlyUsageCard.append(monthlyHead, renderMonthlyUsageBars(ledgerList));
       output.append(monthlyUsageCard);
     }
-    const recent = element("section", undefined, "card result-card mt-18");
-    recent.append(element("h3", t("Recent research", "近期研究")));
-    const tableScroll = element("div", undefined, "table-scroll mt-12");
+    const recent = element(
+      "section",
+      undefined,
+      page === "/account/queries" ? "card" : "card result-card mt-18",
+    );
+    const allLoadedRows = [];
+    if (page === "/account/queries") {
+      const qFilterRow = element("div", undefined, "frow");
+      const statusField = element("div", undefined, "field");
+      statusField.append(element("label", t("Status", "状态")));
+      const statusSel = element("select");
+      for (const [val, lbl] of [
+        ["all", t("All statuses", "全部状态")],
+        ["available", t("Delivered", "已交付")],
+        ["ready", t("Ready · unclaimed", "待领取")],
+        ["active", t("Queued / Running", "排队 / 运行中")],
+        ["failed", t("Failed / Expired", "失败 / 已过期")],
+      ]) {
+        const opt = element("option", lbl);
+        opt.value = val;
+        statusSel.append(opt);
+      }
+      statusField.append(statusSel);
+
+      const kwField = element("div", undefined, "field");
+      kwField.append(element("label", t("Keyword", "关键词")));
+      const kwInput = element("input");
+      kwInput.type = "search";
+      kwInput.placeholder = t("Filter queries…", "按关键词筛选…");
+      kwField.append(kwInput);
+
+      const daysField = element("div", undefined, "field");
+      daysField.append(element("label", t("Days", "时间范围")));
+      const daysSel = element("select");
+      for (const [val, lbl] of [
+        ["all", t("All history", "全部历史")],
+        ["30", t("30 days", "30 天")],
+        ["7", t("7 days", "7 天")],
+        ["1", t("1 day", "1 天")],
+      ]) {
+        const opt = element("option", lbl);
+        opt.value = val;
+        daysSel.append(opt);
+      }
+      daysField.append(daysSel);
+
+      const applyFilter = () => {
+        const st = statusSel.value;
+        const kw = kwInput.value.trim().toLowerCase();
+        const days = daysSel.value === "all" ? null : Number(daysSel.value);
+        const nowMs = Date.now();
+        const filtered = allLoadedRows.filter((row) => {
+          if (
+            kw &&
+            !String(row.q ?? "")
+              .toLowerCase()
+              .includes(kw)
+          )
+            return false;
+          if (days !== null) {
+            const ageDays = (nowMs - Date.parse(row.created_at)) / 86400000;
+            if (Number.isFinite(ageDays) && ageDays > days) return false;
+          }
+          if (st === "available" && row.result_state !== "available") return false;
+          if (st === "ready" && row.result_state !== "ready") return false;
+          if (st === "active" && !["queued", "running"].includes(row.compute_status)) return false;
+          if (st === "failed" && row.compute_status !== "failed" && row.result_state !== "expired")
+            return false;
+          return true;
+        });
+        renderQueryRows(filtered, false);
+      };
+      statusSel.addEventListener("change", applyFilter);
+      kwInput.addEventListener("input", applyFilter);
+      daysSel.addEventListener("change", applyFilter);
+
+      const refreshBtn = button(t("Refresh", "刷新"), () =>
+        run(async () => {
+          refreshBtn.disabled = true;
+          try {
+            const fresh = await api("/v1/queries");
+            allLoadedRows.length = 0;
+            tbody.replaceChildren();
+            showHistory(fresh.data);
+            applyFilter();
+          } finally {
+            refreshBtn.disabled = false;
+          }
+        }),
+      );
+      refreshBtn.className = "btn ghost";
+      const exportBtn = button(t("Export CSV", "导出 CSV"), () => {
+        const lines = [
+          ["Query", "Created", "Result", "Charge", "Query ID"].join(","),
+          ...allLoadedRows.map((r) =>
+            [
+              JSON.stringify(r.q ?? ""),
+              JSON.stringify(r.created_at ?? ""),
+              JSON.stringify(queryResultLabel(r)),
+              JSON.stringify(queryChargeLabel(r)),
+              JSON.stringify(r.query_id ?? ""),
+            ].join(","),
+          ),
+        ];
+        download(
+          new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" }),
+          "soldbench-my-queries.csv",
+        );
+      });
+      exportBtn.className = "btn ghost";
+      qFilterRow.append(statusField, kwField, daysField, refreshBtn, exportBtn);
+      recent.append(qFilterRow);
+    } else {
+      recent.append(element("h3", t("Recent research", "近期研究")));
+    }
+    const tableScroll = element(
+      "div",
+      undefined,
+      page === "/account/queries" ? "table-scroll" : "table-scroll mt-12",
+    );
     const qTable = element("table", undefined, "tbl-fixed tbl-acct-queries");
     const colgroup = document.createElement("colgroup");
     for (const colCls of ["col-q1", "col-q2", "col-q3", "col-q4", "col-q5"]) {
@@ -7470,7 +8141,8 @@ if (page.startsWith("/account"))
       if (row.result_state === "available") return t("Free · 0 credits", "免费 · 0 额度");
       return t("Uncharged", "未扣费");
     }
-    function showHistory({ items, next_cursor }) {
+    function renderQueryRows(items, append = true) {
+      if (!append) tbody.replaceChildren();
       if (!items.length && !tbody.childElementCount) {
         const emptyRow = document.createElement("tr");
         emptyRow.className = "acct-empty-row";
@@ -7517,11 +8189,27 @@ if (page.startsWith("/account"))
         tr.append(c1, c2, c3, c4, c5);
         tbody.append(tr);
       }
+    }
+    function showHistory({ items, next_cursor }) {
+      allLoadedRows.push(...items);
+      renderQueryRows(items, true);
       more.hidden = !next_cursor;
       more.dataset.cursor = next_cursor ?? "";
     }
     showHistory(history.data);
     recent.append(tableScroll, more);
+    if (page === "/account/queries") {
+      recent.append(
+        element(
+          "p",
+          t(
+            "Older queries are historical snapshots — not current prices. Re-fetching a claimed result is always free; running an identical query within 10 minutes reuses the snapshot for free.",
+            "历史记录均为当时成交快照，不代表当前实时行情；复取已交付结果永久免费，10 分钟内同参数查价同样免费复用。",
+          ),
+          "small mt-12",
+        ),
+      );
+    }
     if (page === "/account") {
       const pendingJob = history.data.items.find((r) => r.result_state === "ready" && safeId(r.query_id));
       const asyncBar = element("div", undefined, "acct-async-bar");

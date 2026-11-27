@@ -565,7 +565,7 @@ test("Chrome walks an empty account from cache miss and registration to explicit
     await page.goto(`${origin}/playground?q=Nintendo+Switch`);
     await page.getByRole("button", { name: "Search", exact: true }).click();
     await page.getByRole("button", { name: "202 /web/search" }).waitFor();
-    await page.locator("[data-trace-body]").getByText(new RegExp(id)).waitFor();
+    await page.locator("[data-trace-body]").getByText(new RegExp(id)).first().waitFor();
     await page.getByText(/0 credits charged for this request/).waitFor();
     await page.getByText("Headers", { exact: true }).click();
     assert.match(await page.locator("[data-trace-headers]").textContent(), /X-Request-ID:/);
@@ -1346,6 +1346,16 @@ test("Chrome walks an empty account from cache miss and registration to explicit
       assert.equal(new URL(zhPage.url()).pathname, "/");
       await zhPage.goto(`${origin}/docs`);
       assert.equal(new URL(zhPage.url()).pathname, "/docs/en/quickstart");
+      const localhostOrigin = origin.replace("127.0.0.1", "localhost");
+      await zhPage.goto(`${localhostOrigin}/zh-CN/login`);
+      assert.equal(new URL(zhPage.url()).origin, origin);
+      assert.equal(new URL(zhPage.url()).pathname, "/zh-CN/login");
+      const crossLoopbackPost = await fetch(`${localhostOrigin}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: localhostOrigin },
+        body: JSON.stringify({ email: "demo@soldbench.local", password: "wrong" }),
+      });
+      assert.equal(crossLoopbackPost.status, 403);
     } finally {
       await zhCtx.close();
     }

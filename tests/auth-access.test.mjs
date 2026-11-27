@@ -114,6 +114,17 @@ test("session reauthentication rotates cookie/CSRF without extending expiry and 
     target = sessions.find((s) => !s.is_current);
   await x.auth.revokeSession(rotated.token, target.id, x.context);
   await assert.rejects(x.auth.sessionIdentity(b.token));
+  advance(x, 660000);
+  assert.deepEqual(await x.auth.listKeys(rotated.token), []);
+  await assert.rejects(
+    x.auth.createKey(
+      rotated.token,
+      { name: "stale", scopes: ["sold:read"] },
+      "stale-create-key-11m",
+      x.context,
+    ),
+    (e) => e.code === "reauthentication_required",
+  );
   advance(x, 604800000);
   await assert.rejects(x.auth.sessionIdentity(rotated.token));
 });
